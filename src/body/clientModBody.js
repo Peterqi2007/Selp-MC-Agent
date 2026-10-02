@@ -773,18 +773,37 @@ class ClientModBody extends Body {
      * client answers "click sent". That is how the furnace ended up with an input stack
      * and no fuel: the fuel quick-move was acknowledged but nothing moved. Watch the menu
      * and send the click again when the screen did not change at all.
+     *
+     * The watch polls for up to `settleMs` instead of reading once: on this 150-mod
+     * client a menu can lag a few hundred ms behind a click, and a single early read
+     * would look like "nothing happened" and double-click.
      */
     const attempts = options.attempts === undefined ? 2 : Math.max(1, options.attempts);
+    const settleMs = options.settleMs === undefined ? 600 : options.settleMs;
     let before = attempts > 1 ? await this.menu().catch(() => null) : null;
     for (let attempt = 1; attempt <= attempts; attempt += 1) {
       const res = await this.command(`click ${slot} ${button} ${mode}`);
       if (!res || !res.ok) return false;
-      await sleep(waitMs);
-      if (!before || !before.open) return true;
-      const after = await this.menu().catch(() => null);
-      if (!after || !after.open) return true;
-      if (menuSignature(after) !== menuSignature(before)) return true;
-      before = after;
+      if (!before || !before.open) {
+        await sleep(waitMs);
+        return true;
+      }
+      const deadline = Date.now() + Math.max(waitMs, settleMs);
+      let changed = false;
+      for (;;) {
+        await sleep(Math.max(80, Math.min(waitMs, 200)));
+        const after = await this.menu().catch(() => null);
+        if (!after || !after.open) return true;
+        if (menuSignature(after) !== menuSignature(before)) {
+          changed = true;
+          break;
+        }
+        if (Date.now() >= deadline) {
+          before = after;
+          break;
+        }
+      }
+      if (changed) return true;
       if (attempt < attempts) {
         this.log.debug(`slot click ${slot} ${mode} changed nothing - retrying (attempt ${attempt})`);
       }

@@ -116,10 +116,10 @@
 
 | 项目 | 状态 | 证据 |
 | --- | --- | --- |
-| Phase 2 `craft` | ✅ 完成 | `src/skills/recipes.js`（prismarine-recipe + minecraft-data，含递归子配方：原木→木板→木棍→镐）+ `src/skills/crafting.js`（2x2 物品栏网格 / 3x3 工作台菜单点击、光标管理、shift-click 产出）；协议假 Mod 新增合成模拟；`client:test` 42/42（含"原木→木板→工作台→木镐"全链路）；`!craft` 已接到技能 |
-| Phase 2 `smelt` | ✅ 完成 | `src/skills/smelting.js`：开炉（use_on）→ shift-click 投料/燃料 → 轮询产出 → 取货；协议假 Mod 新增熔炉模拟；`client:test` 44/44；`!smelt` 已接 |
+| Phase 2 `craft` | ✅ 完成（真机 2/2 通过） | `src/skills/recipes.js`（prismarine-recipe + minecraft-data，含递归子配方：原木→木板→木棍→镐）+ `src/skills/crafting.js`（2x2 物品栏网格 / 3x3 工作台菜单点击、光标管理、shift-click 产出）；协议假 Mod 新增合成模拟；`client:test` 48/48（含"原木→木板→工作台→木镐"全链路）。**真机曾全挂**：Mod 的 `click` 解析用 `numbers(rest,3)` 要求三个 token 全是数字，`click <槽> <键> <模式>` 被判 `usage` —— 所有带模式的点击从未执行过；假 Mod 当时过于宽松，42 项离线全绿却掩盖了真机失效。现已修正 Java 解析、把假 Mod 解析规则对齐并加 5 条契约检查 |
+| Phase 2 `smelt` | ✅ 完成（真机 1/1 通过） | `src/skills/smelting.js`：开炉（use_on）→ 投料/燃料 → 轮询产出 → 取货。**真机失败根因不是点击丢失**：香草炉子菜单的 quick-move 先判"能不能熔炼"再判"能不能当燃料"，原木/木板/木棍本身可熔炼（→木炭），会被优先送往输入槽，输入槽被生铁占住时整个操作失败、燃料槽永远为空。现在：优先选纯燃料（煤等）→ 装入后校验燃料槽真的收到 → 未收到则改用手动放置（拿起→右键燃料槽→余料放回）；另新增原木→木炭映射 |
 | Phase 2 `farm` | ✅ 完成 | Mod `/state` 新增 `crops`（方块状态 `age`/`maxAge`，12 格）；`src/skills/farming.js`：收成熟作物 → 锄地 → 播种；`skills:test` 覆盖（收 1 / 锄 1 / 种 1）；`!farm` 已接 |
-| Phase 2 `sleep` | ✅ 完成 | `src/skills/farming.js` 内 `sleep`：白天直接 no-op、夜里走到床边 use_on 并轮询到天亮；`skills:test` 覆盖；`!sleep` 已接 |
+| Phase 2 `sleep` | ✅ 完成（真机实测睡到天亮） | `src/skills/farming.js` 内 `sleep`：夜里走到床边 use_on 并轮询到天亮。真机实测：世界时间 `23232` → 次日 `30`，`{"ok":true,"slept":true}`。**注意**：Mod 的 `time.isDay`（`Level.isDay()`）在这套整合包里凌晨 2 点仍报 `true`，技能与验收脚本改为按世界时钟判断（`timeOfDay` 12542–23458 为夜）；失败时读取 `/chatlog` 把游戏原话（如"只能在夜间睡觉"）作为原因返回 |
 | Phase 3 LLM 接线 | ✅ 完成 | ① 意图枚举新增 `skill`（`intent.js`，名称/参数由技能注册表校验）；② 新增 `do_skill(name, params)` 工具（`tools/registry.js` + `actuators.doSkill`），并在 `toOpenAiTools(ctx)` 里**按注册表自动生成**可用技能枚举；③ `blackboard.js` 的能力表和系统提示词改由 `skills.describe(ctx)` 生成（延迟项 fish/trade/breed/hunt/light/store/build 如实标 no）；④ `fallbackRouter.js` 中文语料覆盖 eat/sleep/farm/craft/smelt/defend/attack/deposit/withdraw/explore；⑤ `llm:dry`：**路由 53/53**（每技能 ≥2 条中文 + 3 条注入用例）、schema 16/16、工具 25/25 |
 
 ### 八、功能测试：客户端 + 个人服务器（不碰真实服务器）
@@ -147,3 +147,39 @@ npm run agent:client -- --profile local     # 或：node src/index.js --body cli
 | `!farm 6` | 有锄+种子：收成熟作物、锄地、播种 |
 | `!sleep` | 夜里、12 格内有床：睡到天亮 |
 | `@猫娘 饿了` / `把东西存起来` / `帮我把生铁烧了` | 走中文回退或 LLM，动作落在对应技能上 |
+
+### 八之二、真机验收结果（2026-10-02，修复后）
+
+```powershell
+# 客户端已在单人世界（AgentSteve），操作员手动备料；不上任何真实服务器
+npm run personal:test -- --skip-server --no-prepare --allow-modded
+# => personal functional test: 11/11 passed
+```
+
+11 项全过，其中之前失败的 3 项：
+
+| 项 | 结果 |
+| --- | --- |
+| `craft: crafting table from planks (2x2 grid)` | ✅ `crafted 1x crafting_table (1 intermediate craft(s))` |
+| `craft: wooden pickaxe via the placed table (sub-crafts)` | ✅ `crafted 1x wooden_pickaxe` |
+| `smelt: raw iron becomes an iron ingot` | ✅ `smelted 1x iron_ingot` |
+
+`sleep` 这条在白天会自动跳过（记为通过）；睡觉本体已用 `node scripts/sleep-probe.js` 单测过：
+夜里上床后世界时间 `23232 → 30`，`slept: true`。
+
+**这一轮真机失败教给我们的规律（已固化）**：离线假 Mod 必须和 Java 端**同一套解析规则**，
+否则"点击被拒绝"这种协议层问题会在离线全绿的情况下隐藏（假 Mod 原来对 `click` 不管参数都回 ok）。
+现在假 Mod 复刻了 Java 的 token 规则，`client:test` 48/48，其中 5 条专门锁
+`click <槽> <模式>`（无按键）、非数字槽位拒绝、`look` 两参数、`attack` 两参数。
+
+真机调试工具（可直接复用）：
+
+| 工具 | 用途 |
+| --- | --- |
+| `node scripts/menu-probe.js [click <槽> <键> <模式> \| useon x y z face \| grid2x2 <源槽> <格槽>]` | 逐步驱动菜单点击，每步打印菜单/光标/结果槽 |
+| `node scripts/smelt-probe.js raw_iron 1` | 带日志代理地跑一遍 `smelt` 技能，逐步打印 useOn/menu/click 与前后菜单 |
+| `node scripts/sleep-probe.js 90` | 跑一遍 `sleep` 技能并打印世界时钟与游戏聊天原话 |
+| `node scripts/launch-forge-client.js --offline --singleplayer "<世界文件夹>"` | 重启客户端后**自动重进单人世界**（`--quickPlaySingleplayer`），不需要人手点主菜单 |
+
+> 重编译 Mod 后必须重启客户端才会生效：`npm run client:build` → `npm run client:install` → 重启。
+> 本轮重启用的就是 `--singleplayer "新的世界1"`，关客户端走的是 `CloseMainWindow()`（优雅退出，世界会存档）。
