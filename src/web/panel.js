@@ -139,8 +139,25 @@ const PANEL_HTML = `<!doctype html>
   </div>
 
 </div>
-<script>
+<script src="/panel/app.js" defer></script>
+</body>
+</html>`;
+
+/**
+ * The panel's JavaScript, served from `/panel/app.js` instead of inlined.
+ *
+ * Live experience: a browser rendered the server-side HTML (so the page definitely came
+ * from the agent), showed no `<noscript>` warning (so it thinks JavaScript is enabled) and
+ * still never executed the inline script - the classic signature of an extension or a
+ * policy that blocks inline scripts. A same-origin external file is what those tools usually
+ * allow, and it makes the failure visible: the fetch happens, or the server sees nothing.
+ *
+ * The first statement is a beacon to `/panel/ping`, so "did the browser run this at all?"
+ * is answerable from the agent's own log.
+ */
+const PANEL_JS = `
 'use strict';
+try { (new Image()).src = '/panel/ping?t=' + Date.now(); } catch (e) { /* beacon only */ }
 var history = [], hIndex = -1;
 var COMPLETIONS = ['status','chop','mine','collect','goto','stop','pause','resume','inv','where',
                    'help','goal','eat','defend','mine stone 8','chop 8','chop 32','goto '];
@@ -297,8 +314,6 @@ input.addEventListener('keydown', function (e) {
 
 refresh();
 setInterval(refresh, 1000);
-</script>
-</body>
-</html>`;
+`;
 
-module.exports = { PANEL_HTML };
+module.exports = { PANEL_HTML, PANEL_JS };

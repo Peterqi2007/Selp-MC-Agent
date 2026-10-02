@@ -26,7 +26,7 @@
 const http = require('http');
 const { inventorySummary } = require('../world/items');
 const { countTrace } = require('../util/trace');
-const { PANEL_HTML } = require('./panel');
+const { PANEL_HTML, PANEL_JS } = require('./panel');
 const { Logger } = require('../util/logger');
 
 function startStatusServer(ctx, options = {}) {
@@ -64,6 +64,33 @@ function startStatusServer(ctx, options = {}) {
         const html = PANEL_HTML.replace('<!--BOOT-->', bootBlock(buildUiState()));
         res.writeHead(200, { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-store' });
         return res.end(html);
+      }
+
+      /**
+       * The panel's script, as a separate same-origin file.
+       *
+       * Inline `<script>` blocks are what script-blocking extensions and some policies
+       * refuse; an external file is the compatible form. It also makes "did the browser run
+       * our code?" observable: the script's first statement beacons /panel/ping.
+       */
+      if (req.method === 'GET' && url.pathname === '/panel/app.js') {
+        res.writeHead(200, {
+          'content-type': 'application/javascript; charset=utf-8',
+          'cache-control': 'no-store'
+        });
+        return res.end(PANEL_JS);
+      }
+
+      /**
+       * Beacon target: proves the browser executed `/panel/app.js`.
+       *
+       * If this line never appears in the log while someone is looking at the panel, the
+       * browser never ran the script - no amount of state plumbing on this side can help.
+       */
+      if (req.method === 'GET' && url.pathname === '/panel/ping') {
+        log.info(`panel script executed in a browser (ping ${url.searchParams.get('t') || '?'})`);
+        res.writeHead(204, { 'cache-control': 'no-store' });
+        return res.end();
       }
 
       if (req.method === 'GET' && url.pathname === '/ui/state') {

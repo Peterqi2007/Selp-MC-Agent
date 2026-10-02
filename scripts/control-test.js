@@ -530,7 +530,8 @@ async function buildAgent(options = {}) {
     expect(res.status === 200, `expected 200, got ${res.status}`);
     expect(/<!doctype html>/i.test(html), 'not an HTML page');
     expect(html.includes('id="death"'), 'the death banner is missing');
-    expect(html.includes('/emergency-stop'), 'the emergency stop button is not wired');
+    expect(html.includes('estop()'), 'the emergency stop button is not wired');
+    expect(html.includes('send()') || html.includes('id="cmd"'), 'the command box is not wired');
     // The server-side snapshot must be rendered into the HTML: with JavaScript disabled
     // (or when the reader is looking at some other copy of the page) this is the only thing
     // that still shows real data - and its absence is what "the panel is from elsewhere"
@@ -539,7 +540,23 @@ async function buildAgent(options = {}) {
     expect(!html.includes('<!--BOOT-->'), 'the boot marker was not replaced');
     expect(html.includes('服务器端快照'), 'the boot snapshot text is missing');
     expect(html.includes('AgentSteve'), 'the boot snapshot does not carry the agent name');
+    // The script must be an external same-origin file (inline scripts are what blockers
+    // refuse) and it must beacon the ping endpoint for observability.
+    expect(html.includes('src="/panel/app.js"'), 'the panel script is not an external file');
     return `${html.length} bytes`;
+  });
+
+  await scenario('GET /panel/app.js serves the script and /panel/ping is observable', async () => {
+    const js = await fetch(`${BASE}/panel/app.js`);
+    const body = await js.text();
+    expect(js.status === 200, `expected 200, got ${js.status}`);
+    expect((js.headers.get('content-type') || '').includes('javascript'), `content-type is ${js.headers.get('content-type')}`);
+    expect(body.includes("'/panel/ping"), 'the script beacon is missing');
+    expect(body.includes('function render'), 'the script body is incomplete');
+    expect(body.includes('/emergency-stop'), 'the script lost the emergency stop endpoint');
+    const ping = await fetch(`${BASE}/panel/ping?t=test`);
+    expect(ping.status === 204, `expected 204 from the beacon, got ${ping.status}`);
+    return `${body.length} bytes of JS`;
   });
 
   await scenario('GET /ui/state is a slim summary with death and queue info', async () => {
