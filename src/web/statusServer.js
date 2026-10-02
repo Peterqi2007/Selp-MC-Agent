@@ -93,6 +93,18 @@ function startStatusServer(ctx, options = {}) {
         return res.end();
       }
 
+      /**
+       * The live state block, server-rendered and self-refreshing.
+       *
+       * Loaded in an iframe by the panel so it can never depend on JavaScript: `<meta
+       * http-equiv="refresh">` re-fetches it every two seconds. If the browser refuses to
+       * run scripts (or an extension blocks them), this is still a working live panel.
+       */
+      if (req.method === 'GET' && url.pathname === '/panel/state') {
+        res.writeHead(200, { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-store' });
+        return res.end(statePage(buildUiState()));
+      }
+
       if (req.method === 'GET' && url.pathname === '/ui/state') {
         return json(res, 200, buildUiState());
       }
@@ -146,7 +158,26 @@ function startStatusServer(ctx, options = {}) {
 
       // ----------------------------------------------------------- control
       if (req.method === 'POST' && url.pathname === '/command') {
-        const body = await readBody(req);
+        /**
+         * Two content types, on purpose:
+         *  - JSON from the panel's fetch (and tooling);
+         *  - form-encoded from the plain `<form>` fallback, which works with JavaScript
+         *    completely disabled. A form post gets a 303 back to the panel so the browser
+         *    lands on a fresh state page.
+         */
+        const raw = await readRaw(req);
+        const isForm = String(req.headers['content-type'] || '').includes('application/x-www-form-urlencoded');
+        let body = {};
+        if (isForm) {
+          const params = new URLSearchParams(raw);
+          body = { command: params.get('command') || '', priority: params.get('priority') || '' };
+        } else {
+          try {
+            body = raw ? JSON.parse(raw) : {};
+          } catch {
+            body = {};
+          }
+        }
         const command = (body && body.command) || url.searchParams.get('command');
         if (!command) return json(res, 400, { ok: false, error: 'missing "command"' });
         if (!ctx.chat) return json(res, 503, { ok: false, error: 'chat controller unavailable' });
@@ -184,6 +215,10 @@ function startStatusServer(ctx, options = {}) {
 
         const commandLine = trimmed.startsWith('!') ? trimmed.slice(1).trim() : trimmed;
         const result = await ctx.chat.handle(commandLine, `http:${priority}`);
+        if (isForm) {
+          res.writeHead(303, { location: '/panel', 'cache-control': 'no-store' });
+          return res.end();
+        }
         return json(res, 200, { ...result, level: priority, ms: Date.now() - started });
       }
 
@@ -367,6 +402,81 @@ function bootBlock(state) {
 }
 
 /**
+ * Standalone, server-rendered state page for `/panel/state` (the iframe fallback).
+ *
+ * No JavaScript anywhere: a `<meta http-equiv="refresh" content="2">` keeps it current, so a
+ * browser that refuses to execute scripts still shows live data. Everything is escaped.
+ */
+function statePage(state) {
+  const esc = (value) =>
+    String(value === undefined || value === null ? '' : value)
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;');
+  const at = new Date().toISOString();
+  const style =
+    'body{margin:0;padding:8px 10px;background:#14161a;color:#e6e8ec;' +
+    'font:12px/1.55 "Segoe UI","Microsoft YaHei",system-ui,sans-serif}' +
+    '.row{display:flex;flex-wrap:wrap;gap:10px;align-items:center}' +
+    '.pill{border:1px solid #2b3038;border-radius:999px;padding:1px 8px}' +
+    '.dim{color:#8b93a1}.err{color:#f85149}.ok{color:#3fb950}' +
+    'table{width:100%;border-collapse:collapse;margin-top:6px}' +
+    'th,td{text-align:left;border-bottom:1px solid #2b3038;padding:2px 4px;font-size:12px}' +
+    '#log{margin-top:6px;font-family:Consolas,monospace;white-space:pre-wrap;max-height:70px;overflow:hidden}';
+  const head =
+    '<!doctype html><html lang="zh-CN"><head><meta charset="utf-8">' +
+    '<meta http-equiv="refresh" content="2"><title>状态</title>' +
+    `<style>${style}</style></head><body>`;
+
+  if (!state || state.ok === false) {
+    return `${head}<div class="err">⚠ 面板状态不可用（${esc(at)}）：${esc(state && state.error)}</div></body></html>`;
+  }
+  const identity = state.identity || {};
+  const world = state.world || {};
+  const brain = state.brain || {};
+  const llm = state.llm || {};
+  const pos = world.position
+    ? `${Math.round(world.position.x)}, ${Math.round(world.position.y)}, ${Math.round(world.position.z)}`
+    : '-';
+  const rows = (state.recentInputs || [])
+    .slice(-6)
+    .reverse()
+    .map((r) => {
+      const action = r.action || (r.kind === 'understood-nothing' ? '未听懂 → 已回问' : '(仅回话)');
+      return `<tr><td>${esc(r.text)}</td><td>${esc(r.source)}</td><td>${esc(r.via || '')}</td><td>${esc(action)}</td></tr>`;
+    })
+    .join('');
+  const logs = (state.logs || [])
+    .slice(-12)
+    .map((l) => `<div>${esc(l)}</div>`)
+    .join('');
+
+  return (
+    head +
+    '<div class="row">' +
+    `<span class="pill">服务器端实时状态 · ${esc(at)} · 端口 ${esc(state.panel ? state.panel.port : '?')}</span>` +
+    `<span class="pill">${esc(identity.name)} / ${esc(identity.bodyKind)}${identity.bodyReady ? '' : '（未连接）'}</span>` +
+    `<span class="pill">hp ${esc(world.health)}/20</span>` +
+    `<span class="pill">food ${esc(world.food)}</span>` +
+    `<span class="pill">pos ${esc(pos)}</span>` +
+    `<span class="pill">${esc(world.dimension)}</span>` +
+    (world.screenOpen ? `<span class="err">⚠ 游戏界面开着（${esc(world.screen || '?')}），无法移动</span>` : '') +
+    '</div>' +
+    '<div class="row" style="margin-top:6px">' +
+    `<span class="dim">大脑:</span><span class="${brain.stopped ? 'err' : 'ok'}">${brain.stopped ? '已停止' : brain.paused ? '暂停' : brain.running ? '运行中' : '未启动'}</span>` +
+    `<span class="dim">当前:</span><span>${esc(brain.current ? brain.current.description : 'idle')}</span>` +
+    `<span class="dim">队列:</span><span>${esc(brain.queueLength)}</span>` +
+    `<span class="dim">LLM:</span><span>${llm.enabled ? '✅ ' + esc(llm.model) : '未启用'}</span>` +
+    '<span class="dim">本块每 2 秒由服务器自刷新，不需要 JavaScript</span>' +
+    '</div>' +
+    '<table><thead><tr><th>最近输入</th><th>来源</th><th>路由</th><th>动作 / 结果</th></tr></thead><tbody>' +
+    (rows || '<tr><td colspan="4" class="dim">暂无</td></tr>') +
+    `</tbody></table><div id="log">${logs || '<span class="dim">（暂无日志）</span>'}</div>` +
+    '</body></html>'
+  );
+}
+
+/**
  * The four-stage emergency stop (§4.2.2), reporting each stage.
  *
  * Order matters: the Node-side cancel is instant and idempotent, and it must happen before
@@ -485,6 +595,18 @@ function readBody(req) {
         resolve({});
       }
     });
+  });
+}
+
+/** Raw request body (for form posts, where JSON parsing would destroy the payload). */
+function readRaw(req) {
+  return new Promise((resolve) => {
+    let data = '';
+    req.on('data', (c) => {
+      data += c;
+      if (data.length > 1e6) req.destroy();
+    });
+    req.on('end', () => resolve(data));
   });
 }
 

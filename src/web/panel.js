@@ -81,6 +81,15 @@ const PANEL_HTML = `<!doctype html>
 
   <div id="diag"></div>
 
+  <!--
+    Server-rendered live state, in an iframe that refreshes itself with <meta refresh>.
+    This is the fallback that works even when the browser refuses to run scripts: the state
+    block below still fills in when JavaScript runs, but the iframe never depends on it.
+  -->
+  <iframe id="state-frame" src="/panel/state" title="实时状态（服务端渲染）"
+          style="width:100%;height:210px;border:1px solid var(--line);border-radius:8px;background:#14161a">
+  </iframe>
+
   <div class="card">
     <div class="bar">
       <div class="row">
@@ -105,22 +114,29 @@ const PANEL_HTML = `<!doctype html>
   </div>
 
   <div class="card">
-    <div class="row">
-      <input type="text" id="cmd" placeholder="输入指令后回车（↑↓ 历史，Tab 补全）"
-             autocomplete="off" spellcheck="false">
-      <label><input type="radio" name="prio" value="directive" checked> 指令</label>
-      <label><input type="radio" name="prio" value="urgent"> 紧急</label>
-      <button onclick="send()">发送</button>
-    </div>
+    <!--
+      A real form: with JavaScript the button calls send() and onsubmit stops navigation;
+      without JavaScript the same button performs a normal POST and the server redirects
+      back here - so commands work in both worlds.
+    -->
+    <form method="post" action="/command" onsubmit="return false">
+      <div class="row">
+        <input type="text" id="cmd" name="command" placeholder="输入指令后回车（↑↓ 历史，Tab 补全）"
+               autocomplete="off" spellcheck="false">
+        <label><input type="radio" name="priority" value="directive" checked> 指令</label>
+        <label><input type="radio" name="priority" value="urgent"> 紧急</label>
+        <button type="submit" onclick="send()">发送</button>
+      </div>
+    </form>
     <div class="row" style="margin-top:8px">
-      <button class="danger" onclick="estop()">⏹ 急停</button>
-      <button onclick="quick('status')">📊 状态</button>
-      <button onclick="quick('inv')">🎒 背包</button>
-      <button onclick="quick('where')">🧭 位置</button>
-      <button onclick="quick('chop 8')">🪓 砍树</button>
-      <button onclick="quick('mine stone 8')">⛏ 挖矿</button>
-      <button onclick="quick('click')">🚶 走过来</button>
-      <button onclick="resume()">▶ 恢复</button>
+      <button class="danger" id="btn-estop">⏹ 急停</button>
+      <button data-cmd="status">📊 状态</button>
+      <button data-cmd="inv">🎒 背包</button>
+      <button data-cmd="where">🧭 位置</button>
+      <button data-cmd="chop 8">🪓 砍树</button>
+      <button data-cmd="mine stone 8">⛏ 挖矿</button>
+      <button data-cmd="click">🚶 走过来</button>
+      <button id="btn-resume">▶ 恢复</button>
     </div>
     <div id="ack" class="dim" style="margin-top:8px"></div>
   </div>
@@ -185,7 +201,8 @@ function send() {
   var input = el('cmd');
   var line = input.value.trim();
   if (!line) return;
-  var prio = document.querySelector('input[name=prio]:checked').value;
+  var checked = document.querySelector('input[name=priority]:checked');
+  var prio = checked ? checked.value : 'directive';
   history.push(line); hIndex = history.length;
   input.value = '';
   post('/command', { command: line, priority: prio }).then(function (res) {
@@ -311,6 +328,33 @@ input.addEventListener('keydown', function (e) {
     if (hit) input.value = hit;
   }
 });
+
+// The form works without any inline handler: when JavaScript is alive, intercept the submit
+// and use fetch; when it is not, the browser performs a normal POST and the server redirects
+// back. Inline onsubmit/onclick attributes can be blocked even when external scripts are allowed,
+// which is exactly why the listeners are attached from this file.
+var cmdForm = document.querySelector('form[action="/command"]');
+if (cmdForm) {
+  cmdForm.addEventListener('submit', function (e) {
+    e.preventDefault();
+    send();
+  });
+}
+var quickButtons = document.querySelectorAll('[data-cmd]');
+for (var i = 0; i < quickButtons.length; i += 1) {
+  (function (node) {
+    node.addEventListener('click', function () {
+      if (node.getAttribute('data-cmd') === 'click') {
+        post('/command', { command: 'goto-here', priority: 'directive' });
+      } else {
+        el('cmd').value = node.getAttribute('data-cmd');
+        send();
+      }
+    });
+  })(quickButtons[i]);
+}
+if (el('btn-estop')) el('btn-estop').addEventListener('click', estop);
+if (el('btn-resume')) el('btn-resume').addEventListener('click', resume);
 
 refresh();
 setInterval(refresh, 1000);

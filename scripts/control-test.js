@@ -530,7 +530,7 @@ async function buildAgent(options = {}) {
     expect(res.status === 200, `expected 200, got ${res.status}`);
     expect(/<!doctype html>/i.test(html), 'not an HTML page');
     expect(html.includes('id="death"'), 'the death banner is missing');
-    expect(html.includes('estop()'), 'the emergency stop button is not wired');
+    expect(html.includes('id="btn-estop"'), 'the emergency stop button is not wired');
     expect(html.includes('send()') || html.includes('id="cmd"'), 'the command box is not wired');
     // The server-side snapshot must be rendered into the HTML: with JavaScript disabled
     // (or when the reader is looking at some other copy of the page) this is the only thing
@@ -543,7 +543,34 @@ async function buildAgent(options = {}) {
     // The script must be an external same-origin file (inline scripts are what blockers
     // refuse) and it must beacon the ping endpoint for observability.
     expect(html.includes('src="/panel/app.js"'), 'the panel script is not an external file');
+    // No-JS fallbacks: a self-refreshing state iframe and a real form for commands.
+    expect(html.includes('src="/panel/state"'), 'the state iframe is missing');
+    expect(html.includes('name="command"'), 'the command input is not part of a form');
+    expect(html.includes('method="post"'), 'the command form method is missing');
     return `${html.length} bytes`;
+  });
+
+  await scenario('GET /panel/state renders live state without JavaScript', async () => {
+    const res = await fetch(`${BASE}/panel/state`);
+    const html = await res.text();
+    expect(res.status === 200, `expected 200, got ${res.status}`);
+    expect(html.includes('http-equiv="refresh"'), 'the state page does not self-refresh');
+    expect(html.includes('AgentSteve'), 'the state page does not name the agent');
+    expect(html.includes('服务器端实时状态'), 'the state page is missing its header');
+    expect(!html.includes('<script'), 'the state page must not need scripts');
+    return `${html.length} bytes, meta-refresh`;
+  });
+
+  await scenario('POST /command accepts a plain form submission (no JS) and redirects back', async () => {
+    const res = await fetch(`${BASE}/command`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/x-www-form-urlencoded' },
+      body: 'command=status&priority=directive',
+      redirect: 'manual'
+    });
+    expect(res.status === 303, `expected a 303 redirect, got ${res.status}`);
+    expect(res.headers.get('location') === '/panel', `unexpected location ${res.headers.get('location')}`);
+    return '303 -> /panel';
   });
 
   await scenario('GET /panel/app.js serves the script and /panel/ping is observable', async () => {
