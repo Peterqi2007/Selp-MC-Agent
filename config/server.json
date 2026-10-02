@@ -1,0 +1,21 @@
+{
+  "mcVersion": "1.20.1",
+  "loader": "vanilla",
+  "forgeVersion": "1.20.1-47.4.10",
+  "port": 25565,
+  "maxPlayers": 8,
+  "onlineMode": false,
+  "difficulty": "normal",
+  "gamemode": "survival",
+  "levelName": "agent-world",
+  "levelSeed": "minecraft-agent",
+  "motd": "Mineflayer Survival Agent Lab",
+  "viewDistance": 10,
+  "simulationDistance": 8,
+  "spawnProtection": 0,
+  "allowCheats": true,
+  "pvp": false,
+  "requireAuth": false,
+  "bridgePort": 8765,
+  "installBridgeMod": true
+}

@@ -1,0 +1,76 @@
+// agent-bridge — Fabric mod for Minecraft 1.20.1
+//
+// NOTE ON PLUGIN RESOLUTION
+// Fabric Loom only publishes Gradle *plugin markers* for its newest releases,
+// and those releases require a newer Gradle than we can use here. Declaring the
+// Loom artifact on the buildscript classpath is the equivalent, marker-free way
+// to apply the plugin and works with every published Loom version.
+buildscript {
+	repositories {
+		maven {
+			name = 'Fabric'
+			url = 'https://maven.fabricmc.net/'
+		}
+		mavenCentral()
+		gradlePluginPortal()
+	}
+	dependencies {
+		classpath "net.fabricmc:fabric-loom:${loom_version}"
+	}
+}
+
+apply plugin: 'fabric-loom'
+apply plugin: 'java'
+
+version = project.mod_version
+group = project.maven_group
+
+base {
+	archivesName = project.archives_base_name
+}
+
+repositories {
+	mavenCentral()
+}
+
+dependencies {
+	minecraft "com.mojang:minecraft:${project.minecraft_version}"
+	mappings "net.fabricmc:yarn:${project.yarn_mappings}:v2"
+	modImplementation "net.fabricmc:fabric-loader:${project.loader_version}"
+	modImplementation "net.fabricmc.fabric-api:fabric-api:${project.fabric_version}"
+}
+
+processResources {
+	inputs.property 'version', project.version
+
+	filesMatching('fabric.mod.json') {
+		expand 'version': project.version
+	}
+}
+
+tasks.withType(JavaCompile).configureEach {
+	it.options.encoding = 'UTF-8'
+	// Minecraft 1.20.1 runs on Java 17; emit Java 17 bytecode even though the
+	// Gradle daemon itself runs on Java 21.
+	it.options.release = 17
+}
+
+java {
+	sourceCompatibility = JavaVersion.VERSION_17
+	targetCompatibility = JavaVersion.VERSION_17
+}
+
+jar {
+	from('LICENSE') {
+		rename { "${it}_${project.base.archivesName.get()}" }
+	}
+}
+
+// `gradlew copyJar` drops the remapped mod jar into dist/.
+tasks.register('copyJar', Copy) {
+	group = 'build'
+	description = 'Copies the remapped mod jar into dist/agent-bridge-<version>.jar'
+	dependsOn tasks.named('remapJar')
+	from tasks.named('remapJar').flatMap { it.archiveFile }
+	into layout.projectDirectory.dir('dist')
+}

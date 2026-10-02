@@ -1,0 +1,125 @@
+// agent-client - a Forge 1.20.1 CLIENT mod that lets the Node agent drive a real
+// Minecraft client.
+//
+// Why a client mod at all: Forge 1.20.1 servers with client-required mods reject
+// vanilla-protocol clients (mineflayer) during the FML handshake. The only way in is
+// to BE a Forge client. This mod runs inside that client and exposes a small local
+// HTTP API so the agent can:
+//
+//   * read structured game state (position, inventory, blocks, entities) - no vision,
+//     no screenshots; it reads the same objects the game itself uses
+//   * perform actions through the game's own MultiPlayerGameMode (dig / place /
+//     attack / use), not by faking input
+//   * send chat and COMMANDS, which is how AuthMe `/login` is answered
+//
+// THREADING CONTRACT (see ClientActions / ClientStateSnapshot): HTTP handler threads
+// never touch game state; they post to the client thread and read a snapshot.
+//
+// REPOSITORIES - DOMESTIC MIRRORS FIRST
+// -------------------------------------
+// The upstream repos (maven.minecraftforge.net, api.foojay.io, github.com/adoptium) are
+// unreliable from this network. BMCLAPI mirrors BOTH the Forge Maven and Mojang's
+// libraries on a domestic CDN, and Aliyun mirrors Maven Central, so the build works
+// without a tunnel. Upstream entries are kept as fallbacks.
+
+buildscript {
+	repositories {
+		maven { name = 'bmclapi-maven'; url = 'https://bmclapi2.bangbang93.com/maven/' }
+		maven { name = 'aliyun-public'; url = 'https://maven.aliyun.com/repository/public' }
+		maven { name = 'forge-upstream'; url = 'https://maven.minecraftforge.net/' }
+		mavenCentral()
+		gradlePluginPortal()
+	}
+	dependencies {
+		// ForgeGradle 6 is the 1.20.1 generation.
+		classpath 'net.minecraftforge.gradle:ForgeGradle:6.0.+'
+	}
+}
+
+apply plugin: 'net.minecraftforge.gradle'
+apply plugin: 'java'
+
+version = project.mod_version
+group = project.maven_group
+
+base {
+	archivesName = project.archives_base_name
+}
+
+java {
+	// Forge 1.20.1 targets Java 17. A Temurin 17 JDK lives at ~/.gradle/jdks/temurin-17
+	// (see BUILDING.md); Gradle auto-detects that location.
+	toolchain.languageVersion = JavaLanguageVersion.of(17)
+}
+
+minecraft {
+	// Official Mojang mappings - the same names the source uses.
+	mappings channel: project.mappings_channel, version: project.mappings_version
+
+	// No run configurations: we build a jar and drop it into the real modpack rather
+	// than launching a dev client.
+}
+
+repositories {
+	maven { name = 'bmclapi-maven'; url = 'https://bmclapi2.bangbang93.com/maven/' }
+	maven { name = 'aliyun-public'; url = 'https://maven.aliyun.com/repository/public' }
+	maven { name = 'forge-upstream'; url = 'https://maven.minecraftforge.net/' }
+	mavenCentral()
+}
+
+dependencies {
+	minecraft "net.minecraftforge:forge:${project.forge_version}"
+}
+
+tasks.named('processResources', ProcessResources).configure {
+	// Stamp mods.toml with the real versions so the jar is self-describing.
+	def replaceProperties = [
+			mod_version  : project.mod_version,
+			mc_version   : project.minecraft_version,
+			forge_version: project.forge_version
+	]
+	inputs.properties replaceProperties
+	filesMatching(['META-INF/mods.toml']) {
+		expand replaceProperties
+	}
+}
+
+tasks.named('jar', Jar).configure {
+	manifest {
+		attributes([
+				'Specification-Title'   : 'agent-client',
+				'Specification-Vendor'  : 'minecraft-survival-agent',
+				'Specification-Version' : '1',
+				'Implementation-Title'  : project.name,
+				'Implementation-Version': project.jar.archiveVersion,
+				'Implementation-Vendor' : 'minecraft-survival-agent'
+		])
+	}
+}
+
+// Copy the SHIPPABLE jar to dist/.
+//
+// CRITICAL: this copies the REOBFUSCATED artifact, not the raw `jar` output.
+//
+// Forge's production runtime is SRG-named (`Minecraft.m_91087_()`, not `getInstance()`),
+// and ForgeGradle produces the remapped jar through the `reobfJar` task, whose result
+// lands in build/reobfJar/output.jar. An earlier version of this file wired copyJar to
+// `jar`, which shipped bytecode still referencing official names - it built fine and
+// would have thrown NoSuchMethodError at runtime. Verified by disassembling both jars.
+tasks.register('copyJar', Copy) {
+	dependsOn tasks.named('reobfJar')
+	from layout.buildDirectory.file('reobfJar/output.jar')
+	rename { "${project.archives_base_name}-${project.mod_version}.jar" }
+	into layout.projectDirectory.dir('dist')
+	doLast {
+		logger.lifecycle("agent-client (reobfuscated) -> dist/${project.archives_base_name}-${project.mod_version}.jar")
+	}
+}
+
+tasks.named('assemble').configure {
+	finalizedBy 'copyJar'
+}
+
+tasks.withType(JavaCompile).configureEach {
+	options.encoding = 'UTF-8'
+}

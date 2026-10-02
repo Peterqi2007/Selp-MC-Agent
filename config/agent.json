@@ -1,0 +1,118 @@
+{
+  "_comment_body": "How the agent attaches to a world. P0 targets 'clientmod': a real Forge client + the agent-client control mod, which is the only way onto a Forge server (mineflayer speaks the vanilla protocol and gets rejected). 'mineflayer' is still available for vanilla/Paper servers; 'mock' is the scripted test world. Switch with --body or the MC_BODY env var.",
+  "body": {
+    "kind": "clientmod"
+  },
+  "_comment_clientMod": "HTTP control endpoint exposed by the agent-client mod inside the running Forge client. Nothing here needs a Java rebuild; the mod already implements every verb P0 uses.",
+  "clientMod": {
+    "host": "127.0.0.1",
+    "port": 8899,
+    "timeoutMs": 5000,
+    "directRange": 3
+  },
+  "_comment_pathfinding": "Deliverable A. A* runs over the mod's own block scan (49x49x17 cells). allowDig stays false in P0: a conservative noPath beats a route the bot cannot actually walk. jumpStreakLimit: after this many failed jump/step-up legs the walker stops jumping and reports jump-blocked instead. maxSidesteps: how many times a blocked route may be answered with a short step in a different direction before giving up. trace is the JSONL file the panel counts.",
+  "pathfinding": {
+    "maxPathLength": 200,
+    "replanEvery": 20,
+    "nodeTimeoutMs": 3000,
+    "tickTimeoutMs": 2500,
+    "allowSwim": true,
+    "allowDig": false,
+    "waypointRange": 1.0,
+    "stuckThreshold": 2,
+    "jumpStreakLimit": 2,
+    "maxSidesteps": 2,
+    "trace": "runtime/path-trace.jsonl"
+  },
+  "_comment_chat": "Two input channels: prefix '!' is the deterministic command fast-path, dialogueTrigger goes to the LLM. Everything else in chat is ignored (ignoreOtherChat) - that is a requirement of P0, not an oversight. Output is reactive only: the bot answers when spoken to and never starts a conversation.",
+  "chat": {
+    "prefix": "!",
+    "dialogueTrigger": "@猫娘",
+    "pollIntervalMs": 700,
+    "ignoreOtherChat": true,
+    "replyInGame": true,
+    "replyOnTaskResult": false,
+    "maxChars": 100,
+    "minReplyGapMs": 1200
+  },
+  "_comment_death": "Death aborts every task and alerts outside the game (console + panel + state file). autoResume is deliberately false: coming back is a human decision, and P0 has no way to click the client's respawn button.",
+  "death": {
+    "detectIntervalMs": 500,
+    "autoResume": false,
+    "alertConsole": true,
+    "alertPanel": true,
+    "alertStateFile": true
+  },
+  "_comment_web": "Control panel. port null means 'bridgePort + 1'; set an explicit port to run a second agent on the same machine.",
+  "web": {
+    "bind": "127.0.0.1",
+    "port": null
+  },
+  "bot": {
+    "username": "AgentSteve",
+    "password": null,
+    "auth": "offline",
+    "host": "mc.example.com",
+    "port": 25565,
+    "version": "1.20.1",
+    "viewDistance": "far",
+    "checkTimeoutInterval": 30000,
+    "brand": "mineflayer-survival-agent",
+    "physicsEnabled": true,
+    "_comment_external": "To play on an EXTERNAL multiplayer server, change host/port and set auth to 'microsoft' (public servers are online-mode=true). Optional: 'proxy': 'socks5://user:pass@host:1080'. See docs/EXTERNAL-SERVERS.md",
+    "proxy": null,
+    "microsoft": {
+      "email": null
+    },
+    "profilesFolder": null,
+    "_comment_auth": "This server needs a real Forge client (see body.kind='clientmod'). AuthMe login happens in-game via chat, see auth section below.",
+    "_comment_NEVER_REGISTER": "registerOnMissing MUST stay false. On mc.example.com a /register for an existing name RESETS that character (experience and inventory are wiped). Authentication is /login only. Four independent gates enforce this: ControlHttpServer, ClientActions, ClientModBody.isForbidden and the CLI, plus the mod's own refusal.",
+    "authme": {
+      "enabled": true,
+      "password": "<your-password>",
+      "registerOnMissing": false,
+      "timeoutMs": 20000
+    }
+  },
+  "behaviour": {
+    "autoEat": true,
+    "autoFight": true,
+    "autoArmor": true,
+    "autoTool": true,
+    "autoTorch": true,
+    "autoShelter": true,
+    "fleeHealthThreshold": 6,
+    "eatFoodThreshold": 16,
+    "deathCooldownMs": 4000,
+    "idleThinkIntervalMs": 2500,
+    "chatPrefix": "!",
+    "_comment_public": "On public servers: keep a low profile. autoFight off is often wiser, and chat responses should be rare.",
+    "publicServerMode": false,
+    "respondToChat": true,
+    "maxChatPerMinute": 6
+  },
+  "_comment_safety": "Staying away from player-built terrain. avoidManMade refuses planks/chests/farms/machines by name and keeps routes off built floors - cheap, and it never blocks digging dirt or stone. strictMining adds structural anti-masonry heuristics ('is this stone a wall?') and is OFF by default because it also refuses ordinary exposed surfaces. requireLeaves makes a bare trunk (no leaves/nether wart nearby) count as NOT a tree, so a player's log pillar is never chopped - it is the cheapest way to tell a forest from a lumber yard. This is a shared-server courtesy, not a hard requirement: set avoidManMade to false to switch the whole policy off.",
+  "safety": {
+    "avoidManMade": true,
+    "requireNaturalTrees": true,
+    "requireLeaves": true,
+    "strictMining": false
+  },
+  "_comment_survival": "allowWoodChopping=false stops the *planner* from felling trees on its own; an explicit !chop from chat still works. allowDirtDigging keeps the always-available dirt goal, which needs no tool.",
+  "survival": {
+    "targetWood": 16,
+    "shelterAtNight": true,
+    "torchLightLevel": 4,
+    "maxDigDistance": 4,
+    "_comment_mods": "On modded servers unknown blocks are only mined when a name signature suggests a normal block.",
+    "mineUnknownModBlocks": false,
+    "avoidClaimedChunks": true,
+    "allowWoodChopping": false,
+    "allowDirtDigging": true
+  },
+  "logging": {
+    "level": "info",
+    "chatToConsole": true,
+    "stateFile": "runtime/agent-state.json"
+  }
+}

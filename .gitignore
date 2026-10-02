@@ -1,0 +1,20 @@
+# Node dependencies
+node_modules/
+
+# Scratch space (extracted session archives, temp files)
+.tmp/
+
+# Runtime state, downloaded servers, logs, traces
+runtime/
+logs/
+
+# Gradle build outputs and caches
+mod-client/build/
+mod-client/.gradle/
+mod-client/run/
+mod-bridge/build/
+mod-bridge/.gradle/
+mod-bridge/run/
+
+# Stray log files
+*.log

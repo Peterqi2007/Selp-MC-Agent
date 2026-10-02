@@ -1,0 +1,11 @@
+# Keep the launchers byte-exact where it matters:
+# start.ps1 / stop.ps1 are pinned to CRLF by npm run selftest (PowerShell 5.1 reads them as ANSI
+# without a BOM, and cmd.exe mis-parses LF-only .bat files), so a checkout must not rewrite them.
+*.ps1 text eol=crlf
+*.bat text eol=crlf
+*.sh  text eol=lf
+
+# Binary artifacts
+*.jar binary
+*.png binary
+*.zip binary

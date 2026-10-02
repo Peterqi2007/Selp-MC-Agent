@@ -1,0 +1,13 @@
+{
+  "_comment": "PCL2 (Plain Craft Launcher 2) integration. Detected automatically; override paths here if you move things.",
+  "pclExe": "E:\\PCL\\PCL\\Plain Craft Launcher 2.exe",
+  "minecraftDir": "C:\\Users\\<you>\\AppData\\Roaming\\.minecraft",
+  "clientVersion": "1.20.1-Forge_47.4.10",
+  "headlessServerVersion": "1.20.1",
+  "launchClientAfterServer": false,
+  "javaCandidates": [
+    "C:\\Users\\<you>\\.jdks\\openjdk-25.0.1\\bin\\java.exe",
+    "C:\\Users\\<you>\\AppData\\Local\\Packages\\Microsoft.4297127D64EC6_8wekyb3d8bbwe\\LocalCache\\Local\\runtime\\java-runtime-delta\\windows-x64\\java-runtime-delta\\bin\\java.exe",
+    "C:\\Users\\<you>\\AppData\\Roaming\\.minecraft\\runtime\\java-runtime-delta\\bin\\java.exe"
+  ]
+}

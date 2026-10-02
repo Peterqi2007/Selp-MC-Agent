@@ -1,0 +1,27 @@
+modLoader="javafml"
+loaderVersion="[47,)"
+license="MIT"
+
+[[mods]]
+modId="agentclient"
+version="${mod_version}"
+displayName="Agent Client Bridge"
+description='''
+Exposes a local HTTP API inside a real Forge client so the minecraft-survival-agent can
+drive it: structured game state (no vision), actions through the game's own
+MultiPlayerGameMode, and chat/command sending for AuthMe login. Client-side only.
+'''
+
+[[dependencies.agentclient]]
+    modId="forge"
+    mandatory=true
+    versionRange="[47,)"
+    ordering="NONE"
+    side="CLIENT"
+
+[[dependencies.agentclient]]
+    modId="minecraft"
+    mandatory=true
+    versionRange="[1.20.1,1.21)"
+    ordering="NONE"
+    side="CLIENT"

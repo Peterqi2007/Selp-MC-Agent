@@ -1,0 +1,18 @@
+pluginManagement {
+	repositories {
+		maven { name = 'bmclapi-maven'; url = 'https://bmclapi2.bangbang93.com/maven/' }
+		maven { name = 'aliyun-public'; url = 'https://maven.aliyun.com/repository/public' }
+		maven { name = 'forge-upstream'; url = 'https://maven.minecraftforge.net/' }
+		mavenCentral()
+		gradlePluginPortal()
+	}
+}
+
+// Forge 1.20.1 targets Java 17. A Temurin 17 JDK is installed at
+// ~/.gradle/jdks/temurin-17, which Gradle auto-detects. The foojay resolver stays as a
+// fallback for machines that do not have one (needs api.foojay.io).
+plugins {
+	id 'org.gradle.toolchains.foojay-resolver-convention' version '0.8.0'
+}
+
+rootProject.name = 'agent-client'
