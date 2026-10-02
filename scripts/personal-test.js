@@ -23,6 +23,8 @@
  */
 
 const fs = require('fs');
+const path = require('path');
+const { spawn } = require('child_process');
 const { loadConfig } = require('../src/util/config');
 const { detectEnvironment } = require('../src/pcl/detect');
 const { startServer } = require('../src/server/serverManager');
@@ -42,6 +44,20 @@ const valueOf = (name, fallback) => {
 const PORT = Number(valueOf('--port', 25565));
 const KEEP_SERVER = flag('--keep-server');
 const SKIP_SERVER = flag('--skip-server');
+const START_CLIENT = flag('--start-client');
+/**
+ * Manual mode: the operator prepares the items (and the world) by hand.
+ *
+ * Used for the single-player workflow: no server console, no /give, no test pad - the run
+ * just drives the skills against whatever the human set up.
+ */
+const NO_PREPARE = flag('--no-prepare');
+/**
+ * Single-player worlds legitimately contain mod blocks (the client runs the full modpack),
+ * so the "is this the public server?" namespace check can be explicitly waived. The public
+ * server is never a single-player world; the flag exists so the operator can state that.
+ */
+const ALLOW_MODDED = flag('--allow-modded');
 const log = { debug() {}, info() {}, warn() {}, error() {} };
 
 const results = [];
@@ -67,20 +83,52 @@ async function main() {
   const cfg = loadConfig();
   process.stdout.write('Phase 2/3 functional test - client + PERSONAL server only\n\n');
 
-  // ---- 0. the client, and the safety check ---------------------------------
+  // ---- 0. the client (optionally launched by us) ---------------------------
   const body = new ClientModBody(cfg, { log });
-  const attached = await body.connect({ waitMs: 8000 });
+  let server = null;
+  const ensureServer = async () => {
+    if (server) return server;
+    const env = detectEnvironment(cfg);
+    server = startServer(cfg, { java: env.serverJava, log });
+    await server.ready;
+    return server;
+  };
+
+  let attached = await body.connect({ waitMs: START_CLIENT ? 2500 : 8000 });
+  if (!attached && START_CLIENT) {
+    process.stdout.write('  ..    no client yet - starting the personal server and the Forge client\n');
+    await ensureServer();
+    const child = spawn(
+      process.execPath,
+      [
+        path.join(cfg.root, 'scripts', 'launch-forge-client.js'),
+        '--offline',
+        '--username',
+        cfg.agent.bot.username,
+        '--server',
+        `127.0.0.1:${PORT}`
+      ],
+      { cwd: cfg.root, detached: true, stdio: 'ignore' }
+    );
+    child.unref();
+    for (let i = 0; i < 72 && !attached; i += 1) {
+      await sleep(2500);
+      attached = await body.connect({ waitMs: 2000 });
+    }
+  }
   if (!attached) {
     process.stdout.write('  FAIL  the control mod is not answering on 127.0.0.1:8899\n');
     process.stdout.write('        start the client first:\n');
     process.stdout.write(`          npm run client:launch -- --server 127.0.0.1:${PORT}\n`);
+    process.stdout.write(`        or run everything at once:  npm run personal:test -- --start-client\n`);
     process.exitCode = 1;
+    if (server && !KEEP_SERVER) await server.stop();
     return;
   }
   await body.refresh(true);
   const namespaces = scanNamespaces(body);
   const modded = namespaces ? [...namespaces].filter((ns) => ns !== 'minecraft') : [];
-  if (modded.length) {
+  if (modded.length && !ALLOW_MODDED) {
     process.stdout.write(`  STOP  this client is on a MODDED server (namespaces: ${modded.slice(0, 6).join(', ')}...)\n`);
     process.stdout.write('        that is the public server - functional tests are not allowed there.\n');
     process.stdout.write(`        point the client at the personal server (127.0.0.1:${PORT}) and run again.\n`);
@@ -92,11 +140,8 @@ async function main() {
   record('client attached to a vanilla (personal) world', true, `pos ${pos.x},${pos.y},${pos.z}`);
 
   // ---- 1. the server -------------------------------------------------------
-  let server = null;
   if (!SKIP_SERVER) {
-    const env = detectEnvironment(cfg);
-    server = startServer(cfg, { java: env.serverJava, log });
-    await server.ready;
+    await ensureServer();
     record('personal server is up', true, `127.0.0.1:${PORT} (log: ${server.logFile})`);
   } else {
     record('personal server assumed running (--skip-server)', true, `127.0.0.1:${PORT}`);
@@ -154,9 +199,15 @@ async function main() {
     'minecraft:furnace 1',
     'minecraft:crafting_table 1'
   ];
-  for (const give of gives) consoleCommand(`give ${username} ${give}`);
-  consoleCommand('gamerule doDaylightCycle false');
-  consoleCommand('time set day');
+  if (NO_PREPARE) {
+    record('material preparation skipped (operator prepares by hand)', true, 'no /give, no test pad');
+  } else {
+    for (const give of gives) consoleCommand(`give ${username} ${give}`);
+    consoleCommand('gamerule doDaylightCycle false');
+    // No mobs: the sleep check must not fail because a zombie wandered next to the bed.
+    consoleCommand('gamerule doMobSpawning false');
+    consoleCommand('time set day');
+  }
   // A small, flat pad: ground blocks replaced under the feet level, air above.
   const pad = [
     `setblock ${pos.x + 2} ${pos.y - 1} ${pos.z} minecraft:crafting_table`,
@@ -170,10 +221,12 @@ async function main() {
     `setblock ${pos.x + 2} ${pos.y} ${pos.z + 2} minecraft:air`,
     `setblock ${pos.x + 3} ${pos.y} ${pos.z + 2} minecraft:air`
   ];
-  for (const cmd of pad) consoleCommand(cmd);
-  await sleep(2500);
-  await body.refresh(true);
-  record('test materials handed out', has('oak_log') || has('crafting_table'), JSON.stringify(Object.keys(inventory()).slice(0, 8)));
+  if (!NO_PREPARE) {
+    for (const cmd of pad) consoleCommand(cmd);
+    await sleep(2500);
+    await body.refresh(true);
+    record('test materials handed out', has('oak_log') || has('crafting_table'), JSON.stringify(Object.keys(inventory()).slice(0, 8)));
+  }
 
   // ---- 4. craft ------------------------------------------------------------
   const tableCraft = await skills.run('craft', ctx, { item: 'crafting_table', count: 1 });
@@ -198,13 +251,58 @@ async function main() {
   );
 
   // ---- 7. sleep ------------------------------------------------------------
-  consoleCommand('time set night');
-  consoleCommand(`setblock ${pos.x + 2} ${pos.y - 1} ${pos.z + 2} minecraft:red_bed[part=foot,facing=east]`);
-  consoleCommand(`setblock ${pos.x + 3} ${pos.y - 1} ${pos.z + 2} minecraft:red_bed[part=head,facing=east]`);
-  await sleep(2500);
-  await body.refresh(true);
-  const sleepResult = await skills.run('sleep', ctx, { timeoutMs: 60000 });
-  record('sleep: sleeps through the night', sleepResult.ok === true && sleepResult.slept === true, JSON.stringify(sleepResult).slice(0, 200));
+  if (NO_PREPARE && !server && snap.time && snap.time.isDay) {
+    record('sleep: skipped (daytime, no console to set night)', true, 'run this check after nightfall if wanted');
+  } else {
+    consoleCommand('time set night');
+    consoleCommand(`setblock ${pos.x + 2} ${pos.y - 1} ${pos.z + 2} minecraft:red_bed[part=foot,facing=east]`);
+    consoleCommand(`setblock ${pos.x + 3} ${pos.y - 1} ${pos.z + 2} minecraft:red_bed[part=head,facing=east]`);
+    await sleep(2500);
+    await body.refresh(true);
+    const sleepResult = await skills.run('sleep', ctx, { timeoutMs: 60000 });
+    record('sleep: sleeps through the night', sleepResult.ok === true && sleepResult.slept === true, JSON.stringify(sleepResult).slice(0, 200));
+  }
+
+  // ---- 8. Phase 3: the Chinese channel and the model-facing surfaces -------
+  const { route } = require('../src/llm/fallbackRouter');
+  const routing = [
+    ['饿了', 'eat'],
+    ['睡觉', 'sleep'],
+    ['种地', 'farm'],
+    ['合成一个石镐', 'craft'],
+    ['熔炼铁矿', 'smelt'],
+    ['有怪物', 'defend'],
+    ['把东西存起来', 'deposit'],
+    ['探索一下', 'explore']
+  ];
+  const wrongRoute = [];
+  for (const [text, skill] of routing) {
+    const routed = route(text, { speakerPosition: pos });
+    const action = routed.ok ? routed.intent.action : null;
+    if (!action || action.type !== 'skill' || action.skill !== skill) {
+      wrongRoute.push(`${text}->${action ? action.skill || action.type : 'none'}`);
+    }
+  }
+  record('Phase 3: Chinese utterances route to the right skills', wrongRoute.length === 0, wrongRoute.join('; ') || `${routing.length}/${routing.length}`);
+
+  const { capabilities } = require('../src/llm/blackboard');
+  const caps = Object.fromEntries(capabilities(ctx).map((c) => [c.name, c]));
+  const requiredSkills = ['craft', 'smelt', 'farm', 'sleep', 'eat', 'deposit', 'withdraw', 'attack', 'defend'];
+  const missingCaps = requiredSkills.filter((name) => !(caps[name] && caps[name].available));
+  record(
+    'Phase 3: capability table lists the Phase 2/3 skills as available',
+    missingCaps.length === 0,
+    missingCaps.length ? `missing: ${missingCaps.join(', ')}` : requiredSkills.join(', ')
+  );
+
+  const toolRegistry = require('../src/llm/tools/registry');
+  const doSkillTool = toolRegistry.toOpenAiTools(ctx).find((t) => t.function && t.function.name === 'do_skill');
+  const enumNames = doSkillTool && doSkillTool.function.parameters.properties.name.enum;
+  record(
+    'Phase 3: do_skill carries the live skill enum (registry-generated)',
+    Array.isArray(enumNames) && enumNames.includes('craft') && enumNames.includes('sleep'),
+    Array.isArray(enumNames) ? `${enumNames.length} skills` : 'no enum'
+  );
 
   // ---- summary -------------------------------------------------------------
   const failed = results.filter((r) => !r.ok);
