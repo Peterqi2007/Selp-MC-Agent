@@ -139,6 +139,24 @@ agent 拿的是缓存里的旧快照（`ChatScreen` 还标着开着），于是�
 
 `control:test` 31 → 32 场景：`!stop` 后规划器不得再选新目标、明确指令仍被接受、`!resume` 恢复。
 
+### 2026-10-02 准心挖掘 + 自由视角（挖泥土优化）
+
+操作员反馈：挖泥土时"大量跳跃、不会转视角、只会向下挖"，建议加准心方块识别：**准心对着目标
+就直接挖**，并给 agent 更自由的视角。
+
+三件套：
+1. **Mod 准心射线**：`/state` 新增 `target`（`mc.hitResult`，即游戏自己画方块描边用的同一射线），
+   新增 `target` 命令做即时射线（4.5 格 reach）→ 结果 `{name, position, face, distance}`；
+2. **Node**：`ClientModBody.targetBlock()`、`look(yaw,pitch)`、`sweepLook({steps,pitch,filter})`
+   （像玩家一样每 45° 扭头环视，找匹配的准心目标）；`!look`/`!lookat`/`!target` 三个手动指令；
+3. **`MineBlockTask` 准心优先**：任务开始先看准心是否已在目标方块上 → 是就直接挖（零走路、
+   零跳跃）；不是则 `sweepLook` 环视一圈再决定；环视后仍没有才回到原来的"扫描 + 寻路"。
+   没有准心的身体（mineflayer/mock 无准心）自动跳过这段，行为不变。
+
+测试：tasks 50 → 52（准心在目标上零移动挖到；准心在石头上不误挖）；protocol 37 → 39
+（target 透传、sweepLook 扭头找到目标）。Mod jar 45160 字节已安装，**需重启客户端生效**；
+Node 部分重启 agent 即生效。
+
 ---
 
 ## 一、总览

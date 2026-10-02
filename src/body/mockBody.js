@@ -33,6 +33,7 @@ class MockBody extends Body {
    * @param {number} [options.food]
    * @param {boolean} [options.night]
    * @param {Array<{name:string,position:object,kind?:string}>} [options.entities]
+   * @param {{name:string,position:object}} [options.crosshair] target under the crosshair
    * @param {Object<string,number>} [options.recipes] item name -> result count
    * @param {number} [options.actionDelayMs] simulated latency per action
    */
@@ -66,6 +67,9 @@ class MockBody extends Body {
       kind: e.kind || 'hostile',
       alive: true
     }));
+
+    /** What the crosshair points at, for exercising aimed mining without a client. */
+    this.crosshair = options.crosshair ? { ...options.crosshair, position: { ...options.crosshair.position } } : null;
 
     this.position = { ...(options.start || { x: 0, y: 64, z: 0 }) };
     this.ready = false;
@@ -118,8 +122,21 @@ class MockBody extends Body {
       lightLevel: this.state.night ? 3 : 15,
       hostiles: this.hostiles(16),
       nearbyItems: this.itemDrops(8),
-      players: ['MockPlayer']
+      players: ['MockPlayer'],
+      target: this.crosshair
     };
+  }
+
+  /** Mock crosshair raycast: returns the configured target, if any. */
+  async targetBlock() {
+    await this._delay();
+    return this.crosshair ? { ...this.crosshair, position: { ...this.crosshair.position } } : null;
+  }
+
+  /** Mock "look around": the fixture does not rotate, it just reports its crosshair. */
+  async sweepLook() {
+    await this._delay();
+    return this.crosshair ? { ...this.crosshair, position: { ...this.crosshair.position } } : null;
   }
 
   blockAt(position) {

@@ -103,6 +103,26 @@ final class ClientStateSnapshot {
         out.put("standingOn", Json.str(blockName(level.getBlockState(feet.below()))));
         out.put("feetBlock", Json.str(blockName(level.getBlockState(feet))));
 
+        /**
+         * What the crosshair points at ("aimed vision").
+         *
+         * `mc.hitResult` is the same raycast the game draws the block outline from, so this
+         * is exactly what a player sees under the crosshair. The agent uses it to mine what
+         * is already in front of it instead of pathfinding to a scanned coordinate.
+         */
+        var hit = Minecraft.getInstance().hitResult;
+        if (hit instanceof net.minecraft.world.phys.BlockHitResult blockHit) {
+            BlockPos targetPos = blockHit.getBlockPos();
+            Map<String, String> target = new LinkedHashMap<>();
+            target.put("name", Json.str(blockName(level.getBlockState(targetPos))));
+            target.put("position", Json.point(targetPos.getX(), targetPos.getY(), targetPos.getZ()));
+            target.put("face", Json.str(blockHit.getDirection().getName()));
+            target.put("distance", Json.num(player.getEyePosition().distanceTo(blockHit.getLocation())));
+            out.put("target", Json.obj(target));
+        } else {
+            out.put("target", "null");
+        }
+
         // ---- time / weather ------------------------------------------------
         out.put("time", Json.obj(new LinkedHashMap<>(Map.of(
                 "timeOfDay", Json.num(level.getDayTime() % 24000L),

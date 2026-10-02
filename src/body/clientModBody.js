@@ -225,6 +225,8 @@ class ClientModBody extends Body {
       ready: true,
       body: this.kind,
       position: state.position,
+      yaw: typeof state.yaw === 'number' ? state.yaw : null,
+      pitch: typeof state.pitch === 'number' ? state.pitch : null,
       dimension: state.dimension,
       health: state.health,
       food: state.food,
@@ -245,6 +247,16 @@ class ClientModBody extends Body {
       screen: state.screen && state.screen !== 'null' ? state.screen : null,
       mouseGrabbed: state.mouseGrabbed !== false,
       windowFocused: state.windowFocused !== false,
+      /** What the crosshair points at, straight from the game's own raycast. */
+      target:
+        state.target && state.target.name
+          ? {
+              name: state.target.name,
+              position: state.target.position,
+              face: state.target.face,
+              distance: state.target.distance
+            }
+          : null,
       time: state.time,
       weather: state.weather,
       inventory: state.inventory || {},
@@ -900,6 +912,59 @@ class ClientModBody extends Body {
   async lookAt(position) {
     const res = await this.command(`lookat ${position.x} ${position.y} ${position.z}`);
     return !!(res && res.ok);
+  }
+
+  /** Set absolute view angles (degrees); 0 pitch is level, positive looks down. */
+  async look(yaw, pitch = 0) {
+    const res = await this.command(`look ${Number(yaw) || 0} ${Number(pitch) || 0}`);
+    return !!(res && res.ok);
+  }
+
+  /**
+   * What is under the crosshair right now?
+   *
+   * Prefers a fresh raycast (`target` command); falls back to whatever the last /state
+   * reported. Returns null when looking at air or outside reach.
+   */
+  async targetBlock() {
+    const res = await this.command('target').catch(() => null);
+    if (res && res.target && res.target.name) {
+      return {
+        name: res.target.name,
+        position: res.target.position,
+        face: res.target.face,
+        distance: res.target.distance
+      };
+    }
+    const snap = this.snapshot();
+    return snap ? snap.target || null : null;
+  }
+
+  /**
+   * "Look around" like a player does: sweep the view in equal steps and report the first
+   * crosshair target that matches, or null.
+   *
+   * This is the free-view search the live feedback asked for - the agent should not walk
+   * (and jump) to a scanned coordinate when the block it wants is two metres away and
+   * simply out of view.
+   *
+   * @param {object} [options] { steps, pitch, filter, settleMs }
+   * @returns {Promise<{name:string,position:object}|null>}
+   */
+  async sweepLook(options = {}) {
+    const steps = Math.max(2, Math.min(24, options.steps || 8));
+    const pitch = options.pitch === undefined ? 30 : options.pitch;
+    const settleMs = options.settleMs === undefined ? 120 : options.settleMs;
+    const filter = typeof options.filter === 'function' ? options.filter : () => true;
+    const startYaw = (this._snapshot && Number(this._snapshot.yaw)) || 0;
+    for (let i = 0; i < steps; i += 1) {
+      const yaw = startYaw + Math.round((360 / steps) * i);
+      await this.look(yaw, pitch).catch(() => false);
+      await sleep(settleMs);
+      const target = await this.targetBlock().catch(() => null);
+      if (target && filter(target)) return target;
+    }
+    return null;
   }
 
   /**

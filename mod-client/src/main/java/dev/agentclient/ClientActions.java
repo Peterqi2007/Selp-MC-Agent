@@ -15,6 +15,7 @@ import net.minecraft.world.inventory.ClickType;
 import net.minecraft.world.inventory.Slot;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.phys.BlockHitResult;
+import net.minecraft.world.phys.HitResult;
 import net.minecraft.world.phys.Vec3;
 
 import java.util.LinkedHashMap;
@@ -172,6 +173,42 @@ public final class ClientActions {
             mc.player.setXRot(pitch);
             return true;
         });
+    }
+
+    /**
+     * What is under the crosshair right now? A fresh client-side raycast.
+     *
+     * This is "aimed vision": the agent looks at something and asks what it is, exactly like
+     * a player reading the block outline. Mining uses it to dig what is already in front of
+     * the bot instead of walking (and jumping) to a scanned coordinate.
+     *
+     * @return a JSON object, or the literal {@code null}
+     */
+    public String targetJson() {
+        return onClient(() -> {
+            if (mc.player == null || mc.level == null) {
+                return "null";
+            }
+            HitResult hit = mc.player.pick(4.5D, 1.0F, false);
+            if (!(hit instanceof BlockHitResult blockHit)) {
+                return "null";
+            }
+            BlockPos pos = blockHit.getBlockPos();
+            Map<String, String> out = new LinkedHashMap<>();
+            out.put("name", Json.str(blockNameAt(pos)));
+            out.put("position", Json.point(pos.getX(), pos.getY(), pos.getZ()));
+            out.put("face", Json.str(blockHit.getDirection().getName()));
+            out.put("distance", Json.num(mc.player.getEyePosition().distanceTo(blockHit.getLocation())));
+            return Json.obj(out);
+        });
+    }
+
+    private String blockNameAt(BlockPos pos) {
+        if (mc.level == null || pos == null) {
+            return "minecraft:air";
+        }
+        var id = net.minecraft.core.registries.BuiltInRegistries.BLOCK.getKey(mc.level.getBlockState(pos).getBlock());
+        return id == null ? "minecraft:air" : id.toString();
     }
 
     /** Swap the held item to the given slot, or to the first slot holding itemName. */

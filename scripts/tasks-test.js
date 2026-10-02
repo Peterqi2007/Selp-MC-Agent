@@ -899,6 +899,55 @@ function treeBlocks(x, z, height, species = 'oak', options = {}) {
     return `dug ${dirt} dirt with a pickaxe in the bag and nothing in hand`;
   });
 
+  process.stdout.write('\n2f. aimed mining - dig what the crosshair is on, without walking\n');
+
+  await scenario('the crosshair target is dug with zero walking', async () => {
+    /**
+     * Live feedback: "while looking for dirt it jumps around a lot; if the crosshair is on
+     * the target block it should just dig it." The fixture gives the body a crosshair that
+     * already points at dirt and counts every moveTo call; the expected number is zero.
+     */
+    const body = new MockBody(cfg, {
+      blocks: [{ name: 'dirt', position: { x: 0, y: 63, z: 0 } }],
+      start: { x: 0, y: 64, z: 0 },
+      crosshair: { name: 'minecraft:dirt', position: { x: 0, y: 63, z: 0 } }
+    });
+    await body.connect();
+    let moves = 0;
+    const realMove = body.moveTo.bind(body);
+    body.moveTo = async (...args) => {
+      moves += 1;
+      return realMove(...args);
+    };
+    const task = new MineBlockTask(makeCtx(body, cfg), {
+      block: ['dirt', 'grass_block'], count: 1, probeShaft: false, warmupMs: 0, roamSteps: 0
+    });
+    const res = await task.execute();
+    const dirt = body.inventory['minecraft:dirt'] || 0;
+    expect(res.ok && dirt >= 1, `expected an aimed dig, have ${dirt} (${res.reason})`);
+    expect(moves === 0, `must not walk when the crosshair is on the target (moved ${moves} time(s))`);
+    return `dug ${dirt} via the crosshair, 0 moves`;
+  });
+
+  await scenario('a crosshair on something else is not dug', async () => {
+    const body = new MockBody(cfg, {
+      blocks: [
+        { name: 'dirt', position: { x: 0, y: 63, z: 0 } },
+        { name: 'stone', position: { x: 0, y: 63, z: 1 } }
+      ],
+      start: { x: 0, y: 64, z: 0 },
+      crosshair: { name: 'minecraft:stone', position: { x: 0, y: 63, z: 1 } }
+    });
+    await body.connect();
+    const task = new MineBlockTask(makeCtx(body, cfg), {
+      block: ['dirt', 'grass_block'], count: 1, probeShaft: false, warmupMs: 0, roamSteps: 0
+    });
+    await task.execute();
+    const stoneBroken = body.history.some((h) => h.action === 'dig' && /stone/.test(h.name));
+    expect(!stoneBroken, 'the crosshair target must still be a *wanted* block');
+    return 'stone under the crosshair was left alone';
+  });
+
   await scenario('a nether fungus still counts as a tree (wart blocks are its canopy)', async () => {
     // Crimson/warped "trees" have no leaves at all, so a canopy rule that only knows about
     // leaves would silently make the nether unchoppable.

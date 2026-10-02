@@ -182,6 +182,22 @@ const server = http.createServer((req, res) => {
         closeCommands += 1;
         return send({ command, ok: true });
       }
+      if (verb === 'look') {
+        const [yaw, pitch] = args.split(/\s+/).map(Number);
+        world.yaw = yaw;
+        world.pitch = pitch;
+        // Simulate "something comes into view" for the sweep test.
+        if (world.sweepTarget && Math.abs(((yaw % 360) + 360) % 360 - 180) < 45) {
+          world.target = world.sweepTarget;
+        }
+        return send({ command, ok: true });
+      }
+      if (verb === 'lookat') {
+        return send({ command, ok: true });
+      }
+      if (verb === 'target') {
+        return send({ command, ok: true, target: world.target || null });
+      }
       if (verb === 'use') {
         world.food = Math.min(20, world.food + 6);
         world.inventory['minecraft:cooked_beef'] -= 1;
@@ -365,6 +381,22 @@ function check(name, ok, detail) {
     await body.refresh(true);
     check('dig() result is visible in the next snapshot', body.blockAt({ x: 5, y: 64, z: 0 }) === null);
     check('dig() yield landed in the inventory', (body.snapshot().inventory['minecraft:stone'] || 0) >= 1);
+
+    // ---- aimed vision: crosshair raycast + look sweep ---------------------
+    world.target = { name: 'minecraft:dirt', position: { x: 1, y: 63, z: 0 }, face: 'up', distance: 1.2 };
+    const aimed = await body.targetBlock();
+    check('targetBlock() reports what the crosshair points at', !!aimed && aimed.name === 'minecraft:dirt', JSON.stringify(aimed));
+
+    world.target = null;
+    world.sweepTarget = { name: 'minecraft:grass_block', position: { x: -2, y: 63, z: 2 }, face: 'up', distance: 2.4 };
+    const swept = await body.sweepLook({ steps: 8, pitch: 30, settleMs: 10, filter: (t) => /grass_block/.test(t.name) });
+    check(
+      'sweepLook() turns the view and finds a matching block',
+      !!swept && /grass_block/.test(swept.name) && world.yaw !== undefined,
+      JSON.stringify({ swept, yaw: world.yaw })
+    );
+    world.sweepTarget = null;
+    world.target = null;
 
     const equipped = await body.equipBest('pickaxe');
     check('equipBest() selects a tool', equipped === true);

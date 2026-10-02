@@ -50,6 +50,9 @@ const HELP = [
   '!withdraw <item> [n] - take items out of a nearby chest',
   '!deposit [item] - store items in a nearby chest',
   '!come <player> - walk to a visible player',
+  '!look <yaw> <pitch> - turn the camera to absolute angles (degrees)',
+  '!lookat <x> <y> <z> - look at a coordinate',
+  '!target - what is under the crosshair right now',
   '!goal <text> - queue a goal in words',
   '!hunt [n] - hunt animals for food',
   '!craft <item> [n] - craft an item',
@@ -229,6 +232,34 @@ class ChatController {
       come: (args) => {
         if (!args[0]) throw new Error('usage: !come <player>');
         return this.runSkill('come', { player: args[0] });
+      },
+      look: async (args) => {
+        const yaw = Number(args[0]) || 0;
+        const pitch = Number(args[1]) || 0;
+        if (typeof ctx.body.look !== 'function') throw new Error('this body cannot turn the view');
+        const ok = await ctx.body.look(yaw, pitch);
+        this.say(ok ? `看向 yaw=${yaw}° pitch=${pitch}°` : '转头失败');
+        return { ok };
+      },
+      lookat: async (args) => {
+        const [x, y, z] = args.map(Number);
+        if ([x, y, z].some((n) => Number.isNaN(n))) throw new Error('usage: !lookat <x> <y> <z>');
+        if (typeof ctx.body.lookAt !== 'function') throw new Error('this body cannot turn the view');
+        const ok = await ctx.body.lookAt({ x, y, z });
+        this.say(ok ? `看向 ${x} ${y} ${z}` : '转头失败');
+        return { ok };
+      },
+      target: async () => {
+        const found = typeof ctx.body.targetBlock === 'function' ? await ctx.body.targetBlock() : null;
+        const pos = found && found.position
+          ? `${Math.floor(found.position.x)},${Math.floor(found.position.y)},${Math.floor(found.position.z)}`
+          : '-';
+        this.say(
+          found
+            ? `准心: ${found.name} @ ${pos}${found.distance !== undefined ? ` (${Number(found.distance).toFixed(1)}m)` : ''}`
+            : '准心没有对着方块（或这个身体没有准心）'
+        );
+        return found;
       },
       craft: (args) => {
         if (!args[0]) throw new Error('usage: !craft <item> [count]');

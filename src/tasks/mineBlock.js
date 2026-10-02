@@ -296,6 +296,9 @@ class MineBlockTask extends HarvestTask {
       this.chosenTool = pick;
     }
 
+    // ---- aimed mining first: what is already under the crosshair? ---------
+    await this.digWhatIAmLookingAt();
+
     // ---- no exposed targets: start a shaft --------------------------------
     if (this.probeShaftEnabled && !this.findTargets().length) {
       this.log.info(`no ${this.unitName()} exposed, digging a probe shaft`);
@@ -303,6 +306,53 @@ class MineBlockTask extends HarvestTask {
     }
 
     return super.run();
+  }
+
+  /** Is this crosshair target one of ours, and harvestable where it stands? */
+  matchesCrosshair(target) {
+    if (!target || !target.name || !target.position) return false;
+    if (!this.isTarget(target.name)) return false;
+    return this.canHarvest({ name: target.name, position: target.position });
+  }
+
+  /**
+   * Dig the block the crosshair is on - no pathfinding, no jumping.
+   *
+   * Live feedback: "while looking for dirt the agent jumps around a lot; if the crosshair
+   * is already on the target block it should just dig it." This is that path. When the
+   * crosshair is on something else, the bot sweeps its view (a player's "look around")
+   * before any walking happens; the sweep is bounded, so nothing here can turn into a spin.
+   *
+   * Bodies without a crosshair (mineflayer, mock fixtures without one) simply skip this;
+   * the normal scan-and-walk path is unchanged.
+   */
+  async digWhatIAmLookingAt() {
+    const body = this.body;
+    if (!body || typeof body.targetBlock !== 'function') return;
+    const budget = Math.min(this.target + 2, 64);
+    for (let dug = 0; dug < budget; dug += 1) {
+      if (this.cancelled || this.updateCollected() >= this.target) return;
+
+      let target = await body.targetBlock().catch(() => null);
+      if (!this.matchesCrosshair(target) && typeof body.sweepLook === 'function') {
+        // Nothing useful in view: look around like a player would, before walking anywhere.
+        target = await body
+          .sweepLook({ steps: 8, pitch: 35, filter: (t) => this.matchesCrosshair(t) })
+          .catch(() => null);
+      }
+      if (!this.matchesCrosshair(target)) return;
+
+      const before = this.updateCollected();
+      this.log.info(`${this.name}: crosshair on ${bare(target.name)} - digging it without walking`);
+      const ok = await this.breakBlock({ name: target.name, position: target.position });
+      if (!ok) return;
+      await this.afterBreak({ name: target.name, position: target.position }).catch(() => {});
+      await this.collectDrops({ radius: 6, attempts: 3 });
+      if (this.updateCollected() <= before) {
+        // The block broke but gave nothing (wrong tool / no drop): do not loop on it.
+        return;
+      }
+    }
   }
 
   /**

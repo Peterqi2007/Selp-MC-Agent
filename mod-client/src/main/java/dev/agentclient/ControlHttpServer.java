@@ -444,6 +444,12 @@ public final class ControlHttpServer {
                     out.put("ok", Json.bool(xyz != null && actions.place(xyz[0], xyz[1], xyz[2], face, "")));
                     out.put("note", Json.str("continuous - poll /progress or /state"));
                 }
+                case "target" -> {
+                    // What the crosshair points at right now: aim, then mine what you see.
+                    String target = actions.targetJson();
+                    out.put("ok", Json.bool(target != null && !"null".equals(target)));
+                    out.put("target", target == null ? "null" : target);
+                }
                 case "menu", "slots" -> {
                     String menu = actions.menuJson();
                     out.put("ok", Json.bool(menu != null));
