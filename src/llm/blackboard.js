@@ -20,23 +20,51 @@
 
 const { ACTION_TYPES, TASK_NAMES } = require('./intent');
 const toolRegistry = require('./tools/registry');
+const skills = require('../skills');
 
-/** What the agent can actually do right now, per body (P0-PLAN §5.4). */
+/**
+ * What the agent can actually do right now, per body (P0-PLAN §5.4).
+ *
+ * Phase 3: the list is generated from the skill registry, so it cannot drift from what the
+ * `!` channel and `do_skill` can actually run. A skill that reports itself unavailable on
+ * this body (for example `craft` without a menu API) shows up as unavailable with its own
+ * reason - the model is told the truth about its body rather than a hand-maintained copy.
+ */
 function capabilities(ctx) {
-  const body = ctx && ctx.body;
-  const kind = body ? body.kind : 'none';
-  const canCraft = !!(body && body.supportsCrafting);
-  return [
+  const legacy = [
     { name: 'go_to', available: true, note: 'walk to coordinates using A*; targets beyond the 24-block scan are approached iteratively' },
     { name: 'chop', available: true, note: 'walk to a tree, break the trunk, collect the dropped logs' },
     { name: 'mine', available: true, note: 'stone and ores need a pickaxe at (or above) the block tier; dirt, sand, gravel, logs and modded blocks need NO tool - a shovel/axe only speeds them up' },
     { name: 'collect', available: true, note: 'walk over nearby dropped items so the client picks them up' },
-    { name: 'stop', available: true, note: 'stop everything immediately' },
-    { name: 'craft', available: canCraft, note: canCraft ? 'crafting is available' : `not available on the "${kind}" body` },
-    { name: 'store', available: false, note: 'no container API in P0' },
-    { name: 'hunt', available: false, note: 'passive mobs are not visible to this client mod' },
-    { name: 'light', available: false, note: 'no light-level field in P0' },
-    { name: 'fish', available: false, note: 'removed from the P0 scope' },
+    { name: 'stop', available: true, note: 'stop everything immediately' }
+  ];
+  const fromRegistry = skills.describe(ctx || {}).map((skill) => ({
+    name: skill.name,
+    available: skill.available,
+    beta: skill.beta,
+    note:
+      (skill.beta ? '[beta] ' : '') +
+      (skill.description || skill.title) +
+      (skill.available ? '' : ` - unavailable: ${skill.reason || 'not on this body'}`)
+  }));
+  /**
+   * Operations the plan defers to a later phase. They stay in the table (as `no`) so the
+   * model answers "I cannot fish yet" instead of promising it - the original reason the P0
+   * capability table existed.
+   */
+  const deferred = [
+    { name: 'fish', available: false, note: 'Phase 5 - fishing rod + bobber detection is not implemented yet' },
+    { name: 'trade', available: false, note: 'Phase 5 - villager menus are not implemented yet' },
+    { name: 'breed', available: false, note: 'Phase 5 - animal feeding is not implemented yet' },
+    { name: 'hunt', available: false, note: 'the client mod reports hostile entities only, so passive mobs are invisible' },
+    { name: 'light', available: false, note: 'no light-level-driven torch placement yet' },
+    { name: 'store', available: false, note: 'containers work through the deposit/withdraw skills; base-level stockpiling is Phase 5' },
+    { name: 'build', available: false, note: 'not part of Phase 2/3' }
+  ];
+  return [
+    ...legacy,
+    ...fromRegistry,
+    ...deferred,
     { name: 'say', available: false, note: 'speech is ONLY a reply to the player; you cannot start a conversation' }
   ];
 }
@@ -126,6 +154,17 @@ function systemPrompt(ctx, cfg) {
     '    collect args: { }',
     '  when type is "go_to": { "type":"go_to", "x": <number>, "y": <number>, "z": <number> }',
     '  when type is "stop":  { "type":"stop" }',
+    '  when type is "skill": { "type":"skill", "skill": "<name from the SKILLS table>", "args": { ... } }',
+    '',
+    'SKILLS (the complete list for this body; prefer a skill over inventing steps)',
+    skills
+      .describe(ctx)
+      .map(
+        (skill) =>
+          `  ${skill.available ? 'YES' : 'no '}  ${skill.name.padEnd(10)} ${skill.description || skill.title}` +
+          (skill.available ? '' : ` - unavailable: ${skill.reason || 'not on this body'}`)
+      )
+      .join('\n'),
     '',
     'RULES',
     '1. Only ever use the actions listed above. There is no way to run server commands,',

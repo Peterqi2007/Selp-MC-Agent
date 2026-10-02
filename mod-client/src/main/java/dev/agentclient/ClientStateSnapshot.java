@@ -38,6 +38,11 @@ final class ClientStateSnapshot {
     private static final int SCAN_RADIUS = 24;
     private static final int SCAN_UP = 8;
     private static final int SCAN_DOWN = 8;
+
+    /** Crop blocks whose growth stage matters (they all carry an integer `age` property). */
+    private static final java.util.regex.Pattern CROP_NAME = java.util.regex.Pattern.compile(
+            "(wheat|carrots|potatoes|beetroots|nether_wart|sweet_berry_bush|melon_stem|pumpkin_stem|cave_vines|torchflower_crop|pitcher_crop|_crop$)"
+    );
     /** Entities worth reporting to the agent. */
     private static final double ENTITY_RANGE = 24.0D;
 
@@ -136,6 +141,16 @@ final class ClientStateSnapshot {
 
         // ---- inventory -----------------------------------------------------
         out.put("inventory", inventoryJson(player));
+
+        /**
+         * Crop ages, so farming can tell ripe from growing.
+         *
+         * The block scan carries ids only, and `minecraft:wheat` looks identical at every
+         * growth stage. Age lives in the block state, which is why this small extra scan
+         * (12-block radius - farming happens near the bot) reports {name, position, age,
+         * maxAge} for every crop with an integer `age` property.
+         */
+        out.put("crops", cropsJson(level, feet, 12));
         out.put("emptySlots", Json.num(countEmptySlots(player)));
 
         // ---- blocks (the "vision" replacement) ------------------------------
@@ -195,6 +210,65 @@ final class ClientStateSnapshot {
             parts.add(Json.str(e.getKey()) + ":" + Json.num(e.getValue()));
         }
         return "{" + String.join(",", parts) + "}";
+    }
+
+    /** Crops with an integer age property inside `radius`, as JSON. */
+    private static String cropsJson(ClientLevel level, BlockPos centre, int radius) {
+        List<String> parts = new ArrayList<>();
+        BlockPos.MutableBlockPos cursor = new BlockPos.MutableBlockPos();
+        for (int dx = -radius; dx <= radius; dx++) {
+            for (int dz = -radius; dz <= radius; dz++) {
+                for (int dy = -4; dy <= 4; dy++) {
+                    cursor.set(centre.getX() + dx, centre.getY() + dy, centre.getZ() + dz);
+                    if (!level.hasChunkAt(cursor)) {
+                        continue;
+                    }
+                    BlockState state = level.getBlockState(cursor);
+                    String name = blockName(state);
+                    if (name == null || !CROP_NAME.matcher(name).find()) {
+                        continue;
+                    }
+                    Integer age = ageOf(state);
+                    if (age == null) {
+                        continue;
+                    }
+                    Map<String, String> entry = new LinkedHashMap<>();
+                    entry.put("name", Json.str(name));
+                    entry.put("position", Json.point(cursor.getX(), cursor.getY(), cursor.getZ()));
+                    entry.put("age", Json.num(age));
+                    entry.put("maxAge", Json.num(maxAgeOf(state)));
+                    parts.add(Json.obj(entry));
+                    if (parts.size() >= 64) {
+                        return Json.arr(parts);
+                    }
+                }
+            }
+        }
+        return Json.arr(parts);
+    }
+
+    /** The integer `age` property of a block state, or null when it has none. */
+    private static Integer ageOf(BlockState state) {
+        for (var property : state.getProperties()) {
+            if (property.getName().equals("age") && property.getValueClass() == Integer.class) {
+                return (Integer) state.getValue(property);
+            }
+        }
+        return null;
+    }
+
+    /** Highest value the `age` property can take (the ripe value). */
+    private static int maxAgeOf(BlockState state) {
+        for (var property : state.getProperties()) {
+            if (property.getName().equals("age") && property.getValueClass() == Integer.class) {
+                int max = 0;
+                for (Object value : property.getPossibleValues()) {
+                    max = Math.max(max, (Integer) value);
+                }
+                return max;
+            }
+        }
+        return 0;
     }
 
     private static int countEmptySlots(LocalPlayer player) {

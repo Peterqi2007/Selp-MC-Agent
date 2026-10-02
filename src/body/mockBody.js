@@ -70,6 +70,8 @@ class MockBody extends Body {
 
     /** What the crosshair points at, for exercising aimed mining without a client. */
     this.crosshair = options.crosshair ? { ...options.crosshair, position: { ...options.crosshair.position } } : null;
+    /** Crop fixtures with growth stages: [{name, position, age, maxAge}] */
+    this.crops = (options.crops || []).map((c) => ({ ...c, position: { ...c.position } }));
 
     this.position = { ...(options.start || { x: 0, y: 64, z: 0 }) };
     this.ready = false;
@@ -91,6 +93,12 @@ class MockBody extends Body {
   async connect() {
     this.ready = true;
     this.history.push({ action: 'connect' });
+  }
+
+  /** Same contract as ClientModBody.refresh: hand back the current snapshot. */
+  async refresh() {
+    await this._delay();
+    return this.snapshot();
   }
 
   async disconnect() {
@@ -123,7 +131,8 @@ class MockBody extends Body {
       hostiles: this.hostiles(16),
       nearbyItems: this.itemDrops(8),
       players: ['MockPlayer'],
-      target: this.crosshair
+      target: this.crosshair,
+      crops: this.crops
     };
   }
 

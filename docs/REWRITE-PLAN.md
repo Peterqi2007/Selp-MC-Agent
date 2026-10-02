@@ -117,7 +117,33 @@
 | 项目 | 状态 | 证据 |
 | --- | --- | --- |
 | Phase 2 `craft` | ✅ 完成 | `src/skills/recipes.js`（prismarine-recipe + minecraft-data，含递归子配方：原木→木板→木棍→镐）+ `src/skills/crafting.js`（2x2 物品栏网格 / 3x3 工作台菜单点击、光标管理、shift-click 产出）；协议假 Mod 新增合成模拟；`client:test` 42/42（含"原木→木板→工作台→木镐"全链路）；`!craft` 已接到技能 |
-| Phase 2 `smelt` | ⏳ 进行中 | 依赖：炉菜单 0=输入 / 1=燃料 / 2=产出 + 菜单轮询；计划走 shift-click 投料/取货 |
-| Phase 2 `farm` | ⏳ 待做 | 需要 Mod 上报作物 `age`（当前方块扫描只有方块 id）；计划在 `/state` 增加 `crops` |
-| Phase 2 `sleep` | ⏳ 待做 | `use_on` 床 + `/state.time.isDay` 轮询 |
-| Phase 3 LLM 接线 | ⏳ 待做 | 意图枚举扩展、`do_skill` 工具、能力表改读注册表、中文回退语料、`llm:dry` 覆盖 |
+| Phase 2 `smelt` | ✅ 完成 | `src/skills/smelting.js`：开炉（use_on）→ shift-click 投料/燃料 → 轮询产出 → 取货；协议假 Mod 新增熔炉模拟；`client:test` 44/44；`!smelt` 已接 |
+| Phase 2 `farm` | ✅ 完成 | Mod `/state` 新增 `crops`（方块状态 `age`/`maxAge`，12 格）；`src/skills/farming.js`：收成熟作物 → 锄地 → 播种；`skills:test` 覆盖（收 1 / 锄 1 / 种 1）；`!farm` 已接 |
+| Phase 2 `sleep` | ✅ 完成 | `src/skills/farming.js` 内 `sleep`：白天直接 no-op、夜里走到床边 use_on 并轮询到天亮；`skills:test` 覆盖；`!sleep` 已接 |
+| Phase 3 LLM 接线 | ✅ 完成 | ① 意图枚举新增 `skill`（`intent.js`，名称/参数由技能注册表校验）；② 新增 `do_skill(name, params)` 工具（`tools/registry.js` + `actuators.doSkill`），并在 `toOpenAiTools(ctx)` 里**按注册表自动生成**可用技能枚举；③ `blackboard.js` 的能力表和系统提示词改由 `skills.describe(ctx)` 生成（延迟项 fish/trade/breed/hunt/light/store/build 如实标 no）；④ `fallbackRouter.js` 中文语料覆盖 eat/sleep/farm/craft/smelt/defend/attack/deposit/withdraw/explore；⑤ `llm:dry`：**路由 53/53**（每技能 ≥2 条中文 + 3 条注入用例）、schema 16/16、工具 25/25 |
+
+### 八、功能测试：客户端 + 个人服务器（不碰真实服务器）
+
+按操作员要求，Phase 2/3 的功能测试只在**本机个人服务器**上做。路径已验证：
+
+```powershell
+# 1. 只启动本地个人服务器（vanilla 1.20.1，不起 mineflayer agent）
+node scripts/run-all.js --no-agent
+#   -> "Done (3.383s)!" 并监听 127.0.0.1:25565（已实测）
+
+# 2. 让 Forge 客户端进入个人服务器（PCL 客户端 + 最新控制 Mod）
+npm run client:launch -- --server 127.0.0.1:25565
+
+# 3. Agent 用 clientmod 身体 + local 档位连同一个服务器
+npm run agent:client -- --profile local     # 或：node src/index.js --body clientmod --profile local
+```
+
+进入世界后逐项测试（面板 http://127.0.0.1:8766/panel 可看路由结果）：
+
+| 指令 | 预期 |
+| --- | --- |
+| `!craft wooden_pickaxe` | 背包有 ≥2 原木时：自动做木板/木棍/工作台？——先 `!craft crafting_table` 并 `!place` 放下，再合成镐 |
+| `!smelt raw_iron 1` | 附近有熔炉、背包有生铁+煤：产出铁锭 |
+| `!farm 6` | 有锄+种子：收成熟作物、锄地、播种 |
+| `!sleep` | 夜里、12 格内有床：睡到天亮 |
+| `@猫娘 饿了` / `把东西存起来` / `帮我把生铁烧了` | 走中文回退或 LLM，动作落在对应技能上 |

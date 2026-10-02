@@ -29,11 +29,12 @@ const { prepareForgeServer, startForgeServer, parseForgeVersion } = require('../
 const { launchClient } = require('../src/pcl/launcher');
 
 function parse(argv) {
-  const args = { withClient: false, noServer: false, day: false, goal: null, java: null, port: null, loader: null };
+  const args = { withClient: false, noServer: false, noAgent: false, day: false, goal: null, java: null, port: null, loader: null };
   for (let i = 0; i < argv.length; i += 1) {
     const a = argv[i];
     if (a === '--with-client') args.withClient = true;
     else if (a === '--no-server') args.noServer = true;
+    else if (a === '--no-agent') args.noAgent = true;
     else if (a === '--day') args.day = true;
     else if (a === '--goal') args.goal = argv[++i];
     else if (a === '--java') args.java = argv[++i];
@@ -127,6 +128,18 @@ async function main() {
     });
   }
 
+  if (args.noAgent) {
+    /**
+     * Server-only mode for the personal-server workflow.
+     *
+     * Phase 2/3 functional tests run the REAL client (control mod + clientmod body) against
+     * this local vanilla server; a mineflayer bot would be a second agent in the same world,
+     * so tests want the server without it. The process stays up until Ctrl+C.
+     */
+    log.info(`server only - no agent started. Point the Forge client at 127.0.0.1:${cfg.server.port} and run the agent with "--body clientmod --profile local".`);
+    log.info('Ctrl+C stops the server.');
+    return;
+  }
   log.info('step 3/3: starting the mineflayer agent');
   const agentArgs = [path.join(cfg.root, 'src', 'index.js'), '--force'];
   if (args.day) agentArgs.push('--day');

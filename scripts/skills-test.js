@@ -365,6 +365,61 @@ class MenuBody extends Body {
     return result.detail;
   });
 
+  // ------------------------------------------------------------------ farming + sleep
+  process.stdout.write('\n7. farming and sleep (Phase 2)\n');
+
+  await scenario('farm: harvests a ripe crop, tills dirt and plants seeds', async () => {
+    const air = (x, y, z) => ({ name: 'air', position: { x, y, z } });
+    const body = new MockBody(cfg, {
+      start: { x: 0, y: 64, z: 0 },
+      blocks: [
+        { name: 'wheat', position: { x: 1, y: 64, z: 0 } },
+        { name: 'dirt', position: { x: 2, y: 63, z: 0 } },
+        air(2, 64, 0),
+        { name: 'farmland', position: { x: 3, y: 63, z: 0 } },
+        air(3, 64, 0)
+      ],
+      crops: [{ name: 'minecraft:wheat', position: { x: 1, y: 64, z: 0 }, age: 7, maxAge: 7 }],
+      inventory: { 'minecraft:iron_hoe': 1, 'minecraft:wheat_seeds': 4 }
+    });
+    await body.connect();
+    const result = await skills.run('farm', makeCtx(body), { radius: 6 });
+    expect(result.ok, `expected farm to work, got ${result.reason}`);
+    expect(result.harvested >= 1, `expected a harvest, got ${result.harvested}`);
+    expect(result.tilled >= 1, `expected tilling, got ${result.tilled}`);
+    expect(result.planted >= 1, `expected planting, got ${result.planted}`);
+    const dugWheat = body.history.some((h) => h.action === 'dig' && /wheat/.test(h.name));
+    expect(dugWheat, 'the ripe crop should have been dug');
+    return result.detail;
+  });
+
+  await scenario('sleep: daytime is a no-op, and a night sleep ends at morning', async () => {
+    const dayBody = new MockBody(cfg, {});
+    await dayBody.connect();
+    const daytime = await skills.run('sleep', makeCtx(dayBody), {});
+    expect(daytime.ok && daytime.slept === false, `daytime should be a no-op, got ${JSON.stringify(daytime)}`);
+
+    const nightBody = new MockBody(cfg, {
+      night: true,
+      start: { x: 0, y: 64, z: 0 },
+      blocks: [{ name: 'red_bed', position: { x: 2, y: 64, z: 0 } }]
+    });
+    await nightBody.connect();
+    let calls = 0;
+    nightBody.refresh = async () => {
+      calls += 1;
+      if (calls >= 2) {
+        nightBody.state.night = false;
+        nightBody.state.timeOfDay = 1000;
+      }
+      return nightBody.snapshot();
+    };
+    const slept = await skills.run('sleep', makeCtx(nightBody), { timeoutMs: 10000 });
+    expect(slept.ok && slept.slept === true, `expected a sleep, got ${JSON.stringify(slept)}`);
+    expect(nightBody.history.some((h) => h.action === 'use'), 'the bed should have been used');
+    return `${daytime.detail}; ${slept.detail}`;
+  });
+
   // ------------------------------------------------------------------ summary
   const failed = results.filter((r) => !r.ok);
   process.stdout.write(`\n${'='.repeat(60)}\n`);

@@ -179,8 +179,18 @@ register({
   },
   available: (ctx) => (menuCapable(ctx.body)
     ? { ok: true }
-    : { ok: false, reason: 'this body cannot move items through a menu (crafting needs one)' }),
+    : ctx.body && ctx.body.supportsCrafting
+      ? { ok: true }
+      : { ok: false, reason: 'this body cannot craft (needs a menu API or its own recipe database)' }),
   async run(ctx, params) {
+    // Bodies with their own crafting implementation (mineflayer) take that path; the client
+    // mod has no recipe knowledge, so it goes through the grid clicks below.
+    if (!menuCapable(ctx.body) && ctx.body && typeof ctx.body.craft === 'function' && ctx.body.supportsCrafting) {
+      const byBody = await ctx.body.craft(params.item, params.count).catch((err) => ({ ok: false, reason: err.message }));
+      return byBody && byBody.ok
+        ? { ok: true, produced: byBody.produced || params.count, detail: `crafted ${params.item} via the body` }
+        : { ok: false, reason: (byBody && byBody.reason) || 'the body could not craft that' };
+    }
     // Fresh snapshot: the plan must see what the bag actually holds right now, and the table
     // search must see the current block scan (a stale snapshot is how "no crafting table"
     // appeared next to a crafting table).

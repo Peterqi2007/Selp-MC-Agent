@@ -257,7 +257,7 @@ class LlmCore {
          * safe; what is *not* safe is assuming a tool call happened when it did not, which is
          * why the loop below re-asks for the intent either way.
          */
-        tools: this.toolsEnabled ? toolRegistry.toOpenAiTools() : undefined
+        tools: this.toolsEnabled ? toolRegistry.toOpenAiTools(this.ctx) : undefined
       });
       const ms = Date.now() - started;
 
@@ -400,6 +400,33 @@ class LlmCore {
     if (!chat) return { ok: false, reason: 'no command table available' };
 
     const level = this.cfg.actionLevel || 'directive';
+    /**
+     * Skill intents run through the skill registry directly.
+     *
+     * That registry is exactly what the `!` commands call, so this is still one
+     * implementation per capability - it just takes structured parameters instead of a
+     * command line, which is what lets `do_skill` and the intent enum share one schema.
+     */
+    if (action.type === 'skill') {
+      const skills = require('../skills');
+      this.trace({
+        kind: 'dispatch',
+        id: context.id || null,
+        line: `skill ${action.skill}`,
+        level,
+        via: 'llm',
+        channel: context.source || 'llm'
+      });
+      const result = await skills.run(action.skill, this.ctx, action.args || {});
+      return {
+        ok: result.ok !== false,
+        line: `skill ${action.skill}`,
+        accepted: result.ok !== false,
+        detail: result,
+        reason: result.reason || null
+      };
+    }
+
     let line;
     if (action.type === 'stop') line = 'stop';
     else if (action.type === 'go_to') line = `goto ${action.x} ${action.y} ${action.z}`;

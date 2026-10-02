@@ -13,6 +13,7 @@
  */
 
 const { bare } = require('../../world/safety');
+const skills = require('../../skills');
 
 /** Task names the model may request, matching the intent enum in src/llm/intent.js. */
 const TASK_NAMES = ['chop', 'mine', 'collect'];
@@ -74,6 +75,29 @@ async function stop(ctx, args, options = {}) {
 }
 
 /**
+ * `do_skill`: run one named entry of the skill catalogue.
+ *
+ * The catalogue (`src/skills`) is the same one the `!` commands drive, so "available to the
+ * model" and "available to the player" cannot drift apart. The name is checked against the
+ * live registry and the parameters against the skill's own schema; both refusals are
+ * reported as failed calls, never as silent successes.
+ */
+async function doSkill(ctx, args, options = {}) {
+  const name = String((args && (args.name || args.skill)) || '').trim();
+  if (!name) return { ok: false, error: 'do_skill needs a name' };
+  const skill = skills.get(name);
+  if (!skill) {
+    return { ok: false, error: `unknown skill "${name}" - available: ${skills.names().join(', ')}` };
+  }
+  const gate = skill.available ? skill.available(ctx) : { ok: true };
+  if (gate && gate.ok === false) return { ok: false, error: gate.reason || `${name} is unavailable on this body` };
+  const result = await skills.run(name, ctx, (args && args.params) || {});
+  return result.ok
+    ? { ok: true, skill: name, detail: result.detail || result.reason || null, result }
+    : { ok: false, error: result.reason || `${name} failed`, skill: name };
+}
+
+/**
  * Hand a validated line to the shared command table.
  *
  * Kept private so nothing outside this file can dispatch an unvalidated string.
@@ -98,4 +122,4 @@ async function dispatch(ctx, line, options, extra) {
   }
 }
 
-module.exports = { doTask, goTo, stop, TASK_NAMES, MAX_COUNT };
+module.exports = { doTask, goTo, stop, doSkill, TASK_NAMES, MAX_COUNT };

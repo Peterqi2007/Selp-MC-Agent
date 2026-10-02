@@ -17,5 +17,7 @@ require('./blocks');
 require('./combat');
 require('./containers');
 require('./crafting');
+require('./smelting');
+require('./farming');
 
 module.exports = registry;

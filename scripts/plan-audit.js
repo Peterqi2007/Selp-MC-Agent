@@ -127,18 +127,18 @@ check('C: the LLM module set matches §5.1', () => {
   return 'index/client/blackboard/intent/fallbackRouter/tools/* + config/llm.json';
 });
 
-check('C: exactly the six planned tools, and no say tool', () => {
+check('C: the planned tools (P0 + Phase-3 do_skill), and no say tool', () => {
   const registry = require(path.join(ROOT, 'src/llm/tools/registry'));
   const names = registry.toolNames();
-  const expected = ['observe', 'find_blocks', 'lookup_item', 'do_task', 'go_to', 'stop'];
-  if (names.length !== 6 || !expected.every((n) => names.includes(n))) throw new Error(`got ${names.join(', ')}`);
+  const expected = ['observe', 'find_blocks', 'lookup_item', 'do_task', 'do_skill', 'go_to', 'stop'];
+  if (names.length !== 7 || !expected.every((n) => names.includes(n))) throw new Error(`got ${names.join(', ')}`);
   if (names.includes('say')) throw new Error('a say tool would reintroduce autonomous speech');
   return names.join(', ');
 });
 
-check('C: the intent action enum is the four-value whitelist', () => {
+check('C: the intent action enum is the five-value whitelist', () => {
   const intent = require(path.join(ROOT, 'src/llm/intent.js'));
-  if (intent.ACTION_TYPES.join(',') !== 'task,go_to,stop') throw new Error(`ACTION_TYPES = ${intent.ACTION_TYPES}`);
+  if (intent.ACTION_TYPES.join(',') !== 'task,go_to,stop,skill') throw new Error(`ACTION_TYPES = ${intent.ACTION_TYPES}`);
   if (intent.TASK_NAMES.join(',') !== 'chop,mine,collect') throw new Error(`TASK_NAMES = ${intent.TASK_NAMES}`);
   return 'task/go_to/stop + chop/mine/collect';
 });

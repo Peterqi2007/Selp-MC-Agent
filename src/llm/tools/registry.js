@@ -113,6 +113,25 @@ const TOOLS = [
     run: (ctx, args, options) => actuators.goTo(ctx, args, options)
   },
   {
+    name: 'do_skill',
+    kind: 'write',
+    description:
+      'Run one named skill from the skill catalogue: eat, equip, drop, armor, place, use_on, ' +
+      'attack, defend, explore, come, craft, smelt, farm, sleep, withdraw, deposit, target, look, look_at. ' +
+      'Prefer this for anything beyond plain gathering; the skill validates its own parameters and ' +
+      'refuses unknown names or parameters instead of guessing.',
+    parameters: {
+      type: 'object',
+      properties: {
+        name: { type: 'string', description: 'skill name, e.g. "craft", "eat", "sleep", "farm"' },
+        params: { type: 'object', description: 'skill parameters, e.g. {"item":"wooden_pickaxe","count":1}' }
+      },
+      required: ['name'],
+      additionalProperties: false
+    },
+    run: (ctx, args, options) => actuators.doSkill(ctx, args, options)
+  },
+  {
     name: 'stop',
     kind: 'write',
     description: 'Stop everything immediately: cancel the current task and clear the queue.',
@@ -284,12 +303,40 @@ function describeForPrompt() {
   }).join('\n');
 }
 
-/** OpenAI-style function declarations, for providers that support native tool calling. */
-function toOpenAiTools() {
-  return TOOLS.map((tool) => ({
-    type: 'function',
-    function: { name: tool.name, description: tool.description, parameters: tool.parameters }
-  }));
+/**
+ * OpenAI-style function declarations, for providers that support native tool calling.
+ *
+ * When a context is passed, `do_skill`'s description and `name` enum are filled from the
+ * live skill registry - the model sees exactly the skills this body can run, generated from
+ * the same declarations the skills validate against (no second hand-written list).
+ */
+function toOpenAiTools(ctx) {
+  let available = null;
+  if (ctx) {
+    try {
+      available = require('../../skills')
+        .describe(ctx)
+        .filter((skill) => skill.available)
+        .map((skill) => skill.name);
+    } catch {
+      available = null;
+    }
+  }
+  return TOOLS.map((tool) => {
+    let description = tool.description;
+    let parameters = tool.parameters;
+    if (tool.name === 'do_skill' && available && available.length) {
+      description = `${description} Available on this body: ${available.join(', ')}.`;
+      parameters = {
+        ...tool.parameters,
+        properties: {
+          ...tool.parameters.properties,
+          name: { ...tool.parameters.properties.name, enum: available }
+        }
+      };
+    }
+    return { type: 'function', function: { name: tool.name, description, parameters } };
+  });
 }
 
 module.exports = {

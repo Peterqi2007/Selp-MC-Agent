@@ -53,6 +53,9 @@ const HELP = [
   '!look <yaw> <pitch> - turn the camera to absolute angles (degrees)',
   '!lookat <x> <y> <z> - look at a coordinate',
   '!target - what is under the crosshair right now',
+  '!smelt <item> [n] - smelt in a nearby furnace',
+  '!farm [radius] - harvest ripe crops, till soil, plant seeds',
+  '!sleep - sleep in a nearby bed until morning',
   '!goal <text> - queue a goal in words',
   '!hunt [n] - hunt animals for food',
   '!craft <item> [n] - craft an item',
@@ -270,6 +273,12 @@ class ChatController {
           return this.runSkill('craft', { item: args[0], count: Number(args[1]) || 1 });
         }
         return this.enqueue(new CraftTask(ctx, { item: args[0], count: Number(args[1]) || 1 }));
+      },
+      farm: (args) => this.runSkill('farm', { radius: Number(args[0]) || 6 }),
+      sleep: () => this.runSkill('sleep', {}),
+      smelt: (args) => {
+        if (!args[0]) throw new Error('usage: !smelt <item> [count]');
+        return this.runSkill('smelt', { item: args[0], count: Number(args[1]) || 1 });
       },
       shelter: () => this.enqueue(new ShelterTask(ctx)),
       light: (args) => this.enqueue(new LightTask(ctx, { count: Number(args[0]) || 4 })),

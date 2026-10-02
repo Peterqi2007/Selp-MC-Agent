@@ -79,6 +79,8 @@ let closeCommands = 0;
 world.craftOpen = false;
 world.grid = new Array(9).fill(null);
 world.carried = null;
+world.furnaceOpen = false;
+world.furnace = { input: null, fuel: null, output: null };
 
 const MOCK_RECIPES = [
   { name: 'oak_planks', out: 4, shape: [['oak_log']] },
@@ -121,6 +123,33 @@ function writeBackPlayerSlots(slots) {
 /** Build the menu the mod would report: crafting table when open, else the inventory menu. */
 function buildMenu() {
   if (world.menu) return world.menu;
+  if (world.furnaceOpen) {
+    // One tick of "smelting" per menu read: input + fuel -> output. Instant on purpose; the
+    // skill's job is the item choreography, not waiting ten real seconds.
+    if (world.furnace.input && world.furnace.fuel) {
+      world.furnace.input.count -= 1;
+      if (world.furnace.input.count <= 0) world.furnace.input = null;
+      world.furnace.output = world.furnace.output || { name: 'minecraft:iron_ingot', count: 0 };
+      if (!/iron_ingot/.test(world.furnace.output.name)) world.furnace.output = { name: 'minecraft:iron_ingot', count: 0 };
+      world.furnace.output.count += 1;
+    }
+    const slots = [
+      { i: 0, item: world.furnace.input ? world.furnace.input.name : 'null', count: world.furnace.input ? world.furnace.input.count : 0, player: false },
+      { i: 1, item: world.furnace.fuel ? world.furnace.fuel.name : 'null', count: world.furnace.fuel ? world.furnace.fuel.count : 0, player: false },
+      { i: 2, item: world.furnace.output ? world.furnace.output.name : 'null', count: world.furnace.output ? world.furnace.output.count : 0, player: false }
+    ];
+    playerSlotsFromInventory().forEach((item, idx) => {
+      slots.push({ i: 3 + idx, item: item ? item.name : 'null', count: item ? item.count : 0, player: true });
+    });
+    return {
+      open: true,
+      containerId: 14,
+      size: slots.length,
+      menuClass: 'FurnaceMenu',
+      carried: world.carried ? { item: world.carried.name, count: world.carried.count } : { item: 'null', count: 0 },
+      slots
+    };
+  }
   const gridWidth = world.craftOpen ? 3 : 2;
   const gridSize = gridWidth * gridWidth;
   const slots = [{ i: 0, item: 'null', count: 0, player: false }];
@@ -255,6 +284,11 @@ const server = http.createServer((req, res) => {
           world.menu = null;
           return send({ command, ok: true });
         }
+        if (target && /furnace/.test(target)) {
+          world.furnaceOpen = true;
+          world.menu = null;
+          return send({ command, ok: true });
+        }
         // Opening a container: the mod reports the menu through the next /command menu call.
         world.menu = {
           open: true,
@@ -288,6 +322,32 @@ const server = http.createServer((req, res) => {
         }
         // ---- the crafting menus -------------------------------------------
         if (!world.menu) {
+          // ---- the furnace menu ------------------------------------------
+          if (world.furnaceOpen) {
+            const players = playerSlotsFromInventory();
+            const playerIdx = (i) => (i >= 3 && i < 3 + 36 ? i - 3 : -1);
+            if (clickMode === 'quickmove' && slotIndex >= 3) {
+              const idx = playerIdx(slotIndex);
+              const cell = idx >= 0 ? players[idx] : null;
+              if (cell) {
+                const name = bareName(cell.name);
+                if (slotIndex !== 2 && !world.furnace.input && /raw_|_ore$|sand|cobblestone|porkchop|beef|chicken|potato|kelp/.test(name)) {
+                  world.furnace.input = { name: cell.name, count: cell.count };
+                  players[idx] = null;
+                  writeBackPlayerSlots(players);
+                } else if (/coal|charcoal|_log$|planks/.test(name) && !world.furnace.fuel) {
+                  world.furnace.fuel = { name: cell.name, count: cell.count };
+                  players[idx] = null;
+                  writeBackPlayerSlots(players);
+                }
+              }
+            } else if (clickMode === 'quickmove' && slotIndex === 2 && world.furnace.output) {
+              const out = world.furnace.output;
+              world.inventory[out.name] = (world.inventory[out.name] || 0) + out.count;
+              world.furnace.output = null;
+            }
+            return send({ command, ok: true });
+          }
           const gridWidth = world.craftOpen ? 3 : 2;
           const gridSize = gridWidth * gridWidth;
           const playerBase = world.craftOpen ? 10 : 9;
@@ -364,6 +424,7 @@ const server = http.createServer((req, res) => {
       if (verb === 'close') {
         world.menu = null;
         world.craftOpen = false;
+        world.furnaceOpen = false;
         world.carried = null;
         world.grid = new Array(9).fill(null);
         world.screenOpen = false;
@@ -639,6 +700,22 @@ function check(name, ok, detail) {
     check(
       'craft: the pickaxe really is in the inventory',
       (body.snapshot().inventory['minecraft:wooden_pickaxe'] || 0) >= 1,
+      JSON.stringify(body.snapshot().inventory)
+    );
+
+    // ---- smelting: load input + fuel, take the product -------------------
+    world.menu = null;
+    world.craftOpen = false;
+    world.furnaceOpen = false;
+    world.furnace = { input: null, fuel: null, output: null };
+    world.inventory = { 'minecraft:raw_iron': 2, 'minecraft:coal': 2 };
+    world.blocks.cells['4,64,0'] = 'minecraft:furnace';
+    const smelted = await skills.run('smelt', craftCtx, { item: 'raw_iron', count: 1, timeoutMs: 15000 });
+    check('smelt: raw iron becomes an iron ingot', smelted.ok === true, JSON.stringify(smelted).slice(0, 200));
+    await body.refresh(true);
+    check(
+      'smelt: the ingot really is in the inventory',
+      (body.snapshot().inventory['minecraft:iron_ingot'] || 0) >= 1,
       JSON.stringify(body.snapshot().inventory)
     );
 

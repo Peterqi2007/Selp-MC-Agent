@@ -20,8 +20,15 @@
  * request the agent can satisfy, and accepting it would occupy the bot forever.
  */
 
-/** The complete action vocabulary. Extending this list is a deliberate act. */
-const ACTION_TYPES = ['task', 'go_to', 'stop'];
+/**
+ * The complete action vocabulary. Extending this list is a deliberate act.
+ *
+ * `skill` (Phase 3) names an entry in `src/skills` - the same catalogue the `!` channel
+ * and the `do_skill` tool use, so the enum expands without creating a second capability
+ * list that can drift. The name is checked against the live registry here; parameters are
+ * validated by the registry's own schema at the same moment.
+ */
+const ACTION_TYPES = ['task', 'go_to', 'stop', 'skill'];
 /** The complete task vocabulary for P0's three primitives. */
 const TASK_NAMES = ['chop', 'mine', 'collect'];
 
@@ -66,6 +73,23 @@ function normalizeIntent(raw) {
 
   if (type === 'stop') {
     return { ok: true, intent: { say, action: { type: 'stop' } } };
+  }
+
+  if (type === 'skill') {
+    const skills = require('../skills');
+    const name = String(raw.action.skill || raw.action.name || '').trim();
+    if (!name) return { ok: false, reason: 'skill needs a name' };
+    const skill = skills.get(name);
+    if (!skill) {
+      return { ok: false, reason: `unknown skill "${name}" - have: ${skills.names().join(', ')}` };
+    }
+    const args = raw.action.args === undefined || raw.action.args === null ? {} : raw.action.args;
+    if (typeof args !== 'object' || Array.isArray(args)) {
+      return { ok: false, reason: 'skill args must be an object' };
+    }
+    const checked = skills.validate(skill, args);
+    if (!checked.ok) return { ok: false, reason: checked.error };
+    return { ok: true, intent: { say, action: { type: 'skill', skill: name, args: checked.params } } };
   }
 
   if (type === 'go_to') {

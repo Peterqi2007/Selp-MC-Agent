@@ -266,6 +266,8 @@ class ClientModBody extends Body {
       lightLevel: state.lightLevel === undefined ? 15 : state.lightLevel,
       hostiles: state.hostiles || [],
       nearbyItems: state.itemDrops || [],
+      /** Crops with growth stages (mod-side block-state scan), used by farming. */
+      crops: Array.isArray(state.crops) ? state.crops : [],
       players: (state.players || []).map((p) => p.name),
       /**
        * The block scan, exposed as a reference.
