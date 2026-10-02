@@ -595,7 +595,21 @@ public final class ClientActions {
             lookAtOnClient(target.x, player.getY() + 1.0D, target.z);
             setKeyInClient("forward", true);
             setKeyInClient("sprint", horizontal > 3.0D);
-            if (player.horizontalCollision && player.onGround()) {
+            /**
+             * In water the jump key is the swim-up key.
+             *
+             * Without holding it the bot bobs at the surface, cannot climb a 1-block bank
+             * it is pressed against, and the walk dies as "stuck": the cross-river test
+             * swam thirteen blocks and then stalled at the far bank for exactly this
+             * reason. Hold it while the waypoint is at or above our feet, or while a bank
+             * is blocking us; a waypoint below us (a dive) still lets the bot sink.
+             */
+            boolean inWater = player.isInWater();
+            boolean swimUp = inWater && (dy > -0.1D || player.horizontalCollision);
+            if (swimUp) {
+                setKeyInClient("jump", true);
+                jumpHeld = true; // not a blocked step-up: do not count it toward the give-up
+            } else if (player.horizontalCollision && player.onGround()) {
                 setKeyInClient("jump", true);
                 if (!jumpHeld) {
                     jumpHeld = true;
