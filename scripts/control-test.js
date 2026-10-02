@@ -524,30 +524,31 @@ async function buildAgent(options = {}) {
   const server = startStatusServer(httpAgent.ctx, { port: PORT });
   await new Promise((r) => setTimeout(r, 250));
 
-  await scenario('GET /panel serves the self-contained page', async () => {
+  await scenario('GET /panel is a pure server-rendered dashboard (no JS, no iframe)', async () => {
     const res = await fetch(`${BASE}/panel`);
     const html = await res.text();
     expect(res.status === 200, `expected 200, got ${res.status}`);
     expect(/<!doctype html>/i.test(html), 'not an HTML page');
-    expect(html.includes('id="death"'), 'the death banner is missing');
-    expect(html.includes('id="btn-estop"'), 'the emergency stop button is not wired');
-    expect(html.includes('send()') || html.includes('id="cmd"'), 'the command box is not wired');
-    // The server-side snapshot must be rendered into the HTML: with JavaScript disabled
-    // (or when the reader is looking at some other copy of the page) this is the only thing
-    // that still shows real data - and its absence is what "the panel is from elsewhere"
-    // looks like.
-    expect(html.includes('id="boot"'), 'the server-rendered boot snapshot is missing');
-    expect(!html.includes('<!--BOOT-->'), 'the boot marker was not replaced');
-    expect(html.includes('服务器端快照'), 'the boot snapshot text is missing');
-    expect(html.includes('AgentSteve'), 'the boot snapshot does not carry the agent name');
-    // The script must be an external same-origin file (inline scripts are what blockers
-    // refuse) and it must beacon the ping endpoint for observability.
-    expect(html.includes('src="/panel/app.js"'), 'the panel script is not an external file');
-    // No-JS fallbacks: a self-refreshing state iframe and a real form for commands.
-    expect(html.includes('src="/panel/state"'), 'the state iframe is missing');
-    expect(html.includes('name="command"'), 'the command input is not part of a form');
-    expect(html.includes('method="post"'), 'the command form method is missing');
-    return `${html.length} bytes`;
+    // The dashboard must not depend on anything the browser has to execute.
+    expect(html.includes('http-equiv="refresh"'), 'the dashboard does not self-reload');
+    expect(!html.includes('<script'), 'the dashboard must not depend on scripts');
+    expect(html.includes('服务器端实时状态'), 'the server-rendered state header is missing');
+    expect(html.includes('AgentSteve'), 'the dashboard does not name the agent');
+    expect(html.includes('/panel/cmd'), 'the command page link is missing');
+    expect(html.includes('/command?command='), 'the quick command links are missing');
+    expect(res.headers.get('cache-control') === 'no-store', 'the dashboard must not be cached');
+    return `${html.length} bytes, meta-refresh`;
+  });
+
+  await scenario('GET /panel/cmd serves a plain form and GET /command redirects back', async () => {
+    const page = await fetch(`${BASE}/panel/cmd`);
+    const html = await page.text();
+    expect(page.status === 200 && html.includes('method="post"'), 'the command page has no form');
+    expect(html.includes('name="command"'), 'the form has no command field');
+    const res = await fetch(`${BASE}/command?command=status&priority=directive`, { redirect: 'manual' });
+    expect(res.status === 303, `expected 303, got ${res.status}`);
+    expect(res.headers.get('location') === '/panel', `unexpected location ${res.headers.get('location')}`);
+    return 'form + link flow OK';
   });
 
   await scenario('GET /panel/state renders live state without JavaScript', async () => {

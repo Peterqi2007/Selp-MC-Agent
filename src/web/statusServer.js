@@ -24,6 +24,8 @@
  */
 
 const http = require('http');
+const fs = require('fs');
+const path = require('path');
 const { inventorySummary } = require('../world/items');
 const { countTrace } = require('../util/trace');
 const { PANEL_HTML, PANEL_JS } = require('./panel');
@@ -33,6 +35,27 @@ function startStatusServer(ctx, options = {}) {
   const log = new Logger('http');
   const port = options.port || 8766;
   const host = options.host || (ctx.cfg && ctx.cfg.agent && ctx.cfg.agent.web && ctx.cfg.agent.web.bind) || '127.0.0.1';
+  /**
+   * Access log for the panel endpoints.
+   *
+   * "The panel never updates" has three possible layers: the agent does not send fresh
+   * state, the browser never asks for it, or the browser asks and renders something stale.
+   * Guessing between them cost several rounds - this file answers the middle question
+   * directly: if a manual refresh does not appear here, the request never arrived.
+   */
+  const accessFile = path.join((ctx.cfg && ctx.cfg.root) || process.cwd(), 'runtime', 'logs', 'panel-access.log');
+  const access = (req, url) => {
+    try {
+      fs.mkdirSync(path.dirname(accessFile), { recursive: true });
+      fs.appendFileSync(
+        accessFile,
+        `${new Date().toISOString()} ${req.method} ${url.pathname}${url.search} from ${req.socket.remoteAddress} ` +
+          `ua="${String(req.headers['user-agent'] || '').slice(0, 60)}"\n`
+      );
+    } catch {
+      /* logging must never break the panel */
+    }
+  };
   /** The port we actually ended up on; changes when 8766 is already taken. */
   let boundPort = port;
   const startedAt = new Date().toISOString();
@@ -54,16 +77,31 @@ function startStatusServer(ctx, options = {}) {
 
   const server = http.createServer(async (req, res) => {
     const url = new URL(req.url, `http://${req.headers.host}`);
+    if (url.pathname.startsWith('/panel') || url.pathname === '/ui/state' || url.pathname === '/command') {
+      access(req, url);
+    }
     try {
       // ------------------------------------------------------------ panel
       if (req.method === 'GET' && (url.pathname === '/panel' || url.pathname === '/panel/')) {
-        // no-store: a cached panel page kept polling with stale code after upgrades.
-        // The boot block is rendered server-side so the page shows real data even when the
-        // browser refuses to run JavaScript - and so "the page is not from this agent at all"
-        // becomes visible instead of looking like an empty panel.
-        const html = PANEL_HTML.replace('<!--BOOT-->', bootBlock(buildUiState()));
+        /**
+         * THE dashboard: server-rendered, zero JavaScript, whole page auto-reloads via
+         * `<meta http-equiv="refresh" content="2">`.
+         *
+         * Three rounds of live debugging showed that anything the browser has to *execute*
+         * (inline script, external script, iframe) can be missing in a given environment,
+         * and the panel then looks dead while the agent is perfectly healthy. A plain HTML
+         * page that reloads itself has no such dependency: the timestamp and the data are
+         * re-rendered by the server every two seconds. Commands live on /panel/cmd (no
+         * auto-refresh, so typing is not interrupted) and quick actions are ordinary links.
+         */
+        const html = dashboardPage(buildUiState());
         res.writeHead(200, { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-store' });
         return res.end(html);
+      }
+
+      if (req.method === 'GET' && url.pathname === '/panel/cmd') {
+        res.writeHead(200, { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-store' });
+        return res.end(commandPage());
       }
 
       /**
@@ -157,7 +195,7 @@ function startStatusServer(ctx, options = {}) {
       }
 
       // ----------------------------------------------------------- control
-      if (req.method === 'POST' && url.pathname === '/command') {
+      if ((req.method === 'POST' || req.method === 'GET') && url.pathname === '/command') {
         /**
          * Two content types, on purpose:
          *  - JSON from the panel's fetch (and tooling);
@@ -215,7 +253,7 @@ function startStatusServer(ctx, options = {}) {
 
         const commandLine = trimmed.startsWith('!') ? trimmed.slice(1).trim() : trimmed;
         const result = await ctx.chat.handle(commandLine, `http:${priority}`);
-        if (isForm) {
+        if (isForm || req.method === 'GET') {
           res.writeHead(303, { location: '/panel', 'cache-control': 'no-store' });
           return res.end();
         }
@@ -395,6 +433,10 @@ function bootBlock(state) {
     `pos ${esc(pos)} · hp ${esc(world.health)}/20 · food ${esc(world.food)} ${screen}` +
     '<div style="margin-top:4px;color:#8b93a1">这一段由服务器直接写入页面，不需要 JavaScript。' +
     '若刷新后时间戳不变，说明你打开的不是这份 agent 的页面。</div>' +
+    '<div style="margin-top:6px;color:#ffd7d7;font-weight:600">⚠ 必须通过地址栏的 ' +
+    '<span style="color:#ffb3b3">http://127.0.0.1:8766/panel</span> 打开本页。' +
+    '如果地址栏是 <span style="color:#ffb3b3">file:///…（另存为到本地的副本）</span>，' +
+    '时间戳会永远停在保存那一刻、按钮也不会生效 —— 请关闭该文件，改用上面的网址。</div>' +
     '<noscript><div style="margin-top:6px;color:#f85149">⚠ 你的浏览器没有执行 JavaScript（被禁用或被扩展拦截）：' +
     '实时刷新与按钮都不可用。请允许此站点运行脚本，或换一个浏览器。</div></noscript>' +
     '</div>'
@@ -407,6 +449,124 @@ function bootBlock(state) {
  * No JavaScript anywhere: a `<meta http-equiv="refresh" content="2">` keeps it current, so a
  * browser that refuses to execute scripts still shows live data. Everything is escaped.
  */
+/** Shared CSS for the server-rendered pages. */
+const PANEL_CSS =
+  'body{margin:0;padding:10px 12px;background:#14161a;color:#e6e8ec;' +
+  'font:13px/1.55 "Segoe UI","Microsoft YaHei",system-ui,sans-serif}' +
+  '.row{display:flex;flex-wrap:wrap;gap:10px;align-items:center}' +
+  '.pill{border:1px solid #2b3038;border-radius:999px;padding:1px 9px}' +
+  '.dim{color:#8b93a1}.err{color:#f85149}.ok{color:#3fb950}' +
+  'a.btn,button{display:inline-block;background:#22272e;color:#e6e8ec;border:1px solid #2b3038;' +
+  'border-radius:6px;padding:6px 11px;margin:2px 4px 2px 0;text-decoration:none;font:inherit}' +
+  'a.btn:hover,button:hover{border-color:#58a6ff}' +
+  'input[type=text]{background:#0e1013;color:#e6e8ec;border:1px solid #2b3038;border-radius:6px;' +
+  'padding:8px 10px;font:inherit;min-width:340px}' +
+  'table{width:100%;border-collapse:collapse;margin-top:6px}' +
+  'th,td{text-align:left;border-bottom:1px solid #2b3038;padding:2px 5px;font-size:12px}' +
+  '#log{margin-top:6px;font-family:Consolas,monospace;white-space:pre-wrap;max-height:150px;overflow:auto}' +
+  '.card{background:#1c1f26;border:1px solid #2b3038;border-radius:8px;padding:9px 11px;margin-bottom:8px}';
+
+/**
+ * The main dashboard: pure server-rendered HTML, whole-page meta refresh every 2 seconds.
+ *
+ * No JavaScript, no iframe, no fetch - just a page the browser reloads, so the data always
+ * updates even in the most locked-down environment. Commands are ordinary links; the text
+ * box lives on /panel/cmd so a reload cannot wipe what someone is typing.
+ */
+function dashboardPage(state) {
+  const esc = (value) =>
+    String(value === undefined || value === null ? '' : value)
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;');
+  const at = new Date().toISOString();
+  const head =
+    '<!doctype html><html lang="zh-CN"><head><meta charset="utf-8">' +
+    '<meta http-equiv="refresh" content="2"><title>Minecraft Agent 控制面板</title>' +
+    `<style>${PANEL_CSS}</style></head><body>`;
+  const quick = (command, label) =>
+    `<a class="btn" href="/command?command=${encodeURIComponent(command)}&priority=directive">${label}</a>`;
+  const foot =
+    '<div class="dim" style="margin-top:8px">本页由服务器每 2 秒自动重载（浏览器原生 meta refresh，' +
+    '不需要 JavaScript）。指令请到 <a href="/panel/cmd" style="color:#58a6ff">✍ 发送指令</a> 页面输入。</div>' +
+    '</body></html>';
+
+  if (!state || state.ok === false) {
+    return `${head}<div class="card err">⚠ 面板状态不可用（${esc(at)}）：${esc(state && state.error)}</div></body></html>`;
+  }
+  const identity = state.identity || {};
+  const world = state.world || {};
+  const brain = state.brain || {};
+  const llm = state.llm || {};
+  const pos = world.position
+    ? `${Math.round(world.position.x)}, ${Math.round(world.position.y)}, ${Math.round(world.position.z)}`
+    : '-';
+  const rows = (state.recentInputs || [])
+    .slice(-8)
+    .reverse()
+    .map((r) => {
+      const action = r.action || (r.kind === 'understood-nothing' ? '未听懂 → 已回问' : '(仅回话)');
+      return `<tr><td>${esc(r.text)}</td><td>${esc(r.source)}</td><td>${esc(r.via || '')}</td><td>${esc(action)}</td></tr>`;
+    })
+    .join('');
+  const logs = (state.logs || [])
+    .slice(-16)
+    .map((l) => `<div>${esc(l)}</div>`)
+    .join('');
+
+  return (
+    head +
+    '<div class="card">' +
+    '<div class="row">' +
+    `<span class="pill">服务器端实时状态 · ${esc(at)} · 端口 ${esc(state.panel ? state.panel.port : '?')}</span>` +
+    `<span class="pill">${esc(identity.name)} / ${esc(identity.bodyKind)}${identity.bodyReady ? '' : '（未连接）'}</span>` +
+    `<span class="pill">hp ${esc(world.health)}/20</span>` +
+    `<span class="pill">food ${esc(world.food)}</span>` +
+    `<span class="pill">pos ${esc(pos)}</span>` +
+    `<span class="pill">${esc(world.dimension)}</span>` +
+    (world.screenOpen ? `<span class="err">⚠ 游戏界面开着（${esc(world.screen || '?')}），无法移动</span>` : '') +
+    '</div>' +
+    '<div class="row" style="margin-top:6px">' +
+    `<span class="dim">大脑:</span><span class="${brain.stopped ? 'err' : 'ok'}">${brain.stopped ? '已停止' : brain.paused ? '暂停' : brain.running ? '运行中' : '未启动'}</span>` +
+    `<span class="dim">当前:</span><span>${esc(brain.current ? brain.current.description : 'idle')}</span>` +
+    `<span class="dim">队列:</span><span>${esc(brain.queueLength)}</span>` +
+    `<span class="dim">LLM:</span><span>${llm.enabled ? '✅ ' + esc(llm.model) : '未启用'}</span>` +
+    `<span class="dim">手持:</span><span>${esc(world.heldItem || '空')}</span>` +
+    '</div>' +
+    '<div class="row" style="margin-top:6px">' +
+    '<a class="btn" href="/panel/cmd" style="background:#1d3a24;border-color:#2f6b3d">✍ 发送指令</a>' +
+    quick('status', '📊 状态') + quick('inv', '🎒 背包') + quick('where', '🧭 位置') +
+    quick('chop 8', '🪓 砍树') + quick('mine dirt 8', '⛏ 挖泥土') + quick('mine stone 8', '⛏ 挖石') +
+    quick('defend 6', '🛡 自卫') + '<a class="btn" href="/emergency-stop" style="background:#4a1d1d;border-color:#7d2b2b">⏹ 急停</a>' +
+    '</div></div>' +
+    '<div class="card"><div class="dim">最近识别到的输入 → 路由结果</div>' +
+    '<table><thead><tr><th style="width:34%">输入</th><th style="width:14%">来源</th><th style="width:14%">路由</th><th>动作 / 结果</th></tr></thead><tbody>' +
+    (rows || '<tr><td colspan="4" class="dim">暂无</td></tr>') +
+    '</tbody></table></div>' +
+    `<div class="card"><div class="dim">日志（最近 ${Math.min(16, (state.logs || []).length)} 条）</div><div id="log">${logs || '<span class="dim">（暂无日志）</span>'}</div></div>` +
+    foot
+  );
+}
+
+/** The command page: a plain form, no auto-refresh, so typing is never interrupted. */
+function commandPage() {
+  return (
+    '<!doctype html><html lang="zh-CN"><head><meta charset="utf-8">' +
+    '<title>发送指令 · Minecraft Agent</title>' +
+    `<style>${PANEL_CSS}</style></head><body>` +
+    '<div class="card"><div class="row"><strong>发送指令</strong>' +
+    '<span class="dim">`!mine dirt 8` 是指令通道；`@猫娘 挖点土` 是自然语言通道</span></div>' +
+    '<form method="post" action="/command" style="margin-top:8px">' +
+    '<div class="row"><input type="text" name="command" autofocus autocomplete="off" spellcheck="false" placeholder="例如 !mine dirt 8 或 @猫娘 挖点土">' +
+    '<label><input type="radio" name="priority" value="directive" checked> 指令</label>' +
+    '<label><input type="radio" name="priority" value="urgent"> 紧急</label>' +
+    '<button type="submit">发送</button></div></form>' +
+    '<div class="dim" style="margin-top:8px">发送后会返回面板；面板每 2 秒自动刷新。' +
+    '<a href="/panel" style="color:#58a6ff">← 返回面板</a></div></div>' +
+    '</body></html>'
+  );
+}
+
 function statePage(state) {
   const esc = (value) =>
     String(value === undefined || value === null ? '' : value)
@@ -453,6 +613,8 @@ function statePage(state) {
 
   return (
     head +
+    '<div style="margin-bottom:6px;color:#ffd7d7">⚠ 本页必须通过 http://127.0.0.1:8766/panel/state 访问；' +
+    '另存为到本地的副本不会更新。</div>' +
     '<div class="row">' +
     `<span class="pill">服务器端实时状态 · ${esc(at)} · 端口 ${esc(state.panel ? state.panel.port : '?')}</span>` +
     `<span class="pill">${esc(identity.name)} / ${esc(identity.bodyKind)}${identity.bodyReady ? '' : '（未连接）'}</span>` +
