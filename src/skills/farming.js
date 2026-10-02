@@ -15,6 +15,23 @@ const { bare } = require('../world/items');
 const GROUND = /^(dirt|coarse_dirt|rooted_dirt|grass_block|podzol|mycelium)$/;
 const SEEDS = /(_seeds$|^carrot$|^potato$|^beetroot_seeds$|^nether_wart$)/;
 
+/**
+ * Is it daytime? Prefer the clock over the client's `isDay` flag.
+ *
+ * The mod's flag comes from `Level.isDay()`, which on this modpack answered "day" at
+ * timeOfDay 20310 (about 02:00) - the bed, however, follows the same clock the rest of
+ * the world does. Beds work from 12542 to 23458, so derive from the clock and keep the
+ * flag only as a fallback for bodies that do not report timeOfDay.
+ */
+function isDaytime(time) {
+  if (!time) return null;
+  if (typeof time.timeOfDay === 'number' && Number.isFinite(time.timeOfDay)) {
+    const t = ((time.timeOfDay % 24000) + 24000) % 24000;
+    return !(t >= 12542 && t <= 23458);
+  }
+  return typeof time.isDay === 'boolean' ? time.isDay : null;
+}
+
 function findItem(inventory, pattern) {
   return Object.keys(inventory || {}).find((name) => pattern.test(bare(name))) || null;
 }
@@ -137,7 +154,7 @@ register({
     const body = ctx.body;
     if (typeof body.refresh === 'function') await body.refresh(true).catch(() => null);
     const snap = typeof body.snapshot === 'function' ? body.snapshot() : null;
-    if (snap && snap.time && snap.time.isDay) {
+    if (isDaytime(snap && snap.time) === true) {
       return { ok: true, slept: false, detail: 'it is already daytime' };
     }
     const world = ctx.world;
@@ -154,10 +171,22 @@ register({
     while (Date.now() < deadline) {
       await new Promise((resolve) => setTimeout(resolve, 2000));
       const state = typeof body.refresh === 'function' ? await body.refresh(true).catch(() => null) : null;
-      if (state && state.time && state.time.isDay) {
+      if (isDaytime(state && state.time) === true) {
         return { ok: true, slept: true, detail: 'slept until morning' };
       }
     }
-    return { ok: false, reason: 'still not morning - the bed may be obstructed or it is not night for this bed' };
+    // The game says *why* it refused to sleep in chat; pass that on instead of guessing.
+    let chat = [];
+    if (typeof body.readChat === 'function') {
+      const log = await body.readChat(6).catch(() => null);
+      chat = (log && log.lines) || [];
+    }
+    const tail = chat.filter(Boolean).slice(-2).join(' | ');
+    return {
+      ok: false,
+      reason:
+        'still not morning - the bed may be obstructed or the game refused the sleep' +
+        (tail ? ` (chat: ${tail})` : '')
+    };
   }
 });

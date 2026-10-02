@@ -251,7 +251,14 @@ async function main() {
   );
 
   // ---- 7. sleep ------------------------------------------------------------
-  if (NO_PREPARE && !server && snap.time && snap.time.isDay) {
+  /**
+   * Day/night comes from the clock, not the client's `isDay` flag: on this modpack the
+   * flag still said "day" at timeOfDay 20310 (about 02:00), which would skip a perfectly
+   * good night-time sleep check.
+   */
+  const clock = snap.time && Number.isFinite(snap.time.timeOfDay) ? snap.time.timeOfDay % 24000 : null;
+  const isDayNow = clock === null ? !!(snap.time && snap.time.isDay) : !(clock >= 12542 && clock <= 23458);
+  if (NO_PREPARE && !server && isDayNow) {
     record('sleep: skipped (daytime, no console to set night)', true, 'run this check after nightfall if wanted');
   } else {
     consoleCommand('time set night');
