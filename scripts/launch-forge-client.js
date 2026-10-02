@@ -33,6 +33,9 @@
  *   --offline                 offline (cracked) session, default username AgentSteve
  *   --username <name>         player name (implies offline when --online is absent)
  *   --server <host[:port]>    auto-join via --quickPlayMultiplayer host:port
+ *   --singleplayer <world>    boot straight into a single-player world folder
+ *                             (--quickPlaySingleplayer; used to restart the test client
+ *                             without a human clicking through the main menu)
  *   --memory <MB>             -Xmx in MB (also sizes -Xms)
  *   --dry-run                 print the full command line and exit without launching
  *   --javaw                   use javaw.exe instead of java.exe (no console window)
@@ -88,6 +91,7 @@ function parseArgs(argv) {
     online: false,
     username: null,
     server: null,
+    singleplayer: null,
     memory: null,
     dryRun: false,
     javaw: false,
@@ -111,6 +115,7 @@ function parseArgs(argv) {
       case '--online': opts.online = true; break;
       case '--username': opts.username = need(i, a); i += 1; opts.offline = true; break;
       case '--server': opts.server = need(i, a); i += 1; break;
+      case '--singleplayer': opts.singleplayer = need(i, a); i += 1; break;
       case '--memory': opts.memory = Number(need(i, a)); i += 1; break;
       case '--dry-run': opts.dryRun = true; break;
       case '--javaw': opts.javaw = true; break;
@@ -467,9 +472,9 @@ function main() {
   const features = {
     is_demo_user: false,
     has_custom_resolution: true,
-    has_quick_plays_support: !!opts.server,
+    has_quick_plays_support: !!(opts.server || opts.singleplayer),
     is_quick_play_multiplayer: !!opts.server,
-    is_quick_play_singleplayer: false,
+    is_quick_play_singleplayer: !!opts.singleplayer,
     is_quick_play_realms: false
   };
   let quickPlayTarget = null;
@@ -516,7 +521,7 @@ function main() {
     resolution_width: String(opts.width),
     resolution_height: String(opts.height),
     quickPlayPath: '',
-    quickPlaySingleplayer: '',
+    quickPlaySingleplayer: opts.singleplayer ? String(opts.singleplayer) : '',
     quickPlayMultiplayer: quickPlayTarget || '',
     quickPlayRealms: ''
   };
@@ -583,7 +588,7 @@ function main() {
     `memory      : -Xmx${memory}M -Xms${Math.max(1024, Math.round(memory / 2))}M`,
     `libraries   : ${jars.length} jars on classpath (+ version jar)`,
     `rule-skipped: ${skipped.length} libs (other OS natives)`,
-    `quickPlay   : ${quickPlayTarget || '(none)'}`,
+    `quickPlay   : ${quickPlayTarget || (opts.singleplayer ? `singleplayer:${opts.singleplayer}` : '(none)')}`,
     `log         : ${logFile}`,
     `game log    : ${path.join(gameDir, 'logs', 'latest.log')}`,
     `summary json: ${metaFile}`,
@@ -638,6 +643,7 @@ function main() {
     offline: !!opts.offline,
     memoryMb: memory,
     quickPlay: quickPlayTarget,
+    quickPlaySingleplayer: opts.singleplayer || null,
     logFile,
     gameLog: path.join(gameDir, 'logs', 'latest.log'),
     classpathJars: jars.length,

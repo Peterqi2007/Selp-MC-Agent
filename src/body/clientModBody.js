@@ -29,6 +29,23 @@ const { chooseTool } = require('../world/toolPolicy');
 /** Block scan radius the mod uses; mirrored here so findBlocks can filter cheaply. */
 const SCAN_RADIUS = 24;
 
+/**
+ * A menu "fingerprint" for change detection: slots and cursor stack.
+ *
+ * The container index and class are part of it because a screen can swap underneath a
+ * click (furnace -> inventory when it closes) and that counts as a change too.
+ */
+function menuSignature(menu) {
+  if (!menu) return 'null';
+  return JSON.stringify({
+    open: !!menu.open,
+    id: menu.containerId,
+    cls: menu.menuClass,
+    carried: menu.carried ? [menu.carried.item, menu.carried.count] : null,
+    slots: (menu.slots || []).map((slot) => [slot.i, slot.item, slot.count])
+  });
+}
+
 class ClientModBody extends Body {
   /**
    * @param {object} cfg loaded config
@@ -745,14 +762,33 @@ class ClientModBody extends Body {
    * Click a slot in the open menu (the vanilla mouse path).
    *
    * @param {number} slot slot index from `menu()`
-   * @param {object} [options] { button: 0|1, mode: 'pickup'|'quickmove'|'swap', waitMs }
+   * @param {object} [options] { button: 0|1, mode: 'pickup'|'quickmove'|'swap', waitMs, attempts }
    */
   async clickSlot(slot, options = {}) {
     const button = options.button === undefined ? 0 : options.button;
     const mode = options.mode || 'pickup';
-    const res = await this.command(`click ${slot} ${button} ${mode}`);
-    if (!res || !res.ok) return false;
-    await sleep(options.waitMs === undefined ? 150 : options.waitMs);
+    const waitMs = options.waitMs === undefined ? 150 : options.waitMs;
+    /**
+     * A container click can be silently dropped by the server (state-id race) while the
+     * client answers "click sent". That is how the furnace ended up with an input stack
+     * and no fuel: the fuel quick-move was acknowledged but nothing moved. Watch the menu
+     * and send the click again when the screen did not change at all.
+     */
+    const attempts = options.attempts === undefined ? 2 : Math.max(1, options.attempts);
+    let before = attempts > 1 ? await this.menu().catch(() => null) : null;
+    for (let attempt = 1; attempt <= attempts; attempt += 1) {
+      const res = await this.command(`click ${slot} ${button} ${mode}`);
+      if (!res || !res.ok) return false;
+      await sleep(waitMs);
+      if (!before || !before.open) return true;
+      const after = await this.menu().catch(() => null);
+      if (!after || !after.open) return true;
+      if (menuSignature(after) !== menuSignature(before)) return true;
+      before = after;
+      if (attempt < attempts) {
+        this.log.debug(`slot click ${slot} ${mode} changed nothing - retrying (attempt ${attempt})`);
+      }
+    }
     return true;
   }
 

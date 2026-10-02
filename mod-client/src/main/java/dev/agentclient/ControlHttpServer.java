@@ -411,8 +411,10 @@ public final class ControlHttpServer {
                 }
                 case "say" -> out.put("ok", Json.bool(config.allowCommands && actions.command("say " + rest)));
                 case "look" -> {
-                    double[] xyz = numbers(rest, 3);
-                    out.put("ok", Json.bool(xyz != null && actions.look(xyz[0], xyz[1])));
+                    // yaw + pitch: two numbers, not three. (Requiring three silently turned
+                    // every look into a usage error.)
+                    double[] yawPitch = numbers(rest, 2);
+                    out.put("ok", Json.bool(yawPitch != null && actions.look(yawPitch[0], yawPitch[1])));
                 }
                 case "lookat" -> {
                     double[] xyz = numbers(rest, 3);
@@ -431,16 +433,16 @@ public final class ControlHttpServer {
                 }
                 case "place" -> {
                     int[] xyz = ints(rest, 3);
-                    double[] all = numbers(rest, 6);
-                    String face = parts.length > 1 ? nth(rest, 4) : "up";
-                    String item = parts.length > 1 ? nth(rest, 5) : "";
+                    // "place x y z [face] [item]" - tokens 3 and 4, not 4 and 5.
+                    String face = nth(rest, 3);
+                    String item = nth(rest, 4);
                     out.put("ok", Json.bool(xyz != null && actions.place(xyz[0], xyz[1], xyz[2], face, item)));
                 }
                 case "useon", "interact" -> {
                     // Right-click a block face with whatever is held: hoes, buckets, bonemeal,
                     // buttons, and "open this chest / crafting table / furnace".
                     int[] xyz = ints(rest, 3);
-                    String face = parts.length > 1 ? nth(rest, 4) : "up";
+                    String face = nth(rest, 3);
                     out.put("ok", Json.bool(xyz != null && actions.place(xyz[0], xyz[1], xyz[2], face, "")));
                     out.put("note", Json.str("continuous - poll /progress or /state"));
                 }
@@ -456,14 +458,29 @@ public final class ControlHttpServer {
                     out.put("menu", menu == null ? "{\"open\":false,\"reason\":\"client thread busy\"}" : menu);
                 }
                 case "click" -> {
-                    double[] all = numbers(rest, 3);
-                    if (all == null || all.length < 1) {
+                    // "click <slot> [button] [pickup|quickmove|swap]"
+                    //
+                    // The mode is not a number, so the generic numbers() helper can never
+                    // parse this: it saw "click 3 0 pickup", failed on "pickup" and returned
+                    // "usage" for every single slot click. Crafting and smelting were dead
+                    // on the real client while permissive fake-mod tests stayed green.
+                    String[] tokens = rest.isEmpty() ? new String[0] : rest.split("\\s+");
+                    Integer slot = tokens.length > 0 ? tryInt(tokens[0]) : null;
+                    if (slot == null) {
                         out.put("ok", Json.bool(false));
                         out.put("error", Json.str("usage: click <slot> [button] [pickup|quickmove|swap]"));
                     } else {
-                        int slot = (int) all[0];
-                        int button = all.length > 1 ? (int) all[1] : 0;
-                        String mode = parts.length > 1 ? nth(rest, 3) : "pickup";
+                        int button = 0;
+                        String mode = "pickup";
+                        int next = 1;
+                        Integer maybeButton = tokens.length > 1 ? tryInt(tokens[1]) : null;
+                        if (maybeButton != null) {
+                            button = maybeButton;
+                            next = 2;
+                        }
+                        if (tokens.length > next) {
+                            mode = tokens[next];
+                        }
                         out.put("ok", Json.bool(actions.clickSlot(slot, button, mode)));
                     }
                 }
@@ -551,7 +568,7 @@ public final class ControlHttpServer {
 
     private static double[] numbers(String rest, int count) {
         String[] tokens = rest.isEmpty() ? new String[0] : rest.split("\\s+");
-        if (tokens.length < 3) {
+        if (tokens.length < count) {
             return null;
         }
         try {
@@ -560,6 +577,18 @@ public final class ControlHttpServer {
                 out[i] = Double.parseDouble(tokens[i]);
             }
             return out;
+        } catch (NumberFormatException e) {
+            return null;
+        }
+    }
+
+    /** Parse one token as an int, or null when it is missing / not a number. */
+    private static Integer tryInt(String token) {
+        if (token == null || token.isEmpty()) {
+            return null;
+        }
+        try {
+            return (int) Math.floor(Double.parseDouble(token));
         } catch (NumberFormatException e) {
             return null;
         }

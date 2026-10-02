@@ -70,6 +70,53 @@ const clicks = [];
 let closeCommands = 0;
 
 /**
+ * Tokenising mirror of `ControlHttpServer.execute()` in the Java mod.
+ *
+ * The mock used to accept anything, so a Java-side parser bug ("click 3 0 pickup" was
+ * rejected because the mode is not a number, and `numbers()` demanded three numeric
+ * tokens) stayed invisible: 42 green offline checks, every slot click dead on the real
+ * client. These helpers follow the Java rules, so a command the agent sends is only
+ * accepted here when the real mod would accept it too.
+ */
+function tokensOf(args) {
+  return args.length ? args.split(/\s+/) : [];
+}
+
+/** Mirrors `numbers(rest, count)`: null unless the first `count` tokens are all numeric. */
+function numbers(tokens, count) {
+  if (tokens.length < count) return null;
+  const out = [];
+  for (let i = 0; i < count; i += 1) {
+    const n = Number(tokens[i]);
+    if (!Number.isFinite(n)) return null;
+    out.push(n);
+  }
+  return out;
+}
+
+/** Mirrors `tryInt(token)`. */
+function tryInt(token) {
+  if (token === undefined || token === '') return null;
+  const n = Number(token);
+  return Number.isFinite(n) ? Math.floor(n) : null;
+}
+
+/** Mirrors the `click <slot> [button] [mode]` case. */
+function parseClick(tokens) {
+  const slot = tokens.length > 0 ? tryInt(tokens[0]) : null;
+  if (slot === null) return null;
+  let button = 0;
+  let next = 1;
+  const maybeButton = tokens.length > 1 ? tryInt(tokens[1]) : null;
+  if (maybeButton !== null) {
+    button = maybeButton;
+    next = 2;
+  }
+  const mode = tokens.length > next ? tokens[next] : 'pickup';
+  return { slot, button, mode };
+}
+
+/**
  * Mini crafting simulation for the mock.
  *
  * The craft skill drives real menu clicks; this block gives the fake mod enough of a
@@ -232,6 +279,7 @@ const server = http.createServer((req, res) => {
       const command = JSON.parse(body || '{}').command || '';
       const [verb, ...rest] = command.split(/\s+/);
       const args = rest.join(' ');
+      const tokens = tokensOf(args);
 
       if (verb === 'chat' || verb === 'cmd') {
         chatLog.push(args);
@@ -277,7 +325,11 @@ const server = http.createServer((req, res) => {
       }
       if (verb === 'useon') {
         // Opening a crafting table: the next `menu` reports the 3x3 crafting menu.
-        const [ux, uy, uz] = args.split(/\s+/).map(Number);
+        const xyz = numbers(tokens, 3);
+        if (!xyz) {
+          return send({ command, ok: false, error: 'usage: useon <x> <y> <z> [face]' });
+        }
+        const [ux, uy, uz] = xyz;
         const target = world.blocks.cells[`${ux},${uy},${uz}`];
         if (target && /crafting_table/.test(target)) {
           world.craftOpen = true;
@@ -310,12 +362,13 @@ const server = http.createServer((req, res) => {
         return send({ command, ok: true, menu });
       }
       if (verb === 'click') {
-        const [slot, button, mode] = args.split(/\s+/);
-        const slotIndex = Number(slot);
-        const buttonIndex = Number(button || 0);
-        const clickMode = mode || 'pickup';
+        const parsed = parseClick(tokensOf(args));
+        if (!parsed) {
+          return send({ command, ok: false, error: 'usage: click <slot> [button] [pickup|quickmove|swap]' });
+        }
+        const { slot: slotIndex, button: buttonIndex, mode: clickMode } = parsed;
         clicks.push({ slot: slotIndex, button: buttonIndex, mode: clickMode });
-        if ((mode || 'pickup') === 'quickmove' && Number(slot) === 2 && world.menu && world.menu.slots[2]) {
+        if (clickMode === 'quickmove' && slotIndex === 2 && world.menu && world.menu.slots[2]) {
           world.inventory['minecraft:stone'] = (world.inventory['minecraft:stone'] || 0) + world.menu.slots[2].count;
           world.menu.slots[2].item = 'null';
           world.menu.slots[2].count = 0;
@@ -433,11 +486,15 @@ const server = http.createServer((req, res) => {
         return send({ command, ok: true });
       }
       if (verb === 'look') {
-        const [yaw, pitch] = args.split(/\s+/).map(Number);
-        world.yaw = yaw;
-        world.pitch = pitch;
+        // two numbers: yaw and pitch (three used to be required, which made every look fail)
+        const yawPitch = numbers(tokens, 2);
+        if (!yawPitch) {
+          return send({ command, ok: false, error: 'usage: look <yaw> <pitch>' });
+        }
+        world.yaw = yawPitch[0];
+        world.pitch = yawPitch[1];
         // Simulate "something comes into view" for the sweep test.
-        if (world.sweepTarget && Math.abs(((yaw % 360) + 360) % 360 - 180) < 45) {
+        if (world.sweepTarget && Math.abs(((yawPitch[0] % 360) + 360) % 360 - 180) < 45) {
           world.target = world.sweepTarget;
         }
         return send({ command, ok: true });
@@ -454,6 +511,9 @@ const server = http.createServer((req, res) => {
         return send({ command, ok: true });
       }
       if (verb === 'attack') {
+        if (!numbers(tokens, 2)) {
+          return send({ command, ok: false, error: 'usage: attack <entityId> [timeoutMs]' });
+        }
         return send({ command, ok: true });
       }
       if (verb === 'lookat' || verb === 'stop' || verb === 'resync') {
@@ -673,6 +733,16 @@ function check(name, ok, detail) {
       clicks.length === 1 && clicks[0].slot === 2 && clicks[0].mode === 'quickmove',
       JSON.stringify(clicks)
     );
+    // The Java parser used to demand three numbers, so "click 3 0 pickup" answered
+    // "usage" and every crafting click died silently. These lock the contract down.
+    const clickNoButton = await body.command('click 2 quickmove');
+    check('click <slot> <mode> (no button) is accepted', !!clickNoButton && clickNoButton.ok === true);
+    const clickBadSlot = await body.command('click banana');
+    check('click with a non-numeric slot is refused', !!clickBadSlot && clickBadSlot.ok === false);
+    const lookTwoNumbers = await body.command('look 90 0');
+    check('look takes two numbers (yaw, pitch)', !!lookTwoNumbers && lookTwoNumbers.ok === true);
+    const attackTwoNumbers = await body.command('attack 42 2000');
+    check('attack takes two numbers (id, timeout)', !!attackTwoNumbers && attackTwoNumbers.ok === true);
     await body.refresh(true);
     check('the withdrawal is visible in the inventory', (body.snapshot().inventory['minecraft:stone'] || 0) >= 5);
     const closed = await body.closeMenu();
