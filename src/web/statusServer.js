@@ -58,8 +58,12 @@ function startStatusServer(ctx, options = {}) {
       // ------------------------------------------------------------ panel
       if (req.method === 'GET' && (url.pathname === '/panel' || url.pathname === '/panel/')) {
         // no-store: a cached panel page kept polling with stale code after upgrades.
+        // The boot block is rendered server-side so the page shows real data even when the
+        // browser refuses to run JavaScript - and so "the page is not from this agent at all"
+        // becomes visible instead of looking like an empty panel.
+        const html = PANEL_HTML.replace('<!--BOOT-->', bootBlock(buildUiState()));
         res.writeHead(200, { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-store' });
-        return res.end(PANEL_HTML);
+        return res.end(html);
       }
 
       if (req.method === 'GET' && url.pathname === '/ui/state') {
@@ -288,6 +292,51 @@ function safeUiState(ctx, panel) {
       updatedAt: new Date().toISOString()
     };
   }
+}
+
+/**
+ * Server-rendered snapshot for the top of the panel page.
+ *
+ * Written into the HTML at request time, so it needs no JavaScript: a reader whose browser
+ * blocks scripts (or who is looking at a cached copy from somewhere else) can still tell
+ * whether the page really came from a live agent, and can see position/health on load. The
+ * `<noscript>` note explains why the buttons and the 1-second refresh are inert.
+ */
+function bootBlock(state) {
+  const esc = (value) =>
+    String(value === undefined || value === null ? '' : value)
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;');
+  const at = new Date().toISOString();
+  if (!state || state.ok === false) {
+    return (
+      '<div id="boot" style="background:#3d1418;border:1px solid #f85149;border-radius:8px;padding:10px 12px;margin-bottom:10px;color:#ffd7d7">' +
+      `<b>⚠ 面板状态不可用</b>（服务端于 ${esc(at)} 生成）：${esc(state && state.error)}` +
+      '<div style="margin-top:4px">agent 还在运行，但它无法读取游戏状态；请查看 agent 控制台日志。</div>' +
+      '<noscript><div style="margin-top:6px">另外：你的浏览器没有执行 JavaScript，实时刷新与按钮都不可用。</div></noscript>' +
+      '</div>'
+    );
+  }
+  const world = state.world || {};
+  const identity = state.identity || {};
+  const pos = world.position
+    ? `${Math.round(world.position.x)}, ${Math.round(world.position.y)}, ${Math.round(world.position.z)}`
+    : '-';
+  const screen = world.screenOpen
+    ? `<span style="color:#f85149">⚠ 游戏界面开着（${esc(world.screen || '?')}），机器人无法移动</span>`
+    : '';
+  return (
+    '<div id="boot" style="background:#1d2733;border:1px solid #2b4d7d;border-radius:8px;padding:10px 12px;margin-bottom:10px;color:#cfe4ff">' +
+    `<b>服务器端快照</b>（${esc(at)} · 端口 ${esc(state.panel ? state.panel.port : '?')}） · ` +
+    `agent <b>${esc(identity.name)}</b> · body ${esc(identity.bodyKind)}${identity.bodyReady ? '' : '（未连接）'} · ` +
+    `pos ${esc(pos)} · hp ${esc(world.health)}/20 · food ${esc(world.food)} ${screen}` +
+    '<div style="margin-top:4px;color:#8b93a1">这一段由服务器直接写入页面，不需要 JavaScript。' +
+    '若刷新后时间戳不变，说明你打开的不是这份 agent 的页面。</div>' +
+    '<noscript><div style="margin-top:6px;color:#f85149">⚠ 你的浏览器没有执行 JavaScript（被禁用或被扩展拦截）：' +
+    '实时刷新与按钮都不可用。请允许此站点运行脚本，或换一个浏览器。</div></noscript>' +
+    '</div>'
+  );
 }
 
 /**

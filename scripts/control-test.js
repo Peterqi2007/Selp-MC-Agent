@@ -531,6 +531,14 @@ async function buildAgent(options = {}) {
     expect(/<!doctype html>/i.test(html), 'not an HTML page');
     expect(html.includes('id="death"'), 'the death banner is missing');
     expect(html.includes('/emergency-stop'), 'the emergency stop button is not wired');
+    // The server-side snapshot must be rendered into the HTML: with JavaScript disabled
+    // (or when the reader is looking at some other copy of the page) this is the only thing
+    // that still shows real data - and its absence is what "the panel is from elsewhere"
+    // looks like.
+    expect(html.includes('id="boot"'), 'the server-rendered boot snapshot is missing');
+    expect(!html.includes('<!--BOOT-->'), 'the boot marker was not replaced');
+    expect(html.includes('服务器端快照'), 'the boot snapshot text is missing');
+    expect(html.includes('AgentSteve'), 'the boot snapshot does not carry the agent name');
     return `${html.length} bytes`;
   });
 

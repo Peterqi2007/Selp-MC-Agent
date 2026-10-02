@@ -68,6 +68,8 @@ const PANEL_HTML = `<!doctype html>
 <body>
 <div class="wrap">
 
+<!--BOOT-->
+
   <div id="death">
     <h2>🪦 BOT 已死亡 · 所有任务已中止</h2>
     <div class="row">
