@@ -39,6 +39,7 @@
     "control:test": "node scripts/control-test.js",
     "llm:dry": "node scripts/llm-dry.js",
     "p0:verify": "node scripts/p0-verify.js",
+    "personal:test": "node scripts/personal-test.js",
     "plan:audit": "node scripts/plan-audit.js",
     "doctor": "node scripts/agent-doctor.js",
     "agent:client": "node src/index.js --body clientmod --profile simpfun",
