@@ -436,6 +436,32 @@ public final class ControlHttpServer {
                     String item = parts.length > 1 ? nth(rest, 5) : "";
                     out.put("ok", Json.bool(xyz != null && actions.place(xyz[0], xyz[1], xyz[2], face, item)));
                 }
+                case "useon", "interact" -> {
+                    // Right-click a block face with whatever is held: hoes, buckets, bonemeal,
+                    // buttons, and "open this chest / crafting table / furnace".
+                    int[] xyz = ints(rest, 3);
+                    String face = parts.length > 1 ? nth(rest, 4) : "up";
+                    out.put("ok", Json.bool(xyz != null && actions.place(xyz[0], xyz[1], xyz[2], face, "")));
+                    out.put("note", Json.str("continuous - poll /progress or /state"));
+                }
+                case "menu", "slots" -> {
+                    String menu = actions.menuJson();
+                    out.put("ok", Json.bool(menu != null));
+                    out.put("menu", menu == null ? "{\"open\":false,\"reason\":\"client thread busy\"}" : menu);
+                }
+                case "click" -> {
+                    double[] all = numbers(rest, 3);
+                    if (all == null || all.length < 1) {
+                        out.put("ok", Json.bool(false));
+                        out.put("error", Json.str("usage: click <slot> [button] [pickup|quickmove|swap]"));
+                    } else {
+                        int slot = (int) all[0];
+                        int button = all.length > 1 ? (int) all[1] : 0;
+                        String mode = parts.length > 1 ? nth(rest, 3) : "pickup";
+                        out.put("ok", Json.bool(actions.clickSlot(slot, button, mode)));
+                    }
+                }
+                case "close" -> out.put("ok", Json.bool(actions.closeMenu()));
                 case "use", "useitem" -> out.put("ok", Json.bool(actions.useItem()));
                 case "select" -> out.put("ok", Json.bool(actions.selectItem(rest)));
                 case "drop" -> out.put("ok", Json.bool(actions.dropHeld(!"1".equals(rest))));
@@ -457,7 +483,9 @@ public final class ControlHttpServer {
                 default -> {
                     out.put("ok", Json.bool(false));
                     out.put("error", Json.str("unknown command: " + verb));
-                    out.put("known", Json.str("chat login register cmd look lookat moveto dig place use select drop attack stop resync"));
+                    out.put("known", Json.str(
+                            "chat login register cmd look lookat moveto dig place useon menu click close "
+                                    + "use select drop attack stop resync"));
                 }
             }
         } catch (Exception e) {

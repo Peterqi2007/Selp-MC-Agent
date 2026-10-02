@@ -1,8 +1,10 @@
 # P0 实施状态
 
 对应 `docs/P0-PLAN.md`。本文只记录**可核查的事实**：交付物、验收证据、以及尚未完成的部分。
-最后更新：2026-10-02（接手同步：深层钻石矿放宽为铁镐，测试期望已对齐；用户人工真机复测三项修正**未通过**，
-后续计划参考 mc_aiplayer / mindcraft 重写——本轮不重写）。
+最后更新：2026-10-02（接手同步：深层钻石矿放宽为铁镐，测试期望已对齐；人工真机复测三项修正**未通过**，
+决定参考 mc_aiplayer / mindcraft 重写。第一/二刀已落地：工具策略唯一化（`src/world/toolPolicy.js`）、
+树木识别重写（`src/world/safety.js`）、Mod 新增 `useon`/`menu`/`click`/`close` 原语、
+技能层 v1（`src/skills/`，12 个技能，`npm run skills:test` 17/17）。完整路线图见 `docs/REWRITE-PLAN.md`）。
 
 ---
 

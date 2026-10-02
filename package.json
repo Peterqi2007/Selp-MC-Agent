@@ -35,6 +35,7 @@
     "client:srg": "node scripts/gen-srg-names.js",
     "path:test": "node scripts/path-test.js",
     "tasks:test": "node scripts/tasks-test.js",
+    "skills:test": "node scripts/skills-test.js",
     "control:test": "node scripts/control-test.js",
     "llm:dry": "node scripts/llm-dry.js",
     "p0:verify": "node scripts/p0-verify.js",

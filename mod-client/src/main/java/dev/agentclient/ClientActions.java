@@ -10,6 +10,9 @@ import net.minecraft.world.InteractionHand;
 import net.minecraft.world.entity.Entity;
 import net.minecraft.world.entity.LivingEntity;
 import net.minecraft.world.entity.item.ItemEntity;
+import net.minecraft.world.inventory.AbstractContainerMenu;
+import net.minecraft.world.inventory.ClickType;
+import net.minecraft.world.inventory.Slot;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.phys.BlockHitResult;
 import net.minecraft.world.phys.Vec3;
@@ -306,6 +309,92 @@ public final class ClientActions {
             if (action.consumesAction()) {
                 mc.player.swing(InteractionHand.MAIN_HAND);
             }
+            return true;
+        });
+    }
+
+    /**
+     * Dump the menu the player currently has open, as JSON.
+     *
+     * The player's own inventory menu (containerId 0) is always open, so this works whether or
+     * not a screen is visible. Index layout follows vanilla:
+     *
+     *   player inventory : 0 result, 1-4 craft grid, 5-8 armour, 9-35 main, 36-44 hotbar, 45 offhand
+     *   crafting table   : 0 result, 1-9 grid, 10-36 main, 37-45 hotbar
+     *   chest            : 0..n-1 chest, then the player part
+     *   furnace          : 0 input, 1 fuel, 2 output, then the player part
+     *
+     * Every slot carries an `i` (its index for `click`), `item`, `count` and `player` flag.
+     */
+    public String menuJson() {
+        return onClient(() -> {
+            if (mc.player == null) {
+                return "{\"open\":false,\"reason\":\"not in world\"}";
+            }
+            AbstractContainerMenu menu = mc.player.containerMenu;
+            if (menu == null) {
+                return "{\"open\":false,\"reason\":\"no menu\"}";
+            }
+            java.util.List<String> slots = new java.util.ArrayList<>();
+            for (int i = 0; i < menu.slots.size(); i += 1) {
+                Slot slot = menu.getSlot(i);
+                ItemStack stack = slot.getItem();
+                java.util.Map<String, String> entry = new LinkedHashMap<>();
+                entry.put("i", Json.num(i));
+                entry.put("item", stack.isEmpty() ? "null" : Json.str(nameOf(stack)));
+                entry.put("count", Json.num(stack.isEmpty() ? 0 : stack.getCount()));
+                entry.put("player", Json.bool(slot.container instanceof net.minecraft.world.entity.player.Inventory));
+                slots.add(Json.obj(entry));
+            }
+            ItemStack carried = menu.getCarried();
+            java.util.Map<String, String> carriedJson = new LinkedHashMap<>();
+            carriedJson.put("item", carried.isEmpty() ? "null" : Json.str(nameOf(carried)));
+            carriedJson.put("count", Json.num(carried.isEmpty() ? 0 : carried.getCount()));
+
+            java.util.Map<String, String> out = new LinkedHashMap<>();
+            out.put("open", Json.bool(true));
+            out.put("containerId", Json.num(menu.containerId));
+            out.put("size", Json.num(menu.slots.size()));
+            out.put("menuClass", Json.str(menu.getClass().getSimpleName()));
+            out.put("carried", Json.obj(carriedJson));
+            out.put("slots", Json.arr(slots));
+            return Json.obj(out);
+        });
+    }
+
+    /**
+     * Click a slot in the currently open menu.
+     *
+     * `mode` is `pickup` (default), `quickmove` (shift-click) or `swap`. This is the same path
+     * the vanilla mouse takes (`handleInventoryMouseClick`), so servers see ordinary play.
+     */
+    public boolean clickSlot(int slot, int button, String mode) {
+        return onClient(() -> {
+            if (mc.player == null || mc.gameMode == null) {
+                return false;
+            }
+            AbstractContainerMenu menu = mc.player.containerMenu;
+            if (menu == null || slot < 0 || slot >= menu.slots.size()) {
+                return false;
+            }
+            ClickType type = switch (mode == null ? "" : mode.toLowerCase(Locale.ROOT)) {
+                case "quickmove", "quick_move", "shift" -> ClickType.QUICK_MOVE;
+                case "swap" -> ClickType.SWAP;
+                case "clone" -> ClickType.CLONE;
+                default -> ClickType.PICKUP;
+            };
+            mc.gameMode.handleInventoryMouseClick(menu.containerId, slot, button, type, mc.player);
+            return true;
+        });
+    }
+
+    /** Close the currently open container (no-op when only the inventory menu is open). */
+    public boolean closeMenu() {
+        return onClient(() -> {
+            if (mc.player == null) {
+                return false;
+            }
+            mc.player.closeContainer();
             return true;
         });
     }

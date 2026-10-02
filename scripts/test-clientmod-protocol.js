@@ -62,6 +62,8 @@ const world = {
 /** Continuous-action state, mirroring the mod's /progress contract. */
 let busy = null;
 let chatLog = [];
+/** Slot clicks the mock received, in order. */
+const clicks = [];
 
 const server = http.createServer((req, res) => {
   const url = new URL(req.url, `http://127.0.0.1:${PORT}`);
@@ -131,6 +133,48 @@ const server = http.createServer((req, res) => {
       }
       if (verb === 'select') {
         world.heldItem = args;
+        return send({ command, ok: true });
+      }
+      if (verb === 'useon') {
+        // Opening a container: the mod reports the menu through the next /command menu call.
+        world.menu = {
+          open: true,
+          containerId: 7,
+          size: 3,
+          menuClass: 'ChestMenu',
+          carried: { item: 'null', count: 0 },
+          slots: [
+            { i: 0, item: 'minecraft:bread', count: 3, player: false },
+            { i: 1, item: 'null', count: 0, player: false },
+            { i: 2, item: 'minecraft:stone', count: 5, player: false }
+  ]
+};
+
+        return send({ command, ok: true });
+      }
+      if (verb === 'menu') {
+        const menu = world.menu || {
+          open: true,
+          containerId: 0,
+          size: 46,
+          menuClass: 'InventoryMenu',
+          carried: { item: 'null', count: 0 },
+          slots: []
+        };
+        return send({ command, ok: true, menu });
+      }
+      if (verb === 'click') {
+        const [slot, button, mode] = args.split(/\s+/);
+        clicks.push({ slot: Number(slot), button: Number(button || 0), mode: mode || 'pickup' });
+        if ((mode || 'pickup') === 'quickmove' && Number(slot) === 2 && world.menu && world.menu.slots[2]) {
+          world.inventory['minecraft:stone'] = (world.inventory['minecraft:stone'] || 0) + world.menu.slots[2].count;
+          world.menu.slots[2].item = 'null';
+          world.menu.slots[2].count = 0;
+        }
+        return send({ command, ok: true });
+      }
+      if (verb === 'close') {
+        world.menu = null;
         return send({ command, ok: true });
       }
       if (verb === 'use') {
@@ -263,6 +307,27 @@ function check(name, ok, detail) {
 
     const attacked = await body.attack({ id: 42 }, { timeoutMs: 2000 });
     check('attack() reaches the mod', attacked === true);
+
+    // ---- menus and slot clicks (the crafting / container groundwork) -----
+    const usedOn = await body.useOn({ x: 4, y: 64, z: 0 }, { face: { x: 0, y: 1, z: 0 }, waitMs: 0 });
+    check('useOn() reaches the mod', usedOn === true);
+    const menu = await body.menu();
+    check(
+      'menu() returns the open container',
+      !!menu && menu.open === true && menu.slots.length === 3,
+      menu ? `${menu.menuClass} slots=${menu.slots.length}` : 'null'
+    );
+    const clicked = await body.clickSlot(2, { mode: 'quickmove', waitMs: 0 });
+    check('clickSlot() reports success', clicked === true);
+    check(
+      'the click carried the right slot and mode',
+      clicks.length === 1 && clicks[0].slot === 2 && clicks[0].mode === 'quickmove',
+      JSON.stringify(clicks)
+    );
+    await body.refresh(true);
+    check('the withdrawal is visible in the inventory', (body.snapshot().inventory['minecraft:stone'] || 0) >= 5);
+    const closed = await body.closeMenu();
+    check('closeMenu() closes the container', closed === true);
 
     // ---- the AuthMe path -------------------------------------------------
     const loggedIn = await body.login('<your-password>');

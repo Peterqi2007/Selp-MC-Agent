@@ -566,9 +566,91 @@ class ClientModBody extends Body {
     return !!(res && res.ok);
   }
 
+  /**
+   * Right-click a block face with whatever is held.
+   *
+   * One primitive covers a lot of play: hoeing dirt, planting seeds, filling a bucket,
+   * bone-mealing a crop, pressing a button, and "open this chest / crafting table / furnace".
+   *
+   * @param {{x:number,y:number,z:number}} position the block to click
+   * @param {object} [options] { face: {x,y,z}, waitMs }
+   */
+  async useOn(position, options = {}) {
+    if (!position) return false;
+    const face = faceName(options.face || { x: 0, y: 1, z: 0 });
+    const res = await this.command(
+      `useon ${Math.floor(position.x)} ${Math.floor(position.y)} ${Math.floor(position.z)} ${face}`
+    );
+    if (!res || !res.ok) return false;
+    // The menu opens on the next server round trip; callers that need it wait a beat.
+    await sleep(options.waitMs === undefined ? 350 : options.waitMs);
+    return true;
+  }
+
+  /**
+   * Dump the currently open menu.
+   *
+   * The player's own inventory menu is always "open", so this also answers "what is in my
+   * inventory, slot by slot" without a screen.
+   *
+   * @returns {Promise<{open:boolean,containerId?:number,size?:number,menuClass?:string,slots:Array,carried:object}|null>}
+   */
+  async menu() {
+    const res = await this.command('menu');
+    if (!res || !res.ok || !res.menu || res.menu.open === false) return res && res.menu ? res.menu : null;
+    return res.menu;
+  }
+
+  /**
+   * Click a slot in the open menu (the vanilla mouse path).
+   *
+   * @param {number} slot slot index from `menu()`
+   * @param {object} [options] { button: 0|1, mode: 'pickup'|'quickmove'|'swap', waitMs }
+   */
+  async clickSlot(slot, options = {}) {
+    const button = options.button === undefined ? 0 : options.button;
+    const mode = options.mode || 'pickup';
+    const res = await this.command(`click ${slot} ${button} ${mode}`);
+    if (!res || !res.ok) return false;
+    await sleep(options.waitMs === undefined ? 150 : options.waitMs);
+    return true;
+  }
+
+  /** Close the open container, if any. */
+  async closeMenu() {
+    const res = await this.command('close');
+    return !!(res && res.ok);
+  }
+
   async equip(itemName) {
     const res = await this.command(`select ${itemName}`);
     return !!(res && res.ok);
+  }
+
+  /**
+   * Drop items: select the stack, then ask the mod to drop one or all of it.
+   *
+   * The mod's `drop` verb drops the whole held stack and `drop 1` drops a single item, so a
+   * partial count is a short loop of single drops. Checking the count first keeps a request
+   * for 64 from turning into 64 round trips when only 3 are left.
+   */
+  async dropItem(itemName, count = 1) {
+    const state = await this.refresh(true);
+    if (!state) return false;
+    const inventory = state.inventory || {};
+    const name = Object.keys(inventory).find((n) => bare(n) === bare(itemName));
+    if (!name) return false;
+    const have = inventory[name] || 0;
+    if (!(await this.equip(name))) return false;
+    if (count >= have) {
+      const res = await this.command('drop');
+      return !!(res && res.ok);
+    }
+    for (let i = 0; i < count; i += 1) {
+      const res = await this.command('drop 1');
+      if (!res || !res.ok) return false;
+    }
+    return true;
   }
 
   async equipBest(kind) {

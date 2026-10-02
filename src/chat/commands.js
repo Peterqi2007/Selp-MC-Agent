@@ -38,6 +38,18 @@ const HELP = [
   '!mine <block> [n] - mine n blocks',
   '!goto <x> <y> <z> - walk there using pathfinding',
   '!collect - pick up nearby dropped items',
+  '!eat [food] - eat the best food carried (or a named item)',
+  '!equip <item> - hold an item from the inventory',
+  '!armor - equip the best armour pieces carried',
+  '!drop <item> [n] - drop n of an item',
+  '!place <item> <x> <y> <z> [face] - place a block',
+  '!use <x> <y> <z> [face] [item] - right-click a block (hoe, plant, bucket, open)',
+  '!attack [type] - attack the nearest hostile',
+  '!defend [range] - fight hostiles that come close',
+  '!explore [distance] [direction] - walk somewhere new',
+  '!withdraw <item> [n] - take items out of a nearby chest',
+  '!deposit [item] - store items in a nearby chest',
+  '!come <player> - walk to a visible player',
   '!goal <text> - queue a goal in words',
   '!hunt [n] - hunt animals for food',
   '!craft <item> [n] - craft an item',
@@ -186,6 +198,42 @@ class ChatController {
         return this.enqueue(new ChopWoodTask(ctx, { count: 1, searchRadius: 24 }));
       },
       hunt: (args) => this.enqueue(new HuntTask(ctx, { count: Number(args[0]) || 3 })),
+      eat: (args) => this.runSkill('eat', args[0] ? { food: args[0] } : {}),
+      equip: (args) => {
+        if (!args[0]) throw new Error('usage: !equip <item>');
+        return this.runSkill('equip', { item: args[0] });
+      },
+      armor: () => this.runSkill('armor', {}),
+      drop: (args) => {
+        if (!args[0]) throw new Error('usage: !drop <item> [count]');
+        return this.runSkill('drop', { item: args[0], count: Number(args[1]) || 1 });
+      },
+      place: (args) => {
+        const [item, x, y, z] = args;
+        if (!item || [x, y, z].some((value) => value === undefined)) {
+          throw new Error('usage: !place <item> <x> <y> <z> [face]');
+        }
+        return this.runSkill('place', { item, x: Number(x), y: Number(y), z: Number(z), face: args[4] });
+      },
+      use: (args) => {
+        const [x, y, z] = args;
+        if ([x, y, z].some((value) => value === undefined)) {
+          throw new Error('usage: !use <x> <y> <z> [face] [item]');
+        }
+        return this.runSkill('use_on', { x: Number(x), y: Number(y), z: Number(z), face: args[3], item: args[4] });
+      },
+      attack: (args) => this.runSkill('attack', args[0] ? { type: args[0] } : {}),
+      defend: (args) => this.runSkill('defend', { range: Number(args[0]) || 6 }),
+      explore: (args) => this.runSkill('explore', { distance: Number(args[0]) || 16, direction: args[1] }),
+      withdraw: (args) => {
+        if (!args[0]) throw new Error('usage: !withdraw <item> [count]');
+        return this.runSkill('withdraw', { item: args[0], count: Number(args[1]) || 1 });
+      },
+      deposit: (args) => this.runSkill('deposit', args[0] ? { item: args[0] } : {}),
+      come: (args) => {
+        if (!args[0]) throw new Error('usage: !come <player>');
+        return this.runSkill('come', { player: args[0] });
+      },
       craft: (args) => {
         if (!args[0]) throw new Error('usage: !craft <item> [count]');
         return this.enqueue(new CraftTask(ctx, { item: args[0], count: Number(args[1]) || 1 }));
@@ -245,6 +293,20 @@ class ChatController {
   enqueue(task) {
     const source = this.dispatchSource || 'chat';
     return this.ctx.brain.enqueue(task, { level: 'directive', source });
+  }
+
+  /**
+   * Run one registered skill (src/skills) and hand back its result.
+   *
+   * The `!` channel and the LLM actuator layer share this one catalogue, so a capability can
+   * never be "available in chat but not to the model" or the reverse. Refusals are logged
+   * with their reason, which is what the player then sees.
+   */
+  async runSkill(name, params = {}) {
+    const skills = require('../skills');
+    const result = await skills.run(name, this.ctx, params);
+    if (result && result.ok === false) this.log.warn(`skill ${name} refused: ${result.reason}`);
+    return result;
   }
 
   /**

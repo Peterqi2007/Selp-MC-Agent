@@ -205,12 +205,15 @@ class MockBody extends Body {
     await this._delay();
     const name = normalize(itemName);
     if (!this.inventory[name]) return false;
+    // Accept both a block object and a bare position, the same way ClientModBody does.
+    const reference = referenceBlock && referenceBlock.position ? referenceBlock.position : referenceBlock;
+    if (!reference) return false;
     this.inventory[name] -= 1;
     if (this.inventory[name] <= 0) delete this.inventory[name];
     const target = {
-      x: referenceBlock.position.x,
-      y: referenceBlock.position.y + 1,
-      z: referenceBlock.position.z
+      x: reference.x,
+      y: reference.y + 1,
+      z: reference.z
     };
     this.world.set(key(target), { name, position: target });
     this.stats.placed += 1;
@@ -230,6 +233,26 @@ class MockBody extends Body {
     const chosen = chooseTool(block && block.name, items);
     if (!chosen) return false;
     this.held = normalize(chosen);
+    return true;
+  }
+
+  async dropItem(itemName, count = 1) {
+    await this._delay();
+    const name = normalize(itemName);
+    const have = this.inventory[name] || 0;
+    if (!have) return false;
+    const dropped = Math.min(have, Math.max(1, Math.floor(count)));
+    this.inventory[name] -= dropped;
+    if (this.inventory[name] <= 0) delete this.inventory[name];
+    this.history.push({ action: 'drop', name, count: dropped });
+    return true;
+  }
+
+  /** Right-click a block: recorded so skills can be asserted, no world mutation. */
+  async useOn(position, options = {}) {
+    await this._delay();
+    if (!position) return false;
+    this.history.push({ action: 'use', position: { ...position }, face: options.face || null });
     return true;
   }
 
