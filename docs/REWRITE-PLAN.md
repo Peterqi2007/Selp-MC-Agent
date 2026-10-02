@@ -106,3 +106,18 @@
 4. `!attack`（附近有僵尸）—— 击杀；
 5. 放一个箱子并往里放点东西 → `!withdraw <item>` / `!deposit` —— 存取成功（beta 项，重点看）；
 6. `!explore 16` —— 走出一段并刷新视野。
+
+---
+
+## 七、Phase 2 / Phase 3 进度（2026-10-02 续）
+
+> 操作员要求：完成 Phase 2 + Phase 3；**功能测试只在客户端 + 个人服务器上做，
+> 不在真实服务器（mc.example.com）上测试**。
+
+| 项目 | 状态 | 证据 |
+| --- | --- | --- |
+| Phase 2 `craft` | ✅ 完成 | `src/skills/recipes.js`（prismarine-recipe + minecraft-data，含递归子配方：原木→木板→木棍→镐）+ `src/skills/crafting.js`（2x2 物品栏网格 / 3x3 工作台菜单点击、光标管理、shift-click 产出）；协议假 Mod 新增合成模拟；`client:test` 42/42（含"原木→木板→工作台→木镐"全链路）；`!craft` 已接到技能 |
+| Phase 2 `smelt` | ⏳ 进行中 | 依赖：炉菜单 0=输入 / 1=燃料 / 2=产出 + 菜单轮询；计划走 shift-click 投料/取货 |
+| Phase 2 `farm` | ⏳ 待做 | 需要 Mod 上报作物 `age`（当前方块扫描只有方块 id）；计划在 `/state` 增加 `crops` |
+| Phase 2 `sleep` | ⏳ 待做 | `use_on` 床 + `/state.time.isDay` 轮询 |
+| Phase 3 LLM 接线 | ⏳ 待做 | 意图枚举扩展、`do_skill` 工具、能力表改读注册表、中文回退语料、`llm:dry` 覆盖 |

@@ -89,7 +89,7 @@ class MenuBody extends Body {
     const names = skills.names();
     const required = [
       'equip', 'eat', 'drop', 'armor', 'place', 'use_on',
-      'attack', 'defend', 'explore', 'come', 'withdraw', 'deposit'
+      'attack', 'defend', 'explore', 'come', 'withdraw', 'deposit', 'craft'
     ];
     const missing = required.filter((name) => !names.includes(name));
     expect(!missing.length, `missing skills: ${missing.join(', ')}`);

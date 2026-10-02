@@ -20,6 +20,8 @@ const http = require('http');
 const path = require('path');
 const { ClientModBody } = require('../src/body/clientModBody');
 const { loadConfig } = require('../src/util/config');
+const { BodyWorldView } = require('../src/world/bodyWorldView');
+const skills = require('../src/skills');
 
 const PORT = 18899; // deliberately not the real port, so a running client is untouched
 
@@ -66,6 +68,113 @@ let chatLog = [];
 const clicks = [];
 /** How many `close` commands the mock received (auto-close accounting). */
 let closeCommands = 0;
+
+/**
+ * Mini crafting simulation for the mock.
+ *
+ * The craft skill drives real menu clicks; this block gives the fake mod enough of a
+ * crafting table to answer them: a grid, a cursor stack, and a small recipe table. It is
+ * what makes `craft` verifiable end-to-end without the game.
+ */
+world.craftOpen = false;
+world.grid = new Array(9).fill(null);
+world.carried = null;
+
+const MOCK_RECIPES = [
+  { name: 'oak_planks', out: 4, shape: [['oak_log']] },
+  { name: 'stick', out: 4, shape: [['oak_planks'], ['oak_planks']] },
+  { name: 'crafting_table', out: 1, shape: [['oak_planks', 'oak_planks'], ['oak_planks', 'oak_planks']] },
+  {
+    name: 'wooden_pickaxe',
+    out: 1,
+    shape: [['oak_planks', 'oak_planks', 'oak_planks'], [null, 'stick', null], [null, 'stick', null]]
+  }
+];
+
+function bareName(name) {
+  const text = String(name || '');
+  const idx = text.indexOf(':');
+  return idx === -1 ? text : text.slice(idx + 1);
+}
+
+/** Player-inventory slots (36) derived from world.inventory at dump time. */
+function playerSlotsFromInventory() {
+  const slots = new Array(36).fill(null);
+  let i = 0;
+  for (const [name, count] of Object.entries(world.inventory)) {
+    if (!count || i >= 36) continue;
+    slots[i] = { name, count };
+    i += 1;
+  }
+  return slots;
+}
+
+function writeBackPlayerSlots(slots) {
+  const inv = {};
+  for (const slot of slots) {
+    if (!slot) continue;
+    inv[slot.name] = (inv[slot.name] || 0) + slot.count;
+  }
+  world.inventory = inv;
+}
+
+/** Build the menu the mod would report: crafting table when open, else the inventory menu. */
+function buildMenu() {
+  if (world.menu) return world.menu;
+  const gridWidth = world.craftOpen ? 3 : 2;
+  const gridSize = gridWidth * gridWidth;
+  const slots = [{ i: 0, item: 'null', count: 0, player: false }];
+  for (let i = 0; i < gridSize; i += 1) {
+    const cell = world.grid[i];
+    slots.push({ i: i + 1, item: cell ? cell.name : 'null', count: cell ? cell.count : 0, player: false });
+  }
+  const firstPlayerSlot = gridSize + 1;
+  if (!world.craftOpen) {
+    // InventoryMenu: armour slots 5..8 sit between the grid and the inventory.
+    while (slots.length < 5) slots.push({ i: slots.length, item: 'null', count: 0, player: true });
+    for (let i = 5; i <= 8; i += 1) slots.push({ i, item: 'null', count: 0, player: true });
+  }
+  const players = playerSlotsFromInventory();
+  const base = world.craftOpen ? 10 : 9;
+  players.forEach((item, idx) => {
+    slots.push({
+      i: base + idx,
+      item: item ? item.name : 'null',
+      count: item ? item.count : 0,
+      player: true
+    });
+  });
+  return {
+    open: true,
+    containerId: world.craftOpen ? 12 : 0,
+    size: slots.length,
+    menuClass: world.craftOpen ? 'CraftingMenu' : 'InventoryMenu',
+    carried: world.carried ? { item: world.carried.name, count: world.carried.count } : { item: 'null', count: 0 },
+    slots
+  };
+}
+
+/** Does the grid match a known recipe for the given width? */
+function matchMockRecipe(width) {
+  for (const recipe of MOCK_RECIPES) {
+    const height = recipe.shape.length;
+    const shapeWidth = Math.max(...recipe.shape.map((row) => row.length));
+    if (shapeWidth > width || height > width) continue;
+    let ok = true;
+    for (let y = 0; y < height && ok; y += 1) {
+      for (let x = 0; x < width; x += 1) {
+        const want = (recipe.shape[y] && recipe.shape[y][x]) || null;
+        const cell = world.grid[y * width + x];
+        const have = cell ? bareName(cell.name) : null;
+        if (want && have !== want) ok = false;
+        if (!want && x < shapeWidth && have) ok = false;
+        if (!ok) break;
+      }
+    }
+    if (ok) return recipe;
+  }
+  return null;
+}
 
 const server = http.createServer((req, res) => {
   const url = new URL(req.url, `http://127.0.0.1:${PORT}`);
@@ -138,6 +247,14 @@ const server = http.createServer((req, res) => {
         return send({ command, ok: true });
       }
       if (verb === 'useon') {
+        // Opening a crafting table: the next `menu` reports the 3x3 crafting menu.
+        const [ux, uy, uz] = args.split(/\s+/).map(Number);
+        const target = world.blocks.cells[`${ux},${uy},${uz}`];
+        if (target && /crafting_table/.test(target)) {
+          world.craftOpen = true;
+          world.menu = null;
+          return send({ command, ok: true });
+        }
         // Opening a container: the mod reports the menu through the next /command menu call.
         world.menu = {
           open: true,
@@ -155,28 +272,100 @@ const server = http.createServer((req, res) => {
         return send({ command, ok: true });
       }
       if (verb === 'menu') {
-        const menu = world.menu || {
-          open: true,
-          containerId: 0,
-          size: 46,
-          menuClass: 'InventoryMenu',
-          carried: { item: 'null', count: 0 },
-          slots: []
-        };
+        const menu = buildMenu();
         return send({ command, ok: true, menu });
       }
       if (verb === 'click') {
         const [slot, button, mode] = args.split(/\s+/);
-        clicks.push({ slot: Number(slot), button: Number(button || 0), mode: mode || 'pickup' });
+        const slotIndex = Number(slot);
+        const buttonIndex = Number(button || 0);
+        const clickMode = mode || 'pickup';
+        clicks.push({ slot: slotIndex, button: buttonIndex, mode: clickMode });
         if ((mode || 'pickup') === 'quickmove' && Number(slot) === 2 && world.menu && world.menu.slots[2]) {
           world.inventory['minecraft:stone'] = (world.inventory['minecraft:stone'] || 0) + world.menu.slots[2].count;
           world.menu.slots[2].item = 'null';
           world.menu.slots[2].count = 0;
         }
+        // ---- the crafting menus -------------------------------------------
+        if (!world.menu) {
+          const gridWidth = world.craftOpen ? 3 : 2;
+          const gridSize = gridWidth * gridWidth;
+          const playerBase = world.craftOpen ? 10 : 9;
+          const players = playerSlotsFromInventory();
+          const inGrid = (i) => i >= 1 && i <= gridSize;
+          const playerIdx = (i) => (i >= playerBase && i < playerBase + 36 ? i - playerBase : -1);
+
+          const takeFromSlot = () => {
+            if (inGrid(slotIndex)) {
+              const cell = world.grid[slotIndex - 1];
+              world.grid[slotIndex - 1] = null;
+              return cell;
+            }
+            const idx = playerIdx(slotIndex);
+            if (idx >= 0) {
+              const cell = players[idx];
+              players[idx] = null;
+              writeBackPlayerSlots(players);
+              return cell;
+            }
+            return null;
+          };
+          const putIntoSlot = (stack, onlyOne) => {
+            if (!stack) return null;
+            const amount = onlyOne ? Math.min(1, stack.count) : stack.count;
+            const incoming = { name: stack.name, count: amount };
+            const leftover = { name: stack.name, count: stack.count - amount };
+            if (inGrid(slotIndex)) {
+              const cell = world.grid[slotIndex - 1];
+              if (!cell) world.grid[slotIndex - 1] = incoming;
+              else if (bareName(cell.name) === bareName(incoming.name)) cell.count += amount;
+              else return stack; // occupied by something else: drop the attempt
+              return leftover.count > 0 ? leftover : null;
+            }
+            const idx = playerIdx(slotIndex);
+            if (idx >= 0) {
+              const cell = players[idx];
+              if (!cell) players[idx] = incoming;
+              else if (bareName(cell.name) === bareName(incoming.name)) cell.count += amount;
+              else return stack;
+              writeBackPlayerSlots(players);
+              return leftover.count > 0 ? leftover : null;
+            }
+            return stack;
+          };
+
+          if (clickMode === 'quickmove' && slotIndex === 0) {
+            const recipe = matchMockRecipe(gridWidth);
+            if (recipe) {
+              // consume one set
+              for (const cell of world.grid.slice(0, gridSize)) {
+                if (!cell) continue;
+                cell.count -= 1;
+                const at = world.grid.indexOf(cell);
+                if (cell.count <= 0 && at !== -1) world.grid[at] = null;
+              }
+              world.inventory[`minecraft:${recipe.name}`] =
+                (world.inventory[`minecraft:${recipe.name}`] || 0) + recipe.out;
+            }
+          } else if (buttonIndex === 1) {
+            if (world.carried) {
+              const leftover = putIntoSlot(world.carried, true);
+              world.carried = leftover;
+            }
+          } else if (world.carried) {
+            const leftover = putIntoSlot(world.carried, false);
+            world.carried = leftover;
+          } else {
+            world.carried = takeFromSlot();
+          }
+        }
         return send({ command, ok: true });
       }
       if (verb === 'close') {
         world.menu = null;
+        world.craftOpen = false;
+        world.carried = null;
+        world.grid = new Array(9).fill(null);
         world.screenOpen = false;
         world.screen = 'null';
         closeCommands += 1;
@@ -427,6 +616,31 @@ function check(name, ok, detail) {
     check('the withdrawal is visible in the inventory', (body.snapshot().inventory['minecraft:stone'] || 0) >= 5);
     const closed = await body.closeMenu();
     check('closeMenu() closes the container', closed === true);
+
+    // ---- crafting: planner + real menu clicks ---------------------------
+    // Planks come from the 2x2 inventory grid; the pickaxe needs the 3x3 crafting table
+    // and two sub-crafts (planks and sticks), which is the full Phase-2 path.
+    world.menu = null;
+    world.craftOpen = false;
+    world.grid = new Array(9).fill(null);
+    world.carried = null;
+    world.inventory = { 'minecraft:oak_log': 4 };
+    world.blocks.cells['2,64,0'] = 'minecraft:crafting_table';
+    const craftCtx = {
+      cfg,
+      body,
+      world: new BodyWorldView(body, cfg, { log: { debug() {}, info() {}, warn() {} } })
+    };
+    const planks = await skills.run('craft', craftCtx, { item: 'oak_planks', count: 4 });
+    check('craft: planks in the 2x2 inventory grid', planks.ok === true, JSON.stringify(planks).slice(0, 180));
+    const pick = await skills.run('craft', craftCtx, { item: 'wooden_pickaxe', count: 1 });
+    check('craft: pickaxe via the crafting table (sub-crafts included)', pick.ok === true, JSON.stringify(pick).slice(0, 220));
+    await body.refresh(true);
+    check(
+      'craft: the pickaxe really is in the inventory',
+      (body.snapshot().inventory['minecraft:wooden_pickaxe'] || 0) >= 1,
+      JSON.stringify(body.snapshot().inventory)
+    );
 
     // ---- the AuthMe path -------------------------------------------------
     const loggedIn = await body.login('<your-password>');

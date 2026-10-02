@@ -263,6 +263,12 @@ class ChatController {
       },
       craft: (args) => {
         if (!args[0]) throw new Error('usage: !craft <item> [count]');
+        // Menu-capable bodies (the real client) use the Phase-2 skill: recipe planning plus
+        // real grid clicks. Other bodies keep the mineflayer-era task, which asks the body's
+        // own recipe database.
+        if (ctx.body && typeof ctx.body.menu === 'function' && typeof ctx.body.clickSlot === 'function') {
+          return this.runSkill('craft', { item: args[0], count: Number(args[1]) || 1 });
+        }
         return this.enqueue(new CraftTask(ctx, { item: args[0], count: Number(args[1]) || 1 }));
       },
       shelter: () => this.enqueue(new ShelterTask(ctx)),
