@@ -91,6 +91,22 @@ Edge 无痕（无扩展）依旧只有服务端快照、字段空白 → 排除�
 而「发送」「接收」两层一直正常。** 改成纯服务器渲染 + 原生 meta refresh 后三层全通。
 另补：面板发出的指令现在会写入 `ctx.panelCommands` 并出现在「最近识别到的输入」表里。
 
+### 2026-10-02 修正 screen-open 误判（时序缺陷）
+
+操作员澄清：不是"界面开着就不该执行"，而是**在游戏聊天里打完命令、按回车的瞬间**，
+agent 拿的是缓存里的旧快照（`ChatScreen` 还标着开着），于是任务刚起步就被判 `screen-open`
+放弃。数据没错，判断时机错了。
+
+修复（`src/body/clientModBody.js`）：
+1. `moveTo()` 遇到快照说"界面开着"时，先对**实时 /state 轮询最多 900ms** 重新确认
+   （`_screenStillOpen()`）；聊天界面在按下回车后就关了，正常流程不会再被误判；
+2. 确认确实还开着时，默认**自动发送 `close` 关闭界面**再继续走（`_tryCloseScreen()`，
+   等待 /state 报 `screenOpen:false`）；关闭失败才如实报 `screen-open`；
+3. 新增配置 `behaviour.autoCloseScreens`（默认 true）：设为 false 恢复旧的"拒绝并提示"。
+
+`client:test` 新增三条：旧快照不阻塞新走位（且不发 close）、真开界面自动关闭后继续走、
+关闭该功能后仍如实拒绝。协议测试 34 → 35。
+
 ---
 
 ## 一、总览

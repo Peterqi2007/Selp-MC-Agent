@@ -54,6 +54,17 @@ class ClientModBody extends Body {
      * straight there instead (P0-PLAN §3.6(6)).
      */
     this.directRange = options.directRange || (cfgSection.directRange === undefined ? 3 : cfgSection.directRange);
+    /**
+     * Close an open GUI automatically when the agent needs to walk.
+     *
+     * Minecraft drops WASD while any screen is open, and the operator's normal workflow is
+     * to leave the inventory/pause screen open while commanding the bot. Set
+     * `behaviour.autoCloseScreens: false` to get the old behaviour (refuse with
+     * `screen-open` and let the human close it).
+     */
+    this.autoCloseScreens = options.autoCloseScreens === undefined
+      ? (cfg.agent && cfg.agent.behaviour && cfg.agent.behaviour.autoCloseScreens) !== false
+      : options.autoCloseScreens === true;
     /** Lazily built on first long moveTo; see the `navigator` getter. */
     this._navigator = null;
     this._world = null;
@@ -366,17 +377,34 @@ class ClientModBody extends Body {
      * A game screen that is open swallows every movement key.
      *
      * This is a hard physical limit of the client, not a pathfinding problem: while the
-     * inventory, a chest or the chat box is open, Minecraft ignores WASD entirely. Refusing
-     * with `screen-open` turns the live symptom ("it just will not walk, and all the state
-     * checks look healthy") into a one-line answer. `options.ignoreScreen` exists for the
-     * operator scripts that know better.
+     * inventory, a chest or the pause menu is open, Minecraft ignores WASD entirely.
+     *
+     * The operator's workflow is "leave a screen open, ask the bot to do something", so the
+     * default is now to close the screen ourselves and walk on (see `_tryCloseScreen`).
+     * `behaviour.autoCloseScreens: false` restores the old honest refusal, and
+     * `options.ignoreScreen` skips even that for the operator scripts that know better.
      */
     const snapForScreen = this._snapshot;
     if (snapForScreen && snapForScreen.screenOpen && options.ignoreScreen !== true) {
       const screen = snapForScreen.screen || 'a screen';
-      this.lastMove = { ok: false, reason: 'screen-open', screen, target: { ...position }, ms: 0 };
-      this.log.warn(`cannot walk: ${screen} is open in the game - close it first`);
-      return false;
+      /**
+       * The cached snapshot may be older than the command.
+       *
+       * Live report: "I typed the command while the chat screen was open; as soon as I hit
+       * Enter it decided it could not run." The chat screen closes the instant the player
+       * sends, but the body's snapshot (400ms TTL) still said `screenOpen: true`, so the
+       * walk was refused before it even started. Re-check against a *fresh* /state for a
+       * moment before believing that a screen is really in the way.
+       */
+      const stillOpen = await this._screenStillOpen(900);
+      if (stillOpen) {
+        const recovered = this.autoCloseScreens ? await this._tryCloseScreen(screen) : false;
+        if (!recovered) {
+          this.lastMove = { ok: false, reason: 'screen-open', screen, target: { ...position }, ms: 0 };
+          this.log.warn(`cannot walk: ${screen} is open in the game - close it first`);
+          return false;
+        }
+      }
     }
 
     if (options.raw === true) return this._rawMoveTo(position, options);
@@ -426,6 +454,47 @@ class ClientModBody extends Body {
     if (!result.ok) this.log.debug(`pathfinding failed (${result.reason}) -> ${fmt(position)}`);
     this.trace({ kind: 'moveTo', ...this.lastMove });
     return !!result.ok;
+  }
+
+  /**
+   * Close a GUI screen so movement becomes possible again.
+   *
+   * Uses the mod's `close` verb (the same path as pressing Escape / closing the container)
+   * and waits for /state to report `screenOpen: false`. Returns false when the screen
+   * survives - some servers re-open a menu, and a container mid-transaction may refuse to
+   * close - in which case the caller reports `screen-open` honestly.
+   */
+  async _tryCloseScreen(screen) {
+    this.log.info(`a game screen is open (${screen}) - closing it so the agent can move`);
+    const res = await this.command('close').catch(() => null);
+    if (!res || !res.ok) return false;
+    const deadline = Date.now() + 1500;
+    while (Date.now() < deadline) {
+      await sleep(150);
+      const state = await this.refresh(true).catch(() => null);
+      if (state && state.screenOpen === false) {
+        this.log.info('screen closed - walking on');
+        return true;
+      }
+    }
+    return false;
+  }
+
+  /**
+   * Is a GUI screen *still* open, according to fresh polls?
+   *
+   * Returns false as soon as a live /state says the screen is gone - which is the normal
+   * case right after the player pressed Enter in chat. Only when it stays open for the
+   * whole window do we treat it as a real obstacle.
+   */
+  async _screenStillOpen(waitMs) {
+    const deadline = Date.now() + waitMs;
+    for (;;) {
+      const state = await this.refresh(true).catch(() => null);
+      if (state && state.screenOpen === false) return false;
+      if (Date.now() >= deadline) return true;
+      await sleep(150);
+    }
   }
 
   /**

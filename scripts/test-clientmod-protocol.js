@@ -64,6 +64,8 @@ let busy = null;
 let chatLog = [];
 /** Slot clicks the mock received, in order. */
 const clicks = [];
+/** How many `close` commands the mock received (auto-close accounting). */
+let closeCommands = 0;
 
 const server = http.createServer((req, res) => {
   const url = new URL(req.url, `http://127.0.0.1:${PORT}`);
@@ -175,6 +177,9 @@ const server = http.createServer((req, res) => {
       }
       if (verb === 'close') {
         world.menu = null;
+        world.screenOpen = false;
+        world.screen = 'null';
+        closeCommands += 1;
         return send({ command, ok: true });
       }
       if (verb === 'use') {
@@ -294,22 +299,47 @@ function check(name, ok, detail) {
     );
 
     // ---- the screen-open guard ------------------------------------------
-    // Live failure this encodes: a container screen was open, Minecraft ignored every
-    // movement key, and the bot reported "no dirt available" instead of "I cannot move".
+    // Live report: "I typed the command with the chat screen open; the moment I sent it,
+    // the agent decided it could not run." The chat closes on send; the stale snapshot must
+    // not be trusted. The first check below encodes exactly that sequence.
+    world.screenOpen = true;
+    world.screen = 'ChatScreen';
+    await body.refresh(true); // cached snapshot says "screen open"
+    world.screenOpen = false; // ...the player pressed Enter and the screen is already gone
+    world.screen = 'null';
+    const staleScreen = await body.moveTo({ x: 2, y: 64, z: 0 }, { range: 2, timeoutMs: 5000 });
+    check(
+      'a stale "screen open" snapshot does not block a fresh walk',
+      staleScreen === true && closeCommands === 0,
+      `walk=${staleScreen} closes=${closeCommands} ${JSON.stringify(body.lastMove)}`
+    );
+
+    // A screen that is genuinely still open is closed automatically, then the walk proceeds.
+    world.screenOpen = true;
+    world.screen = 'ContainerScreen';
+    await body.refresh(true);
+    const autoClosed = await body.moveTo({ x: 4, y: 64, z: 0 }, { range: 2, timeoutMs: 8000 });
+    check(
+      'a genuinely open screen is closed automatically and the walk continues',
+      autoClosed === true && closeCommands >= 1 && world.screenOpen === false,
+      `walk=${autoClosed} closes=${closeCommands} ${JSON.stringify(body.lastMove)}`
+    );
+
+    // With the feature off, the honest refusal is still available.
+    body.autoCloseScreens = false;
     world.screenOpen = true;
     world.screen = 'ContainerScreen';
     await body.refresh(true);
     const blockedByScreen = await body.moveTo({ x: 30, y: 64, z: 0 }, { range: 1.5, timeoutMs: 3000 });
     check(
-      'a screen that is open blocks walking with a named reason',
+      'with auto-close disabled a real screen still refuses with a named reason',
       blockedByScreen === false && body.lastMove && body.lastMove.reason === 'screen-open',
       JSON.stringify(body.lastMove)
     );
+    body.autoCloseScreens = true;
     world.screenOpen = false;
     world.screen = 'null';
     await body.refresh(true);
-    const afterScreen = await body.moveTo({ x: 2, y: 64, z: 0 }, { range: 2, timeoutMs: 5000 });
-    check('closing the screen restores walking', afterScreen === true, JSON.stringify(body.lastMove));
 
     const dug = await body.dig({ name: 'minecraft:stone', position: { x: 5, y: 64, z: 0 } }, { timeoutMs: 5000 });
     check('dig() polls until the block is gone', dug === true);

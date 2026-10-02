@@ -33,6 +33,7 @@ const DEFAULTS = {
     },
     behaviour: {
       autoEat: true,
+      autoCloseScreens: true,
       autoFight: true,
       autoArmor: true,
       autoTool: true,
