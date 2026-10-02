@@ -239,8 +239,16 @@ public final class ClientActions {
     }
 
     /** Attack an entity by id until it dies or the timeout expires. */
+    /**
+     * Attack an entity until it dies or the timeout runs out.
+     *
+     * Returns **true when the target died**: a mob that drops is a won fight, and the old
+     * code answered false for exactly that case, so the skill layer reported "still alive"
+     * right after every kill.
+     */
     public boolean attack(int entityId, long timeoutMs) {
         long deadline = System.currentTimeMillis() + timeoutMs;
+        boolean seenAlive = false;
         while (System.currentTimeMillis() < deadline) {
             Boolean alive = onClient(() -> {
                 if (mc.player == null || mc.level == null || mc.gameMode == null) {
@@ -250,25 +258,50 @@ public final class ClientActions {
                 if (!(target instanceof LivingEntity living) || !living.isAlive()) {
                     return false;
                 }
-                if (mc.player.distanceTo(target) > 3.5D) {
-                    // Step toward it before swinging, so we are not punching air.
+                if (mc.player.distanceTo(target) > 2.9D) {
+                    // Step toward it before swinging, so we are not punching air. Jump when
+                    // a step or a target just above us blocks the way (the old code walked
+                    // into the ledge under a zombie forever).
                     faceEntity(target);
                     setKey("forward", true);
+                    boolean stepUp = mc.player.onGround()
+                            && (mc.player.horizontalCollision || living.getY() > mc.player.getY() + 0.5D);
+                    setKey("jump", stepUp);
                     return true;
                 }
                 setKey("forward", false);
+                setKey("jump", false);
                 faceEntity(target);
-                mc.gameMode.attack(mc.player, target);
-                mc.player.swing(InteractionHand.MAIN_HAND);
+                /**
+                 * Swing only when the attack meter is charged.
+                 *
+                 * The old loop clicked every 250 ms regardless. Vanilla scales damage by
+                 * the recharge (a spam-clicked sword deals about a fifth of its damage), so
+                 * the bot lost fights it should have won. A charged stone sword kills a
+                 * zombie in three hits.
+                 */
+                if (mc.player.getAttackStrengthScale(0.5F) >= 0.92F) {
+                    mc.gameMode.attack(mc.player, target);
+                    mc.player.swing(InteractionHand.MAIN_HAND);
+                }
                 return true;
             });
-            if (alive == null || !alive) {
+            if (alive == null) {
                 setKeyOnClient("forward", false);
-                return alive != null && alive;
+                setKeyOnClient("jump", false);
+                return false;
             }
-            sleep(250);
+            if (!alive) {
+                setKeyOnClient("forward", false);
+                setKeyOnClient("jump", false);
+                // Died during the fight -> killed. Never valid -> failed.
+                return seenAlive;
+            }
+            seenAlive = true;
+            sleep(100);
         }
         setKeyOnClient("forward", false);
+        setKeyOnClient("jump", false);
         return false;
     }
 
