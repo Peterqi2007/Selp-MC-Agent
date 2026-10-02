@@ -46,6 +46,17 @@ function menuSignature(menu) {
   });
 }
 
+/**
+ * Item names on the wire carry a namespace; a bare "crafting_table" means
+ * minecraft:crafting_table. The mod compares names literally, so normalising here keeps
+ * "equip torch" and "place ... torch" from silently doing nothing.
+ */
+function fullItemName(name) {
+  const text = String(name || '').trim();
+  if (!text) return '';
+  return text.includes(':') ? text : `minecraft:${text}`;
+}
+
 class ClientModBody extends Body {
   /**
    * @param {object} cfg loaded config
@@ -718,7 +729,7 @@ class ClientModBody extends Body {
     if (!reference) return false;
     const face = faceName(faceVector);
     const res = await this.command(
-      `place ${Math.floor(reference.x)} ${Math.floor(reference.y)} ${Math.floor(reference.z)} ${face} ${itemName || ''}`
+      `place ${Math.floor(reference.x)} ${Math.floor(reference.y)} ${Math.floor(reference.z)} ${face} ${fullItemName(itemName)}`
     );
     return !!(res && res.ok);
   }
@@ -818,8 +829,29 @@ class ClientModBody extends Body {
   }
 
   async equip(itemName) {
-    const res = await this.command(`select ${itemName}`);
-    return !!(res && res.ok);
+    const full = fullItemName(itemName);
+    const first = await this.command(`select ${full}`);
+    if (first && first.ok) return true;
+    /**
+     * The mod's `select` only searches the hotbar (that is where vanilla keeps the held
+     * stack). An item sitting in the main inventory therefore "cannot be equipped" - which
+     * is how a hoe in slot 26 turned six tilling clicks into wheat seeds on grass. Move it
+     * into a spare hotbar slot with real menu clicks, then select it.
+     */
+    const menu = await this.menu().catch(() => null);
+    if (!menu || !menu.open) return false;
+    const wanted = bare(full);
+    const source = (menu.slots || []).find(
+      (slot) => slot.i >= 9 && slot.item && slot.item !== 'null' && bare(slot.item) === wanted
+    );
+    const spare = (menu.slots || []).find(
+      (slot) => slot.i >= 36 && slot.i <= 44 && (!slot.item || slot.item === 'null')
+    );
+    if (!source || !spare) return false;
+    await this.clickSlot(source.i, { mode: 'pickup', button: 0 });
+    await this.clickSlot(spare.i, { mode: 'pickup', button: 0 });
+    const again = await this.command(`select ${full}`);
+    return !!(again && again.ok);
   }
 
   /**

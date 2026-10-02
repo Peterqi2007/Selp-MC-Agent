@@ -68,6 +68,44 @@ function findFarmland(ctx, radius) {
   });
 }
 
+/** Water blocks around the player; used to prefer plots that will stay hydrated. */
+function findWater(ctx, radius) {
+  const world = ctx.world;
+  if (!world || typeof world.findBlocksMatching !== 'function') return [];
+  return world.findBlocksMatching((name) => /water/.test(bare(name)), {
+    maxDistance: radius,
+    count: 256
+  });
+}
+
+/**
+ * Tillable ground, hydrated candidates first.
+ *
+ * "Till by the water" is not just phrasing: a plot stays hydrated only when water sits
+ * within four blocks horizontally at the SAME level or one ABOVE (vanilla FarmBlock
+ * scans y..y+1). Water one block *below* does not count - tilling the bank while the pond
+ * sits under it produces dry farmland that decays back to dirt when nothing is planted,
+ * which is exactly what happened on the first attempt. Dry plots still work, so they stay
+ * in the list as a fallback.
+ */
+function rankTillableByWater(ctx, radius) {
+  const candidates = findTillable(ctx, radius);
+  if (!candidates.length) return candidates;
+  const water = findWater(ctx, radius + 5);
+  if (!water.length) return candidates;
+  const hydrated = (position) =>
+    water.some(
+      (w) =>
+        Math.abs(w.position.x - position.x) <= 4 &&
+        Math.abs(w.position.z - position.z) <= 4 &&
+        (w.position.y === position.y || w.position.y === position.y + 1)
+    );
+  return candidates
+    .map((block) => ({ block, wet: hydrated(block.position) }))
+    .sort((a, b) => Number(b.wet) - Number(a.wet) || a.block.distance - b.block.distance)
+    .map((entry) => entry.block);
+}
+
 register({
   name: 'farm',
   title: '种田',
@@ -75,7 +113,10 @@ register({
   params: {
     radius: { type: 'number', default: 6, min: 2, max: 16 },
     seed: { type: 'string' },
-    plant: { type: 'boolean', default: true }
+    plant: { type: 'boolean', default: true },
+    plots: { type: 'number', min: 1, max: 64 },
+    harvest: { type: 'boolean', default: true },
+    till: { type: 'boolean', default: true }
   },
   available: (ctx) => (ctx.body && typeof ctx.body.useOn === 'function' && typeof ctx.body.moveTo === 'function'
     ? { ok: true }
@@ -88,7 +129,9 @@ register({
     const crops = (snap && snap.crops) || [];
 
     // ---- 1. harvest what is ripe ------------------------------------------
-    const ripe = crops.filter((crop) => Number(crop.age) >= Number(crop.maxAge));
+    const ripe = params.harvest === false
+      ? []
+      : crops.filter((crop) => Number(crop.age) >= Number(crop.maxAge));
     let harvested = 0;
     for (const crop of ripe) {
       const reached = await body.moveTo(crop.position, { range: 2, timeoutMs: 15000 }).catch(() => false);
@@ -97,21 +140,42 @@ register({
       if (ok) harvested += 1;
     }
 
-    if (params.plant === false) {
-      return { ok: true, harvested, tilled: 0, planted: 0, detail: `harvested ${harvested} crop(s)` };
-    }
-
     // ---- 2. till fresh soil ------------------------------------------------
     const hoe = findItem(inventory, /_hoe$/);
     let tilled = 0;
-    if (hoe) {
+    const freshPlots = [];
+    if (hoe && params.till !== false) {
       await body.equip(hoe).catch(() => false);
-      for (const ground of findTillable(ctx, params.radius)) {
+      const wanted = params.plots ? Math.max(1, Math.floor(params.plots)) : Infinity;
+      for (const ground of rankTillableByWater(ctx, params.radius)) {
+        if (tilled >= wanted) break;
         const reached = await body.moveTo(ground.position, { range: 3, timeoutMs: 15000 }).catch(() => false);
         if (!reached) continue;
-        const ok = await body.useOn(ground.position, { face: { x: 0, y: 1, z: 0 } }).catch(() => false);
-        if (ok) tilled += 1;
+        await body.useOn(ground.position, { face: { x: 0, y: 1, z: 0 } }).catch(() => false);
+        /**
+         * Trust the world, not the click. The mod answers `ok` whenever the interaction
+         * command was accepted, even when the held item did nothing - which is how
+         * "tilled 6" was printed while the ground stayed grass.
+         */
+        if (typeof body.refresh === 'function') await body.refresh(true).catch(() => null);
+        const now = blockAt(ctx, ground.position);
+        if (now && /farmland/.test(bare(now.name))) {
+          tilled += 1;
+          freshPlots.push(ground.position);
+        }
       }
+    }
+
+    // `plant: false` means "till only", not "do nothing": the caller may want to prepare
+    // the plots first and plant with a different seed later.
+    if (params.plant === false) {
+      return {
+        ok: true,
+        harvested,
+        tilled,
+        planted: 0,
+        detail: `harvested ${harvested}, tilled ${tilled}`
+      };
     }
 
     // ---- 3. plant seeds on the farmland ----------------------------------
@@ -122,11 +186,31 @@ register({
     if (seedName) {
       if (typeof body.refresh === 'function') await body.refresh(true).catch(() => null);
       await body.equip(seedName).catch(() => false);
-      for (const plot of findFarmland(ctx, params.radius)) {
+      let seedsLeft = Number(inventory[seedName] || 0);
+      /**
+       * Sow the plots we just made first.
+       *
+       * Seeding them immediately is what keeps them hydrated farmland instead of dirt -
+       * and it stops a stray walk to somebody else's empty field.
+       */
+      const key = (position) => `${position.x},${position.y},${position.z}`;
+      const fresh = new Set(freshPlots.map(key));
+      const plots = findFarmland(ctx, params.radius).sort(
+        (a, b) => Number(fresh.has(key(b.position))) - Number(fresh.has(key(a.position))) || a.distance - b.distance
+      );
+      for (const plot of plots) {
+        if (seedsLeft <= 0) break;
         const reached = await body.moveTo(plot.position, { range: 3, timeoutMs: 15000 }).catch(() => false);
         if (!reached) continue;
-        const ok = await body.useOn(plot.position, { face: { x: 0, y: 1, z: 0 } }).catch(() => false);
-        if (ok) planted += 1;
+        await body.useOn(plot.position, { face: { x: 0, y: 1, z: 0 } }).catch(() => false);
+        // A seed only counts when it actually left the inventory.
+        if (typeof body.refresh === 'function') await body.refresh(true).catch(() => null);
+        const snapNow = typeof body.snapshot === 'function' ? body.snapshot() : null;
+        const left = snapNow && snapNow.inventory ? Number(snapNow.inventory[seedName] || 0) : seedsLeft;
+        if (left < seedsLeft) {
+          planted += 1;
+          seedsLeft = left;
+        }
       }
     }
 
@@ -137,7 +221,9 @@ register({
       planted,
       detail:
         `harvested ${harvested}, tilled ${tilled}` +
-        (seedName ? `, planted ${planted}` : ' (no seeds carried)')
+        (seedName
+          ? `, planted ${planted}${params.plots ? ` (limit ${params.plots})` : ''}`
+          : ' (no seeds carried)')
     };
   }
 });

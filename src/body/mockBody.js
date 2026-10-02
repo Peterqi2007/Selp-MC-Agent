@@ -279,6 +279,34 @@ class MockBody extends Body {
     await this._delay();
     if (!position) return false;
     this.history.push({ action: 'use', position: { ...position }, face: options.face || null });
+    /**
+     * Simulate the two world-changing uses the farm skill verifies: hoeing dirt into
+     * farmland, and planting a seed on it. The real client only answers `ok` for the
+     * interaction attempt, so both are judged by the world/inventory afterwards - the mock
+     * has to actually change them or the offline farm test would "pass" a no-op.
+     */
+    const target = this.world.get(key(position));
+    const name = target ? target.name : null;
+    const bareName = name ? name.replace(/^[a-z0-9_]+:/, '') : null;
+    if (bareName && /^(dirt|coarse_dirt|rooted_dirt|grass_block|podzol|mycelium)$/.test(bareName)) {
+      this.world.set(key(position), { name: 'farmland', position: { ...position } });
+      return true;
+    }
+    if (bareName === 'farmland') {
+      const seeds = Object.keys(this.inventory).find((item) => /_seeds$/.test(item));
+      if (seeds && this.inventory[seeds] > 0) {
+        this.inventory[seeds] -= 1;
+        if (this.inventory[seeds] <= 0) delete this.inventory[seeds];
+        // The crop sits on top; the farmland below it stays farmland.
+        this.world.set(key({ x: position.x, y: position.y + 1, z: position.z }), {
+          name: 'wheat',
+          position: { x: position.x, y: position.y + 1, z: position.z }
+        });
+        this.crops.push({ name: 'minecraft:wheat', position: { x: position.x, y: position.y + 1, z: position.z }, age: 0, maxAge: 7 });
+        this.history.push({ action: 'plant', name: seeds, position: { ...position } });
+      }
+      return true;
+    }
     return true;
   }
 

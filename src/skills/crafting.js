@@ -67,11 +67,18 @@ function inventoryCount(menu, itemName) {
   return total;
 }
 
+/** How close the table must be to click it; how far we are willing to walk to one. */
+const TABLE_REACH = 6;
+const TABLE_WALK_MAX = 24;
+
 /** Find a crafting table block near the bot, or null. */
-function nearbyTable(ctx) {
+function nearbyTable(ctx, maxDistance = TABLE_REACH) {
   const world = ctx.world;
   if (!world || typeof world.findBlocksMatching !== 'function') return null;
-  const found = world.findBlocksMatching((name) => bare(name) === 'crafting_table', { maxDistance: 6, count: 1 });
+  const found = world.findBlocksMatching((name) => bare(name) === 'crafting_table', {
+    maxDistance,
+    count: 1
+  });
   return found && found.length ? found[0] : null;
 }
 
@@ -92,9 +99,23 @@ async function runPlan(ctx, plan, state) {
   // ---- make sure the right grid is open ---------------------------------
   if (plan.table) {
     if (!state.openedTable) {
-      const table = nearbyTable(ctx);
+      let table = nearbyTable(ctx);
       if (!table) {
-        return { ok: false, reason: `crafting ${plan.item} needs a crafting table, and there is none within 6 blocks` };
+        /**
+         * No table in reach does not mean there is none: a player would walk to the one
+         * nine blocks away. Search wider, walk into reach, then re-check.
+         */
+        const far = nearbyTable(ctx, TABLE_WALK_MAX);
+        if (far && typeof body.moveTo === 'function') {
+          const walked = await body.moveTo(far.position, { range: 3, timeoutMs: 25000 }).catch(() => false);
+          if (walked) table = nearbyTable(ctx) || far;
+        }
+      }
+      if (!table) {
+        return {
+          ok: false,
+          reason: `crafting ${plan.item} needs a crafting table, and there is none within ${TABLE_WALK_MAX} blocks`
+        };
       }
       await body.useOn(table.position, { face: { x: 0, y: 1, z: 0 } });
       const menu = await body.menu();
