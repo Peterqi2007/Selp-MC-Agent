@@ -29,7 +29,7 @@ function capabilities(ctx) {
   return [
     { name: 'go_to', available: true, note: 'walk to coordinates using A*; targets beyond the 24-block scan are approached iteratively' },
     { name: 'chop', available: true, note: 'walk to a tree, break the trunk, collect the dropped logs' },
-    { name: 'mine', available: true, note: 'requires a pickaxe in the inventory; without one the task fails and says so' },
+    { name: 'mine', available: true, note: 'stone and ores need a pickaxe at (or above) the block tier; dirt, sand, gravel, logs and modded blocks need NO tool - a shovel/axe only speeds them up' },
     { name: 'collect', available: true, note: 'walk over nearby dropped items so the client picks them up' },
     { name: 'stop', available: true, note: 'stop everything immediately' },
     { name: 'craft', available: canCraft, note: canCraft ? 'crafting is available' : `not available on the "${kind}" body` },

@@ -20,6 +20,7 @@
 
 const { Body, BodyUnavailableError } = require('./body');
 const { isLog, planksFor, isFood, foodScore, blockDrop, blockDropCount } = require('../world/items');
+const { chooseTool } = require('../world/toolPolicy');
 
 class MockBody extends Body {
   /**
@@ -225,11 +226,11 @@ class MockBody extends Body {
   }
 
   async equipForBlock(block) {
-    const name = block && block.name ? block.name : '';
-    const kind = isLog(name) ? 'axe' : 'pickaxe';
-    const candidate = Object.keys(this.inventory).find((n) => n.endsWith(`_${kind}`));
-    if (candidate) this.held = candidate;
-    return !!candidate;
+    const items = Object.keys(this.inventory).map((name) => ({ name, count: this.inventory[name] }));
+    const chosen = chooseTool(block && block.name, items);
+    if (!chosen) return false;
+    this.held = normalize(chosen);
+    return true;
   }
 
   async equipBest(kind) {

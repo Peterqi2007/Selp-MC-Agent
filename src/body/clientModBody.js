@@ -24,6 +24,7 @@
 
 const { Body, BodyUnavailableError } = require('./body');
 const { Logger } = require('../util/logger');
+const { chooseTool } = require('../world/toolPolicy');
 
 /** Block scan radius the mod uses; mirrored here so findBlocks can filter cheaply. */
 const SCAN_RADIUS = 24;
@@ -582,9 +583,12 @@ class ClientModBody extends Body {
   }
 
   async equipForBlock(block) {
-    const name = block && block.name ? bare(block.name) : '';
-    const kind = /_log$|_stem$|_planks$|_wood$/.test(name) ? 'axe' : /dirt|sand|gravel|clay|_soil$/.test(name) ? 'shovel' : 'pickaxe';
-    return this.equipBest(kind);
+    const state = await this.refresh(true);
+    if (!state) return false;
+    const items = Object.keys(state.inventory || {}).map((name) => ({ name, count: state.inventory[name] }));
+    const chosen = chooseTool(block && block.name, items);
+    if (!chosen) return false;
+    return this.equip(chosen);
   }
 
   async equipArmor() {

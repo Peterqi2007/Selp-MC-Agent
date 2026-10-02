@@ -4,6 +4,10 @@ node_modules/
 # Scratch space (extracted session archives, temp files)
 .tmp/
 
+# Third-party reference checkouts (mc_aiplayer / mindcraft) - kept locally on purpose,
+# but they are not part of this repository's history.
+refs/
+
 # Runtime state, downloaded servers, logs, traces
 runtime/
 logs/

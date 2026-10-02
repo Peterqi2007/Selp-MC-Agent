@@ -118,104 +118,276 @@ function assessStandability(surfaceName, spaceName) {
 }
 
 /**
+ * Log-family block names - vanilla and modded.
+ *
+ * Names, not block entities: every tree mod we have met (Biomes We've Gone, Create, ...) keeps
+ * the `*_log` / `*_wood` / `*_stem` / `*_hyphae` suffix, and the structural checks below do the
+ * rest. Bamboo is deliberately NOT in this family: it is a plant, not a trunk with a canopy.
+ */
+const LOG_FAMILY = /(_log|_stem|_wood|_hyphae)$/;
+
+/** Block names that count as a tree's canopy (leaves, nether wart blocks, modded foliage). */
+const CANOPY = /(_leaves|_wart_block|_foliage)$/;
+
+/** How many canopy blocks have to be visible before a trunk counts as a tree. */
+const CANOPY_MIN = 3;
+
+function isLogName(name) {
+  return LOG_FAMILY.test(bare(name));
+}
+
+function isCanopyName(name) {
+  return CANOPY.test(bare(name));
+}
+
+/**
  * Is this log part of a *tree*, rather than a wall, a floor or a decoration?
  *
- * The test is deliberately structural rather than name-based, because a log is a log
- * wherever it is. A tree has: natural ground under the column, at least two logs stacked,
- * and no built blocks touching it. A log cabin fails all three.
+ * Rewritten 2026-10-02 after live testing showed the old single-column walk refused real
+ * trees. The old version climbed one vertical (x, z) column and demanded leaves within 2
+ * blocks of that column's top. That shape does not exist for:
+ *
+ *   - acacia (the trunk grows diagonally, so the "column" turns into a staircase),
+ *   - 2x2 dark oak / jungle / spruce (four columns, often with stumps),
+ *   - big trees whose canopy starts more than 4 blocks above the top log,
+ *   - any tree the agent already chopped a few blocks out of.
+ *
+ * The rewrite walks the **connected log cluster** (26-connected, bounded to 64 logs), which
+ * covers all of the shapes above, then applies the same three safety rules as before:
+ *
+ *   1. every visible base block under the cluster must be natural ground (not a built block),
+ *   2. nothing man-made may touch any log in the cluster,
+ *   3. a canopy must exist around the cluster (>= CANOPY_MIN visible canopy blocks), because
+ *      a trunk alone is indistinguishable from a player's log pillar.
+ *
+ * "Unknown" (outside the scan) keeps its own answer: "I cannot see" and "it is not a tree"
+ * are different sentences, and the operator gets to read which one happened.
  *
  * @param {object} world something with `blockAt(position)` (a BodyWorldView or ClientModBody)
  * @param {{name:string, position:{x:number,y:number,z:number}}} block a log
- * @param {object} [options] { requireLeaves } - a trunk without a canopy is refused by default
+ * @param {object} [options] { requireLeaves, canopy:{radius,up,down} }
  * @returns {{ok:boolean, why:string}}
  */
 function looksLikeTree(world, block, options = {}) {
   if (!world || !block || !block.position) return { ok: false, why: 'no block to inspect' };
-  const name = bare(block.name);
-  if (!/(_log|_stem|_wood|_hyphae)$/.test(name)) return { ok: false, why: `${name} is not a log` };
+  const startName = bare(block.name);
+  if (!isLogName(startName)) return { ok: false, why: `${startName} is not a log` };
 
   const read = blockReader(world);
   if (!read) return { ok: false, why: 'the world cannot be read' };
 
-  const at = (dx, dy, dz) => {
-    const found = read({ x: Math.floor(block.position.x) + dx, y: Math.floor(block.position.y) + dy, z: Math.floor(block.position.z) + dz });
+  const ox = Math.floor(block.position.x);
+  const oy = Math.floor(block.position.y);
+  const oz = Math.floor(block.position.z);
+  const at = (x, y, z) => {
+    const found = read({ x, y, z });
     return found ? found.name : null;
   };
 
-  // 1. Walk down the column to its base, and refuse if a built block is anywhere in it.
-  let base = null;
-  for (let depth = 0; depth < 24; depth += 1) {
-    const below = at(0, -depth - 1, 0);
-    if (below === null) return { ok: false, why: 'the column base is outside the scan' };
-    const veto = manMadeReason(below);
-    if (veto) return { ok: false, why: `the log column sits on a ${veto} (${below})` };
-    if (!/(_log|_stem|_wood|_hyphae)$/.test(bare(below))) {
-      base = below;
-      break;
+  // 1. Walk the whole connected log cluster, not just one column. Bounded, so a huge
+  //    modded tree cannot turn this into an unbounded scan.
+  const MAX_LOGS = 64;
+  const cluster = [];
+  const seen = new Set();
+  const queue = [[ox, oy, oz]];
+  while (queue.length && cluster.length < MAX_LOGS) {
+    const [x, y, z] = queue.shift();
+    const key = `${x},${y},${z}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    const name = at(x, y, z);
+    if (name === null || !isLogName(name)) continue;
+    cluster.push({ x, y, z, name });
+    for (let dx = -1; dx <= 1; dx += 1) {
+      for (let dy = -1; dy <= 1; dy += 1) {
+        for (let dz = -1; dz <= 1; dz += 1) {
+          if (dx === 0 && dy === 0 && dz === 0) continue;
+          const neighbourKey = `${x + dx},${y + dy},${z + dz}`;
+          if (!seen.has(neighbourKey)) queue.push([x + dx, y + dy, z + dz]);
+        }
+      }
     }
   }
-  if (base === null) return { ok: false, why: 'the log column is too tall to verify' };
+  if (!cluster.length) return { ok: false, why: 'the log is outside the scan' };
+
+  // 2. Base check: every column that reaches the ground must stand on natural terrain.
+  const lowest = Math.min(...cluster.map((log) => log.y));
+  const baseLogs = cluster.filter((log) => log.y === lowest);
+  let baseName = null;
+  let unknownBases = 0;
+  for (const log of baseLogs) {
+    // The cluster walk is capped at 64 logs, so the "lowest" log may still have trunk
+    // below it on a very large tree. Keep probing down through logs until real ground.
+    let y = log.y - 1;
+    let probe = at(log.x, y, log.z);
+    let steps = 0;
+    while (probe !== null && isLogName(probe) && steps < 40) {
+      y -= 1;
+      steps += 1;
+      probe = at(log.x, y, log.z);
+    }
+    if (probe === null) {
+      unknownBases += 1;
+      continue;
+    }
+    const veto = manMadeReason(probe);
+    if (veto) return { ok: false, why: `the log column sits on a ${veto} (${probe})` };
+    if (isLogName(probe)) return { ok: false, why: 'the trunk is too tall to verify its base' };
+    if (baseName === null) baseName = probe;
+  }
+  if (baseName === null) {
+    return { ok: false, why: 'the column base is outside the scan' };
+  }
+  if (unknownBases > 0) {
+    return {
+      ok: false,
+      why: `part of the trunk base is outside the scan (${unknownBases} column(s) unverifiable)`
+    };
+  }
 
   /**
-   * 2. The base must be natural ground - with two deliberate exceptions.
+   * The base must be natural ground - with two deliberate exceptions.
    *
    * `air` and leaves are accepted because the agent's own chopping removes the block below:
    * the first log of a tree leaves a floating trunk above an air gap, and refusing that made
-   * a partially harvested tree impossible to finish (the task reported "no logs available"
-   * next to a tree it had just started on). Leaves are accepted because a trunk can continue
-   * up through a canopy. Anything built is still refused, which is what the rule is for.
+   * a partially harvested tree impossible to finish. Modded ground families pass through the
+   * looser name test so a Biomes We've Gone `lush_grass_block` is not read as a build.
    */
-  const baseBare = bare(base);
-  const tolerated = /^(air|cave_air|void_air)$/.test(baseBare) || /_leaves$/.test(baseBare);
-  if (!isNaturalGround(base) && !/dirt|grass|podzol|mycelium|mud|moss|sand|gravel/.test(baseBare) && !tolerated) {
-    return { ok: false, why: `the tree would be rooted in ${base}, which is not natural ground` };
+  const baseBare = bare(baseName);
+  const tolerated = /^(air|cave_air|void_air)$/.test(baseBare) || isCanopyName(baseBare);
+  const naturalish = /(grass|dirt|moss|sand|gravel|podzol|mycelium|mud|stone|deepslate|tuff|calcite|terracotta|snow|netherrack|soul_|basalt|blackstone|clay|sculk|end_stone)/i;
+  if (!isNaturalGround(baseName) && !naturalish.test(baseBare) && !tolerated) {
+    return { ok: false, why: `the tree would be rooted in ${baseName}, which is not natural ground` };
   }
 
-  // 3. A tree is more than one block; a single floating log is a decoration.
-  const above = at(0, 1, 0);
-  const belowIsLog = /(_log|_stem|_wood|_hyphae)$/.test(bare(at(0, -1, 0) || ''));
-  if (!belowIsLog) {
-    const stacked = /(_log|_stem|_wood|_hyphae)$/.test(bare(above || ''));
-    if (!stacked) return { ok: false, why: 'a single isolated log - not a tree' };
-  }
-
-  // 4. Nothing built may touch the trunk.
-  for (const [dx, dy, dz] of [[1, 0, 0], [-1, 0, 0], [0, 0, 1], [0, 0, -1], [0, 1, 0], [0, -1, 0]]) {
-    const neighbour = at(dx, dy, dz);
-    const veto = manMadeReason(neighbour);
-    if (veto) return { ok: false, why: `a ${veto} (${neighbour}) is touching the trunk` };
+  // 3. Nothing built may touch any log in the cluster.
+  const TOUCHING = [[1, 0, 0], [-1, 0, 0], [0, 0, 1], [0, 0, -1], [0, 1, 0], [0, -1, 0]];
+  for (const log of cluster) {
+    for (const [dx, dy, dz] of TOUCHING) {
+      const neighbour = at(log.x + dx, log.y + dy, log.z + dz);
+      const veto = manMadeReason(neighbour);
+      if (veto) return { ok: false, why: `a ${veto} (${neighbour}) is touching the trunk` };
+    }
   }
 
   /**
-   * 5. A trunk alone is not a tree: there must be a canopy.
+   * 4. A trunk alone is not a tree: there must be a canopy.
    *
    * This is what separates a forest from a lumber yard. Everything above is structural but
-   * blind: a player's log pillar standing on grass, a decorative stripped-log column, a
-   * fence-post-like stack - all of them pass rules 1-4 and would be eaten. Requiring leaves
-   * is the one signal that is a property of *trees* rather than of logs, and it is cheap
-   * because leaves are always adjacent to the top of the trunk.
-   *
-   * Nether "trees" have no leaves at all (crimson/warped fungi carry wart blocks), and bamboo
-   * is not a log with a canopy either - both are accepted by `isCanopy`.
+   * blind: a player's log pillar standing on grass, a decorative stripped-log column - both
+   * pass rules 1-3 and would be eaten. Requiring leaves is the one signal that is a property
+   * of *trees* rather than of logs. Nether "trees" carry wart blocks instead of leaves.
    */
-  if (options.requireLeaves !== false) {
-    const canopy = findCanopy(at, block);
-    if (!canopy.ok) return canopy;
+  const canopy = options.requireLeaves === false
+    ? { found: 0, visible: 0, unknown: 0, near: 0 }
+    : canopyAround(at, cluster, options.canopy || {});
+
+  /**
+   * Two different failures, two different sentences:
+   *  - nothing at all is visible around the trunk -> the scan does not cover this tree;
+   *  - the trunk and its surroundings are visible, but carry no canopy -> not a tree.
+   *
+   * The acceptance threshold is shape-aware. `CANOPY_MIN` (3) is the strong signal, but a
+   * single canopy block sitting on the trunk - a 1-wide nether fungus, or the last leaves of
+   * a half-chopped sapling - is also enough when it is *near* the trunk. A stray leaf three
+   * blocks away does not count, which keeps "a leaf someone placed next to a log pillar" from
+   * turning the pillar into lumber.
+   */
+  const canopyStrong = canopy.found >= CANOPY_MIN;
+  const canopyNear = canopy.found >= 1 && canopy.near >= 1;
+  if (options.requireLeaves !== false && !canopyStrong && !canopyNear) {
+    return {
+      ok: false,
+      why: canopy.visible === 0
+        ? 'the area around the trunk is outside the scan, so I cannot confirm it is a tree'
+        : 'the trunk has no leaves - it looks built rather than grown'
+    };
   }
 
-  return { ok: true, why: `rooted in ${base}` };
+  // 5. One lone log is a decoration or a stump - only a stump with its canopy still standing
+  //    is worth finishing. (A fully chopped tree leaves exactly this shape.)
+  if (cluster.length < 2 && !canopyNear) {
+    return { ok: false, why: 'a single isolated log - not a tree' };
+  }
+
+  return { ok: true, why: `rooted in ${baseName}` };
 }
 
-/** Block names that count as a tree's canopy. */
-const CANOPY = /(_leaves|_wart_block|_foliage)$/;
+/**
+ * Count canopy blocks around a log cluster.
+ *
+ * The box spans the cluster's bounding box plus a margin (3 blocks horizontally, 6 above the
+ * highest log, 2 below the lowest), which covers every overworld tree shape we know: oak,
+ * birch, spruce (including the 2x2 mega variant), jungle, acacia, dark oak, mangrove, cherry,
+ * and the modded species that copy them.
+ *
+ * `near` counts canopy blocks within 2 columns of an actual log, so a pile of leaves dumped
+ * on the ground next to a pillar does not by itself make it a tree.
+ *
+ * @param {(x:number,y:number,z:number) => (string|null)} at absolute block reader
+ * @param {Array<{x:number,y:number,z:number}>} cluster
+ * @param {object} [limits] { radius, up, down }
+ * @returns {{found:number, visible:number, unknown:number, near:number}}
+ */
+function canopyAround(at, cluster, limits = {}) {
+  const radius = limits.radius === undefined ? 3 : limits.radius;
+  const up = limits.up === undefined ? 6 : limits.up;
+  const down = limits.down === undefined ? 2 : limits.down;
+
+  let minX = Infinity;
+  let maxX = -Infinity;
+  let minY = Infinity;
+  let maxY = -Infinity;
+  let minZ = Infinity;
+  let maxZ = -Infinity;
+  const columns = new Map();
+  for (const log of cluster) {
+    minX = Math.min(minX, log.x);
+    maxX = Math.max(maxX, log.x);
+    minY = Math.min(minY, log.y);
+    maxY = Math.max(maxY, log.y);
+    minZ = Math.min(minZ, log.z);
+    maxZ = Math.max(maxZ, log.z);
+    const column = columns.get(`${log.x},${log.z}`) || { minY: log.y, maxY: log.y };
+    column.minY = Math.min(column.minY, log.y);
+    column.maxY = Math.max(column.maxY, log.y);
+    columns.set(`${log.x},${log.z}`, column);
+  }
+
+  let found = 0;
+  let visible = 0;
+  let unknown = 0;
+  let near = 0;
+  for (let x = minX - radius; x <= maxX + radius; x += 1) {
+    for (let z = minZ - radius; z <= maxZ + radius; z += 1) {
+      for (let y = minY - down; y <= maxY + up; y += 1) {
+        const name = at(x, y, z);
+        if (name === null) {
+          unknown += 1;
+          continue;
+        }
+        visible += 1;
+        if (!isCanopyName(name)) continue;
+        found += 1;
+        let isNear = false;
+        for (let dx = -2; dx <= 2 && !isNear; dx += 1) {
+          for (let dz = -2; dz <= 2; dz += 1) {
+            const column = columns.get(`${x + dx},${z + dz}`);
+            if (column && y >= column.minY - 1 && y <= column.maxY + up) {
+              isNear = true;
+              break;
+            }
+          }
+        }
+        if (isNear) near += 1;
+      }
+    }
+  }
+  return { found, visible, unknown, near };
+}
 
 /**
- * Does the trunk under `block` carry a canopy?
- *
- * Walks up the column to its top first, then looks in a small box around it: vanilla leaves
- * sit within ~2 blocks horizontally and up to ~4 above the highest log, which is the shape of
- * every overworld species. A bare column returns false with a reason saying so, because
- * "this is not a tree" and "this tree is out of sight" need different answers.
+ * Relative-reader version kept for compatibility (the chop task and older callers).
  *
  * @param {(dx:number, dy:number, dz:number) => (string|null)} at relative block reader
  * @param {{position:{x:number,y:number,z:number}}} block any log of the column
@@ -223,36 +395,30 @@ const CANOPY = /(_leaves|_wart_block|_foliage)$/;
  * @returns {{ok:boolean, why:string}}
  */
 function findCanopy(at, block, limits = {}) {
-  const radius = limits.radius === undefined ? 2 : limits.radius;
-  const up = limits.up === undefined ? 4 : limits.up;
-  const down = limits.down === undefined ? 1 : limits.down;
-
-  // Climb to the top of the trunk so the search happens where leaves actually are.
-  let top = 0;
-  for (let step = 0; step < 40; step += 1) {
-    const next = at(0, top + 1, 0);
-    if (next === null) break; // above the scan: stop climbing, search what we can see
-    if (!/(_log|_stem|_wood|_hyphae)$/.test(bare(next))) break;
-    top += 1;
+  const bx = Math.floor(block.position.x);
+  const by = Math.floor(block.position.y);
+  const bz = Math.floor(block.position.z);
+  const absAt = (x, y, z) => at(x - bx, y - by, z - bz);
+  const cluster = [{ x: bx, y: by, z: bz }];
+  for (let dy = 1; dy < 40; dy += 1) {
+    const name = absAt(bx, by + dy, bz);
+    if (name === null || !isLogName(name)) break;
+    cluster.push({ x: bx, y: by + dy, z: bz });
   }
-
-  let sawAnything = false;
-  for (let dy = -down; dy <= up; dy += 1) {
-    for (let dx = -radius; dx <= radius; dx += 1) {
-      for (let dz = -radius; dz <= radius; dz += 1) {
-        const name = at(dx, top + dy, dz);
-        if (name === null) continue;
-        sawAnything = true;
-        if (CANOPY.test(bare(name))) return { ok: true, why: 'has a canopy' };
-      }
-    }
+  for (let dy = 1; dy < 40; dy += 1) {
+    const name = absAt(bx, by - dy, bz);
+    if (name === null || !isLogName(name)) break;
+    cluster.unshift({ x: bx, y: by - dy, z: bz });
   }
-
+  const result = canopyAround(absAt, cluster, limits);
+  if (result.found >= CANOPY_MIN || (result.found >= 1 && result.near >= 1)) {
+    return { ok: true, why: 'has a canopy' };
+  }
   return {
     ok: false,
-    why: sawAnything
-      ? 'the trunk has no leaves - it looks built rather than grown'
-      : 'the area around the trunk top is outside the scan, so I cannot confirm it is a tree'
+    why: result.visible === 0
+      ? 'the area around the trunk top is outside the scan, so I cannot confirm it is a tree'
+      : 'the trunk has no leaves - it looks built rather than grown'
   };
 }
 
@@ -318,13 +484,18 @@ module.exports = {
   NATURAL_GROUND,
   WALKABLE_VEGETATION,
   CANOPY,
+  CANOPY_MIN,
+  LOG_FAMILY,
   manMadeReason,
   isNaturalGround,
   isWalkableVegetation,
   isClear,
+  isLogName,
+  isCanopyName,
   assessStandability,
   looksLikeTree,
   findCanopy,
+  canopyAround,
   blockReader,
   ManMadeGuard,
   bare

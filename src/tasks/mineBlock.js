@@ -29,6 +29,7 @@ const {
   tierRank
 } = require('../world/items');
 const { manMadeReason } = require('../world/safety');
+const { toolPlan, chooseTool } = require('../world/toolPolicy');
 
 /** Blocks that are never worth breaking, whatever the request said. */
 const NEVER_MINE = new Set(['bedrock', 'barrier', 'end_portal_frame', 'end_portal', 'nether_portal', 'command_block', 'structure_block', 'water', 'lava', 'air', 'cave_air']);
@@ -97,19 +98,14 @@ class MineBlockTask extends HarvestTask {
      * take the stone it can reach while leaving the iron ore alone, instead of either refusing
      * everything or smashing ore with a wooden pickaxe for no drop.
      */
-    const tier = requiredTierFor(name);
-    if (tier) {
-      const pick = this.bestPickaxe();
-      if (!pick || harvestLevel(pick.tier) < harvestLevel(tier)) {
-        if (!this.toolBlocked) this.toolBlocked = [];
-        if (!this.toolBlocked.includes(name)) {
-          this.toolBlocked.push(name);
-          this.log.debug(
-            `cannot mine ${name}: needs ${tier}, best pickaxe is ${pick ? pick.tier : 'none'}`
-          );
-        }
-        return false;
+    const plan = toolPlan(name, this.inventory.items());
+    if (!plan.ok) {
+      if (!this.toolBlocked) this.toolBlocked = [];
+      if (!this.toolBlocked.includes(name)) {
+        this.toolBlocked.push(name);
+        this.log.debug(`cannot mine ${name}: ${plan.reason}`);
       }
+      return false;
     }
 
     const world = this.ctx.world;
@@ -309,12 +305,9 @@ class MineBlockTask extends HarvestTask {
    */
   toolFor(block) {
     if (!block) return null;
-    const tier = requiredTierFor(block.name);
-    if (!tier) return null;
-    const pick = this.bestPickaxe();
-    if (!pick) return null;
-    if (harvestLevel(pick.tier) < harvestLevel(tier)) return null; // cannot be mined at all
-    return pick.name;
+    // The shared policy: pickaxe for tiered blocks, shovel for dirt, axe for logs, shears for
+    // leaves - and nothing at all when the block has no tool requirement and none is carried.
+    return chooseTool(block.name, this.inventory.items());
   }
 
   /** Blocks this task had to skip because the pickaxe is too weak (for the log and the panel). */

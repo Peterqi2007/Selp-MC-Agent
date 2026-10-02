@@ -615,6 +615,198 @@ function treeBlocks(x, z, height, species = 'oak', options = {}) {
     return 'canopy requirement is a switch, not a hard-coded opinion';
   });
 
+  // ------------------------------------------------ tree shapes (2026-10-02 rewrite)
+  process.stdout.write('\n2c. tree shapes - accept every real tree, refuse the rest\n');
+
+  await scenario('an acacia-style diagonal trunk is a tree (the old column walk refused it)', async () => {
+    /**
+     * The failure that started the rewrite: the old check walked one vertical (x, z) column,
+     * and an acacia trunk steps sideways as it grows. Every acacia was refused as "no leaves"
+     * even when the player was standing under one.
+     */
+    const blocks = [
+      { name: 'grass_block', position: { x: 0, y: 63, z: 0 } },
+      { name: 'acacia_log', position: { x: 0, y: 64, z: 0 } },
+      { name: 'acacia_log', position: { x: 0, y: 65, z: 0 } },
+      { name: 'acacia_log', position: { x: 1, y: 66, z: 0 } },
+      { name: 'acacia_log', position: { x: 1, y: 67, z: 0 } },
+      { name: 'acacia_leaves', position: { x: 1, y: 68, z: 0 } },
+      { name: 'acacia_leaves', position: { x: 2, y: 68, z: 0 } },
+      { name: 'acacia_leaves', position: { x: 0, y: 68, z: 1 } },
+      { name: 'acacia_leaves', position: { x: 1, y: 69, z: 1 } }
+    ];
+    const body = new MockBody(cfg, { blocks });
+    await body.connect();
+    const task = new ChopWoodTask(makeCtx(body, cfg), { count: 2, timeoutMs: 20000, warmupMs: 0, roamSteps: 0 });
+    const res = await task.execute();
+    const logs = body.inventory['minecraft:acacia_log'] || 0;
+    expect(logs >= 2, `expected the diagonal trunk to be chopped, have ${logs} (${res.reason})`);
+    return `chopped ${logs} acacia logs`;
+  });
+
+  await scenario('a 2x2 dark oak trunk is a tree (four columns, one canopy)', async () => {
+    const blocks = [];
+    for (const [dx, dz] of [[0, 0], [1, 0], [0, 1], [1, 1]]) {
+      blocks.push({ name: 'grass_block', position: { x: dx, y: 63, z: dz } });
+      for (let i = 0; i < 3; i += 1) {
+        blocks.push({ name: 'dark_oak_log', position: { x: dx, y: 64 + i, z: dz } });
+      }
+    }
+    for (let dx = -1; dx <= 2; dx += 1) {
+      for (let dz = -1; dz <= 2; dz += 1) {
+        if (dx >= 0 && dx <= 1 && dz >= 0 && dz <= 1) continue;
+        blocks.push({ name: 'dark_oak_leaves', position: { x: dx, y: 67, z: dz } });
+      }
+    }
+    const body = new MockBody(cfg, { blocks });
+    await body.connect();
+    const task = new ChopWoodTask(makeCtx(body, cfg), { count: 4, timeoutMs: 25000, warmupMs: 0, roamSteps: 0 });
+    const res = await task.execute();
+    const logs = body.inventory['minecraft:dark_oak_log'] || 0;
+    expect(logs >= 4, `expected the 2x2 trunk to be chopped, have ${logs} (${res.reason})`);
+    return `chopped ${logs} dark oak logs`;
+  });
+
+  await scenario('a tall tree whose canopy starts above the old search box is still a tree', async () => {
+    // Spruce never puts leaves within 4 above the top log; the old box gave up, the new one
+    // searches 6 above and 3 out.
+    const blocks = [{ name: 'grass_block', position: { x: 0, y: 63, z: 0 } }];
+    for (let i = 0; i < 8; i += 1) blocks.push({ name: 'spruce_log', position: { x: 0, y: 64 + i, z: 0 } });
+    for (let dx = -1; dx <= 1; dx += 1) {
+      for (let dz = -1; dz <= 1; dz += 1) {
+        blocks.push({ name: 'spruce_leaves', position: { x: dx, y: 77, z: dz } });
+      }
+    }
+    const body = new MockBody(cfg, { blocks });
+    await body.connect();
+    const task = new ChopWoodTask(makeCtx(body, cfg), { count: 2, timeoutMs: 20000, warmupMs: 0, roamSteps: 0 });
+    const res = await task.execute();
+    const logs = body.inventory['minecraft:spruce_log'] || 0;
+    expect(logs >= 2, `expected the tall spruce to be chopped, have ${logs} (${res.reason})`);
+    return `chopped ${logs} spruce logs`;
+  });
+
+  await scenario('a half-chopped tree (floating trunk over air) can be finished', async () => {
+    /**
+     * The agent's own digging leaves this shape: the bottom logs are gone, so the remaining
+     * trunk floats over the air gap it created. Refusing it means a tree it started on
+     * becomes unfinishable.
+     */
+    const blocks = [
+      { name: 'grass_block', position: { x: 0, y: 63, z: 0 } },
+      { name: 'air', position: { x: 0, y: 64, z: 0 } },
+      { name: 'air', position: { x: 0, y: 65, z: 0 } },
+      { name: 'oak_log', position: { x: 0, y: 66, z: 0 } },
+      { name: 'oak_log', position: { x: 0, y: 67, z: 0 } },
+      { name: 'oak_leaves', position: { x: 0, y: 68, z: 0 } },
+      { name: 'oak_leaves', position: { x: 1, y: 68, z: 0 } },
+      { name: 'oak_leaves', position: { x: 0, y: 68, z: 1 } }
+    ];
+    const body = new MockBody(cfg, { blocks });
+    await body.connect();
+    const task = new ChopWoodTask(makeCtx(body, cfg), { count: 2, timeoutMs: 20000, warmupMs: 0, roamSteps: 0 });
+    const res = await task.execute();
+    const logs = body.inventory['minecraft:oak_log'] || 0;
+    expect(logs >= 2, `expected the floating trunk to be chopped, have ${logs} (${res.reason})`);
+    return `finished the half-chopped tree (+${logs} logs)`;
+  });
+
+  await scenario('modded tree names are trees too (Biomes We\'ve Gone style ids)', async () => {
+    const blocks = [
+      { name: 'biomeswevegone:lush_grass_block', position: { x: 0, y: 63, z: 0 } },
+      { name: 'biomeswevegone:aspen_log', position: { x: 0, y: 64, z: 0 } },
+      { name: 'biomeswevegone:aspen_log', position: { x: 0, y: 65, z: 0 } },
+      { name: 'biomeswevegone:aspen_leaves', position: { x: 0, y: 66, z: 0 } },
+      { name: 'biomeswevegone:aspen_leaves', position: { x: 1, y: 66, z: 0 } },
+      { name: 'biomeswevegone:aspen_leaves', position: { x: 0, y: 66, z: 1 } }
+    ];
+    const body = new MockBody(cfg, { blocks });
+    await body.connect();
+    const task = new ChopWoodTask(makeCtx(body, cfg), { count: 2, timeoutMs: 20000, warmupMs: 0, roamSteps: 0 });
+    const res = await task.execute();
+    const dug = body.history.filter((h) => h.action === 'dig' && /aspen_log/.test(h.name)).length;
+    expect(dug >= 2, `expected the modded tree to be chopped, dug ${dug} (${res.reason})`);
+    return `chopped ${dug} modded logs`;
+  });
+
+  await scenario('a leaf dropped next to a log pillar does not turn it into a tree', async () => {
+    // The near-check: canopy has to be *near* the trunk. A single leaf three blocks away is
+    // someone's decoration, not a canopy.
+    const blocks = [...treeBlocks(0, 0, 4, 'oak', { canopy: false }), { name: 'oak_leaves', position: { x: 3, y: 66, z: 3 } }];
+    const body = new MockBody(cfg, { blocks });
+    await body.connect();
+    const task = new ChopWoodTask(makeCtx(body, cfg), { count: 4, timeoutMs: 15000, warmupMs: 0, roamSteps: 0 });
+    const res = await task.execute();
+    const dug = body.history.filter((h) => h.action === 'dig').length;
+    expect(dug === 0, `the pillar must not be dismantled (dug ${dug})`);
+    expect(task.refusedTargets.length >= 1, 'the refusal should be recorded');
+    return task.refusedTargets[0].why;
+  });
+
+  process.stdout.write('\n2d. tool policy - the shared answer to "what do I hold?"\n');
+
+  await scenario('dirt is never gated on a tool (the live bug this rewrite fixes)', () => {
+    const { toolPlan } = require('../src/world/toolPolicy');
+    const bareHands = toolPlan('dirt', []);
+    expect(bareHands.ok, 'dirt must be diggable with empty hands');
+    expect(bareHands.required === false, 'dirt is not a required-tool block');
+    expect(bareHands.tool === null, 'there is nothing to equip when no shovel is carried');
+
+    const withPick = toolPlan('dirt', [{ name: 'minecraft:diamond_pickaxe', count: 1 }]);
+    expect(withPick.ok, 'a pickaxe in the bag must not block dirt');
+    expect(withPick.tool === null, 'a pickaxe must not be equipped for dirt');
+
+    const withShovel = toolPlan('dirt', [{ name: 'minecraft:iron_shovel', count: 1 }]);
+    expect(withShovel.ok && withShovel.tool && withShovel.tool.name === 'minecraft:iron_shovel', 'a carried shovel is chosen');
+
+    const sand = toolPlan('sand', [{ name: 'minecraft:wooden_shovel', count: 1 }]);
+    expect(sand.ok && sand.tool, 'sand prefers the shovel as well');
+    return 'dirt/sand: bare hands ok, shovel when carried, pickaxe ignored';
+  });
+
+  await scenario('the pickaxe gate still applies exactly where it must', () => {
+    const { toolPlan } = require('../src/world/toolPolicy');
+    const stoneBare = toolPlan('stone', []);
+    expect(!stoneBare.ok && /need a pickaxe/.test(stoneBare.reason), `stone bare-handed must fail, got ${stoneBare.reason}`);
+
+    const stoneWood = toolPlan('stone', [{ name: 'minecraft:wooden_pickaxe', count: 1 }]);
+    expect(stoneWood.ok && stoneWood.tool.name === 'minecraft:wooden_pickaxe', 'a wooden pickaxe opens stone');
+
+    const ironWood = toolPlan('iron_ore', [{ name: 'minecraft:wooden_pickaxe', count: 1 }]);
+    expect(!ironWood.ok && /too weak/.test(ironWood.reason), `wooden pickaxe must not open iron ore, got ${ironWood.reason}`);
+
+    const ironStone = toolPlan('iron_ore', [{ name: 'minecraft:stone_pickaxe', count: 1 }]);
+    expect(ironStone.ok, 'a stone pickaxe opens iron ore');
+
+    const leaves = toolPlan('oak_leaves', [{ name: 'minecraft:shears', count: 1 }]);
+    expect(leaves.ok && leaves.tool && leaves.tool.name === 'minecraft:shears', 'shears are preferred for leaves');
+
+    const logs = toolPlan('oak_log', [{ name: 'minecraft:iron_axe', count: 1 }]);
+    expect(logs.ok && /iron_axe/.test(logs.tool.name), 'an axe is preferred for logs');
+    return 'stone/iron ore tier gates kept; shears/axe preferences wired';
+  });
+
+  await scenario('dirt + only a pickaxe: the task digs anyway and holds nothing', async () => {
+    // End-to-end version of the live bug: the agent had a pickaxe, was asked to dig dirt, and
+    // the old body code told the model it needed the pickaxe it did not want to use.
+    const blocks = [
+      { name: 'grass_block', position: { x: 0, y: 63, z: 0 } },
+      { name: 'dirt', position: { x: 1, y: 64, z: 0 } },
+      { name: 'dirt', position: { x: 2, y: 64, z: 0 } }
+    ];
+    const body = new MockBody(cfg, { blocks, inventory: { 'minecraft:diamond_pickaxe': 1 } });
+    await body.connect();
+    const task = new MineBlockTask(makeCtx(body, cfg), {
+      block: ['dirt', 'grass_block'], count: 2, probeShaft: false, warmupMs: 0, roamSteps: 0
+    });
+    const res = await task.execute();
+    expect(res.ok, `dirt must be mined, got ${res.reason}`);
+    expect(!body.held, `no tool should be held for dirt, holding ${body.held}`);
+    const dirt = body.inventory['minecraft:dirt'] || 0;
+    expect(dirt >= 2, `expected 2 dirt in the bag, have ${dirt}`);
+    return `dug ${dirt} dirt with a pickaxe in the bag and nothing in hand`;
+  });
+
   await scenario('a nether fungus still counts as a tree (wart blocks are its canopy)', async () => {
     // Crimson/warped "trees" have no leaves at all, so a canopy rule that only knows about
     // leaves would silently make the nether unchoppable.
