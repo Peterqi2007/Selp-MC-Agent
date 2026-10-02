@@ -34,6 +34,7 @@ const DEFAULTS = {
     behaviour: {
       autoEat: true,
       autoCloseScreens: true,
+      chatScreenWaitMs: 20000,
       autoFight: true,
       autoArmor: true,
       autoTool: true,

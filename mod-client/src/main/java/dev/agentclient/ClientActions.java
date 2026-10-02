@@ -494,6 +494,9 @@ public final class ClientActions {
         private long lastProgressAt = System.currentTimeMillis();
         private int jumpsSinceProgress;
         private boolean jumpHeld;
+        /** Time spent with a GUI open: the human is busy, so it must not count as stall. */
+        private long pausedMs;
+        private long screenOpenedAt = -1L;
 
         WalkTo(Vec3 target, double range) {
             this.target = target;
@@ -518,7 +521,26 @@ public final class ClientActions {
                 release();
                 return true;
             }
-            if (now - started > 60_000L) {
+            /**
+             * A GUI screen open means the player is busy - the game ignores every movement
+             * key, so "no progress" here is not a stuck walk, it is a human typing a command
+             * or looking in a chest. Freeze the stall clocks instead of failing the task;
+             * the moment the screen closes the walk resumes.
+             */
+            if (mc.screen != null) {
+                if (screenOpenedAt < 0L) {
+                    screenOpenedAt = now;
+                }
+                lastProgressAt = now;
+                jumpsSinceProgress = 0;
+                return false;
+            }
+            if (screenOpenedAt >= 0L) {
+                pausedMs += now - screenOpenedAt;
+                screenOpenedAt = -1L;
+            }
+
+            if (now - started - pausedMs > 60_000L) {
                 failed = true;
                 reason = "timeout";
                 release();

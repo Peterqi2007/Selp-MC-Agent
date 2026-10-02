@@ -65,6 +65,16 @@ class ClientModBody extends Body {
     this.autoCloseScreens = options.autoCloseScreens === undefined
       ? (cfg.agent && cfg.agent.behaviour && cfg.agent.behaviour.autoCloseScreens) !== false
       : options.autoCloseScreens === true;
+    /**
+     * How long to wait for a *chat* screen to close before giving up on a move.
+     *
+     * The chat box is never closed automatically: the operator may be typing `!stop`, and
+     * closing it mid-sentence was worse than waiting (live report: "I cannot interrupt it
+     * any more"). While they type we simply wait; the mod also freezes its stall timers.
+     */
+    this.chatWaitMs = options.chatWaitMs
+      || (cfg.agent && cfg.agent.behaviour && cfg.agent.behaviour.chatScreenWaitMs)
+      || 20000;
     /** Lazily built on first long moveTo; see the `navigator` getter. */
     this._navigator = null;
     this._world = null;
@@ -398,10 +408,18 @@ class ClientModBody extends Body {
        */
       const stillOpen = await this._screenStillOpen(900);
       if (stillOpen) {
-        const recovered = this.autoCloseScreens ? await this._tryCloseScreen(screen) : false;
+        const isChat = /chat/i.test(String(screen || ''));
+        const recovered = isChat
+          ? await this._waitForScreenClose(this.chatWaitMs)
+          : this.autoCloseScreens
+            ? await this._tryCloseScreen(screen)
+            : false;
         if (!recovered) {
           this.lastMove = { ok: false, reason: 'screen-open', screen, target: { ...position }, ms: 0 };
-          this.log.warn(`cannot walk: ${screen} is open in the game - close it first`);
+          this.log.warn(
+            `cannot walk: ${screen} is open in the game - ` +
+              (isChat ? 'finish typing or press Escape' : 'close it first')
+          );
           return false;
         }
       }
@@ -495,6 +513,18 @@ class ClientModBody extends Body {
       if (Date.now() >= deadline) return true;
       await sleep(150);
     }
+  }
+
+  /** Wait (without touching anything) for the player to close the screen themselves. */
+  async _waitForScreenClose(waitMs) {
+    const deadline = Date.now() + waitMs;
+    this.log.info(`waiting up to ${Math.round(waitMs / 1000)}s for the open screen to close (never closing chat ourselves)`);
+    while (Date.now() < deadline) {
+      await sleep(250);
+      const state = await this.refresh(true).catch(() => null);
+      if (state && state.screenOpen === false) return true;
+    }
+    return false;
   }
 
   /**

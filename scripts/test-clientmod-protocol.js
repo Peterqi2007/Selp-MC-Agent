@@ -341,6 +341,25 @@ function check(name, ok, detail) {
     world.screen = 'null';
     await body.refresh(true);
 
+    // A chat screen is NEVER closed by the agent: the human may be typing `!stop`.
+    const closesBeforeChat = closeCommands;
+    body.chatWaitMs = 500; // keep the test fast; production default is 20s
+    world.screenOpen = true;
+    world.screen = 'ChatScreen';
+    await body.refresh(true);
+    const refusedChat = await body.moveTo({ x: 30, y: 64, z: 0 }, { range: 1.5, timeoutMs: 2000 });
+    check(
+      'a chat screen is never closed automatically (typing can interrupt)',
+      refusedChat === false && closeCommands === closesBeforeChat && body.lastMove.reason === 'screen-open',
+      `walk=${refusedChat} closes=${closeCommands - closesBeforeChat} ${JSON.stringify(body.lastMove)}`
+    );
+    // ...and once the human closes it, walking works again.
+    world.screenOpen = false;
+    world.screen = 'null';
+    await body.refresh(true);
+    const afterChat = await body.moveTo({ x: 3, y: 64, z: 0 }, { range: 2, timeoutMs: 5000 });
+    check('closing the chat ourselves restores walking', afterChat === true, JSON.stringify(body.lastMove));
+
     const dug = await body.dig({ name: 'minecraft:stone', position: { x: 5, y: 64, z: 0 } }, { timeoutMs: 5000 });
     check('dig() polls until the block is gone', dug === true);
     await body.refresh(true);
