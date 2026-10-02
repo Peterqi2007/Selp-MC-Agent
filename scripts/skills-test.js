@@ -235,6 +235,28 @@ class MenuBody extends Body {
     return result.reason;
   });
 
+  await scenario('attack escalates the search radius instead of refusing at 8 blocks', async () => {
+    // The live report: zombies ~10 blocks away, `!attack` refused because the default
+    // looked only 8 blocks. One escalation step now runs before giving up.
+    const body = new MockBody(cfg, {
+      entities: [{ id: 1, name: 'minecraft:zombie', kind: 'hostile', alive: true, position: { x: 12, y: 64, z: 0 } }]
+    });
+    await body.connect();
+    const result = await skills.run('attack', makeCtx(body), { maxDistance: 8 });
+    expect(result.ok, `expected the escalation to find the zombie, got ${result.reason}`);
+    return result.detail;
+  });
+
+  await scenario('attack on a dead bot says so instead of "no hostile"', async () => {
+    const body = new MockBody(cfg, {});
+    await body.connect();
+    const base = body.snapshot();
+    body.snapshot = () => ({ ...base, dead: true });
+    const result = await skills.run('attack', makeCtx(body), {});
+    expect(!result.ok && /dead/.test(result.reason), `got "${result.reason}"`);
+    return result.reason;
+  });
+
   await scenario('defend clears everything in range and then stands down', async () => {
     const body = new MockBody(cfg, {
       entities: [

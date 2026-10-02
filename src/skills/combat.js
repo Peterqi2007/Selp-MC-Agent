@@ -31,19 +31,40 @@ register({
   description: 'Attack the nearest hostile (optionally of one type) until it dies or times out.',
   params: {
     type: { type: 'string' },
-    maxDistance: { type: 'number', default: 8, min: 1, max: 32 },
+    /**
+     * 16 rather than 8. The live report was "!attack was refused while zombies were
+     * nearby" - the zombies were around ten blocks away and the old default simply did
+     * not look that far. The mod tracks hostiles out to 24 blocks.
+     */
+    maxDistance: { type: 'number', default: 16, min: 1, max: 32 },
     timeoutMs: { type: 'number', default: 15000, min: 500, max: 120000 }
   },
   available: (ctx) => (ctx.body && typeof ctx.body.attack === 'function' && typeof ctx.body.hostiles === 'function'
     ? { ok: true }
     : { ok: false, reason: 'this body cannot fight' }),
   async run(ctx, params) {
-    const picked = pickTarget(ctx, params);
+    // A dead or post-death-stopped bot cannot fight; say that instead of "no hostile".
+    const snap = ctx.body && typeof ctx.body.snapshot === 'function' ? ctx.body.snapshot() : null;
+    if (snap && snap.dead) return { ok: false, reason: 'the bot is dead - respawn before fighting' };
+    if (ctx.brain && ctx.brain.stopped) return { ok: false, reason: 'tasks are stopped after death - say !resume first' };
+
+    let picked = pickTarget(ctx, params);
+    if (!picked.ok && params.maxDistance < 24) {
+      // One escalation step before refusing: a hostile at 10-20 blocks is still "nearby".
+      picked = pickTarget(ctx, { ...params, maxDistance: 24 });
+    }
     if (!picked.ok) return picked;
     const ok = await ctx.body.attack(picked.target, { timeoutMs: params.timeoutMs });
+    const name = bare(picked.target.name);
+    const screenNote = snap && snap.screenOpen
+      ? ` (a game screen "${snap.screen || '?'}" is open - the client ignores movement while it is)`
+      : '';
     return ok
-      ? { ok: true, detail: `killed ${bare(picked.target.name)}` }
-      : { ok: false, reason: `${bare(picked.target.name)} is still alive (or out of reach)` };
+      ? { ok: true, detail: `killed ${name} at ${Math.round(picked.target.distance || 0)} blocks` }
+      : {
+          ok: false,
+          reason: `${name} is still alive (or out of reach) - it was ${Math.round(picked.target.distance || 0)} blocks away${screenNote}`
+        };
   }
 });
 

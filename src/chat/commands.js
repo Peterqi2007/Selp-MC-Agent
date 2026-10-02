@@ -172,14 +172,6 @@ class ChatController {
         ctx.brain.resume();
         this.say('继续干活喵');
       },
-      eat: async () => {
-        const ok = await ctx.eat.tick(true);
-        this.say(ok ? 'eating' : 'nothing to eat');
-      },
-      defend: async () => {
-        const ok = await ctx.combat.defend();
-        this.say(ok ? 'threat handled' : 'no threat nearby');
-      },
       mine: (args) => {
         const block = args[0] || 'stone';
         const count = Number(args[1]) || 8;
@@ -305,7 +297,11 @@ class ChatController {
   async runSkill(name, params = {}) {
     const skills = require('../skills');
     const result = await skills.run(name, this.ctx, params);
-    if (result && result.ok === false) this.log.warn(`skill ${name} refused: ${result.reason}`);
+    const ok = !!(result && result.ok !== false);
+    const detail = result && (result.detail || result.reason) ? result.detail || result.reason : '';
+    // Always answer. A silent skill looked exactly like a broken command in live testing.
+    this.say(ok ? `好喵（${name}）${detail ? '：' + detail : ''}` : `不行喵（${name}）：${detail || '失败'}`);
+    if (!ok) this.log.warn(`skill ${name} refused: ${detail}`);
     return result;
   }
 
@@ -433,7 +429,9 @@ function expandBlockNames(name) {
     gold: ['gold_ore', 'deepslate_gold_ore'],
     sand: ['sand', 'red_sand'],
     gravel: ['gravel'],
-    dirt: ['dirt', 'grass_block'],
+    // The whole vanilla soil family: the live server's ground is often a biome-mod variant,
+    // and `MineBlockTask` additionally matches modded `*_dirt` / `*_grass_block` names.
+    dirt: ['dirt', 'grass_block', 'coarse_dirt', 'rooted_dirt', 'podzol', 'mycelium', 'moss_block', 'mud'],
     wood: ['oak_log', 'spruce_log', 'birch_log', 'jungle_log', 'acacia_log', 'dark_oak_log']
   };
   return aliases[name] || [name];

@@ -214,6 +214,16 @@ class ClientModBody extends Body {
        * DeathWatch has nothing to watch - which is exactly why dying used to be silent.
        */
       dead: state.dead === true,
+      /**
+       * Interface state. The mod has reported these since the "bot will not move" incident,
+       * but the Node body dropped them - so the movement guard below could not see that a
+       * container screen was open and every walk silently keyed into a window that ignores
+       * input. Same failure class as `dead` before it: the data existed, the mapping did not.
+       */
+      screenOpen: state.screenOpen === true,
+      screen: state.screen && state.screen !== 'null' ? state.screen : null,
+      mouseGrabbed: state.mouseGrabbed !== false,
+      windowFocused: state.windowFocused !== false,
       time: state.time,
       weather: state.weather,
       inventory: state.inventory || {},
@@ -351,6 +361,23 @@ class ClientModBody extends Body {
    */
   async moveTo(position, options = {}) {
     if (!position) return false;
+
+    /**
+     * A game screen that is open swallows every movement key.
+     *
+     * This is a hard physical limit of the client, not a pathfinding problem: while the
+     * inventory, a chest or the chat box is open, Minecraft ignores WASD entirely. Refusing
+     * with `screen-open` turns the live symptom ("it just will not walk, and all the state
+     * checks look healthy") into a one-line answer. `options.ignoreScreen` exists for the
+     * operator scripts that know better.
+     */
+    const snapForScreen = this._snapshot;
+    if (snapForScreen && snapForScreen.screenOpen && options.ignoreScreen !== true) {
+      const screen = snapForScreen.screen || 'a screen';
+      this.lastMove = { ok: false, reason: 'screen-open', screen, target: { ...position }, ms: 0 };
+      this.log.warn(`cannot walk: ${screen} is open in the game - close it first`);
+      return false;
+    }
 
     if (options.raw === true) return this._rawMoveTo(position, options);
 

@@ -223,6 +223,9 @@ class BodyWorldView {
       light: snap.lightLevel,
       hostiles: (snap.hostiles || []).map((h) => ({ name: h.name, distance: h.distance })),
       raining: !!(snap.weather && snap.weather.raining),
+      screenOpen: snap.screenOpen === true,
+      screen: snap.screen || null,
+      mouseGrabbed: snap.mouseGrabbed !== false,
       body: snap.body
     };
   }

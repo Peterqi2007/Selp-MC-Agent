@@ -293,6 +293,24 @@ function check(name, ok, detail) {
       JSON.stringify(body.lastMove)
     );
 
+    // ---- the screen-open guard ------------------------------------------
+    // Live failure this encodes: a container screen was open, Minecraft ignored every
+    // movement key, and the bot reported "no dirt available" instead of "I cannot move".
+    world.screenOpen = true;
+    world.screen = 'ContainerScreen';
+    await body.refresh(true);
+    const blockedByScreen = await body.moveTo({ x: 30, y: 64, z: 0 }, { range: 1.5, timeoutMs: 3000 });
+    check(
+      'a screen that is open blocks walking with a named reason',
+      blockedByScreen === false && body.lastMove && body.lastMove.reason === 'screen-open',
+      JSON.stringify(body.lastMove)
+    );
+    world.screenOpen = false;
+    world.screen = 'null';
+    await body.refresh(true);
+    const afterScreen = await body.moveTo({ x: 2, y: 64, z: 0 }, { range: 2, timeoutMs: 5000 });
+    check('closing the screen restores walking', afterScreen === true, JSON.stringify(body.lastMove));
+
     const dug = await body.dig({ name: 'minecraft:stone', position: { x: 5, y: 64, z: 0 } }, { timeoutMs: 5000 });
     check('dig() polls until the block is gone', dug === true);
     await body.refresh(true);

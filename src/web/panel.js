@@ -182,17 +182,26 @@ function estop() {
 function resume() { post('/command', { command: 'resume', priority: 'urgent' }).then(refresh); }
 
 function render(s) {
+  // A payload without identity/brain/death is an error payload, not a state payload:
+  // say why instead of throwing inside the render and leaving the page blank.
+  if (!s || !s.identity || !s.brain || !s.death) {
+    text('updated', '⚠ 面板数据不可用: ' + ((s && s.error) || 'agent 未响应'));
+    return;
+  }
   text('name', s.identity.name);
   text('body', 'body: ' + s.identity.bodyKind + (s.identity.bodyReady ? '' : ' (未连接)'));
   text('brain', '大脑: ' + (s.brain.stopped ? '⛔ 已停止' : s.brain.paused ? '⏸ 暂停' : s.brain.running ? '▶ 运行' : '· 未启动'));
   text('llm', 'LLM: ' + (s.llm.enabled ? '✅ ' + s.llm.model : '❌ ' + (s.llm.disabledReason || 'off') + ' (正则兜底)'));
-  text('updated', '更新于 ' + new Date(s.updatedAt).toLocaleTimeString());
+  text('updated', '更新于 ' + new Date(s.updatedAt).toLocaleTimeString() + (s.error ? ' ⚠ ' + s.error : ''));
 
   var w = s.world || {};
   text('hp', 'hp ' + fmt(w.health) + '/20');
   text('food', 'food ' + fmt(w.food));
   text('pos', 'pos ' + (w.position ? Math.round(w.position.x) + ',' + Math.round(w.position.y) + ',' + Math.round(w.position.z) : '-'));
   text('held', '手持 ' + (w.heldItem || '空'));
+  if (w.screenOpen) {
+    text('held', '⚠ 游戏界面开着 (' + (w.screen || '?') + ')，机器人无法移动 — 请先关闭');
+  }
   text('deaths', s.death.deaths ? ('死亡次数 ' + s.death.deaths) : '');
 
   var cur = s.brain.current;
@@ -227,7 +236,8 @@ function render(s) {
   var log = el('log');
   log.innerHTML = (s.logs || []).map(function (l) { return '<div>' + esc(l) + '</div>'; }).join('');
   log.scrollTop = log.scrollHeight;
-  text('traceinfo', 'path-trace ' + s.traces.pathLines + ' 行 · llm-trace ' + s.traces.llmLines + ' 行');
+  text('traceinfo', 'path-trace ' + s.traces.pathLines + ' 行 · llm-trace ' + s.traces.llmLines + ' 行' +
+    (s.panel ? ' · 面板端口 ' + s.panel.port : ''));
 }
 
 function fmt(n) { return (n === null || n === undefined) ? '-' : n; }

@@ -35,6 +35,33 @@ const { toolPlan, chooseTool } = require('../world/toolPolicy');
 const NEVER_MINE = new Set(['bedrock', 'barrier', 'end_portal_frame', 'end_portal', 'nether_portal', 'command_block', 'structure_block', 'water', 'lava', 'air', 'cave_air']);
 
 /**
+ * Soil/sand/gravel family matching.
+ *
+ * `!mine dirt` must work on a modded server, where the ground is as likely to be
+ * `biomeswevegone:lush_grass_block` or `byg:peaty_dirt` as vanilla `dirt`. Matching the
+ * requested name exactly meant "no dirt available nearby" while standing on dirt. The
+ * families below match on name tokens, so `dirt` also accepts `coarse_dirt`, `rooted_dirt`
+ * and any `*_dirt`; `grass_block` accepts modded `*_grass_block`, `podzol`, `mycelium`.
+ */
+const SOIL_TOKENS = '(dirt|grass_block|podzol|mycelium|mud|moss_block|soil)';
+const TERRAIN_FAMILIES = {
+  dirt: new RegExp(`(^|_)${SOIL_TOKENS}(_|$)`),
+  grass_block: new RegExp(`(^|_)${SOIL_TOKENS}(_|$)`),
+  coarse_dirt: new RegExp(`(^|_)${SOIL_TOKENS}(_|$)`),
+  rooted_dirt: new RegExp(`(^|_)${SOIL_TOKENS}(_|$)`),
+  sand: /(^|_)(sand|red_sand)(_|$)/,
+  gravel: /(^|_)(gravel)(_|$)/,
+  clay: /(^|_)(clay)(_|$)/,
+  snow: /(^|_)(snow|snow_block)(_|$)/
+};
+
+/** Does `target` (a real block name, bare) belong to the family `requested`? */
+function matchesFamily(target, requested) {
+  const family = TERRAIN_FAMILIES[requested];
+  return !!family && family.test(target);
+}
+
+/**
  * Tie-break order among pickaxes of the SAME harvest level.
  *
  * Gold mines stone-class blocks fastest by a wide margin, so among equals it wins; then comes
@@ -75,7 +102,7 @@ class MineBlockTask extends HarvestTask {
 
   isTarget(name) {
     const target = bare(name);
-    return this.blockNames.some((n) => n === target);
+    return this.blockNames.some((n) => n === target || matchesFamily(target, n));
   }
 
   countsAsHarvest(itemName) {
@@ -83,7 +110,7 @@ class MineBlockTask extends HarvestTask {
     // Ore blocks drop the raw item ("raw_iron", "diamond"), stone drops "cobblestone",
     // and dirt-like blocks drop themselves. So a harvest counts when the item is either
     // the block itself or the block's usual drop.
-    return this.blockNames.some((n) => n === item || blockDrop(n) === item);
+    return this.blockNames.some((n) => n === item || blockDrop(n) === item || matchesFamily(item, n));
   }
 
   /** Safety gate: refuse blocks the body, the mod knowledge, or our pickaxe says are unmineable. */
@@ -166,6 +193,18 @@ class MineBlockTask extends HarvestTask {
       const family = manMadeReason(at(dx, dy, dz));
       if (family) return `it is part of a construction (a ${family} is touching it)`;
     }
+
+    /**
+     * Soil, sand and gravel are resources, not masonry.
+     *
+     * Rules 2-4 below refuse things that look like *built* structures: uniform courses,
+     * exposed repeating faces. A natural grass field is a uniform course (4/4 identical
+     * neighbours), so with `strictMining` on, every sod block was refused and the task
+     * reported "no dirt available" while the bot stood in a meadow. The anti-masonry rules
+     * still apply to stone/deepslate, which is what walls are actually made of.
+     */
+    const soil = /(^|_)(dirt|grass_block|podzol|mycelium|mud|moss_block|soil|sand|red_sand|gravel|clay|snow|snow_block)(_|$)/;
+    if (soil.test(target)) return null;
 
     const horizontal = [[1, 0, 0], [-1, 0, 0], [0, 0, 1], [0, 0, -1]].map(([dx, dy, dz]) => at(dx, dy, dz));
     const sameType = horizontal.filter((name) => name !== null && bare(name) === target).length;

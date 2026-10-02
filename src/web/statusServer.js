@@ -33,18 +33,47 @@ function startStatusServer(ctx, options = {}) {
   const log = new Logger('http');
   const port = options.port || 8766;
   const host = options.host || (ctx.cfg && ctx.cfg.agent && ctx.cfg.agent.web && ctx.cfg.agent.web.bind) || '127.0.0.1';
+  /** The port we actually ended up on; changes when 8766 is already taken. */
+  let boundPort = port;
+  const startedAt = new Date().toISOString();
+
+  /**
+   * Build the panel payload, never throwing.
+   *
+   * The panel used to go blank whenever anything in the state assembly threw (a 500 makes
+   * the browser's fetch chain show "连接中断" and leaves every field at its placeholder).
+   * A panel whose job is diagnosis must not fail silently: on error it now returns the
+   * message itself, and the port the agent is really reachable on - which also catches the
+   * "an older agent still owns 8766" case that looks identical from the browser.
+   */
+  const buildUiState = () => {
+    try {
+      const state = uiState(ctx);
+      state.panel = { port: boundPort, startedAt };
+      return state;
+    } catch (err) {
+      log.warn(`ui/state failed: ${err.message}`);
+      return {
+        ok: false,
+        error: `panel state failed: ${err.message}`,
+        panel: { port: boundPort, startedAt },
+        updatedAt: new Date().toISOString()
+      };
+    }
+  };
 
   const server = http.createServer(async (req, res) => {
     const url = new URL(req.url, `http://${req.headers.host}`);
     try {
       // ------------------------------------------------------------ panel
       if (req.method === 'GET' && (url.pathname === '/panel' || url.pathname === '/panel/')) {
-        res.writeHead(200, { 'content-type': 'text/html; charset=utf-8' });
+        // no-store: a cached panel page kept polling with stale code after upgrades.
+        res.writeHead(200, { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-store' });
         return res.end(PANEL_HTML);
       }
 
       if (req.method === 'GET' && url.pathname === '/ui/state') {
-        return json(res, 200, uiState(ctx));
+        return json(res, 200, buildUiState());
       }
 
       if (req.method === 'GET' && url.pathname === '/llm') {
@@ -124,14 +153,22 @@ function startStatusServer(ctx, options = {}) {
   });
 
   server.listen(port, host, () => {
+    boundPort = port;
     log.info(`control panel on http://${host}:${port}/panel  (API: /ui/state, /command, /emergency-stop, /llm)`);
   });
   server.on('error', (err) => {
     if (err.code === 'EADDRINUSE') {
       // Another agent (or an older instance) owns the port: not fatal, the bot itself is
-      // what matters. Try one fallback port before giving up.
-      log.warn(`port ${port} busy, retrying on ${port + 1}`);
-      server.listen(port + 1, host);
+      // what matters. Say so loudly, because a browser still pointed at the old port will
+      // show an empty panel and look broken while a forgotten agent answers its commands.
+      log.warn(
+        `port ${port} is already owned by another agent - the panel moves to ` +
+          `http://${host}:${port + 1}/panel. Stop the old agent and restart to get ${port} back.`
+      );
+      boundPort = port + 1;
+      server.listen(port + 1, host, () => {
+        log.info(`control panel on http://${host}:${port + 1}/panel (fallback; ${port} was busy)`);
+      });
       return;
     }
     log.warn(`status server error: ${err.message}`);
@@ -166,7 +203,10 @@ function uiState(ctx) {
       position: world.position || null,
       dimension: world.dimension,
       heldItem: world.heldItem || null,
-      emptySlots: world.emptySlots
+      emptySlots: world.emptySlots,
+      screenOpen: world.screenOpen === true,
+      screen: world.screen || null,
+      mouseGrabbed: world.mouseGrabbed !== false
     },
     brain: {
       running: brain.running,
@@ -306,7 +346,11 @@ function inventorySource(ctx) {
 
 function json(res, code, payload) {
   const body = JSON.stringify(payload, null, 2);
-  res.writeHead(code, { 'content-type': 'application/json; charset=utf-8', 'content-length': Buffer.byteLength(body) });
+  res.writeHead(code, {
+    'content-type': 'application/json; charset=utf-8',
+    'content-length': Buffer.byteLength(body),
+    'cache-control': 'no-store'
+  });
   res.end(body);
 }
 

@@ -114,6 +114,15 @@ const SIGNATURES = [
   { match: /_planks$/, category: 'wood', tool: 'axe' },
   { match: /_leaves$/, category: 'foliage', tool: 'hoe' },
   { match: /_sapling$/, category: 'foliage' },
+  /**
+   * Natural terrain by family name.
+   *
+   * This rule exists because the live server runs a biome modpack: its grass is often
+   * `biomeswevegone:lush_grass_block`, not `minecraft:grass_block`, and every one of those
+   * names used to classify as `unknown` -> `isMineable()` false -> "no dirt available
+   * nearby" while the player was standing on dirt.
+   */
+  { match: /(^|_)(dirt|grass_block|podzol|mycelium|soil|clay|sand|gravel|mud|moss_block|snow_block|terracotta|tuff|calcite)(_|$)/, category: 'terrain', kind: 'soil' },
   { match: /_crop$|_plant$|_vine$|_bush$/, category: 'plant' },
   { match: /_machine$|_generator$|_furnace$|_smelter$|_crusher$|_mixer$|_press$|_reactor$/, category: 'machine', needsPickaxe: true },
   { match: /_cable$|_pipe$|_conduit$|_wire$/, category: 'tech_block', needsPickaxe: true },
@@ -127,6 +136,7 @@ const SIGNATURES = [
 const MODDED_MINEABLE_CATEGORIES = [
   'ore',
   'ore_block',
+  'terrain',
   'wood',
   'foliage',
   'plant',

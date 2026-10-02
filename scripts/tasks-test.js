@@ -409,7 +409,8 @@ function treeBlocks(x, z, height, species = 'oak', options = {}) {
     expect(task.failedTargets.length > 0, 'the unreachable block should be remembered');
     // Zero harvest is a SUCCESS by design, so the planner stops re-queueing it.
     expect(res.ok, `zero-harvest must report success to stop replanning loops, got ${res.reason}`);
-    expect(/no logs available nearby/.test(res.reason), `got "${res.reason}"`);
+    // Targets existed but none could be reached: the verdict must say that, not "no logs".
+    expect(/could not reach or break/.test(res.reason), `got "${res.reason}"`);
     return `${task.failedTargets.length} target(s) blacklisted, "${res.reason}"`;
   });
 
@@ -483,6 +484,24 @@ function treeBlocks(x, z, height, species = 'oak', options = {}) {
     expect(elapsed < 5000, `should not spin, took ${elapsed}ms`);
     expect(/no logs available nearby/.test(res.reason), `got "${res.reason}"`);
     return res.reason;
+  });
+
+  await scenario('targets exist but cannot be reached: the verdict names the real cause', async () => {
+    /**
+     * The live failure verbatim: 4248 soil blocks in scan range, a container screen open,
+     * movement ignored - and the task said "no dirt/grass_block available nearby". The
+     * verdict must distinguish "none here" from "none reachable" and carry the reason.
+     */
+    const body = new MockBody(cfg, { blocks: treeBlocks(6, 0, 3) });
+    await body.connect();
+    body.moveTo = async () => false;
+    body.lastMove = { ok: false, reason: 'screen-open', screen: 'ContainerScreen' };
+    const task = new ChopWoodTask(makeCtx(body, cfg), { count: 2, timeoutMs: 15000, warmupMs: 0, roamSteps: 0 });
+    const res = await task.execute();
+    expect(res.ok, `zero-harvest stays a success, got ${res.reason}`);
+    expect(/could not reach or break/.test(res.reason), `must say targets were unreachable, got "${res.reason}"`);
+    expect(/screen-open/.test(res.reason), `must carry the real reason, got "${res.reason}"`);
+    return res.reason.slice(0, 80);
   });
 
   await scenario('partially reaching the target is a FAILURE (progress was possible)', async () => {
@@ -744,6 +763,79 @@ function treeBlocks(x, z, height, species = 'oak', options = {}) {
   });
 
   process.stdout.write('\n2d. tool policy - the shared answer to "what do I hold?"\n');
+
+  process.stdout.write('\n2e. ground that actually exists on this server (dense scan, modded names)\n');
+
+  await scenario('a dense grass field (real scan shape, air cells included) is diggable', async () => {
+    /**
+     * Reproduces the live failure: `!mine dirt` answered "no dirt/grass_block available
+     * nearby" while the bot was standing on grass. Sparse fixtures never caught it - the
+     * real client scan reports air and every neighbour, which is a shape the safety and
+     * matching rules had never seen together.
+     */
+    const blocks = [];
+    for (let x = -4; x <= 4; x += 1) {
+      for (let z = -4; z <= 4; z += 1) {
+        blocks.push({ name: 'grass_block', position: { x, y: 63, z } });
+        blocks.push({ name: 'dirt', position: { x, y: 62, z } });
+        blocks.push({ name: 'air', position: { x, y: 64, z } });
+        blocks.push({ name: 'air', position: { x, y: 65, z } });
+      }
+    }
+    const body = new MockBody(cfg, { blocks, start: { x: 0, y: 64, z: 0 } });
+    await body.connect();
+    const task = new MineBlockTask(makeCtx(body, cfg), {
+      block: ['dirt', 'grass_block'], count: 4, probeShaft: false, warmupMs: 0, roamSteps: 0
+    });
+    const res = await task.execute();
+    const dirt = body.inventory['minecraft:dirt'] || 0;
+    expect(res.ok && dirt >= 4, `expected 4 dirt from the field, have ${dirt} (${res.reason})`);
+    return `dug ${dirt} from a dense field`;
+  });
+
+  await scenario('strictMining never blocks soil - only masonry', async () => {
+    const blocks = [];
+    for (let x = -3; x <= 3; x += 1) {
+      for (let z = -3; z <= 3; z += 1) {
+        blocks.push({ name: 'grass_block', position: { x, y: 63, z } });
+        blocks.push({ name: 'air', position: { x, y: 64, z } });
+      }
+    }
+    const body = new MockBody(cfg, { blocks, start: { x: 0, y: 64, z: 0 } });
+    await body.connect();
+    const task = new MineBlockTask(makeCtx(body, cfg), {
+      block: ['dirt', 'grass_block'], count: 2, probeShaft: false, warmupMs: 0, roamSteps: 0,
+      strictMining: true
+    });
+    const res = await task.execute();
+    const dug = body.history.filter((h) => h.action === 'dig').length;
+    expect(dug >= 2, `strictMining must not refuse a lawn, dug ${dug} (${res.reason})`);
+    return `dug ${dug} sod with strictMining on`;
+  });
+
+  await scenario('modded ground is diggable (the biome-mod server names)', async () => {
+    const { ModKnowledge } = require('../src/mods/knowledge');
+    const knowledge = new ModKnowledge(cfg);
+    expect(knowledge.isMineable('biomeswevegone:lush_grass_block'), 'modded grass must pass the knowledge gate');
+    expect(knowledge.isMineable('biomeswevegone:peaty_dirt'), 'modded dirt must pass the knowledge gate');
+    const blocks = [
+      { name: 'biomeswevegone:lush_grass_block', position: { x: 0, y: 63, z: 0 } },
+      { name: 'biomeswevegone:peaty_dirt', position: { x: 1, y: 63, z: 0 } },
+      { name: 'biomeswevegone:peaty_dirt', position: { x: 2, y: 63, z: 0 } },
+      { name: 'air', position: { x: 0, y: 64, z: 0 } },
+      { name: 'air', position: { x: 1, y: 64, z: 0 } },
+      { name: 'air', position: { x: 2, y: 64, z: 0 } }
+    ];
+    const body = new MockBody(cfg, { blocks, start: { x: 0, y: 64, z: 0 } });
+    await body.connect();
+    const task = new MineBlockTask(makeCtx(body, cfg, { mods: knowledge }), {
+      block: ['dirt', 'grass_block'], count: 2, probeShaft: false, warmupMs: 0, roamSteps: 0
+    });
+    const res = await task.execute();
+    const dug = body.history.filter((h) => h.action === 'dig').length;
+    expect(dug >= 2, `expected the modded ground to be dug, dug ${dug} (${res.reason})`);
+    return `dug ${dug} modded ground blocks`;
+  });
 
   await scenario('dirt is never gated on a tool (the live bug this rewrite fixes)', () => {
     const { toolPlan } = require('../src/world/toolPolicy');

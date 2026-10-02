@@ -48,6 +48,8 @@ class HarvestTask extends Task {
     this.collected = 0;
     /** Blocks we could not reach, so the loop stops retrying them. */
     this.failedTargets = [];
+    /** Positions we actually saw and tried; distinguishes "none here" from "none reachable". */
+    this.seenTargets = new Set();
     /** Blocks refused because they are player-built, kept for the log and the panel. */
     this.refusedTargets = [];
     /** When false, the man-made check is skipped (offline worlds, private test servers). */
@@ -138,6 +140,9 @@ class HarvestTask extends Task {
       }
 
       const candidates = this.findTargets();
+      for (const candidate of candidates) {
+        this.seenTargets.add(`${Math.floor(candidate.position.x)},${Math.floor(candidate.position.y)},${Math.floor(candidate.position.z)}`);
+      }
       if (!candidates.length) {
         /**
          * Nothing in range: go and look somewhere else before giving up.
@@ -188,6 +193,20 @@ class HarvestTask extends Task {
           // Note 4: remember it and try the next target instead of giving up.
           this.failedTargets.push(candidate.position);
           this.consecutiveFailures += 1;
+          /**
+           * A systemic body problem is not a targeting problem.
+           *
+           * `screen-open` means the client is ignoring every movement key: no amount of
+           * retargeting can succeed, and the live run burned 33 attempts in one second
+           * spamming the log. Stop the loop and let the verdict below explain it.
+           */
+          if (this.failureReason() === 'screen-open') {
+            this.systemicStop = 'screen-open';
+            this.log.warn(
+              `${this.name}: stopping - ${(this.body.lastMove && this.body.lastMove.screen) || 'a screen'} is open in the game`
+            );
+            break;
+          }
           this.log.debug(
             `${this.name}: cannot reach ${candidate.name} at ${fmt(candidate.position)} ` +
               `(${this.failureReason()}) - skipping`
@@ -219,6 +238,7 @@ class HarvestTask extends Task {
         await this.collectDrops({ radius: 6, attempts: 5 });
       }
 
+      if (this.systemicStop) break;
       this.checkpoint();
 
       if (brokeThisRound === 0 && !this.findTargets().length && this.updateCollected() < this.target) {
@@ -233,8 +253,24 @@ class HarvestTask extends Task {
       return this.succeed(`collected ${have}/${this.target} ${this.unitName()} (${this.breakCount} blocks broken)`);
     }
     if (have === 0) {
+      /**
+       * Two very different zeros, two very different sentences.
+       *
+       * Live report: "no dirt/grass_block available nearby" while the bot stood in a meadow
+       * with 4248 soil blocks in scan range - every candidate had been *unreachable* (a
+       * container screen was open, so the client ignored movement). The old verdict sent the
+       * operator looking for dirt instead of closing a window. When targets were seen but
+       * none could be reached or broken, say that, and carry the real reason.
+       */
+      if (this.seenTargets.size > 0) {
+        const why = this.failureReason ? this.failureReason() : null;
+        return this.succeed(
+          `could not reach or break any of ${this.seenTargets.size} ${this.unitName()} target(s)` +
+            `${why ? ` (${why})` : ''}; ${this.scanHint()}`
+        );
+      }
       return this.succeed(
-        `no ${this.unitName()} available nearby (still ${this.countWhere((n) => this.countsAsHarvest(n))} in inventory)`
+        `no ${this.unitName()} available nearby (still ${this.countWhere((n) => this.countsAsHarvest(n))} in inventory; ${this.scanHint()})`
       );
     }
     return this.fail(`only collected ${have}/${this.target} ${this.unitName()}`);
@@ -457,6 +493,21 @@ class HarvestTask extends Task {
   /** Some inventories can still accept stacks of what we are collecting. */
   canPickUpMore() {
     return false;
+  }
+
+  /**
+   * One clause of diagnosis for the "nothing nearby" verdict.
+   *
+   * "No dirt available" is a very different situation depending on whether the client has
+   * a full block scan, an empty one, or none at all - and the live runs have shown all
+   * three. Printing the count turns a mystery into a one-line answer.
+   */
+  scanHint() {
+    const snap = this.world_state;
+    if (!snap) return 'no world data yet';
+    const cells = snap.blocks && snap.blocks.cells;
+    if (!cells) return 'block scan missing (client still loading?)';
+    return `scan has ${Object.keys(cells).length} cells`;
   }
 
   unitName() {
