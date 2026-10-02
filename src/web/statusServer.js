@@ -47,19 +47,9 @@ function startStatusServer(ctx, options = {}) {
    * "an older agent still owns 8766" case that looks identical from the browser.
    */
   const buildUiState = () => {
-    try {
-      const state = uiState(ctx);
-      state.panel = { port: boundPort, startedAt };
-      return state;
-    } catch (err) {
-      log.warn(`ui/state failed: ${err.message}`);
-      return {
-        ok: false,
-        error: `panel state failed: ${err.message}`,
-        panel: { port: boundPort, startedAt },
-        updatedAt: new Date().toISOString()
-      };
-    }
+    const state = safeUiState(ctx, { port: boundPort, startedAt });
+    if (state.ok === false) log.warn(`ui/state failed: ${state.error}`);
+    return state;
   };
 
   const server = http.createServer(async (req, res) => {
@@ -137,7 +127,32 @@ function startStatusServer(ctx, options = {}) {
 
         const priority = normalizePriority((body && body.priority) || url.searchParams.get('priority'));
         const started = Date.now();
-        const result = await ctx.chat.handle(line, `http:${priority}`);
+
+        /**
+         * Route the panel exactly like the in-game channels do.
+         *
+         * In game, `!cmd` goes to the deterministic command table and `@猫娘 ...` goes to
+         * the LLM. The panel used to send everything to the command table, so the most
+         * natural thing a user types - `@猫娘 挖点土` - answered "unknown command @猫娘"
+         * and never reached the model. A leading `!` is tolerated here as well, because
+         * people paste the in-game form into the box.
+         */
+        const trimmed = String(line).trim();
+        const trigger =
+          (ctx.cfg && ctx.cfg.agent && ctx.cfg.agent.chat && ctx.cfg.agent.chat.dialogueTrigger) || '@猫娘';
+        if (trimmed.startsWith(trigger) && ctx.llm && typeof ctx.llm.handle === 'function') {
+          const utterance = trimmed.slice(trigger.length).trim();
+          const snap = ctx.body && typeof ctx.body.snapshot === 'function' ? ctx.body.snapshot() : null;
+          const record = await ctx.llm.handle(utterance, {
+            source: 'panel',
+            speaker: 'panel',
+            speakerPosition: snap ? snap.position : null
+          });
+          return json(res, 200, { ok: true, routed: 'dialogue', record, level: priority, ms: Date.now() - started });
+        }
+
+        const commandLine = trimmed.startsWith('!') ? trimmed.slice(1).trim() : trimmed;
+        const result = await ctx.chat.handle(commandLine, `http:${priority}`);
         return json(res, 200, { ...result, level: priority, ms: Date.now() - started });
       }
 
@@ -247,6 +262,32 @@ function uiState(ctx) {
     },
     updatedAt: new Date().toISOString()
   };
+}
+
+/**
+ * `uiState` that can never throw.
+ *
+ * The panel used to go fully blank whenever any part of the state assembly raised: the
+ * handler answered 500, the browser's fetch chain failed and every field stayed at its
+ * HTML placeholder - which reads exactly like "the agent is gone". A diagnostic page must
+ * survive its own subject failing, so errors are returned as data instead.
+ *
+ * @param {object} ctx
+ * @param {{port:number, startedAt:string}} panel
+ */
+function safeUiState(ctx, panel) {
+  try {
+    const state = uiState(ctx);
+    state.panel = panel;
+    return state;
+  } catch (err) {
+    return {
+      ok: false,
+      error: `panel state failed: ${err.message}`,
+      panel,
+      updatedAt: new Date().toISOString()
+    };
+  }
 }
 
 /**
@@ -371,4 +412,4 @@ function readBody(req) {
   });
 }
 
-module.exports = { startStatusServer, uiState, emergencyStop, PANEL_HTML };
+module.exports = { startStatusServer, uiState, safeUiState, emergencyStop, PANEL_HTML };

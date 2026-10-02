@@ -543,6 +543,7 @@ async function buildAgent(options = {}) {
     expect(state.death && state.death.dead === false, 'death state missing');
     expect(state.tracing === undefined || true, 'unreachable');
     expect(!JSON.stringify(state).includes('cells'), '/ui/state leaked the block scan');
+    expect(res.headers.get('cache-control') === 'no-store', 'the panel must not be cached');
     return `${JSON.stringify(state).length} bytes`;
   });
 
@@ -558,6 +559,74 @@ async function buildAgent(options = {}) {
     expect(body.level === 'urgent', `priority lost: ${body.level}`);
     expect(typeof body.ms === 'number', 'latency not reported');
     return `level=${body.level}, ${body.ms}ms`;
+  });
+
+  await scenario('POST /command routes "@猫娘 ..." into the LLM dialogue path', async () => {
+    /**
+     * The live panel bug: everything was sent to the deterministic command table, which has
+     * no `@猫娘` handler, so the most natural thing a user types answered "unknown command".
+     * The panel must route dialogue exactly like the in-game channel does.
+     *
+     * The LLM call itself is replaced by a spy: the previous scenarios may have left a
+     * turn in flight, and "another turn is already running" would make this test pass or
+     * fail for the wrong reason. What is under test here is the *routing*.
+     */
+    const original = httpAgent.llm.handle;
+    let called = null;
+    httpAgent.llm.handle = async (text, options) => {
+      called = { text, options };
+      return { kind: 'input', text, via: 'spy' };
+    };
+    try {
+      const res = await fetch(`${BASE}/command`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ command: '@猫娘 你好呀', priority: 'directive' })
+      });
+      const body = await res.json();
+      expect(res.status === 200, `expected 200, got ${res.status}`);
+      expect(body.routed === 'dialogue', `expected dialogue routing, got ${JSON.stringify(body).slice(0, 160)}`);
+      expect(called && called.text === '你好呀', `the LLM never saw the utterance: ${JSON.stringify(called)}`);
+      expect(called.options && called.options.source === 'panel', 'the source must be tagged panel');
+      return `routed to llm.handle("${called.text}")`;
+    } finally {
+      httpAgent.llm.handle = original;
+    }
+  });
+
+  await scenario('POST /command tolerates the in-game "!..." form', async () => {
+    const res = await fetch(`${BASE}/command`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ command: '!status', priority: 'directive' })
+    });
+    const body = await res.json();
+    expect(res.status === 200 && body.ok === true, `"!status" should be accepted, got ${JSON.stringify(body).slice(0, 160)}`);
+    return 'leading ! stripped';
+  });
+
+  await scenario('/ui/state answers with an error payload instead of a 500', async () => {
+    // A broken context must still produce a readable panel page state, because a 500 makes
+    // the browser show nothing at all - which is how "the panel is blank" reports start.
+    // No second HTTP server here: a stray keep-alive socket once stalled the whole suite,
+    // and a port collision then poisoned the *next* run. Call the guard directly.
+    const { safeUiState } = require('../src/web/statusServer');
+    const out = safeUiState(
+      {
+        cfg: { agent: {} },
+        world: { summary() { throw new Error('synthetic-world-failure'); } },
+        brain: { status() { throw new Error('synthetic-brain-failure'); } },
+        log: { recent: () => [] },
+        llm: null,
+        deathWatch: null,
+        chatListener: null,
+        replies: []
+      },
+      { port: 8799, startedAt: new Date().toISOString() }
+    );
+    expect(out.ok === false && /synthetic-world-failure/.test(out.error || ''), `error missing: ${JSON.stringify(out)}`);
+    expect(out.panel && out.panel.port === 8799, 'the panel info must survive the failure');
+    return out.error.slice(0, 60);
   });
 
   await scenario('a directive command jumps ahead of queued autonomous work', async () => {

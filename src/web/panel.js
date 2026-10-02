@@ -40,6 +40,10 @@ const PANEL_HTML = `<!doctype html>
   #death { display:none; background:#3d1418; border:1px solid var(--err); border-radius:8px;
            padding:12px; margin-bottom:10px; }
   #death h2 { margin:0 0 6px; font-size:15px; color:#ffb3b3; }
+  /* Connection diagnostics: the panel must never be silently empty. */
+  #diag { display:none; border-radius:8px; padding:9px 12px; margin-bottom:10px;
+          background:#1d2733; border:1px solid #2b4d7d; color:#cfe4ff; }
+  #diag.bad { background:#3d1418; border-color:var(--err); color:#ffd7d7; }
   input[type=text] { flex:1; min-width:220px; background:#0e1013; color:var(--fg);
                      border:1px solid var(--line); border-radius:6px; padding:8px 10px; font:inherit; }
   input[type=text]:focus { outline:none; border-color:var(--accent); }
@@ -72,6 +76,8 @@ const PANEL_HTML = `<!doctype html>
     </div>
     <div class="dim" style="margin-top:6px">若游戏窗口停在死亡画面，需要手动点「重生」—— P0 没有自动重生能力。</div>
   </div>
+
+  <div id="diag"></div>
 
   <div class="card">
     <div class="bar">
@@ -139,6 +145,14 @@ var COMPLETIONS = ['status','chop','mine','collect','goto','stop','pause','resum
 
 function el(id) { return document.getElementById(id); }
 function text(id, value) { var n = el(id); if (n) n.textContent = value; }
+function diag(message, bad) {
+  var n = el('diag');
+  if (!n) return;
+  if (!message) { n.style.display = 'none'; return; }
+  n.textContent = message;
+  n.className = bad ? 'bad' : '';
+  n.style.display = 'block';
+}
 
 function post(path, payload) {
   return fetch(path, {
@@ -185,7 +199,9 @@ function render(s) {
   // A payload without identity/brain/death is an error payload, not a state payload:
   // say why instead of throwing inside the render and leaving the page blank.
   if (!s || !s.identity || !s.brain || !s.death) {
-    text('updated', '⚠ 面板数据不可用: ' + ((s && s.error) || 'agent 未响应'));
+    var why = (s && s.error) || 'agent 未响应';
+    text('updated', '⚠ 面板数据不可用: ' + why);
+    diag('⚠ 面板数据不可用: ' + why, true);
     return;
   }
   text('name', s.identity.name);
@@ -238,6 +254,10 @@ function render(s) {
   log.scrollTop = log.scrollHeight;
   text('traceinfo', 'path-trace ' + s.traces.pathLines + ' 行 · llm-trace ' + s.traces.llmLines + ' 行' +
     (s.panel ? ' · 面板端口 ' + s.panel.port : ''));
+  diag('已连接 · 端口 ' + (s.panel ? s.panel.port : '?') + ' · body ' + s.identity.bodyKind +
+    (s.identity.bodyReady ? '' : '（未连接 —— 请让客户端进入世界）') +
+    (s.world && s.world.screenOpen ? ' · 游戏界面开着（' + (s.world.screen || '?') + '），机器人无法移动' : ''),
+    !s.identity.bodyReady || !!(s.world && s.world.screenOpen));
 }
 
 function fmt(n) { return (n === null || n === undefined) ? '-' : n; }
@@ -246,7 +266,11 @@ function esc(s) { return String(s === undefined || s === null ? '' : s)
 
 function refresh() {
   fetch('/ui/state').then(function (r) { return r.json(); }).then(render)
-    .catch(function () { text('updated', '连接中断'); });
+    .catch(function (e) {
+      text('updated', '连接中断');
+      diag('⚠ 无法连接 agent（' + location.host + '）：' + (e && e.message ? e.message : 'fetch failed') +
+        ' —— 请确认 agent 正在运行（.\\start.ps1），然后刷新本页', true);
+    });
 }
 
 var input = el('cmd');
