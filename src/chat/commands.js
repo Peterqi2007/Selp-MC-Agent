@@ -155,11 +155,14 @@ class ChatController {
         this.say(text ? `inventory: ${text}` : '背包是空的喵');
       },
       stop: () => {
+        // A real stop: cancel everything AND silence the 2.5s planner. Without the flag the
+        // planner re-queued the next goal immediately and the bot looked unstoppable.
         ctx.brain.preempt();
+        ctx.brain.autoPlanDisabled = true;
         ctx.nav.stop();
         if (ctx.body && typeof ctx.body.interrupt === 'function') ctx.body.interrupt('!stop');
         this.followTarget = null;
-        this.say('好，停下了喵');
+        this.say('停下来了喵（自动规划已暂停，发 !resume 继续）');
       },
       pause: () => {
         ctx.brain.pause();
@@ -169,6 +172,7 @@ class ChatController {
         // A resume after death is the one thing that clears the post-death stop.
         if (ctx.brain.stopped) ctx.brain.resumeFromDeath();
         if (ctx.deathWatch) ctx.deathWatch.dead = false;
+        ctx.brain.autoPlanDisabled = false;
         ctx.brain.resume();
         this.say('继续干活喵');
       },

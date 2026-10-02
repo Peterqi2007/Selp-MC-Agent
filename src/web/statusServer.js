@@ -340,6 +340,7 @@ function uiState(ctx) {
       running: brain.running,
       paused: brain.paused,
       stopped: brain.stopped,
+      autoPlanDisabled: brain.autoPlanDisabled === true,
       stoppedReason: brain.stoppedReason,
       safeMode: brain.safeMode,
       current: brain.current,
@@ -542,6 +543,9 @@ function dashboardPage(state) {
     `<span class="dim">队列:</span><span>${esc(brain.queueLength)}</span>` +
     `<span class="dim">LLM:</span><span>${llm.enabled ? '✅ ' + esc(llm.model) : '未启用'}</span>` +
     `<span class="dim">手持:</span><span>${esc(world.heldItem || '空')}</span>` +
+    (brain.autoPlanDisabled
+      ? '<span class="err">⏹ 自动规划已停（发 !resume 继续；!mine/!chop 等明确指令仍可执行）</span>'
+      : '') +
     '</div>' +
     '<div class="row" style="margin-top:6px">' +
     '<a class="btn" href="/panel/cmd" style="background:#1d3a24;border-color:#2f6b3d">✍ 发送指令</a>' +

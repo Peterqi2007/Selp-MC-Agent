@@ -288,6 +288,41 @@ async function buildAgent(options = {}) {
     return failure.reason;
   });
 
+  await scenario('!stop silences the planner until !resume (explicit work still runs)', async () => {
+    /**
+     * Live report: "the stop command cannot stop the task." The handler cancelled the
+     * current task and cleared the queue, but the 2.5s planner immediately chose the next
+     * goal - and even the panel's emergency stop only *set* a flag nobody read. Now `!stop`
+     * disables autonomous planning until `!resume`, while explicit instructions still run.
+     */
+    const agent = await buildAgent();
+    await agent.say('!chop 1');
+    await agent.brain.drainQueue();
+    await settle(agent);
+
+    const before = agent.brain.lastDecision;
+    await agent.say('!stop');
+    expect(agent.brain.autoPlanDisabled === true, 'stop must disable autonomous planning');
+    expect(agent.brain.queue.length === 0, 'stop must clear the queue');
+
+    // The planner must stay quiet even when its loop runs.
+    await agent.brain.slowLoop();
+    expect(agent.brain.lastDecision === before, 'the planner picked a new goal after a stop');
+    expect(!agent.brain.currentTask || agent.brain.currentTask.state !== 'running', 'a task is still running after stop');
+
+    // ...but an explicit instruction is still an explicit instruction.
+    const explicit = await agent.chat.handle('mine dirt 1', 'test');
+    expect(
+      explicit.ok === true && explicit.result && explicit.result.accepted !== false,
+      `an explicit command must still run after a stop: ${JSON.stringify(explicit)}`
+    );
+
+    await agent.say('!resume');
+    expect(agent.brain.autoPlanDisabled === false, 'resume must re-enable autonomous planning');
+    agent.stop();
+    return 'stop honoured, explicit work allowed, resume restores planning';
+  });
+
   await scenario('!status answers using the body, not a mineflayer instance', async () => {
     const agent = await buildAgent();
     await agent.say('!status');

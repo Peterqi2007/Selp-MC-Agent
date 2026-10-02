@@ -208,6 +208,15 @@ class Brain {
       await this.drainQueue();
       return;
     }
+    /**
+     * Operator stop: no *new* autonomous work until an explicit resume.
+     *
+     * The check sits after the queue drain on purpose: `!stop` must silence the planner
+     * while still letting the next explicit command run (`!mine dirt 8` enqueues, the queue
+     * drains, and then the planner goes quiet again). Before this flag was honoured, the
+     * 2.5s planning loop simply picked the next goal and "stop" looked broken.
+     */
+    if (this.autoPlanDisabled) return;
     // Don't plan before we can actually perceive anything.
     const snap = this.ctx.world.snapshot ? this.ctx.world.snapshot(true) : null;
     if (!snap || !snap.ready) return;
@@ -635,6 +644,7 @@ class Brain {
       running: this.running,
       paused: this.paused,
       stopped: this.stopped,
+      autoPlanDisabled: !!this.autoPlanDisabled,
       stoppedReason: this.stoppedReason,
       death: this.deathDetail,
       safeMode: this.safeMode,
@@ -684,6 +694,7 @@ class Brain {
       return this.status();
     }
     this.paused = false;
+    this.autoPlanDisabled = false;
     this.log.info('brain resumed');
     return this.status();
   }
