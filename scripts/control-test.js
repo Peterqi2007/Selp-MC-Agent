@@ -548,6 +548,11 @@ async function buildAgent(options = {}) {
     const res = await fetch(`${BASE}/command?command=status&priority=directive`, { redirect: 'manual' });
     expect(res.status === 303, `expected 303, got ${res.status}`);
     expect(res.headers.get('location') === '/panel', `unexpected location ${res.headers.get('location')}`);
+    // Panel commands must show up in the routing table, or the operator cannot tell whether
+    // the panel was heard at all.
+    const state = await (await fetch(`${BASE}/ui/state`)).json();
+    const seen = (state.recentInputs || []).some((r) => r.source === 'panel' && /status/.test(r.text || ''));
+    expect(seen, `the panel command is missing from recentInputs: ${JSON.stringify(state.recentInputs).slice(0, 200)}`);
     return 'form + link flow OK';
   });
 

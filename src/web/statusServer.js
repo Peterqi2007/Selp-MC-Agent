@@ -75,6 +75,13 @@ function startStatusServer(ctx, options = {}) {
     return state;
   };
 
+  /** Panel commands are inputs too: remember them so the routing table can show them. */
+  const rememberPanelInput = (entry) => {
+    if (!ctx.panelCommands) ctx.panelCommands = [];
+    ctx.panelCommands.push({ at: new Date().toISOString(), kind: 'input', source: 'panel', ...entry });
+    if (ctx.panelCommands.length > 20) ctx.panelCommands.shift();
+  };
+
   const server = http.createServer(async (req, res) => {
     const url = new URL(req.url, `http://${req.headers.host}`);
     if (url.pathname.startsWith('/panel') || url.pathname === '/ui/state' || url.pathname === '/command') {
@@ -248,11 +255,13 @@ function startStatusServer(ctx, options = {}) {
             speaker: 'panel',
             speakerPosition: snap ? snap.position : null
           });
+          rememberPanelInput({ text: utterance, via: 'panel-dialogue', action: record && record.action ? record.action : null });
           return json(res, 200, { ok: true, routed: 'dialogue', record, level: priority, ms: Date.now() - started });
         }
 
         const commandLine = trimmed.startsWith('!') ? trimmed.slice(1).trim() : trimmed;
         const result = await ctx.chat.handle(commandLine, `http:${priority}`);
+        rememberPanelInput({ text: trimmed, via: 'panel', action: commandLine });
         if (isForm || req.method === 'GET') {
           res.writeHead(303, { location: '/panel', 'cache-control': 'no-store' });
           return res.end();
@@ -352,7 +361,8 @@ function uiState(ctx) {
     /** Input -> routing, so the panel can show "did it understand me?" */
     recentInputs: [
       ...((ctx.llm && ctx.llm.turns) || []),
-      ...((ctx.chatListener && ctx.chatListener.recent) || []).slice(-3)
+      ...((ctx.chatListener && ctx.chatListener.recent) || []).slice(-3),
+      ...(ctx.panelCommands || [])
     ]
       .sort((a, b) => String(a.at || '').localeCompare(String(b.at || '')))
       .slice(-8),
