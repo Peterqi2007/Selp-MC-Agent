@@ -298,6 +298,13 @@ class ClientModBody extends Body {
       nearbyItems: state.itemDrops || [],
       /** Crops with growth stages (mod-side block-state scan), used by farming. */
       crops: Array.isArray(state.crops) ? state.crops : [],
+      /** Fishing bobber state: { cast, biting, x, y, z, id } or null when no rod is out. */
+      fishing: state.fishing && state.fishing.cast === true ? state.fishing : null,
+      /** Durability of the held item, when the mod reports it (used to notice a breaking rod). */
+      heldDurability:
+        state.heldDurability && Number.isFinite(state.heldDurability.max)
+          ? { remaining: state.heldDurability.remaining, max: state.heldDurability.max }
+          : null,
       players: (state.players || []).map((p) => p.name),
       /**
        * The block scan, exposed as a reference.

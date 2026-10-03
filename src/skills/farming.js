@@ -232,7 +232,11 @@ register({
   name: 'sleep',
   title: '睡觉过夜',
   description: 'Walk to a bed and sleep until morning.',
-  params: { timeoutMs: { type: 'number', default: 120000, min: 10000, max: 600000 } },
+  params: {
+    timeoutMs: { type: 'number', default: 120000, min: 10000, max: 600000 },
+    /** How far to look for a bed. Fishing at night may need to walk further than 12 blocks. */
+    radius: { type: 'number', default: 12, min: 4, max: 64 }
+  },
   available: (ctx) => (ctx.body && typeof ctx.body.useOn === 'function'
     ? { ok: true }
     : { ok: false, reason: 'this body cannot use a bed' }),
@@ -244,10 +248,11 @@ register({
       return { ok: true, slept: false, detail: 'it is already daytime' };
     }
     const world = ctx.world;
+    const bedRadius = params.radius === undefined ? 12 : params.radius;
     const beds = world && typeof world.findBlocksMatching === 'function'
-      ? world.findBlocksMatching((name) => /_bed$/.test(bare(name)), { maxDistance: 12, count: 1 })
+      ? world.findBlocksMatching((name) => /_bed$/.test(bare(name)), { maxDistance: bedRadius, count: 1 })
       : [];
-    if (!beds.length) return { ok: false, reason: 'no bed within 12 blocks' };
+    if (!beds.length) return { ok: false, reason: `no bed within ${bedRadius} blocks` };
     const bed = beds[0];
     const reached = await body.moveTo(bed.position, { range: 3, timeoutMs: 20000 }).catch(() => false);
     if (!reached) return { ok: false, reason: 'could not reach the bed' };

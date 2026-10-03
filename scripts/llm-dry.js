@@ -86,6 +86,8 @@ const UTTERANCES = [
   { text: '过夜吧', expect: { type: 'skill', skill: 'sleep' } },
   { text: '种点小麦', expect: { type: 'skill', skill: 'farm' } },
   { text: '收庄稼', expect: { type: 'skill', skill: 'farm' } },
+  { text: '去钓鱼', expect: { type: 'skill', skill: 'fish' } },
+  { text: '钓会儿鱼', expect: { type: 'skill', skill: 'fish' } },
   { text: '合成一个石镐', expect: { type: 'skill', skill: 'craft' } },
   { text: '做一个工作台', expect: { type: 'skill', skill: 'craft' } },
   { text: '熔炼铁矿', expect: { type: 'skill', skill: 'smelt' } },

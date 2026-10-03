@@ -73,6 +73,14 @@ class MockBody extends Body {
     /** Crop fixtures with growth stages: [{name, position, age, maxAge}] */
     this.crops = (options.crops || []).map((c) => ({ ...c, position: { ...c.position } }));
 
+    /**
+     * Fishing simulation: a bobber that takes `bitesAfter` refreshes to bite, and a rod
+     * with `rodUses` casts before it breaks. Mirrors the real client's /state.fishing.
+     */
+    this.fishing = { cast: false, biting: false, countdown: 0 };
+    this.bitesAfter = options.bitesAfter === undefined ? 2 : options.bitesAfter;
+    this.rodUses = options.rodUses === undefined ? 20 : options.rodUses;
+
     this.position = { ...(options.start || { x: 0, y: 64, z: 0 }) };
     this.ready = false;
 
@@ -98,6 +106,10 @@ class MockBody extends Body {
   /** Same contract as ClientModBody.refresh: hand back the current snapshot. */
   async refresh() {
     await this._delay();
+    if (this.fishing.cast && !this.fishing.biting) {
+      this.fishing.countdown -= 1;
+      if (this.fishing.countdown <= 0) this.fishing.biting = true;
+    }
     return this.snapshot();
   }
 
@@ -132,8 +144,39 @@ class MockBody extends Body {
       nearbyItems: this.itemDrops(8),
       players: ['MockPlayer'],
       target: this.crosshair,
-      crops: this.crops
+      crops: this.crops,
+      fishing: this.fishing.cast ? { cast: true, biting: this.fishing.biting } : null,
+      heldDurability:
+        this.held && this.rodUses !== null && /fishing_rod/.test(this.held)
+          ? { remaining: this.rodUses, max: this.rodUses }
+          : null
     };
+  }
+
+  /** Cast / reel the rod, exactly as the client's single `use` does. */
+  async useItem() {
+    await this._delay();
+    this.history.push({ action: 'useItem', cast: this.fishing.cast });
+    if (!this.rodUses || !Object.keys(this.inventory).some((n) => /fishing_rod$/.test(n))) {
+      return false;
+    }
+    if (!this.fishing.cast) {
+      this.rodUses -= 1;
+      if (this.rodUses <= 0) {
+        for (const name of Object.keys(this.inventory)) {
+          if (/fishing_rod$/.test(name)) delete this.inventory[name];
+        }
+        this.rodUses = 0;
+      }
+      this.fishing = { cast: true, biting: false, countdown: this.bitesAfter };
+      return true;
+    }
+    // Reeling: a bite fills the bag, an early reel just ends the cast.
+    if (this.fishing.biting) {
+      this.inventory['minecraft:cod'] = (this.inventory['minecraft:cod'] || 0) + 1;
+    }
+    this.fishing = { cast: false, biting: false, countdown: 0 };
+    return true;
   }
 
   /** Mock crosshair raycast: returns the configured target, if any. */

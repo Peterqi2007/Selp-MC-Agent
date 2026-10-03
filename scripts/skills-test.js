@@ -437,6 +437,85 @@ class MenuBody extends Body {
     return `${daytime.detail}; ${slept.detail}`;
   });
 
+  // ------------------------------------------------------------------ fishing
+  process.stdout.write('\n8. fishing (Phase 3)\n');
+
+  /** Water with a bank the bot can stand on, one long cast away. */
+  const fishingBlocks = () => [
+    { name: 'water', position: { x: 4, y: 63, z: 0 } },
+    { name: 'stone', position: { x: 3, y: 63, z: 0 } },
+    { name: 'air', position: { x: 3, y: 64, z: 0 } },
+    { name: 'air', position: { x: 3, y: 65, z: 0 } }
+  ];
+
+  await scenario('fish: walks to water, waits for the bite and lands a catch', async () => {
+    const body = new MockBody(cfg, {
+      start: { x: 0, y: 64, z: 0 },
+      blocks: fishingBlocks(),
+      inventory: { 'minecraft:fishing_rod': 1, 'minecraft:bread': 3 },
+      bitesAfter: 2,
+      rodUses: 8
+    });
+    await body.connect();
+    const result = await skills.run('fish', makeCtx(body), { maxCatches: 1, maxMs: 30000, eatAt: 1 });
+    expect(result.ok && result.catches >= 1, `expected a catch, got ${JSON.stringify(result)}`);
+    expect((body.inventory['minecraft:cod'] || 0) >= 1, 'the cod should be in the bag');
+    expect(body.history.some((h) => h.action === 'useItem'), 'the rod should have been used');
+    return result.detail;
+  });
+
+  await scenario('fish: stops when the rod runs out of durability', async () => {
+    const body = new MockBody(cfg, {
+      start: { x: 0, y: 64, z: 0 },
+      blocks: fishingBlocks(),
+      inventory: { 'minecraft:fishing_rod': 1 },
+      bitesAfter: 1,
+      rodUses: 2
+    });
+    await body.connect();
+    const result = await skills.run('fish', makeCtx(body), { maxCatches: 10, maxMs: 30000, eatAt: 1 });
+    expect(
+      result.stopped === 'rod-broken' || result.stopped === 'rod-worn',
+      `expected a rod stop, got ${JSON.stringify(result)}`
+    );
+    expect(
+      !Object.keys(body.inventory).some((name) => /fishing_rod/.test(name)) || result.stopped === 'rod-worn',
+      'either the rod broke or the task stopped on its last use'
+    );
+    return result.detail;
+  });
+
+  await scenario('fish: sleeps at night and keeps fishing in the morning', async () => {
+    const body = new MockBody(cfg, {
+      start: { x: 0, y: 64, z: 0 },
+      blocks: [...fishingBlocks(), { name: 'red_bed', position: { x: 1, y: 64, z: 2 } }],
+      inventory: { 'minecraft:fishing_rod': 1 },
+      night: true,
+      bitesAfter: 1,
+      rodUses: 8
+    });
+    await body.connect();
+    let calls = 0;
+    const tick = body.refresh.bind(body);
+    body.refresh = async () => {
+      calls += 1;
+      if (calls > 4) {
+        body.state.night = false;
+        body.state.timeOfDay = 1000;
+      }
+      return tick();
+    };
+    const result = await skills.run('fish', makeCtx(body), {
+      maxCatches: 1,
+      maxMs: 40000,
+      eatAt: 1,
+      bedRadius: 16
+    });
+    expect(result.sleeps >= 1, `expected a sleep, got ${JSON.stringify(result)}`);
+    expect(result.catches >= 1, `expected fishing to resume in the morning, got ${JSON.stringify(result)}`);
+    return result.detail;
+  });
+
   // ------------------------------------------------------------------ summary
   const failed = results.filter((r) => !r.ok);
   process.stdout.write(`\n${'='.repeat(60)}\n`);

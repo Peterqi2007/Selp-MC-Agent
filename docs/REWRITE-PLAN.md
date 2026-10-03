@@ -293,3 +293,28 @@ npm run personal:test -- --skip-server --no-prepare --allow-modded
 > 跑通（实测挖到铁矿石、火把 15→14 自动放置）。上面 1–4 四处修复**只做了离线回归**（`skills:test`
 > 21/21、`client:test` 48/48）——操作员指示机器人阵亡丢失镐子后不再复测，因此真机复测待下次备齐
 > 镐子/火把/面包后再做。
+
+### 八之七、钓鱼（2026-10-03，参考 mc_aiplayer 的 FishTask）
+
+操作员需求：找到附近最近的水源走过去钓鱼；**到了晚上找床睡觉**；**鱼竿耐久耗尽就停止**。
+
+参考实现 `refs/mc_aiplayer/.../task/FishTask.java` 的相位机被直接借用：
+FIND_WATER → MOVE_TO_WATER → CAST → WAIT_BITE → REEL → COLLECT → 循环；选点是"水方块 + 四向相邻的
+可站立格"；咬钩判定读浮标（bobber）状态。mindcraft 侧的 `skills.js` 只有生物分类里的 `cod/salmon`，
+没有钓鱼技能，所以实现以 mc_aiplayer 为准。
+
+落地：
+
+| 部件 | 内容 |
+| --- | --- |
+| Mod `/state` | 新增 `fishing: {cast, biting, hookedEntity, x, y, z, id}` 与 `heldDurability: {remaining, max}`。`biting` 在 1.20.1 是**私有字段**且生产 jar 用 SRG 名，用反射按 `biting`/`f_37099_` 两个名字读取（与参考项目用 Yarn/intermediary 双名反射同理） |
+| `src/skills/fishing.js` | `fish` 技能：找最近水+岸（默认 24 格内，跳过岩浆旁/台地）、走过去 → 装备鱼竿 → 看水面 → 抛竿（`use`）→ 轮询咬钩（默认 45s 超时）→ 收竿 → 捡掉落物；按"收竿前的背包总量"计一条鱼 |
+| 晚上睡觉 | 用世界时钟判断夜晚（12542–23458），调用 `sleep` 技能找床睡（`bedRadius` 默认 32；`sleep` 技能新增 `radius` 参数） |
+| 竿断即停 | 背包里没有鱼竿（断了）→ `stopped: 'rod-broken'`；手持耐久只剩 1 → `stopped: 'rod-worn'` 提前收手 |
+| 其它 | 饿了自动吃面包；±3 格内有敌对生物即停止（与挖矿同规则） |
+
+离线回归（新增 3 个用例，`skills:test` **25/25**）：钓到鱼（等咬钩→收竿→鱼进包）、鱼竿耗尽即停、
+夜里先睡再继续钓；中文路由新增"钓鱼/钓会儿鱼"两条（`llm:dry` 路由 **55/55**）。
+
+> **验证状态**：以上均为离线验证；带钓鱼状态上报的 Mod 已编译安装，客户端下次启动即生效，真机钓鱼
+> 复测待操作员安排（需要背包里有鱼竿）。

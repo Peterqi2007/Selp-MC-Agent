@@ -12,6 +12,7 @@ import net.minecraft.world.entity.MobType;
 import net.minecraft.world.entity.item.ItemEntity;
 import net.minecraft.world.entity.monster.Monster;
 import net.minecraft.world.entity.player.Player;
+import net.minecraft.world.entity.projectile.FishingHook;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.level.LightLayer;
 import net.minecraft.world.level.block.state.BlockState;
@@ -125,6 +126,23 @@ final class ClientStateSnapshot {
         out.put("blockLight", Json.num(level.getBrightness(LightLayer.BLOCK, feet)));
 
         /**
+         * The fishing bobber, so the agent can fish like a player.
+         *
+         * `biting` is a private field in 1.20.1 and the production jar carries SRG names,
+         * so it is read reflectively - the same trick mc_aiplayer's FishTask uses for its
+         * Yarn/intermediary names. `cast` alone would be useless: reeling in at the wrong
+         * moment loses the fish.
+         */
+        out.put("fishing", fishingJson(player));
+        ItemStack heldStack = player.getMainHandItem();
+        if (!heldStack.isEmpty() && heldStack.getMaxDamage() > 0) {
+            out.put("heldDurability", Json.obj(new LinkedHashMap<>(Map.of(
+                    "remaining", Json.num(Math.max(0, heldStack.getMaxDamage() - heldStack.getDamageValue())),
+                    "max", Json.num(heldStack.getMaxDamage())
+            ))));
+        }
+
+        /**
          * What the crosshair points at ("aimed vision").
          *
          * `mc.hitResult` is the same raycast the game draws the block outline from, so this
@@ -181,6 +199,48 @@ final class ClientStateSnapshot {
     }
 
     // ------------------------------------------------------------------ blocks
+
+    /** The player's bobber: whether one is out, and whether a fish is on the line. */
+    private static String fishingJson(LocalPlayer player) {
+        Map<String, String> out = new LinkedHashMap<>();
+        FishingHook hook = player.fishing;
+        if (hook == null || !hook.isAlive()) {
+            out.put("cast", Json.bool(false));
+            return Json.obj(out);
+        }
+        boolean biting = readBoolean(hook, "biting", "f_37099_");
+        boolean hookedEntity = false;
+        try {
+            hookedEntity = hook.getHookedIn() != null;
+        } catch (Throwable ignored) {
+            // Older/other mappings: the biting flag above is enough on its own.
+        }
+        out.put("cast", Json.bool(true));
+        out.put("biting", Json.bool(biting || hookedEntity));
+        out.put("hookedEntity", Json.bool(hookedEntity));
+        out.put("x", Json.num(hook.getX()));
+        out.put("y", Json.num(hook.getY()));
+        out.put("z", Json.num(hook.getZ()));
+        out.put("id", Json.num(hook.getId()));
+        return Json.obj(out);
+    }
+
+    /** Read a private boolean field by any of its runtime names (dev name, SRG name). */
+    private static boolean readBoolean(Object target, String... names) {
+        for (String name : names) {
+            try {
+                java.lang.reflect.Field field = target.getClass().getDeclaredField(name);
+                field.setAccessible(true);
+                Object value = field.get(target);
+                if (value instanceof Boolean flag) {
+                    return flag;
+                }
+            } catch (ReflectiveOperationException | RuntimeException ignored) {
+                // Try the next name.
+            }
+        }
+        return false;
+    }
 
     /**
      * Flat map of "x,y,z" -> block id for everything nearby.

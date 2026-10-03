@@ -59,6 +59,12 @@ const RULES = [
     say: '去种地喵'
   },
   {
+    name: 'fish',
+    pattern: /(钓鱼|钓点鱼|去钓鱼|钓一?会儿鱼|钓鱼竿|\bfish\b|\bfishing\b|\bcast\b)/i,
+    build: (count) => ({ type: 'skill', skill: 'fish', args: count ? { maxCatches: Math.min(64, Math.max(1, count)) } : {} }),
+    say: '去钓鱼喵'
+  },
+  {
     name: 'craft',
     pattern: /(合成|制作|做一?把|做一?个|\bcraft\b|\bmake\b)/i,
     build: (count, text) => {

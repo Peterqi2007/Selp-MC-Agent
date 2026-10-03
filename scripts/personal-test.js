@@ -276,6 +276,7 @@ async function main() {
     ['饿了', 'eat'],
     ['睡觉', 'sleep'],
     ['种地', 'farm'],
+    ['钓鱼', 'fish'],
     ['合成一个石镐', 'craft'],
     ['熔炼铁矿', 'smelt'],
     ['有怪物', 'defend'],
@@ -294,7 +295,7 @@ async function main() {
 
   const { capabilities } = require('../src/llm/blackboard');
   const caps = Object.fromEntries(capabilities(ctx).map((c) => [c.name, c]));
-  const requiredSkills = ['craft', 'smelt', 'farm', 'sleep', 'eat', 'deposit', 'withdraw', 'attack', 'defend'];
+  const requiredSkills = ['craft', 'smelt', 'farm', 'sleep', 'eat', 'deposit', 'withdraw', 'attack', 'defend', 'mine_ore', 'fish'];
   const missingCaps = requiredSkills.filter((name) => !(caps[name] && caps[name].available));
   record(
     'Phase 3: capability table lists the Phase 2/3 skills as available',
