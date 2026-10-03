@@ -504,6 +504,8 @@ class ClientModBody extends Body {
         result = await this.dryManMadeNavigator.goTo(position, options);
       } else if (options.allowSwim === false) {
         result = await this.dryNavigator.goTo(position, options);
+      } else if (options.allowManMade === true) {
+        result = await this.manMadeNavigator.goTo(position, options);
       } else {
         result = await this.navigator.goTo(position, options);
       }
@@ -675,6 +677,19 @@ class ClientModBody extends Body {
       this._dryManMadeNavigator = this._buildNavigator({ allowSwim: false, avoidManMade: false });
     }
     return this._dryManMadeNavigator;
+  }
+
+  /**
+   * Navigator that may cross player-built ground and still swims.
+   *
+   * Farms and the operator's own base need this: `avoidManMade` alone (without
+   * `allowSwim:false`) used to fall back to the default navigator and kept the guard on.
+   */
+  get manMadeNavigator() {
+    if (!this._manMadeNavigator) {
+      this._manMadeNavigator = this._buildNavigator({ avoidManMade: false });
+    }
+    return this._manMadeNavigator;
   }
 
   /** Build a navigator with the configured movement rules plus any overrides. */

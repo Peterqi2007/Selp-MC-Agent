@@ -134,7 +134,14 @@ register({
       : crops.filter((crop) => Number(crop.age) >= Number(crop.maxAge));
     let harvested = 0;
     for (const crop of ripe) {
-      const reached = await body.moveTo(crop.position, { range: 2, timeoutMs: 15000 }).catch(() => false);
+      /**
+       * `allowManMade` on every farm walk: a farm IS player-built ground (farmland, water
+       * channels, fences), and the default guard that keeps the bot off other people's
+       * builds made every harvest step answer `noPath` - 4 of 60 ripe wheat got collected.
+       */
+      const reached = await body
+        .moveTo(crop.position, { range: 2, timeoutMs: 15000, allowManMade: true })
+        .catch(() => false);
       if (!reached) continue;
       const ok = await body.dig({ name: crop.name, position: crop.position }).catch(() => false);
       if (ok) harvested += 1;
@@ -149,7 +156,9 @@ register({
       const wanted = params.plots ? Math.max(1, Math.floor(params.plots)) : Infinity;
       for (const ground of rankTillableByWater(ctx, params.radius)) {
         if (tilled >= wanted) break;
-        const reached = await body.moveTo(ground.position, { range: 3, timeoutMs: 15000 }).catch(() => false);
+        const reached = await body
+          .moveTo(ground.position, { range: 3, timeoutMs: 15000, allowManMade: true })
+          .catch(() => false);
         if (!reached) continue;
         await body.useOn(ground.position, { face: { x: 0, y: 1, z: 0 } }).catch(() => false);
         /**
@@ -200,7 +209,9 @@ register({
       );
       for (const plot of plots) {
         if (seedsLeft <= 0) break;
-        const reached = await body.moveTo(plot.position, { range: 3, timeoutMs: 15000 }).catch(() => false);
+        const reached = await body
+          .moveTo(plot.position, { range: 3, timeoutMs: 15000, allowManMade: true })
+          .catch(() => false);
         if (!reached) continue;
         await body.useOn(plot.position, { face: { x: 0, y: 1, z: 0 } }).catch(() => false);
         // A seed only counts when it actually left the inventory.
