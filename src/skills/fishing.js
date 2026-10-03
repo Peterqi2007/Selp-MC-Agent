@@ -259,12 +259,22 @@ register({
             y: Math.floor(drop.position.y),
             z: Math.floor(drop.position.z)
           };
-          // Never wade in after a drop: a fish on the water is not worth a swim.
-          if (WATER.test(blockNameAt(ctx, dropCell))) continue;
+          /**
+           * Never wade in after a drop. A fish floats ON the surface, so its own cell is
+           * air and the water is one below - checking only the item's cell missed exactly
+           * that case and the bot swam out to it.
+           */
+          if (
+            WATER.test(blockNameAt(ctx, dropCell)) ||
+            WATER.test(blockNameAt(ctx, { x: dropCell.x, y: dropCell.y - 1, z: dropCell.z }))
+          ) {
+            continue;
+          }
           await body
             .moveTo(drop.position, {
               range: 1.0,
               timeoutMs: 12000,
+              allowSwim: false,
               raw: (drop.distance === undefined ? 99 : drop.distance) <= 4
             })
             .catch(() => false);
@@ -285,6 +295,8 @@ register({
     };
 
     // ---- main loop ---------------------------------------------------------
+    /** The chosen bank. Picked and walked to ONCE; only nightfall moves the bot again. */
+    let spot = null;
     for (;;) {
       if (Date.now() > deadline) {
         return {
@@ -345,6 +357,7 @@ register({
         if (bed && bed.ok && bed.slept) {
           stats.sleeps += 1;
           if (ctx.log && ctx.log.info) ctx.log.info('slept until morning - back to the water');
+          spot = null; // one fresh walk back to a bank in the morning
           continue;
         }
         if (bed && bed.ok && bed.slept === false) continue; // it turned out to be daytime
@@ -357,36 +370,49 @@ register({
         };
       }
 
-      const spot = await findWater();
-      if (!spot) {
-        return {
-          ok: stats.catches > 0,
-          stopped: 'no-water',
-          catches: stats.catches,
-          sleeps: stats.sleeps,
-          detail: `no water with a fishable bank within ${params.searchRadius} blocks`
-        };
-      }
-
-      const reached = await body
-        .moveTo(spot.stand, { range: 1.6, timeoutMs: 40000 })
-        .catch(() => false);
-      if (!reached) {
-        blockedWater.add(waterKey(spot.water));
-        continue;
-      }
       /**
-       * The planner is allowed to swim, so "arrived" can still mean "standing in the pond".
-       * The operator's rule is that the bot never wades: drop this spot and let the loop
-       * walk on to the next one (which is also how it climbs back out).
+       * ONE walk per fishing spot.
+       *
+       * The operator's rule: pathfind once to a bank from which the cast reaches open
+       * water, then stand there and only cast/reel (the only later walk is to the bed at
+       * night). The previous version re-picked a spot every cast, which is what made the
+       * bot wander - and occasionally wade in.
        */
-      const afterWalk = await refresh(ctx);
-      if (afterWalk.inWater) {
-        if (ctx.log && ctx.log.warn) {
-          ctx.log.warn('the route to this fishing spot wades - skipping it and looking for a dry bank');
+      if (!spot) {
+        spot = await findWater();
+        if (!spot) {
+          return {
+            ok: stats.catches > 0,
+            stopped: 'no-water',
+            catches: stats.catches,
+            sleeps: stats.sleeps,
+            detail: `no water with a fishable bank within ${params.searchRadius} blocks`
+          };
         }
-        blockedWater.add(waterKey(spot.water));
-        continue;
+        const reached = await body
+          // allowSwim:false - walk to the bank without ever routing through the pond.
+          .moveTo(spot.stand, { range: 1.6, timeoutMs: 40000, allowSwim: false })
+          .catch(() => false);
+        const afterWalk = await refresh(ctx);
+        if (!reached || afterWalk.inWater) {
+          if (ctx.log && ctx.log.warn) {
+            ctx.log.warn(
+              afterWalk.inWater
+                ? 'the route to this fishing spot wades - skipping it'
+                : 'could not reach this fishing spot - skipping it'
+            );
+          }
+          blockedWater.add(waterKey(spot.water));
+          spot = null;
+          continue;
+        }
+        if (ctx.log && ctx.log.info) {
+          ctx.log.info(
+            `fishing spot: standing at ${spot.stand.x},${spot.stand.y},${spot.stand.z}, ` +
+              `casting at ${spot.water.x},${spot.water.y},${spot.water.z} ` +
+              `(open water: ${spot.open ? 'yes' : 'no'})`
+          );
+        }
       }
 
       const rodName = rodInBag(await refresh(ctx));
@@ -394,18 +420,22 @@ register({
       if (!(await body.equip(rodName).catch(() => false))) {
         await sleep(300);
       }
+      /**
+       * Aim ABOVE the water, not at it.
+       *
+       * Vanilla's cast is a fixed-speed projectile: aiming at a block on the surface makes
+       * the bobber plop down 3-6 blocks away (the live log showed a target 11 blocks out,
+       * a bobber 3 blocks out, and a junk-only landing). Raising the aim point a couple of
+       * blocks gives the throw an upward angle, so it actually flies far - which is what
+       * the operator asked for ("把竿尽可能往远抛").
+       */
       await body
-        .lookAt({ x: spot.water.x + 0.5, y: spot.water.y + 0.9, z: spot.water.z + 0.5 })
+        .lookAt({ x: spot.water.x + 0.5, y: spot.water.y + 2.5, z: spot.water.z + 0.5 })
         .catch(() => false);
 
       let current = await refresh(ctx);
       if (!current.fishing) {
-        if (ctx.log && ctx.log.info) {
-          ctx.log.info(
-            `casting at water ${spot.water.x},${spot.water.y},${spot.water.z} ` +
-              `(from ${spot.stand.x},${spot.stand.y},${spot.stand.z}; open water: ${spot.open ? 'yes' : 'no'})`
-          );
-        }
+        if (ctx.log && ctx.log.info) ctx.log.info(`cast #${stats.casts + 1}`);
         await body.useItem().catch(() => false);
         stats.casts += 1;
         const castUntil = Date.now() + 2500;
@@ -469,7 +499,8 @@ register({
         after = await refresh(ctx);
       }
       if (bit) {
-        const picked = await collectDrops(6);
+        // Only what landed within reach of the stand: no walking away from the spot.
+        const picked = await collectDrops(3);
         const now = await refresh(ctx);
         const total = Object.values(now.inventory || {}).reduce((sum, count) => sum + count, 0);
         if (total > beforeReel || picked > 0) stats.catches += 1;

@@ -479,10 +479,15 @@ class MenuBody extends Body {
       rodUses: 8
     });
     await body.connect();
-    const result = await skills.run('fish', makeCtx(body), { maxCatches: 1, maxMs: 30000, eatAt: 1 });
-    expect(result.ok && result.catches >= 1, `expected a catch, got ${JSON.stringify(result)}`);
-    expect((body.inventory['minecraft:cod'] || 0) >= 1, 'the cod should be in the bag');
+    const result = await skills.run('fish', makeCtx(body), { maxCatches: 3, maxMs: 30000, eatAt: 1 });
+    expect(result.ok && result.catches >= 3, `expected catches, got ${JSON.stringify(result)}`);
+    expect((body.inventory['minecraft:cod'] || 0) >= 3, 'the cod should be in the bag');
     expect(body.history.some((h) => h.action === 'useItem'), 'the rod should have been used');
+    // One walk per spot: the operator's rule is pathfind once, then only cast and reel.
+    expect(
+      body.stats.moved === 1,
+      `expected exactly one walk to the bank, saw ${body.stats.moved}`
+    );
     return result.detail;
   });
 

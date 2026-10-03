@@ -474,7 +474,7 @@ class ClientModBody extends Body {
           this.lastMove = { ok: false, reason: 'screen-open', screen, target: { ...position }, ms: 0 };
           this.log.warn(
             `cannot walk: ${screen} is open in the game - ` +
-              (isChat ? 'finish typing or press Escape' : 'close it first')
+              (humanScreen ? 'finish typing or press Escape to resume' : 'close it first')
           );
           return false;
         }
@@ -495,7 +495,15 @@ class ClientModBody extends Body {
     const started = Date.now();
     let result;
     try {
-      result = await this.navigator.goTo(position, options);
+      /**
+       * `allowSwim: false` swaps in the dry navigator: shore work (fishing) must not route
+       * through water. Everything else uses the normal one, still through this.navigator so
+       * the plan audit can see the planner wiring.
+       */
+      result =
+        options.allowSwim === false
+          ? await this.dryNavigator.goTo(position, options)
+          : await this.navigator.goTo(position, options);
     } catch (err) {
       this.lastError = err;
       this.lastMove = { ok: false, reason: `throw: ${err.message}`, target: position, ms: Date.now() - started };
@@ -636,14 +644,31 @@ class ClientModBody extends Body {
    * pay for pathfinding it may not use.
    */
   get navigator() {
-    if (this._navigator) return this._navigator;
+    if (!this._navigator) this._navigator = this._buildNavigator({});
+    return this._navigator;
+  }
+
+  /**
+   * Navigator that refuses to enter liquid.
+   *
+   * Shore work (fishing) must never wade: the walker is allowed to swim by default, so
+   * "walk to the bank" could route straight through the pond. `moveTo(pos, { allowSwim:
+   * false })` picks this one.
+   */
+  get dryNavigator() {
+    if (!this._dryNavigator) this._dryNavigator = this._buildNavigator({ allowSwim: false });
+    return this._dryNavigator;
+  }
+
+  /** Build a navigator with the configured movement rules plus any overrides. */
+  _buildNavigator(overrides) {
     const { ClientWorldAdapter } = require('../pathfinding/clientWorldAdapter');
     const { PathNavigator } = require('../pathfinding/navigator');
 
     const pathCfg = (this.cfg.agent && this.cfg.agent.pathfinding) || {};
     const safetyCfg = (this.cfg.agent && this.cfg.agent.safety) || {};
     this._world = new ClientWorldAdapter(this, { log: this.log });
-    this._navigator = new PathNavigator(this, {
+    return new PathNavigator(this, {
       log: this.log,
       world: this._world,
       trace: (record) => this.trace(record),
@@ -678,9 +703,9 @@ class ClientModBody extends Body {
        * server where "walk there" must not mean "walk across someone's roof" or
        * "stand in their farm". See src/world/safety.js.
        */
-      avoidManMade: safetyCfg.avoidManMade !== false
+      avoidManMade: safetyCfg.avoidManMade !== false,
+      ...overrides
     });
-    return this._navigator;
   }
 
   /** Path trace sink (P0-PLAN §8); no-op unless a trace path is configured. */
