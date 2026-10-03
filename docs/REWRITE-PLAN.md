@@ -344,3 +344,18 @@ FIND_WATER → MOVE_TO_WATER → CAST → WAIT_BITE → REEL → COLLECT → 循
    是水）不再去追——这正是"跳水"的漏点。
 3. **尽可能往远抛**：浮标实际只飞 3–6 格是因为瞄着水面平抛；现在瞄水面上方 2.5 格，让抛竿带仰角，
    落点更远；抛竿后仍用浮标真坐标复核开阔水域并打印。
+
+#### 第四轮真机验证（同日下午，全部通过）
+
+| 验证点 | 真机证据 |
+| --- | --- |
+| 一次寻路、站定抛收 | 从 `(25.61,63,39.97)` 起连续 26 次抛竿，坐标**全程未变** |
+| 开阔水域 | 每次日志 `bobber at … - open water: yes`；收获包含宝藏类物品（`name_tag`、`potion`、`angler_treasure_bag`×3） |
+| 夜里上床睡觉 | `night - walking to a bed to sleep` → `slept until morning`，世界时间 `12850 → 2441`，位置落到床上 `(24.1,63.6,59.5)` |
+| 睡醒回水边继续钓 | 从基地走回 `(25.29,63,40.54)`，再钓 7 竿 |
+| 竿用尽即停 | `stopped: 'rod-worn'`，"down to its last use (1/64)" |
+| 不下水/不溺水 | 全程 `inWater:false`，无死亡；早先的溺水事故由"捡掉落物改走旱路 + 落水自救 + 死亡单列"修复 |
+
+> 过程中修掉的两个真机 bug：① 捡掉落物的 `raw` 直线走会走进河里（溺水事故的根因）；② 床在玩家基地内，
+> 默认 `avoidManMade` 安全闸门让"去睡觉/睡醒回钓位"全部 `noPath` —— 新增 `allowManMade` 选项与
+> `dryManMadeNavigator` 后解决。
