@@ -255,6 +255,9 @@ register({
           // Never walk after a drop that hangs over a hole; the item is not worth the fall.
           const danger = dangerAt(await refresh(ctx), dropCell);
           if (danger) continue;
+          const dropId = drop.id;
+          const gone = async () =>
+            !((await refresh(ctx)).nearbyItems || []).some((item) => item.id === dropId);
           const reached = await body
             .moveTo(drop.position, {
               range: 1.0,
@@ -265,13 +268,27 @@ register({
               raw: (drop.distance === undefined ? 99 : drop.distance) <= 4
             })
             .catch(() => false);
-          if (!reached) continue;
-          const before = ((await refresh(ctx)).nearbyItems || []).length;
+          if (reached && (await gone())) {
+            picked += 1;
+            pickedThisPass += 1;
+            continue;
+          }
+          /**
+           * Walking failed - the drop is on a ledge the planner cannot route to (the live
+           * run left iron on a shelf three blocks above the tunnel). Climb to it with the
+           * same sloped stair the mining uses, ceiling included, then wait for the pickup.
+           */
+          if (!reached) {
+            for (let step = 0; step < 10; step += 1) {
+              const climb = await stepToward({ position: dropCell });
+              if (climb.reached) break;
+              if (!climb.ok) break;
+            }
+          }
           const waitUntil = Date.now() + 2500;
           while (Date.now() < waitUntil) {
             await new Promise((resolve) => setTimeout(resolve, 200));
-            const after = await refresh(ctx);
-            if (((after.nearbyItems || []).length) < before) {
+            if (await gone()) {
               picked += 1;
               pickedThisPass += 1;
               break;
