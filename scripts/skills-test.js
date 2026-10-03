@@ -522,15 +522,17 @@ class MenuBody extends Body {
       rodUses: 8
     });
     await body.connect();
-    let calls = 0;
-    const tick = body.refresh.bind(body);
-    body.refresh = async () => {
-      calls += 1;
-      if (calls > 4) {
-        body.state.night = false;
-        body.state.timeOfDay = 1000;
-      }
-      return tick();
+    /**
+     * Sleeping is what advances the clock - flip to morning when the bed is actually used,
+     * not after an arbitrary number of polls (the skill polls a lot before it reaches the
+     * night check, which made an earlier version of this test never sleep at all).
+     */
+    const useOnBed = body.useOn.bind(body);
+    body.useOn = async (...args) => {
+      const result = await useOnBed(...args);
+      body.state.night = false;
+      body.state.timeOfDay = 1000;
+      return result;
     };
     const result = await skills.run('fish', makeCtx(body), {
       maxCatches: 1,

@@ -274,8 +274,12 @@ register({
             .moveTo(drop.position, {
               range: 1.0,
               timeoutMs: 12000,
-              allowSwim: false,
-              raw: (drop.distance === undefined ? 99 : drop.distance) <= 4
+              /**
+               * No `raw` shortcut here on purpose: the client's straight-line walker
+               * happily strolls off the bank into the river, which is exactly how the bot
+               * drowned during the night-sleep test. The dry planner refuses water cells.
+               */
+              allowSwim: false
             })
             .catch(() => false);
           const waitUntil = Date.now() + 2500;
@@ -314,6 +318,36 @@ register({
       }
 
       await eatIfHungry();
+
+      /**
+       * Death is its own outcome.
+       *
+       * The drowning during the sleep test emptied the whole inventory - including the rod -
+       * and the old check reported "rod-broken", which reads like a normal end of life for
+       * the rod instead of "the bot died and lost everything".
+       */
+      const aliveSnap = await refresh(ctx);
+      if (aliveSnap && aliveSnap.dead) {
+        return {
+          ok: false,
+          stopped: 'dead',
+          catches: stats.catches,
+          sleeps: stats.sleeps,
+          casts: stats.casts,
+          detail: 'the bot died (looks like a drowning) - respawn and restock before fishing again'
+        };
+      }
+
+      /**
+       * Recovery net: if it ends up in water anyway, swim out immediately with the normal
+       * planner (the dry one cannot start from a water cell) and carry on.
+       */
+      if (aliveSnap && aliveSnap.inWater) {
+        if (ctx.log && ctx.log.warn) ctx.log.warn('in the water - climbing back onto the bank');
+        await body
+          .moveTo(spot ? spot.stand : aliveSnap.position, { range: 1.6, timeoutMs: 20000 })
+          .catch(() => false);
+      }
 
       const hostile = await hostileNear(3);
       if (hostile) {
