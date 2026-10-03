@@ -482,8 +482,17 @@ register({
           };
         }
         const reached = await body
-          // allowSwim:false - walk to the bank without ever routing through the pond.
-          .moveTo(spot.stand, { range: 1.6, timeoutMs: 40000, allowSwim: false })
+          /**
+           * Dry route (never through the pond) that may also cross the operator's own base:
+           * after sleeping the bot starts *inside* the base, and with the default man-made
+           * guard every route out of it answered `noPath`.
+           */
+          .moveTo(spot.stand, {
+            range: 1.6,
+            timeoutMs: 40000,
+            allowSwim: false,
+            allowManMade: true
+          })
           .catch(() => false);
         const afterWalk = await refresh(ctx);
         if (!reached || afterWalk.inWater) {
