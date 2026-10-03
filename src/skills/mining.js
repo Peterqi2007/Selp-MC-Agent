@@ -190,12 +190,21 @@ register({
 
     /** Walk into `position` (strict: the feet must end up in that block). */
     const stepTo = async (position) => {
-      const walked = await body
-        .moveTo(position, { range: 0.45, timeoutMs: 20000 })
+      const arrived = async () => {
+        const after = feetOf(await refresh(ctx));
+        return !!after && after.x === position.x && after.z === position.z && Math.abs(after.y - position.y) <= 1;
+      };
+      await body.moveTo(position, { range: 0.45, timeoutMs: 20000 }).catch(() => false);
+      if (await arrived()) return true;
+      /**
+       * One nudge. The planner is occasionally handed the same one-block hop and answers
+       * `noPath` (the live run lost 27 ores to "could not walk into the dug step" that way),
+       * so the retry forces the client's own walker rather than asking the planner again.
+       */
+      await body
+        .moveTo(position, { raw: true, range: 0.45, timeoutMs: 12000 })
         .catch(() => false);
-      if (!walked) return false;
-      const after = feetOf(await refresh(ctx));
-      return !!after && after.x === position.x && after.z === position.z && Math.abs(after.y - position.y) <= 1;
+      return arrived();
     };
 
     const lightAtFeet = (snap) =>
@@ -247,7 +256,14 @@ register({
           const danger = dangerAt(await refresh(ctx), dropCell);
           if (danger) continue;
           const reached = await body
-            .moveTo(drop.position, { range: 1.0, timeoutMs: 12000 })
+            .moveTo(drop.position, {
+              range: 1.0,
+              timeoutMs: 12000,
+              // Nearby drops are inside the tunnel we just dug: walk straight at them. The
+              // planner answers `noPath` for those same one-block hops and the live run left
+              // iron on the floor because of it.
+              raw: (drop.distance === undefined ? 99 : drop.distance) <= 4
+            })
             .catch(() => false);
           if (!reached) continue;
           const before = ((await refresh(ctx)).nearbyItems || []).length;
@@ -452,7 +468,15 @@ register({
 
       await eatIfHungry();
       const moved = await stepTo(next);
-      return moved ? { ok: true } : { ok: false, reason: 'could not walk into the dug step' };
+      if (moved) return { ok: true };
+      const stuckAt = feetOf(await refresh(ctx));
+      const why = body.lastMove && body.lastMove.reason ? body.lastMove.reason : 'unknown';
+      return {
+        ok: false,
+        reason:
+          `could not walk into the dug step (${why}; wanted ${next.x},${next.y},${next.z}` +
+          (stuckAt ? `, feet at ${stuckAt.x},${stuckAt.y},${stuckAt.z})` : ')')
+      };
     };
 
     // ---- main loop: nearest ore -> tunnel -> collect -> next ore ------------
@@ -634,6 +658,8 @@ register({
       }
     }
 
+    // Final sweep before reporting: the last vein's drops are usually still on the floor.
+    await collectDrops(12);
     const end = await refresh(ctx);
     return {
       ok: true,
