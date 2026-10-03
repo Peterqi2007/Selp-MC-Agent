@@ -44,6 +44,13 @@ function blockAt(ctx, position) {
   return null;
 }
 
+/** Fresh snapshot: refresh the body, then read it. */
+async function refresh(ctx) {
+  const body = ctx.body;
+  if (body && typeof body.refresh === 'function') await body.refresh(true).catch(() => null);
+  return body && typeof body.snapshot === 'function' ? body.snapshot() : null;
+}
+
 /** Ground blocks with air above, so there is somewhere to plant. */
 function findTillable(ctx, radius) {
   const world = ctx.world;
@@ -116,7 +123,9 @@ register({
     plant: { type: 'boolean', default: true },
     plots: { type: 'number', min: 1, max: 64 },
     harvest: { type: 'boolean', default: true },
-    till: { type: 'boolean', default: true }
+    till: { type: 'boolean', default: true },
+    /** Re-till farmland that a jump/fall trampled back into dirt (inside the field). */
+    repairTrampled: { type: 'boolean', default: true }
   },
   available: (ctx) => (ctx.body && typeof ctx.body.useOn === 'function' && typeof ctx.body.moveTo === 'function'
     ? { ok: true }
@@ -127,6 +136,65 @@ register({
     const snap = typeof body.snapshot === 'function' ? body.snapshot() : null;
     const inventory = (snap && snap.inventory) || {};
     const crops = (snap && snap.crops) || [];
+
+    /**
+     * Walk over the drops a harvest leaves on the field and wait for the game to hand them
+     * over. The operator's report: "好多掉落物都没捡，太浪费" - wheat and seeds were lying
+     * everywhere while the bot walked off to the next crop.
+     */
+    const collectDrops = async (radius = 6) => {
+      let picked = 0;
+      for (let pass = 0; pass < 3; pass += 1) {
+        const state = await refresh(ctx);
+        const drops = (state && state.nearbyItems ? state.nearbyItems : []).filter(
+          (drop) => drop && drop.position && (drop.distance === undefined || drop.distance <= radius)
+        );
+        if (!drops.length) break;
+        let pickedThisPass = 0;
+        for (const drop of drops) {
+          const id = drop.id;
+          const gone = async () =>
+            !(((await refresh(ctx)).nearbyItems) || []).some((item) => item.id === id);
+          if (await gone()) {
+            picked += 1;
+            pickedThisPass += 1;
+            continue;
+          }
+          const cell = {
+            x: Math.floor(drop.position.x),
+            y: Math.floor(drop.position.y),
+            z: Math.floor(drop.position.z)
+          };
+          const below = { x: cell.x, y: cell.y - 1, z: cell.z };
+          const nameAt = (position) => {
+            const world = ctx.world;
+            const block = world && typeof world.blockAtAbsolute === 'function' ? world.blockAtAbsolute(position) : null;
+            return block && block.name ? bare(block.name) : 'air';
+          };
+          // Never step into an irrigation channel after a drop.
+          if (/water/.test(nameAt(cell)) || /water/.test(nameAt(below))) continue;
+          await body
+            .moveTo(drop.position, {
+              range: 1.0,
+              timeoutMs: 12000,
+              allowSwim: false,
+              allowManMade: true
+            })
+            .catch(() => false);
+          const waitUntil = Date.now() + 2500;
+          while (Date.now() < waitUntil) {
+            await new Promise((resolve) => setTimeout(resolve, 200));
+            if (await gone()) {
+              picked += 1;
+              pickedThisPass += 1;
+              break;
+            }
+          }
+        }
+        if (!pickedThisPass) break;
+      }
+      return picked;
+    };
 
     // ---- 1. harvest what is ripe ------------------------------------------
     const ripe = params.harvest === false
@@ -140,12 +208,21 @@ register({
        * builds made every harvest step answer `noPath` - 4 of 60 ripe wheat got collected.
        */
       const reached = await body
-        .moveTo(crop.position, { range: 2, timeoutMs: 15000, allowManMade: true })
+        .moveTo(crop.position, {
+          range: 2,
+          timeoutMs: 15000,
+          allowManMade: true,
+          // Dry route: the farm's irrigation channels must not be waded through.
+          allowSwim: false
+        })
         .catch(() => false);
       if (!reached) continue;
       const ok = await body.dig({ name: crop.name, position: crop.position }).catch(() => false);
       if (ok) harvested += 1;
+      // Every few crops, sweep what has fallen on the field.
+      if (harvested % 4 === 0) await collectDrops(5);
     }
+    const collected = await collectDrops(6);
 
     // ---- 2. till fresh soil ------------------------------------------------
     const hoe = findItem(inventory, /_hoe$/);
@@ -156,8 +233,19 @@ register({
       const wanted = params.plots ? Math.max(1, Math.floor(params.plots)) : Infinity;
       for (const ground of rankTillableByWater(ctx, params.radius)) {
         if (tilled >= wanted) break;
+        /**
+         * Stand ON TOP of the block, then hoe it. Targeting the ground cell itself sends
+         * the planner to a solid block, which it can only refuse (`noPath`) whenever the
+         * raw short-hop fallback does not apply.
+         */
+        const stand = { x: ground.position.x, y: ground.position.y + 1, z: ground.position.z };
         const reached = await body
-          .moveTo(ground.position, { range: 3, timeoutMs: 15000, allowManMade: true })
+          .moveTo(stand, {
+            range: 2.5,
+            timeoutMs: 15000,
+            allowManMade: true,
+            allowSwim: false
+          })
           .catch(() => false);
         if (!reached) continue;
         await body.useOn(ground.position, { face: { x: 0, y: 1, z: 0 } }).catch(() => false);
@@ -175,24 +263,14 @@ register({
       }
     }
 
-    // `plant: false` means "till only", not "do nothing": the caller may want to prepare
-    // the plots first and plant with a different seed later.
-    if (params.plant === false) {
-      return {
-        ok: true,
-        harvested,
-        tilled,
-        planted: 0,
-        detail: `harvested ${harvested}, tilled ${tilled}`
-      };
-    }
-
     // ---- 3. plant seeds on the farmland ----------------------------------
+    // `plant: false` means "harvest (and repair) only", not "return before the repair".
+    const shouldPlant = params.plant !== false;
     const seedName = params.seed
       ? Object.keys(inventory).find((name) => bare(name) === bare(params.seed))
       : findItem(inventory, SEEDS);
     let planted = 0;
-    if (seedName) {
+    if (shouldPlant && seedName) {
       if (typeof body.refresh === 'function') await body.refresh(true).catch(() => null);
       await body.equip(seedName).catch(() => false);
       let seedsLeft = Number(inventory[seedName] || 0);
@@ -209,8 +287,14 @@ register({
       );
       for (const plot of plots) {
         if (seedsLeft <= 0) break;
+        const stand = { x: plot.position.x, y: plot.position.y + 1, z: plot.position.z };
         const reached = await body
-          .moveTo(plot.position, { range: 3, timeoutMs: 15000, allowManMade: true })
+          .moveTo(stand, {
+            range: 2.5,
+            timeoutMs: 15000,
+            allowManMade: true,
+            allowSwim: false
+          })
           .catch(() => false);
         if (!reached) continue;
         await body.useOn(plot.position, { face: { x: 0, y: 1, z: 0 } }).catch(() => false);
@@ -225,16 +309,109 @@ register({
       }
     }
 
+    /**
+     * Repair farmland that a jump or a fall turned back into dirt.
+     *
+     * The operator's report: "agent上来跳跃会踩坏农田". Walking is harmless; landing after a
+     * jump is not, and the client's walker jumps whenever a step blocks it. Rather than try
+     * to forbid every jump, till the damage back: a dirt block with two or more farmland
+     * neighbours is a hole inside the field, not fresh ground to expand onto.
+     */
+    let repaired = 0;
+    if (hoe && params.repairTrampled !== false) {
+      const dirtCells =
+        ctx.world && typeof ctx.world.findBlocksMatching === 'function'
+          ? ctx.world.findBlocksMatching((name) => /^dirt$/.test(bare(name)), {
+              maxDistance: params.radius,
+              // 256, not 64: most dirt in range is the subsoil *under* the field, and the
+              // nearest-64 cap left real surface holes unrepaired.
+              count: 256
+            })
+          : [];
+      const farmlandNeighbours = (position) => {
+        let count = 0;
+        for (const [dx, dz] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
+          const block = blockAt(ctx, { x: position.x + dx, y: position.y, z: position.z + dz });
+          if (block && /farmland/.test(bare(block.name))) count += 1;
+        }
+        return count;
+      };
+      if (dirtCells.length) await body.equip(hoe).catch(() => false);
+      if (ctx.log && ctx.log.info && dirtCells.length) {
+        ctx.log.info(`repair: ${dirtCells.length} dirt block(s) near the field`);
+      }
+      for (const cell of dirtCells) {
+        const neighbours = farmlandNeighbours(cell.position);
+        if (neighbours < 2) continue;
+        const stand = { x: cell.position.x, y: cell.position.y + 1, z: cell.position.z };
+        const reached = await body
+          .moveTo(stand, {
+            range: 2.5,
+            timeoutMs: 15000,
+            allowManMade: true,
+            allowSwim: false
+          })
+          .catch(() => false);
+        if (!reached) {
+          if (ctx.log && ctx.log.warn) {
+            ctx.log.warn(`repair: cannot reach ${cell.position.x},${cell.position.y},${cell.position.z}`);
+          }
+          continue;
+        }
+        /**
+         * A crop still standing on the trampled block blocks the hoe: vanilla only tills
+         * when the cell above is empty. Clear the plant first (its drops land on the field).
+         */
+        const abovePosition = { x: cell.position.x, y: cell.position.y + 1, z: cell.position.z };
+        const above = blockAt(ctx, abovePosition);
+        const aboveName = above && above.name ? bare(above.name) : 'air';
+        /**
+         * Only plants block the hoe; decorations (a torch, a sign) must be left alone -
+         * the first live repair dug the torch standing on the trampled block.
+         */
+        const PLANT = /^(wheat|carrots|potatoes|beetroots|.*_seeds|.*_crop|.*_stem|melon_stem|pumpkin_stem|sugar_cane|bamboo|kelp|.*_kelp|seagrass|.*_sapling|.*_flower|dandelion|poppy|.*_grass|grass|fern|large_fern|vine|.*_vines|nether_wart|sweet_berry_bush)$/;
+        if (PLANT.test(aboveName)) {
+          await body.dig({ name: aboveName, position: abovePosition }).catch(() => false);
+          await refresh(ctx);
+        } else if (!/^(air|cave_air|void_air)$/.test(aboveName)) {
+          // A torch or other decoration sits on the hole: leave the operator's build alone.
+          if (ctx.log && ctx.log.info) {
+            ctx.log.info(
+              `repair: leaving ${cell.position.x},${cell.position.y},${cell.position.z} alone ` +
+                `(${aboveName} on top)`
+            );
+          }
+          continue;
+        }
+        await body.useOn(cell.position, { face: { x: 0, y: 1, z: 0 } }).catch(() => false);
+        await refresh(ctx);
+        const after = blockAt(ctx, cell.position);
+        if (after && /farmland/.test(bare(after.name))) {
+          repaired += 1;
+        } else if (ctx.log && ctx.log.warn) {
+          ctx.log.warn(
+            `repair: hoed ${cell.position.x},${cell.position.y},${cell.position.z} but it is still ` +
+              `${after ? bare(after.name) : 'unknown'}`
+          );
+        }
+      }
+    }
+
     return {
       ok: true,
       harvested,
       tilled,
       planted,
+      collected,
+      repaired,
       detail:
-        `harvested ${harvested}, tilled ${tilled}` +
+        `harvested ${harvested}, tilled ${tilled}, collected ${collected} drop(s)` +
+        (repaired ? `, repaired ${repaired} trampled farmland` : '') +
         (seedName
           ? `, planted ${planted}${params.plots ? ` (limit ${params.plots})` : ''}`
-          : ' (no seeds carried)')
+          : shouldPlant
+            ? ' (no seeds carried)'
+            : '')
     };
   }
 });

@@ -920,12 +920,26 @@ class ClientModBody extends Body {
     const source = (menu.slots || []).find(
       (slot) => slot.i >= 9 && slot.item && slot.item !== 'null' && bare(slot.item) === wanted
     );
-    const spare = (menu.slots || []).find(
-      (slot) => slot.i >= 36 && slot.i <= 44 && (!slot.item || slot.item === 'null')
-    );
-    if (!source || !spare) return false;
-    await this.clickSlot(source.i, { mode: 'pickup', button: 0 });
-    await this.clickSlot(spare.i, { mode: 'pickup', button: 0 });
+    const hotbar = (menu.slots || []).filter((slot) => slot.i >= 36 && slot.i <= 44);
+    const empty = hotbar.find((slot) => !slot.item || slot.item === 'null');
+    /**
+     * No free hotbar slot? Swap with the item that is currently held (its name is in the
+     * snapshot), so the wanted stack takes its place and the held one lands in the bag.
+     * Three ordinary pickup clicks: pick the wanted stack up, click the hotbar slot (that
+     * swaps the cursor with it), then drop the old hotbar item into the now-empty bag slot.
+     */
+    const heldName = this._snapshot && this._snapshot.heldItem ? bare(this._snapshot.heldItem) : null;
+    const heldSlot = heldName ? hotbar.find((slot) => slot.item && bare(slot.item) === heldName) : null;
+    const target = empty || heldSlot || hotbar[hotbar.length - 1];
+    if (!source || !target) return false;
+    if (empty) {
+      await this.clickSlot(source.i, { mode: 'pickup', button: 0 });
+      await this.clickSlot(empty.i, { mode: 'pickup', button: 0 });
+    } else {
+      await this.clickSlot(source.i, { mode: 'pickup', button: 0 });
+      await this.clickSlot(target.i, { mode: 'pickup', button: 0 });
+      await this.clickSlot(source.i, { mode: 'pickup', button: 0 });
+    }
     const again = await this.command(`select ${full}`);
     return !!(again && again.ok);
   }
