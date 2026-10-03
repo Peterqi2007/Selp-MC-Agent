@@ -93,9 +93,9 @@
     "respondToChat": true,
     "maxChatPerMinute": 6
   },
-  "_comment_safety": "Staying away from player-built terrain. avoidManMade refuses planks/chests/farms/machines by name and keeps routes off built floors - cheap, and it never blocks digging dirt or stone. strictMining adds structural anti-masonry heuristics ('is this stone a wall?') and is OFF by default because it also refuses ordinary exposed surfaces. requireLeaves makes a bare trunk (no leaves/nether wart nearby) count as NOT a tree, so a player's log pillar is never chopped - it is the cheapest way to tell a forest from a lumber yard. This is a shared-server courtesy, not a hard requirement: set avoidManMade to false to switch the whole policy off.",
+  "_comment_safety": "Staying away from player-built terrain. avoidManMade refuses planks/chests/farms/machines by name and keeps routes off built floors - cheap, and it never blocks digging dirt or stone. strictMining adds structural anti-masonry heuristics ('is this stone a wall?') and is OFF by default because it also refuses ordinary exposed surfaces. requireLeaves makes a bare trunk (no leaves/nether wart nearby) count as NOT a tree, so a player's log pillar is never chopped - it is the cheapest way to tell a forest from a lumber yard. OPERATOR DECISION (2026-10-03): avoidManMade is OFF - the pathfinder must be free to walk over the operator's own base and farm; the per-call allowManMade options in the skills stay as documentation of intent.",
   "safety": {
-    "avoidManMade": true,
+    "avoidManMade": false,
     "requireNaturalTrees": true,
     "requireLeaves": true,
     "strictMining": false

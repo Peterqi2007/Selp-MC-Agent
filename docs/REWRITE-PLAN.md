@@ -359,3 +359,10 @@ FIND_WATER → MOVE_TO_WATER → CAST → WAIT_BITE → REEL → COLLECT → 循
 > 过程中修掉的两个真机 bug：① 捡掉落物的 `raw` 直线走会走进河里（溺水事故的根因）；② 床在玩家基地内，
 > 默认 `avoidManMade` 安全闸门让"去睡觉/睡醒回钓位"全部 `noPath` —— 新增 `allowManMade` 选项与
 > `dryManMadeNavigator` 后解决。
+
+#### 操作员决定（2026-10-03 傍晚）：全局关闭 `avoidManMade`
+
+`config/agent.json` → `safety.avoidManMade` 由 `true` 改为 **`false`**：寻路器不再回避玩家自建地面
+（planks/chest/农田/机器等）。理由：这是操作员自己的服务器与基地，之前该闸门导致的 `noPath`
+（农田收割只收到 4/60、床边寻路失败）比"踩到建筑"代价大得多。技能里显式的 `allowManMade` 选项保留，
+作为"这次行走确实要越过自建地面"的书面意图。`strictMining`、`requireLeaves` 等其余安全策略不变。
