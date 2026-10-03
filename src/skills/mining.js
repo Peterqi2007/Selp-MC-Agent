@@ -437,8 +437,18 @@ register({
       }
 
       if (stepY === 1) {
-        // Sloped climb: clear the new foot and head levels, keep the block at the old foot
-        // level as the step to jump onto (digging it would remove the floor to climb).
+        /**
+         * Sloped climb, three cells: the ceiling over the bot's own head, the new foot
+         * level and the new head level.
+         *
+         * The live bug: climbing onto the step needs a JUMP, and a jump puts the head into
+         * the block *above the bot's current head*. That ceiling was never dug, so the bot
+         * pogoed in place under it and could never go up. The block at the old foot level
+         * stays - it is the step the bot jumps onto.
+         */
+        if (!(await digAt({ x: here.x, y: here.y + 2, z: here.z }))) {
+          return { ok: false, reason: 'blocked overhead - cannot jump up' };
+        }
         if (!(await digAt({ x: next.x, y: here.y + 1, z: next.z }))) {
           return { ok: false, reason: 'blocked on the climb' };
         }
