@@ -192,15 +192,26 @@ register({
     const stepTo = async (position) => {
       const arrived = async () => {
         const after = feetOf(await refresh(ctx));
-        return !!after && after.x === position.x && after.z === position.z && Math.abs(after.y - position.y) <= 1;
+        // Adjacent counts: the live run answered "arrived" while the feet were one block
+        // past the target, and the strict equality threw that success away ("could not walk
+        // into the dug step (arrived; ...)") and blacklisted a perfectly good vein.
+        return (
+          !!after &&
+          Math.abs(after.x - position.x) <= 1 &&
+          Math.abs(after.z - position.z) <= 1 &&
+          Math.abs(after.y - position.y) <= 1
+        );
       };
-      await body.moveTo(position, { range: 0.45, timeoutMs: 20000 }).catch(() => false);
-      if (await arrived()) return true;
       /**
-       * One nudge. The planner is occasionally handed the same one-block hop and answers
-       * `noPath` (the live run lost 27 ores to "could not walk into the dug step" that way),
-       * so the retry forces the client's own walker rather than asking the planner again.
+       * Always the client's own walker for a single tunnel step.
+       *
+       * The A* layer cannot execute a step that needs a jump: the live log shows
+       * "leg (-84,-11,75) needed a step-up and failed" followed by a 45 s timeout even
+       * though the ceiling was already cleared. A one-block hop is exactly what the
+       * client's hold-forward-and-jump does best.
        */
+      await body.moveTo(position, { raw: true, range: 0.45, timeoutMs: 20000 }).catch(() => false);
+      if (await arrived()) return true;
       await body
         .moveTo(position, { raw: true, range: 0.45, timeoutMs: 12000 })
         .catch(() => false);
@@ -463,14 +474,30 @@ register({
          * pogoed in place under it and could never go up. The block at the old foot level
          * stays - it is the step the bot jumps onto.
          */
-        if (!(await digAt({ x: here.x, y: here.y + 2, z: here.z }))) {
-          return { ok: false, reason: 'blocked overhead - cannot jump up' };
+        const ceiling = { x: here.x, y: here.y + 2, z: here.z };
+        const newFoot = { x: next.x, y: here.y + 1, z: next.z };
+        const newHead = { x: next.x, y: here.y + 2, z: next.z };
+        if (ctx.log && ctx.log.info) {
+          ctx.log.info(
+            `climb: feet ${here.x},${here.y},${here.z} -> ${next.x},${next.y},${next.z}; ` +
+              `ceiling ${bare(cellAt(snap, ceiling))}, foot ${bare(cellAt(snap, newFoot))}, ` +
+              `head ${bare(cellAt(snap, newHead))}`
+          );
         }
-        if (!(await digAt({ x: next.x, y: here.y + 1, z: next.z }))) {
-          return { ok: false, reason: 'blocked on the climb' };
+        if (!(await digAt(ceiling))) {
+          return { ok: false, reason: `blocked overhead by ${bare(cellAt(await refresh(ctx), ceiling))} - cannot jump up` };
         }
-        if (!(await digAt({ x: next.x, y: here.y + 2, z: next.z }))) {
-          return { ok: false, reason: 'blocked on the climb (headroom)' };
+        if (!(await digAt(newFoot))) {
+          return { ok: false, reason: `blocked on the climb by ${bare(cellAt(await refresh(ctx), newFoot))}` };
+        }
+        if (!(await digAt(newHead))) {
+          return { ok: false, reason: `blocked on the climb (headroom) by ${bare(cellAt(await refresh(ctx), newHead))}` };
+        }
+        if (ctx.log && ctx.log.info) {
+          ctx.log.info(
+            `climb cleared; after: ceiling ${bare(cellAt(await refresh(ctx), ceiling))}, ` +
+              `foot ${bare(cellAt(await refresh(ctx), newFoot))}, head ${bare(cellAt(await refresh(ctx), newHead))}`
+          );
         }
       } else if (stepY === -1) {
         // Sloped descent: three cells - the new foot level, the old foot and the old head.
