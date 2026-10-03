@@ -135,6 +135,27 @@ register({
     };
 
     /**
+     * Any hostile inside the ±3 block box the operator wants kept clear?
+     *
+     * The avoidance rule is deliberately cubic (horizontal and vertical), so a skeleton on
+     * a ledge just above the tunnel counts exactly like one standing next to the bot.
+     */
+    const hostileInBox = (snap, position, radius = 3) => {
+      for (const hostile of (snap && snap.hostiles) || []) {
+        const p = hostile.position;
+        if (!p) continue;
+        if (
+          Math.abs(p.x - position.x) <= radius &&
+          Math.abs(p.y - position.y) <= radius &&
+          Math.abs(p.z - position.z) <= radius
+        ) {
+          return hostile;
+        }
+      }
+      return null;
+    };
+
+    /**
      * Is stepping into `position` dangerous?
      *
      * Two things kill mining bots: a floor that is not there (the live run fell into a
@@ -142,11 +163,15 @@ register({
      * in the block scan before the step, so the task refuses the move and stops.
      */
     const dangerAt = (snap, position) => {
+      const hostile = hostileInBox(snap, position);
+      if (hostile) return { reason: `${bare(hostile.name)} within 3 blocks`, hostile: true };
       for (let dx = -1; dx <= 1; dx += 1) {
         for (let dz = -1; dz <= 1; dz += 1) {
           for (let dy = -3; dy <= 2; dy += 1) {
             const name = bare(cellAt(snap, { x: position.x + dx, y: position.y + dy, z: position.z + dz }));
-            if (name === 'lava' || name === 'flowing_lava') return 'lava in or beside the tunnel';
+            if (name === 'lava' || name === 'flowing_lava') {
+              return { reason: 'lava in or beside the tunnel', hostile: false };
+            }
           }
         }
       }
@@ -159,7 +184,7 @@ register({
         }
         break;
       }
-      if (drop > 2) return `${drop}-block drop below`;
+      if (drop > 2) return { reason: `${drop}-block drop below`, hostile: false };
       return null;
     };
 
@@ -391,7 +416,9 @@ register({
       const next = { x: here.x + sx, y: here.y + stepY, z: here.z + sz };
 
       const danger = dangerAt(snap, { x: next.x, y: next.y, z: next.z });
-      if (danger) return { ok: false, reason: `dangerous step: ${danger}`, danger: true };
+      if (danger) {
+        return { ok: false, reason: `dangerous step: ${danger.reason}`, danger: true, hostile: danger.hostile };
+      }
 
       if (stepY === 1) {
         // Sloped climb: clear the new foot and head levels, keep the block at the old foot
@@ -436,6 +463,32 @@ register({
         break;
       }
       await eatIfHungry();
+
+      /**
+       * Monster avoidance: with a hostile inside the ±3 box there is no safe way to keep
+       * digging (the bot cannot see it coming through a wall), so the task stops and leaves
+       * the fight to the operator. Drops are left alone on purpose - walking around with a
+       * mob nearby is exactly the behaviour this rule exists to prevent.
+       */
+      const checkSnap = await refresh(ctx);
+      const hostileNow = hostileInBox(checkSnap, feetOf(checkSnap) || { x: 0, y: 0, z: 0 });
+      if (hostileNow) {
+        const stop = await refresh(ctx);
+        if (ctx.log && ctx.log.warn) {
+          ctx.log.warn(`${bare(hostileNow.name)} is within 3 blocks - stopping the mining task`);
+        }
+        return {
+          ok: true,
+          stopped: 'hostile',
+          mined: stats.ores,
+          blocks: stats.blocks,
+          torches: stats.torches,
+          ate: stats.ate,
+          collected: stats.collected,
+          position: stop ? stop.position : null,
+          detail: `stopped: ${bare(hostileNow.name)} within 3 blocks`
+        };
+      }
 
       const ore = await findOre();
       if (!ore) break;
@@ -523,7 +576,8 @@ register({
       }
       if (stats.outOfTime) break;
       if (outcome.danger) {
-        await collectDrops();
+        // Lava/fall: sweep the drops on the way out. A monster: leave them, walk nothing.
+        if (!outcome.hostile) await collectDrops();
         const stop = await refresh(ctx);
         if (ctx.log && ctx.log.warn) ctx.log.warn(`stopping: ${outcome.reason}`);
         return {

@@ -271,6 +271,23 @@ class MenuBody extends Body {
     return result.detail;
   });
 
+  await scenario('mine_ore: a monster inside the ±3 box stops the task before digging', async () => {
+    const body = new MockBody(cfg, {
+      start: { x: 0, y: 20, z: 0 },
+      blocks: [{ name: 'iron_ore', position: { x: 6, y: 20, z: 0 } }],
+      entities: [{ id: 9, name: 'minecraft:zombie', kind: 'hostile', position: { x: 2, y: 21, z: 1 } }],
+      inventory: { 'minecraft:stone_pickaxe': 1 }
+    });
+    await body.connect();
+    const result = await skills.run('mine_ore', makeCtx(body), { maxMs: 20000, eatAt: 1 });
+    expect(result.stopped === 'hostile', `expected a hostile stop, got ${JSON.stringify(result)}`);
+    expect(
+      !body.history.some((h) => h.action === 'dig'),
+      'nothing may be dug while a monster is inside the avoidance box'
+    );
+    return result.detail;
+  });
+
   // ------------------------------------------------------------------ movement
   process.stdout.write('\n5. movement - explore / come\n');
 
