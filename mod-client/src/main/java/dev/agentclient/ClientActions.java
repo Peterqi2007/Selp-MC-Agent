@@ -487,12 +487,12 @@ public final class ClientActions {
     }
 
     /**
-     * Close whatever is in the way: a container, or a screen that blocks movement input.
+     * Close the currently open container (no-op when only the inventory menu is open).
      *
-     * `closeContainer()` handles chests/furnaces/the inventory. It does **not** dismiss the
-     * pause screen, so a bot whose operator pressed Escape could never resume walking - the
-     * live mining run died exactly that way ("cannot walk: PauseScreen is open"). Chat is
-     * deliberately left alone: a human may be typing an instruction.
+     * Deliberately does NOT dismiss the pause menu or chat: both belong to the operator.
+     * The agent waits for the human to come back instead of closing their screen - the
+     * earlier "close anything" version fixed the agent's "cannot walk: PauseScreen" stall
+     * but stole the operator's pause menu, which is worse.
      */
     public boolean closeMenu() {
         return onClient(() -> {
@@ -500,9 +500,6 @@ public final class ClientActions {
                 return false;
             }
             mc.player.closeContainer();
-            if (mc.screen != null && !(mc.screen instanceof net.minecraft.client.gui.screens.ChatScreen)) {
-                mc.setScreen(null);
-            }
             return true;
         });
     }

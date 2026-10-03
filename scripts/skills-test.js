@@ -440,13 +440,35 @@ class MenuBody extends Body {
   // ------------------------------------------------------------------ fishing
   process.stdout.write('\n8. fishing (Phase 3)\n');
 
-  /** Water with a bank the bot can stand on, one long cast away. */
-  const fishingBlocks = () => [
-    { name: 'water', position: { x: 4, y: 63, z: 0 } },
-    { name: 'stone', position: { x: 3, y: 63, z: 0 } },
-    { name: 'air', position: { x: 3, y: 64, z: 0 } },
-    { name: 'air', position: { x: 3, y: 65, z: 0 } }
-  ];
+  /**
+   * A wide pond with a standable bank. The pond is deliberately big enough that water far
+   * from the shore passes vanilla's 5x4x5 open-water check (that is what rolls the fish
+   * table), and the bank is a stone lip at y=63 the bot can stand on.
+   */
+  const fishingBlocks = () => {
+    const blocks = [];
+    const cx = 7;
+    const radius = 4;
+    for (let x = cx - radius; x <= cx + radius; x += 1) {
+      for (let z = -radius; z <= radius; z += 1) {
+        blocks.push({ name: 'water', position: { x, y: 62, z } });
+        blocks.push({ name: 'water', position: { x, y: 63, z } });
+        for (let y = 64; y <= 68; y += 1) {
+          blocks.push({ name: 'air', position: { x, y, z } });
+        }
+      }
+    }
+    // Bank: solid lip at the water surface level minus nothing - the bot stands one above
+    // the lip, exactly where a player fishes from.
+    for (let x = 0; x <= 2; x += 1) {
+      for (let z = -4; z <= 4; z += 1) {
+        blocks.push({ name: 'stone', position: { x, y: 63, z } });
+        blocks.push({ name: 'air', position: { x, y: 64, z } });
+        blocks.push({ name: 'air', position: { x, y: 65, z } });
+      }
+    }
+    return blocks;
+  };
 
   await scenario('fish: walks to water, waits for the bite and lands a catch', async () => {
     const body = new MockBody(cfg, {

@@ -21,6 +21,8 @@ const registry = require('./registry');
 const { register } = registry;
 
 const WATER = /^(water|flowing_water)$/;
+/** Blocks that do not break vanilla's open-water check. */
+const OPEN = /^(air|cave_air|void_air|water|flowing_water)$/;
 const NOT_FLOOR = /^(air|cave_air|void_air|water|flowing_water|lava|flowing_lava|short_grass|grass|tall_grass|fern|large_fern|dandelion|poppy|.*_flower|.*_sapling|torch|wall_torch|redstone_torch|soul_torch|.*_rail|.*_button|.*_pressure_plate|.*_carpet|.*_sign|.*_banner|wheat|.*_crop|carrots|potatoes|beetroots)$/;
 const PASSABLE = /^(air|cave_air|void_air|short_grass|grass|tall_grass|fern|large_fern|.*_flower|.*_sapling|torch|wall_torch|redstone_torch|soul_torch)$/;
 
@@ -53,7 +55,9 @@ function blockNameAt(ctx, position) {
       : typeof world.blockAt === 'function'
         ? world.blockAt(position)
         : null;
-  return block && block.name ? bare(block.name) : null;
+  // Unknown cells count as air: the client's scan ships air explicitly, and "no floor"
+  // (air) is the conservative answer for standability either way.
+  return block && block.name ? bare(block.name) : 'air';
 }
 
 /** Night by the world clock (the mod's isDay flag is wrong on this modpack). */
@@ -61,6 +65,26 @@ function isNight(time) {
   if (!time || !Number.isFinite(time.timeOfDay)) return false;
   const t = ((time.timeOfDay % 24000) + 24000) % 24000;
   return t >= 12542 && t <= 23458;
+}
+
+/**
+ * Vanilla's open-water rule (FishingHook.calculateOpenWater).
+ *
+ * A 5x5 area, 4-5 blocks tall, around the bobber must contain nothing but water and air.
+ * Only open water rolls the fish/treasure table - a bobber in a puddle or under a lily pad
+ * only ever pulls junk. The operator asked the agent to satisfy this when casting, so it is
+ * both a selection preference and a post-cast check.
+ */
+function isOpenWater(ctx, water) {
+  for (let dx = -2; dx <= 2; dx += 1) {
+    for (let dz = -2; dz <= 2; dz += 1) {
+      for (let dy = -1; dy <= 3; dy += 1) {
+        const name = blockNameAt(ctx, { x: water.x + dx, y: water.y + dy, z: water.z + dz });
+        if (name === null || !OPEN.test(name)) return false;
+      }
+    }
+  }
+  return true;
 }
 
 register({
@@ -85,7 +109,7 @@ register({
   async run(ctx, params) {
     const body = ctx.body;
     const deadline = Date.now() + params.maxMs;
-    const stats = { catches: 0, sleeps: 0, casts: 0, ate: 0, collected: 0 };
+    const stats = { catches: 0, sleeps: 0, casts: 0, openCasts: 0, closedCasts: 0, ate: 0, collected: 0 };
     const blockedWater = new Set();
     const waterKey = (position) => `${position.x},${position.y},${position.z}`;
 
@@ -164,12 +188,37 @@ register({
               }
             }
             if (lava) continue;
+            /**
+             * The stand touches the water at its edge; the *cast* should land further out,
+             * because vanilla's open-water check needs 5x5 of water/air around the bobber -
+             * a bobber one block from the bank is junk-only. March a few blocks in the
+             * direction away from the stand and use the last water block found.
+             */
+            let target = block.position;
+            for (let step = 1; step <= 6; step += 1) {
+              const probe = {
+                x: block.position.x - dx * step,
+                y: block.position.y,
+                z: block.position.z - dz * step
+              };
+              const name = blockNameAt(ctx, probe);
+              if (!WATER.test(name)) break;
+              target = probe;
+            }
             const distance = Math.hypot(block.position.x - here.x, block.position.z - here.z);
-            candidates.push({ water: block.position, stand, distance });
+            candidates.push({
+              water: target,
+              stand,
+              distance,
+              open: isOpenWater(ctx, target)
+            });
           }
         }
       }
-      candidates.sort((a, b) => a.distance - b.distance);
+      // Open water first (that is what rolls the fish table), then nearest.
+      candidates.sort(
+        (a, b) => Number(b.open) - Number(a.open) || a.distance - b.distance
+      );
       return candidates[0] || null;
     };
 
@@ -223,8 +272,12 @@ register({
           catches: stats.catches,
           sleeps: stats.sleeps,
           casts: stats.casts,
+          openWaterCasts: stats.openCasts,
+          closedWaterCasts: stats.closedCasts,
           collected: stats.collected,
-          detail: `time budget reached after ${stats.catches} catch(es)`
+          detail:
+            `time budget reached after ${stats.catches} catch(es) ` +
+            `(${stats.openCasts} open-water cast(s), ${stats.closedCasts} junk-only)`
         };
       }
 
@@ -267,9 +320,11 @@ register({
 
       // Night: sleep in a bed, as the operator asked.
       if (params.sleep !== false && isNight(snapNow.time)) {
+        if (ctx.log && ctx.log.info) ctx.log.info('night - walking to a bed to sleep');
         const bed = await registry.run('sleep', ctx, { timeoutMs: 90000, radius: params.bedRadius });
         if (bed && bed.ok && bed.slept) {
           stats.sleeps += 1;
+          if (ctx.log && ctx.log.info) ctx.log.info('slept until morning - back to the water');
           continue;
         }
         if (bed && bed.ok && bed.slept === false) continue; // it turned out to be daytime
@@ -312,6 +367,12 @@ register({
 
       let current = await refresh(ctx);
       if (!current.fishing) {
+        if (ctx.log && ctx.log.info) {
+          ctx.log.info(
+            `casting at water ${spot.water.x},${spot.water.y},${spot.water.z} ` +
+              `(from ${spot.stand.x},${spot.stand.y},${spot.stand.z}; open water: ${spot.open ? 'yes' : 'no'})`
+          );
+        }
         await body.useItem().catch(() => false);
         stats.casts += 1;
         const castUntil = Date.now() + 2500;
@@ -325,6 +386,24 @@ register({
           if (!rodInBag(current)) continue;
           continue;
         }
+        /**
+         * The bobber decides, not the chosen block: vanilla's 5x4x5 open-water check runs
+         * where the hook actually lands. Log it so a junk-only session is visible instead
+         * of mysterious.
+         */
+        const hookCell = {
+          x: Math.floor(current.fishing.x),
+          y: Math.floor(current.fishing.y),
+          z: Math.floor(current.fishing.z)
+        };
+        const hookOpen = isOpenWater(ctx, hookCell);
+        if (hookOpen) stats.openCasts += 1;
+        else stats.closedCasts += 1;
+        if (ctx.log && ctx.log.info) {
+          ctx.log.info(
+            `bobber at ${hookCell.x},${hookCell.y},${hookCell.z} - open water: ${hookOpen ? 'yes' : 'NO (junk only)'}`
+          );
+        }
       }
 
       // Wait for the bite.
@@ -337,6 +416,7 @@ register({
         if (!state.fishing) break; // hook gone: recast
         if (state.fishing.biting) {
           bit = true;
+          if (ctx.log && ctx.log.info) ctx.log.info('bite!');
           break;
         }
       }
@@ -360,14 +440,21 @@ register({
         const now = await refresh(ctx);
         const total = Object.values(now.inventory || {}).reduce((sum, count) => sum + count, 0);
         if (total > beforeReel || picked > 0) stats.catches += 1;
+        if (ctx.log && ctx.log.info) {
+          ctx.log.info(`caught #${stats.catches} (picked ${picked} drop(s))`);
+        }
         if (stats.catches >= params.maxCatches) {
           return {
             ok: true,
             catches: stats.catches,
             sleeps: stats.sleeps,
             casts: stats.casts,
+            openWaterCasts: stats.openCasts,
+            closedWaterCasts: stats.closedCasts,
             collected: stats.collected,
-            detail: `caught ${stats.catches} fish (target reached)`
+            detail:
+              `caught ${stats.catches} fish (target reached; ` +
+              `${stats.openCasts} cast(s) in open water, ${stats.closedCasts} junk-only)`
           };
         }
       }

@@ -459,8 +459,13 @@ class ClientModBody extends Body {
        */
       const stillOpen = await this._screenStillOpen(900);
       if (stillOpen) {
-        const isChat = /chat/i.test(String(screen || ''));
-        const recovered = isChat
+        /**
+         * Screens that belong to the human: chat, the pause menu, options. The agent waits
+         * for them to close and never dismisses them itself (the operator keeps
+         * pause-on-lost-focus, so this happens every time they tab away).
+         */
+        const humanScreen = /chat|pause|game ?menu|options|social|advancement|death/i.test(String(screen || ''));
+        const recovered = humanScreen
           ? await this._waitForScreenClose(this.chatWaitMs)
           : this.autoCloseScreens
             ? await this._tryCloseScreen(screen)
@@ -534,6 +539,11 @@ class ClientModBody extends Body {
    * close - in which case the caller reports `screen-open` honestly.
    */
   async _tryCloseScreen(screen) {
+    // Never steal a screen that belongs to the human, whatever the caller believes.
+    if (/chat|pause|game ?menu|options|social|advancement|death/i.test(String(screen || ''))) {
+      this.log.info(`${screen} belongs to the operator - waiting instead of closing it`);
+      return false;
+    }
     this.log.info(`a game screen is open (${screen}) - closing it so the agent can move`);
     const res = await this.command('close').catch(() => null);
     if (!res || !res.ok) return false;
@@ -911,6 +921,16 @@ class ClientModBody extends Body {
 
   async equipArmor() {
     return false; // the mod has no armour API yet; the game will not auto-equip for us
+  }
+
+  /**
+   * Use the held item in the air: cast/reel a fishing rod, throw a snowball, milk a cow.
+   *
+   * `holdMs` keeps the use key down (bow drawing, eating); a cast/reel is one instant use.
+   */
+  async useItem(holdMs) {
+    const res = await this.command(holdMs ? `use ${Math.floor(holdMs)}` : 'use');
+    return !!(res && res.ok);
   }
 
   /** Eat: select a food item and use it (holding right-click). */
