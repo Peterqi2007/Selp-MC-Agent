@@ -189,13 +189,26 @@ register({
             }
             if (lava) continue;
             /**
-             * The stand touches the water at its edge; the *cast* should land further out,
-             * because vanilla's open-water check needs 5x5 of water/air around the bobber -
-             * a bobber one block from the bank is junk-only. March a few blocks in the
-             * direction away from the stand and use the last water block found.
+             * Stay on the shore: a stand whose neighbours are mostly water is an island or a
+             * ledge the walk would have to swim to. The operator's rule is "never wade in".
+             */
+            let waterNeighbours = 0;
+            for (const [nx, nz] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
+              if (WATER.test(blockNameAt(ctx, { x: stand.x + nx, y: stand.y, z: stand.z + nz }))) {
+                waterNeighbours += 1;
+              }
+            }
+            if (waterNeighbours >= 3) continue;
+            /**
+             * Cast as FAR as the water allows instead of wading out.
+             *
+             * Vanilla's open-water check needs 5x5 of water/air around the bobber, and a
+             * short cast from the bank is junk-only - but the operator's rule is to solve
+             * that with distance, not with swimming: march up to 10 blocks into the water
+             * away from the stand and aim at the last water block found.
              */
             let target = block.position;
-            for (let step = 1; step <= 6; step += 1) {
+            for (let step = 1; step <= 10; step += 1) {
               const probe = {
                 x: block.position.x - dx * step,
                 y: block.position.y,
@@ -241,6 +254,13 @@ register({
             pickedThisPass += 1;
             continue;
           }
+          const dropCell = {
+            x: Math.floor(drop.position.x),
+            y: Math.floor(drop.position.y),
+            z: Math.floor(drop.position.z)
+          };
+          // Never wade in after a drop: a fish on the water is not worth a swim.
+          if (WATER.test(blockNameAt(ctx, dropCell))) continue;
           await body
             .moveTo(drop.position, {
               range: 1.0,
@@ -352,6 +372,19 @@ register({
         .moveTo(spot.stand, { range: 1.6, timeoutMs: 40000 })
         .catch(() => false);
       if (!reached) {
+        blockedWater.add(waterKey(spot.water));
+        continue;
+      }
+      /**
+       * The planner is allowed to swim, so "arrived" can still mean "standing in the pond".
+       * The operator's rule is that the bot never wades: drop this spot and let the loop
+       * walk on to the next one (which is also how it climbs back out).
+       */
+      const afterWalk = await refresh(ctx);
+      if (afterWalk.inWater) {
+        if (ctx.log && ctx.log.warn) {
+          ctx.log.warn('the route to this fishing spot wades - skipping it and looking for a dry bank');
+        }
         blockedWater.add(waterKey(spot.water));
         continue;
       }
