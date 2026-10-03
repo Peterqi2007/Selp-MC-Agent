@@ -500,10 +500,13 @@ class ClientModBody extends Body {
        * through water. Everything else uses the normal one, still through this.navigator so
        * the plan audit can see the planner wiring.
        */
-      result =
-        options.allowSwim === false
-          ? await this.dryNavigator.goTo(position, options)
-          : await this.navigator.goTo(position, options);
+      if (options.allowSwim === false && options.allowManMade === true) {
+        result = await this.dryManMadeNavigator.goTo(position, options);
+      } else if (options.allowSwim === false) {
+        result = await this.dryNavigator.goTo(position, options);
+      } else {
+        result = await this.navigator.goTo(position, options);
+      }
     } catch (err) {
       this.lastError = err;
       this.lastMove = { ok: false, reason: `throw: ${err.message}`, target: position, ms: Date.now() - started };
@@ -658,6 +661,20 @@ class ClientModBody extends Body {
   get dryNavigator() {
     if (!this._dryNavigator) this._dryNavigator = this._buildNavigator({ allowSwim: false });
     return this._dryNavigator;
+  }
+
+  /**
+   * Navigator that may cross player-built ground and stays out of liquids.
+   *
+   * Walking to the operator's own bed means walking over their base - the default
+   * `avoidManMade` guard (there to keep the bot off *other people's* roofs and farms)
+   * makes that route unreachable, which is exactly how the fishing night-sleep failed.
+   */
+  get dryManMadeNavigator() {
+    if (!this._dryManMadeNavigator) {
+      this._dryManMadeNavigator = this._buildNavigator({ allowSwim: false, avoidManMade: false });
+    }
+    return this._dryManMadeNavigator;
   }
 
   /** Build a navigator with the configured movement rules plus any overrides. */

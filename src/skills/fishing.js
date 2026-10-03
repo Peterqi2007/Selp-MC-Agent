@@ -387,21 +387,79 @@ register({
       // Night: sleep in a bed, as the operator asked.
       if (params.sleep !== false && isNight(snapNow.time)) {
         if (ctx.log && ctx.log.info) ctx.log.info('night - walking to a bed to sleep');
-        const bed = await registry.run('sleep', ctx, { timeoutMs: 90000, radius: params.bedRadius });
-        if (bed && bed.ok && bed.slept) {
-          stats.sleeps += 1;
-          if (ctx.log && ctx.log.info) ctx.log.info('slept until morning - back to the water');
-          spot = null; // one fresh walk back to a bank in the morning
-          continue;
+        /**
+         * The bed walk lives here rather than in the generic `sleep` skill because it has
+         * two requirements that skill cannot express: stay off liquids, and ALLOW walking
+         * over the operator's own base (the default man-made guard made the bed at
+         * 25,63,59 unreachable with a plain `noPath`).
+         */
+        const beds =
+          ctx.world && typeof ctx.world.findBlocksMatching === 'function'
+            ? ctx.world.findBlocksMatching((name) => /_bed$/.test(bare(name)), {
+                maxDistance: params.bedRadius,
+                count: 1
+              })
+            : [];
+        if (!beds.length) {
+          return {
+            ok: stats.catches > 0,
+            stopped: 'no-bed',
+            catches: stats.catches,
+            sleeps: stats.sleeps,
+            detail: `night and no bed within ${params.bedRadius} blocks`
+          };
         }
-        if (bed && bed.ok && bed.slept === false) continue; // it turned out to be daytime
-        return {
-          ok: stats.catches > 0,
-          stopped: 'no-bed',
-          catches: stats.catches,
-          sleeps: stats.sleeps,
-          detail: `night and could not sleep: ${(bed && bed.reason) || 'unknown'}`
-        };
+        const bed = beds[0];
+        const reached = await body
+          .moveTo(bed.position, {
+            range: 2.5,
+            timeoutMs: 90000,
+            allowSwim: false,
+            allowManMade: true
+          })
+          .catch(() => false);
+        if (!reached) {
+          return {
+            ok: stats.catches > 0,
+            stopped: 'no-bed',
+            catches: stats.catches,
+            sleeps: stats.sleeps,
+            detail: `night and could not reach the bed at ${bed.position.x},${bed.position.y},${bed.position.z}`
+          };
+        }
+        await body.useOn(bed.position, { face: { x: 0, y: 1, z: 0 } }).catch(() => false);
+        const wakeDeadline = Date.now() + 60000;
+        let woke = false;
+        while (Date.now() < wakeDeadline) {
+          await sleep(1000);
+          const state = await refresh(ctx);
+          if (state && state.dead) {
+            return {
+              ok: false,
+              stopped: 'dead',
+              catches: stats.catches,
+              sleeps: stats.sleeps,
+              detail: 'the bot died while trying to sleep'
+            };
+          }
+          if (state && !isNight(state.time)) {
+            woke = true;
+            break;
+          }
+        }
+        if (!woke) {
+          return {
+            ok: stats.catches > 0,
+            stopped: 'no-bed',
+            catches: stats.catches,
+            sleeps: stats.sleeps,
+            detail: 'night and the bed did not put the bot to sleep (obstructed?)'
+          };
+        }
+        stats.sleeps += 1;
+        if (ctx.log && ctx.log.info) ctx.log.info('slept until morning - back to the water');
+        spot = null; // one fresh walk back to a bank in the morning
+        continue;
       }
 
       /**
