@@ -19,5 +19,6 @@ require('./containers');
 require('./crafting');
 require('./smelting');
 require('./farming');
+require('./mining');
 
 module.exports = registry;

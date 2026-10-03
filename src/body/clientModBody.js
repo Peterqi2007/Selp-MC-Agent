@@ -291,7 +291,9 @@ class ClientModBody extends Body {
       emptySlots: state.emptySlots,
       heldItem: state.heldItem && state.heldItem !== 'null' ? state.heldItem : null,
       standingOn: state.standingOn ? { name: state.standingOn, position: below(state.position) } : null,
-      lightLevel: state.lightLevel === undefined ? 15 : state.lightLevel,
+      lightLevel: Number.isFinite(state.lightLevel) ? state.lightLevel : 15,
+      /** Torch-side light (block light); null on older mods that do not report it. */
+      blockLight: Number.isFinite(state.blockLight) ? state.blockLight : null,
       hostiles: state.hostiles || [],
       nearbyItems: state.itemDrops || [],
       /** Crops with growth stages (mod-side block-state scan), used by farming. */
@@ -910,7 +912,12 @@ class ClientModBody extends Body {
       const selected = await this.equip(itemName);
       if (!selected) return false;
     }
-    const res = await this.command('use');
+    /**
+     * Eating is a held action: "use 2500" holds the use key until the food is gone. A bare
+     * "use" (one useItem call) only plays the animation - the live bug was the bot standing
+     * there "clicking bread" and never getting fed.
+     */
+    const res = await this.command('use 2500');
     if (!res || !res.ok) return false;
     // Eating takes ~1.6s of held use; poll state until food rises or we give up.
     const before = this._snapshot ? this._snapshot.food : 0;

@@ -485,7 +485,13 @@ public final class ControlHttpServer {
                     }
                 }
                 case "close" -> out.put("ok", Json.bool(actions.closeMenu()));
-                case "use", "useitem" -> out.put("ok", Json.bool(actions.useItem()));
+                case "use", "useitem" -> {
+                    // "use [holdMs]": no argument = one instant use (place, throw, milk);
+                    // with a duration the key is held, which is what eating and bow-drawing
+                    // need (food is only consumed after ~1.6 s of holding).
+                    Integer holdMs = tryInt(rest.split("\\s+")[0]);
+                    out.put("ok", Json.bool(holdMs == null ? actions.useItem() : actions.holdUse(holdMs)));
+                }
                 case "select" -> out.put("ok", Json.bool(actions.selectItem(rest)));
                 case "drop" -> out.put("ok", Json.bool(actions.dropHeld(!"1".equals(rest))));
                 case "attack" -> {

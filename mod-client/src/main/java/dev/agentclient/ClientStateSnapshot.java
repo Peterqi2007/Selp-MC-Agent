@@ -13,6 +13,7 @@ import net.minecraft.world.entity.item.ItemEntity;
 import net.minecraft.world.entity.monster.Monster;
 import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.item.ItemStack;
+import net.minecraft.world.level.LightLayer;
 import net.minecraft.world.level.block.state.BlockState;
 
 import java.util.ArrayList;
@@ -34,8 +35,13 @@ import java.util.Map;
  */
 final class ClientStateSnapshot {
 
-    /** Horizontal radius of the block scan. */
-    private static final int SCAN_RADIUS = 24;
+    /**
+     * Horizontal radius of the block scan.
+     *
+     * 30, not 24: the mine-ore task searches "the nearest ore within 30 blocks on x/z", and
+     * a scan that stops at 24 would silently answer "no ore" for veins the operator can see.
+     */
+    private static final int SCAN_RADIUS = 30;
     private static final int SCAN_UP = 8;
     private static final int SCAN_DOWN = 8;
 
@@ -107,6 +113,16 @@ final class ClientStateSnapshot {
         out.put("heldItem", held.isEmpty() ? "null" : Json.str(itemName(held)));
         out.put("standingOn", Json.str(blockName(level.getBlockState(feet.below()))));
         out.put("feetBlock", Json.str(blockName(level.getBlockState(feet))));
+
+        /**
+         * Light at the feet, so the agent can light its own tunnel.
+         *
+         * `blockLight` is what a torch changes and what mob spawning reads in a tunnel
+         * (there is no sky light underground); `lightLevel` is the combined value the F3
+         * screen shows, reported so both can be compared.
+         */
+        out.put("lightLevel", Json.num(level.getMaxLocalRawBrightness(feet)));
+        out.put("blockLight", Json.num(level.getBrightness(LightLayer.BLOCK, feet)));
 
         /**
          * What the crosshair points at ("aimed vision").

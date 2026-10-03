@@ -384,6 +384,34 @@ public final class ClientActions {
     }
 
     /**
+     * Hold the use key for up to `ms`, stopping early when the item finishes being used.
+     *
+     * Eating is a *held* action in Minecraft: the food is consumed after ~1.6 s of holding
+     * the use key, and a single `useItem()` call only starts (and immediately drops) the
+     * animation - which is why the bot stood there "clicking bread" and never ate. Holding
+     * the key down is exactly what a player does; the item's own use timer does the rest.
+     */
+    public boolean holdUse(long ms) {
+        long budget = Math.max(250L, Math.min(ms, 10000L));
+        long started = System.currentTimeMillis();
+        long deadline = started + budget;
+        setKeyOnClient("use", true);
+        while (System.currentTimeMillis() < deadline) {
+            Boolean using = onClient(() -> mc.player != null && mc.player.isUsingItem());
+            if (using == null) {
+                break;
+            }
+            // Started and finished, or the item is not a held-use item at all.
+            if (!using && System.currentTimeMillis() > started + 250L) {
+                break;
+            }
+            sleep(80);
+        }
+        setKeyOnClient("use", false);
+        return true;
+    }
+
+    /**
      * Dump the menu the player currently has open, as JSON.
      *
      * The player's own inventory menu (containerId 0) is always open, so this works whether or
@@ -458,13 +486,23 @@ public final class ClientActions {
         });
     }
 
-    /** Close the currently open container (no-op when only the inventory menu is open). */
+    /**
+     * Close whatever is in the way: a container, or a screen that blocks movement input.
+     *
+     * `closeContainer()` handles chests/furnaces/the inventory. It does **not** dismiss the
+     * pause screen, so a bot whose operator pressed Escape could never resume walking - the
+     * live mining run died exactly that way ("cannot walk: PauseScreen is open"). Chat is
+     * deliberately left alone: a human may be typing an instruction.
+     */
     public boolean closeMenu() {
         return onClient(() -> {
             if (mc.player == null) {
                 return false;
             }
             mc.player.closeContainer();
+            if (mc.screen != null && !(mc.screen instanceof net.minecraft.client.gui.screens.ChatScreen)) {
+                mc.setScreen(null);
+            }
             return true;
         });
     }
@@ -549,6 +587,8 @@ public final class ClientActions {
 
         private final Vec3 target;
         private final double range;
+        /** When true, only "standing in the target block" counts as arrival. */
+        private final boolean strictBlock;
         private final long started = System.currentTimeMillis();
         private boolean arrived;
         private boolean failed;
@@ -571,6 +611,14 @@ public final class ClientActions {
         WalkTo(Vec3 target, double range) {
             this.target = target;
             this.range = range <= 0 ? 1.5D : range;
+            /**
+             * A sub-block range means "stand in that block".
+             *
+             * Waypoints normally stop within `range` of the coordinate, which is right for
+             * walking routes; a 1-block tunnel step needs the block itself, so for tiny
+             * ranges only the in-block test below counts as arrival.
+             */
+            this.strictBlock = range > 0 && range <= 0.5D;
         }
 
         @Override
@@ -586,7 +634,19 @@ public final class ClientActions {
             double distance = Math.sqrt(dx * dx + dy * dy + dz * dz);
             long now = System.currentTimeMillis();
 
-            if (horizontal <= range) {
+            /**
+             * Arrived = standing in the target block, or close enough to the coordinate.
+             *
+             * The distance check alone cannot express "step into the next block": moveto
+             * coordinates are floored to block corners, so stopping `range` short of the
+             * corner leaves the bot in the previous block and a tunnel routine re-digs the
+             * same cell forever - and aiming past the corner walks it into the un-dug wall.
+             * The block test fires the moment the feet cross into the target cell.
+             */
+            boolean inTargetBlock = (int) Math.floor(player.getX()) == (int) Math.floor(target.x)
+                    && (int) Math.floor(player.getZ()) == (int) Math.floor(target.z)
+                    && Math.abs(player.getY() - target.y) < 2.0D;
+            if (inTargetBlock || (!strictBlock && horizontal <= range)) {
                 arrived = true;
                 release();
                 return true;
@@ -817,6 +877,7 @@ public final class ClientActions {
             case "right" -> mc.options.keyRight.setDown(down);
             case "jump" -> mc.options.keyJump.setDown(down);
             case "sprint" -> mc.options.keySprint.setDown(down);
+            case "use" -> mc.options.keyUse.setDown(down);
             default -> { }
         }
     }
