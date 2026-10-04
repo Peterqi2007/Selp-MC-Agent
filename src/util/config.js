@@ -119,14 +119,6 @@ const DEFAULTS = {
       pollIntervalMs: 700,
       ignoreOtherChat: true,
       replyInGame: true,
-      /**
-       * Announce player-requested task results (finish / failure) in chat.
-       *
-       * ON for role play: "完工后发言" is one of the three proactive-speech requirements, so
-       * the default flipped from false to true. Only tasks that came from a player channel
-       * (chat / panel / llm) are announced - never the planner's own work.
-       */
-      replyOnTaskResult: true,
       maxChars: 100,
       minReplyGapMs: 1200
     },

@@ -9,12 +9,15 @@
  * control mod or an API key - which is the point: the fast, deterministic checks cover the
  * logic, and the real-server checks (client:verify, client-real) cover the integration.
  *
- *   path:test     deliverable A - planner, walker, navigator (7 scenarios + 7 more)
- *   tasks:test    deliverable B - walk / break / collect primitives against a mock world
- *   llm:dry       deliverable C - intent schema, tool whitelist, fallback routing accuracy
- *   control:test  deliverables D + E - both chat channels, output policy, panel, death
- *   selftest      the whole module graph plus the P0 control layer checks
- *   plan:audit    the plan's own §11 "做/不做" checklist, asserted against the code
+ *   path:test       deliverable A - planner, walker, navigator (7 scenarios + 7 more)
+ *   tasks:test      deliverable B - walk / break / collect primitives against a mock world
+ *   llm:dry         deliverable C - intent schema, tool whitelist, fallback routing accuracy
+ *   control:test    deliverables D + E - both chat channels, output policy, panel, death
+ *   verify:roleplay the role-play layer - persona from file, the three proactive triggers,
+ *                   and the guard that an unprompted turn can speak but never act
+ *   clientmod:test  the client-mod body end to end against a fake control mod on a real socket
+ *   selftest        the whole module graph plus the P0 control layer checks
+ *   plan:audit      the plan's own §11 "做/不做" checklist, asserted against the code
  */
 
 const { spawnSync } = require('child_process');
@@ -27,6 +30,8 @@ const SUITES = [
   { name: 'tasks:test', script: 'scripts/tasks-test.js', deliverable: 'B  三原语' },
   { name: 'llm:dry', script: 'scripts/llm-dry.js', deliverable: 'C  LLM 大脑 + 工具层' },
   { name: 'control:test', script: 'scripts/control-test.js', deliverable: 'D+E 通道与面板' },
+  { name: 'verify:roleplay', script: 'scripts/verify-roleplay.js', deliverable: 'F  Role play' },
+  { name: 'clientmod:test', script: 'scripts/clientmod-test.js', deliverable: 'F  clientmod 躯体' },
   { name: 'selftest', script: 'scripts/selftest.js', deliverable: '全量自检' },
   { name: 'plan:audit', script: 'scripts/plan-audit.js', deliverable: '计划符合性 §11' }
 ];

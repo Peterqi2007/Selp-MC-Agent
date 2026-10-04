@@ -277,12 +277,40 @@ check('the movement model stays conservative (no digging, no lava)', () => {
   return 'allowDig=false, lava/fire/cactus refused';
 });
 
-check('the bot never speaks unprompted', () => {
-  const reply = read('src/chat/reply.js');
-  if (!/only way the agent speaks|reactive/i.test(reply)) throw new Error('the reactive-only contract is not documented');
+check('the bot speaks unprompted only through the three role-play triggers', () => {
+  /**
+   * This check used to assert the opposite ("the bot never speaks unprompted", with
+   * `chat.replyOnTaskResult` pinned to false). Role play removed that rule on purpose, so the
+   * constraint is not gone - it moved:
+   *
+   *   prompt wording ("You cannot speak unless the player spoke to you")
+   *     -> code (LlmCore.speakUp drops any action an unprompted turn proposes)
+   *
+   * What must still hold is that unprompted speech is *bounded*: only the three triggers, each
+   * with a cooldown, and never as a way to start work.
+   */
+  const sched = read('src/chat/speechScheduler.js');
+  for (const trigger of ['hungry', 'lowHealth', 'taskDone']) {
+    if (!sched.includes(trigger)) throw new Error(`the ${trigger} trigger is gone`);
+  }
+  if (!/cooldownMs/.test(sched)) throw new Error('the per-trigger cooldown is gone (a starving bot would repeat forever)');
+
+  const llm = read('src/llm/index.js');
+  if (!/async speakUp/.test(llm)) throw new Error('speakUp is gone');
+  // The guard that makes "no unprompted behaviour" structural rather than a prompt request.
+  if (!/actionDropped/.test(llm)) throw new Error('the unprompted-action drop is gone: proactive speech could dispatch work');
+
   const cfg = JSON.parse(read('config/agent.json'));
-  if (cfg.chat.replyOnTaskResult !== false) throw new Error('replyOnTaskResult must default to false');
-  return 'replyOnTaskResult=false; speech is a reply field only';
+  if (cfg.proactive && cfg.proactive.enabled === false) throw new Error('proactive speech is switched off in config');
+  const t = (cfg.proactive && cfg.proactive.triggers) || {};
+  for (const name of ['taskDone', 'hungry', 'lowHealth']) {
+    if (!t[name] || t[name].enabled === false) throw new Error(`the ${name} trigger is disabled in config`);
+  }
+  // The old key that used to gate this is gone; a replacement would be a second, silent switch.
+  if ('replyOnTaskResult' in (cfg.chat || {})) {
+    throw new Error('chat.replyOnTaskResult is superseded by proactive.triggers.taskDone - remove it rather than leaving two switches');
+  }
+  return 'three triggers with cooldowns; unprompted turns cannot act; no duplicate switch';
 });
 
 check('no Java change is required for P0 (the M3 cancellation holds)', () => {
@@ -336,7 +364,8 @@ check('every config key the plan adds is actually consumed', () => {
   const sections = {
     clientMod: ['host', 'port', 'timeoutMs', 'directRange'],
     pathfinding: ['maxPathLength', 'replanEvery', 'nodeTimeoutMs', 'tickTimeoutMs', 'allowSwim', 'allowDig', 'waypointRange', 'stuckThreshold', 'jumpStreakLimit', 'maxSidesteps', 'trace'],
-    chat: ['prefix', 'dialogueTrigger', 'pollIntervalMs', 'ignoreOtherChat', 'replyInGame', 'replyOnTaskResult', 'maxChars', 'minReplyGapMs'],
+    chat: ['prefix', 'dialogueTrigger', 'pollIntervalMs', 'ignoreOtherChat', 'replyInGame', 'maxChars', 'minReplyGapMs'],
+    proactive: ['enabled', 'intervalMs'],
     death: ['detectIntervalMs', 'autoResume', 'alertConsole', 'alertPanel', 'alertStateFile'],
     web: ['bind', 'port'],
     safety: ['avoidManMade', 'requireNaturalTrees', 'requireLeaves', 'strictMining'],

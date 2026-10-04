@@ -1,12 +1,22 @@
 'use strict';
 
 /**
- * SpeechScheduler: the three role-play triggers that make the bot speak unprompted.
+ * SpeechScheduler: the state half of the three role-play triggers that make the bot speak
+ * unprompted.
  *
  * The requirement was explicit: speak up when work finishes, when hungry with no food, and
- * when badly hurt. "Finished work" is event-driven and lives in LlmCore.announceFinished (the
- * brain emits it). The other two are *states*, not events - a starving bot is starving on
- * every tick - so they need a poller plus a per-trigger cooldown, which is what this file is.
+ * when badly hurt. Those three split across two mechanisms by their nature, and this file is
+ * the complete index of them:
+ *
+ *   taskDone    an EVENT   -> LlmCore.announceFinished, subscribed to the brain's task events
+ *   hungry      a STATE    -> polled here, needs a cooldown
+ *   lowHealth   a STATE    -> polled here, needs a cooldown
+ *   (respawn)   an EVENT   -> DeathWatch's onRespawn hook, also polled here for the wording
+ *
+ * The split is the reason this file exists at all. A finished task happens once, so an event
+ * handler is the natural fit. Hunger and injury are *states* - a starving bot is starving on
+ * every tick - so they need a poller plus a per-trigger cooldown. Putting the event case in
+ * here as well would have meant a poller pretending to detect a one-shot change.
  *
  * Why a separate loop instead of adding rules to the Brain
  * --------------------------------------------------------

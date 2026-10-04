@@ -31,7 +31,6 @@
     "pollIntervalMs": 700,
     "ignoreOtherChat": true,
     "replyInGame": true,
-    "replyOnTaskResult": true,
     "maxChars": 100,
     "minReplyGapMs": 1200
   },
