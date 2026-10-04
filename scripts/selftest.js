@@ -1809,6 +1809,8 @@ async function main() {
     const perms = new Permissions({ root: ROOT }, { file, log: silent });
     const desk = new ConsentDesk({}, { log: silent, speak: () => {}, timeoutMs: 200 });
     const calls = [];
+    /** Task identity the gate will ask about; null means "no task running". */
+    let scope = null;
     const body = {
       dig: async (block) => {
         calls.push(`dig:${block.name}`);
@@ -1824,7 +1826,12 @@ async function main() {
       },
       blockAt: () => null
     };
-    const gate = installPermissionGate(body, { permissions: perms, consent: desk, log: silent });
+    const gate = installPermissionGate(body, {
+      permissions: perms,
+      consent: desk,
+      log: silent,
+      taskScope: () => scope
+    });
     if (gate.installed.length !== 3) throw new Error(`gate installed ${gate.installed.length} methods`);
 
     perms.addRule({ effect: 'deny', action: 'break', match: 'minecraft:dirt' });
@@ -1853,8 +1860,30 @@ async function main() {
     await new Promise((resolve) => setTimeout(resolve, 20));
     desk.answer('no');
     if ((await selfPlaced) !== false) throw new Error('self:placed ask + no must refuse');
+
+    /**
+     * Task-scoped consent: one `!yes` covers the same block for the rest of THIS task; the
+     * next task asks again. Found live: a two-block dirt dig asked twice in a row.
+     */
+    scope = { id: 'task-1' };
+    const firstGravel = body.dig({ name: 'minecraft:gravel', position: { x: 4, y: 64, z: 0 } });
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    desk.answer('yes');
+    if ((await firstGravel) !== true) throw new Error('the task-scoped first dig did not run');
+    const sameTask = body.dig({ name: 'minecraft:gravel', position: { x: 5, y: 64, z: 0 } });
+    const raced = await Promise.race([
+      sameTask,
+      new Promise((resolve) => setTimeout(() => resolve('asked'), 80))
+    ]);
+    if (raced === 'asked') throw new Error('the same task was asked twice for the same block');
+    scope = { id: 'task-2' };
+    const nextTask = body.dig({ name: 'minecraft:gravel', position: { x: 6, y: 64, z: 0 } });
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    if (!desk.status().pending) throw new Error('a new task must ask again');
+    desk.answer('no');
+    if ((await nextTask) !== false) throw new Error('the new-task deny did not refuse');
     fs.rmSync(file, { force: true });
-    return `deny/ask/always/self:placed verified (${calls.length} body calls)`;
+    return `deny/ask/always/self:placed/task-scope verified (${calls.length} body calls)`;
   });
 
   // ------------------------------------------------------------- summary

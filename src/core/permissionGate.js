@@ -35,9 +35,18 @@ function referencePosition(reference) {
 function installPermissionGate(body, options = {}) {
   const { permissions, consent } = options;
   const log = options.log || { info() {}, warn() {}, debug() {} };
+  /**
+   * Identity of the work that is asking, supplied by the caller (brain task object or the
+   * hub's current handle). A plain `!yes` is remembered for that same work only - numen's
+   * rule ("允许的作用范围：本任务内，同一行规则问出来的同一种方块"): a mining task asks once
+   * for grass_block, not once per block, and the next task asks again.
+   */
+  const taskScope = typeof options.taskScope === 'function' ? options.taskScope : () => null;
   if (!body || !permissions) return { installed: [] };
 
   const selfPlaced = new Set();
+  /** `${action}:${name}` -> the task identity that was allowed once. */
+  const allowances = new Map();
   const installed = [];
 
   const refuse = (action, target, verdict) => {
@@ -59,6 +68,13 @@ function installPermissionGate(body, options = {}) {
     const wrapped = async function gated(...args) {
       const target = describe(args) || {};
       target.selfPlaced = target.position ? selfPlaced.has(key(target.position)) : false;
+      const allowanceKey = `${action}:${target.name || '*'}`;
+      const scope = taskScope();
+      const granted = allowances.get(allowanceKey);
+      if (granted !== undefined && granted === scope && scope !== null) {
+        return original.apply(this, args);
+      }
+      if (granted !== undefined && granted !== scope) allowances.delete(allowanceKey);
       const verdict = permissions.check(action, target);
 
       if (verdict.verdict === 'deny') return refuse(action, target, verdict);
@@ -66,6 +82,7 @@ function installPermissionGate(body, options = {}) {
         const answer = await consent.ask({ action, target, reason: verdict.reason });
         if (answer === 'deny') return refuse(action, target, { reason: 'operator did not allow it' });
         if (answer === 'always') permissions.addRule({ effect: 'allow', action, match: target.name || '*' });
+        if (answer === 'allow' && scope !== null) allowances.set(allowanceKey, scope);
       }
 
       const result = await original.apply(this, args);

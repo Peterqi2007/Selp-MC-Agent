@@ -231,7 +231,12 @@ async function buildAgent(options = {}) {
   ctx.permissions = new Permissions(cfg, { file: rulesFile, log: silent, places: ctx.places });
   ctx.consent = new ConsentDesk(ctx, { log: silent, speak: (t) => ctx.reply(t, { why: 'consent', force: true }), timeoutMs: 3000 });
   ctx.hub = new TaskHub(ctx, { log: silent, trace() {} });
-  ctx.permissionGate = installPermissionGate(body, { permissions: ctx.permissions, consent: ctx.consent, log: silent });
+  ctx.permissionGate = installPermissionGate(body, {
+    permissions: ctx.permissions,
+    consent: ctx.consent,
+    log: silent,
+    taskScope: () => ctx.brain.currentTask || ctx.brain.activeTask || (ctx.hub && ctx.hub.current) || null
+  });
 
   const chat = new ChatController(ctx, { prefix: '!' });
   ctx.chat = chat;

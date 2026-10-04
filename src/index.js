@@ -283,7 +283,12 @@ async function main() {
   ctx.permissionGate = installPermissionGate(ctx.body, {
     permissions: ctx.permissions,
     consent: ctx.consent,
-    log: new Logger('permission')
+    log: new Logger('permission'),
+    /**
+     * A plain `!yes` is remembered for the work that asked: the running brain task, or the
+     * background task slot's current job. A new task starts with a clean slate.
+     */
+    taskScope: () => ctx.brain.currentTask || ctx.brain.activeTask || (ctx.hub && ctx.hub.current) || null
   });
   log.info(
     `places: ${ctx.places.listAreas().length} area(s), ${ctx.places.listRoutes().length} route(s); ` +

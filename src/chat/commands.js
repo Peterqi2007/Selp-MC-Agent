@@ -560,7 +560,17 @@ class ChatController {
             : receipt.reason === 'stopped-after-death'
               ? '死亡后停着，发 !resume 再继续'
               : receipt.reason || '任务被拒绝';
-        this.say(`现在不行：${why}`);
+        /**
+         * Force: a refusal is the answer the player is waiting for. The ack debounce
+         * (minReplyGapMs) swallowed this exact line in live testing right after the
+         * handler's "on my way" ack, leaving only the misleading half.
+         */
+        const text = `现在不行：${why}`;
+        if (this.ctx.reply) {
+          Promise.resolve(this.ctx.reply(text, { why: 'command-refusal', force: true })).catch(() => {});
+        } else {
+          this.say(text);
+        }
       }
       return receipt;
     });
