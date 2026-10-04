@@ -11,8 +11,8 @@
     "dailyTokenBudget": 300000,
     "concurrentTurns": 1
   },
-  "_comment_toolCalling": "true lets the model call the six tools (observe, find_blocks, lookup_item, do_task, go_to, stop) before deciding, so it can look at the world instead of imagining it. Requires a provider with native tool calling; the plain intent-JSON exchange works either way, and an invalid or looping tool round falls back to the regex router.",
-  "toolCalling": false,
+  "_comment_toolCalling": "ON since 2026-10-04 (operator decision). The model may call the eight tools (observe, find_blocks, scan_around, lookup_item, do_task, go_to, do_skill, stop) before deciding, so it looks at the world instead of imagining it: scan_around returns the egocentric terrain grid and every refused/failed call carries failure+hint. Verified live on deepseek-flash: the tool round needs the assistant's reasoning_content replayed and a completion budget big enough for thinking-mode reasoning (both fixed in 513bf33). Requires a provider with native tool calling; the plain intent-JSON exchange remains the fallback when the round is invalid or loops.",
+  "toolCalling": true,
   "persona": {
     "name": "小咪",
     "style": "猫娘，每句不超过 40 字，说话带'喵'",

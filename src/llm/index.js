@@ -444,6 +444,15 @@ class LlmCore {
       });
       log.push({
         name: call.name,
+        /**
+         * The arguments the model passed. Without this the panel/log shows that a tool ran
+         * but not how (e.g. which radius scan_around used), and a wrong answer cannot be told
+         * apart from a wrong map.
+         */
+        args:
+          typeof call.arguments === 'string'
+            ? call.arguments.slice(0, 200)
+            : JSON.stringify(call.arguments || {}).slice(0, 200),
         ok: result.ok,
         error: result.error || null,
         failure: result.failure || null,
