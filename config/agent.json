@@ -110,7 +110,7 @@
     "requireLeaves": true,
     "strictMining": false
   },
-  "_comment_survival": "allowWoodChopping=false stops the *planner* from felling trees on its own; an explicit !chop from chat still works. allowDirtDigging keeps the always-available dirt goal, which needs no tool.",
+  "_comment_survival": "allowWoodChopping=false stops the *planner* from felling trees on its own; an explicit !chop from chat still works. There is no allowDirtDigging: the always-available dirt fallback goal was removed by the operator, so an idle planner now simply idles rather than rearranging the ground. Explicit !mine dirt still works.",
   "survival": {
     "targetWood": 16,
     "shelterAtNight": true,
@@ -119,8 +119,7 @@
     "_comment_mods": "On modded servers unknown blocks are only mined when a name signature suggests a normal block.",
     "mineUnknownModBlocks": false,
     "avoidClaimedChunks": true,
-    "allowWoodChopping": false,
-    "allowDirtDigging": true
+    "allowWoodChopping": false
   },
   "logging": {
     "level": "info",

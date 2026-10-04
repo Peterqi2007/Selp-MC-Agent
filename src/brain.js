@@ -252,8 +252,6 @@ class Brain {
      * a shared server, where a tree is often part of the scenery rather than a resource.
      */
     const mayChop = this.cfg.survival.allowWoodChopping !== false;
-    /** Dirt is always available, so this is the safe goal to fall back to. */
-    const mayDigDirt = this.cfg.survival.allowDirtDigging !== false;
 
     // Perception comes from the body. `view` is a plain object with the two things the
     // rule table needs: `inventory` (mineflayer-shaped) and `health`/`food`.
@@ -285,9 +283,9 @@ class Brain {
      * These two flags are the difference between a planner that adapts and one that spins:
      * under the client-mod body `craft()` always fails ("no recipe support" - the mod exposes
      * no crafting UI), and mining stone without a pickaxe always fails by design. Without the
-     * guards below the rule table retried those two forever, and every goal after them -
-     * including digging dirt - was unreachable. The plan's §5.4 capability list is the same
-     * idea applied to the LLM; this is its counterpart in the rule table.
+     * guards below the rule table retried those two forever and everything after them was
+     * unreachable. The plan's §5.4 capability list is the same idea applied to the LLM; this is
+     * its counterpart in the rule table.
      */
     const canCraft = !!(ctx.body && ctx.body.supportsCrafting);
     const hasPick = pickRank >= 0;
@@ -342,20 +340,21 @@ class Brain {
       },
       { name: 'gather-wood', when: () => mayChop && wood < 16, make: () => new ChopWoodTask(ctx, { count: 16, priority: 60 }) },
       { name: 'light', when: () => has('coal') || has('charcoal'), make: () => new LightTask(ctx, { count: 6, priority: 62 }) },
-      { name: 'mine', when: () => hasPick, make: () => new MineBlockTask(ctx, { block: ['stone', 'cobblestone', 'deepslate'], count: 16, priority: 70 }) },
+      { name: 'mine', when: () => hasPick, make: () => new MineBlockTask(ctx, { block: ['stone', 'cobblestone', 'deepslate'], count: 16, priority: 70 }) }
       /**
-       * Digging dirt as the last resort.
+       * There is deliberately no always-true fallback rule here.
        *
-       * It is the only gathering the agent can always do: dirt needs no tool, drops itself,
-       * and is never part of anything valuable. That makes it the right "keep busy" goal for
-       * an agent that has no wood to chop (see `allowWoodChopping`) and no pickaxe yet - and
-       * the alternative, an always-failing mining rule, would just spin the planner.
+       * The last entry used to be `dig-dirt` with `when: () => true` (gated only on a
+       * `allowDirtDigging` switch): it was the "keep busy" goal, justified because dirt needs no
+       * tool and is never valuable. The operator removed it - an idle planner is better than a
+       * bot that rearranges the ground to look occupied, and on a shared server the hillside is
+       * scenery rather than a resource.
+       *
+       * Idling is a supported state, not a failure: `slowLoop` records
+       * `lastDecision.decision = 'idle'`, and warns every 20th tick so a genuinely stuck planner
+       * is still visible. Explicit requests are unaffected - `!mine dirt 8` and "挖点土" both
+       * still work, because an instruction is an instruction.
        */
-      {
-        name: 'dig-dirt',
-        when: () => mayDigDirt,
-        make: () => new MineBlockTask(ctx, { block: ['dirt', 'grass_block'], count: 16, priority: 72, probeShaft: false })
-      }
     ];
 
     for (const rule of rules) {

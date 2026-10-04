@@ -334,6 +334,50 @@ check('the bot speaks unprompted only through the three role-play triggers', () 
   return 'three triggers with cooldowns; unprompted turns cannot act; no duplicate switch';
 });
 
+check('B: the planner has no always-true fallback goal', () => {
+  /**
+   * The rule table's last entry used to be `dig-dirt` with `when: () => mayDigDirt`, which
+   * defaulted to true - so on an idle planner the bot rearranged the ground to look occupied.
+   * The operator removed it: idling is the correct behaviour, and on a shared server the
+   * hillside is scenery rather than a resource.
+   *
+   * This is a regression guard, not a description. An always-true rule at the end of the table
+   * silently swallows every future "the planner should idle here" case, and re-adding one would
+   * look like a helpful improvement.
+   */
+  const brain = read('src/brain.js');
+  /**
+   * Strip comments before scanning.
+   *
+   * The first version of this check matched the very comment that documents the removal - the
+   * explanation contains the literal string `when: () => true`. A guard that fires on its own
+   * documentation is worse than no guard, so the scan runs over code only.
+   */
+  const code = brain
+    .replace(/\/\*[\s\S]*?\*\//g, '')
+    .split('\n')
+    .filter((line) => !/^\s*\/\//.test(line))
+    .join('\n');
+  if (/when:\s*\(\s*\)\s*=>\s*true/.test(code)) {
+    throw new Error('an always-true rule is back in the planner: the agent can never idle');
+  }
+  if (/name:\s*'dig-dirt'/.test(code)) {
+    throw new Error('the dig-dirt fallback is back');
+  }
+  if (/allowDirtDigging/.test(code)) {
+    throw new Error('the allowDirtDigging gate is back in the planner');
+  }
+  const cfg = JSON.parse(read('config/agent.json'));
+  if ('allowDirtDigging' in (cfg.survival || {})) {
+    throw new Error('survival.allowDirtDigging is back in the config');
+  }
+  // Idling must stay a supported, visible state rather than a hang.
+  if (!/decision:\s*'idle'/.test(code)) throw new Error('the planner no longer records the idle decision');
+  // And an explicit request must still work: an instruction is an instruction.
+  if (!/dirt/.test(read('src/chat/commands.js'))) throw new Error('the `!mine dirt` alias is gone');
+  return 'no always-true rule; idle is recorded, and !mine dirt still works';
+});
+
 check('no Java change is required for P0 (the M3 cancellation holds)', () => {
   // The cancellation only holds while all three primitives are already exposed by the mod.
   // "Not required" is the claim, not "never touched": the mod has since gained honest
@@ -390,7 +434,7 @@ check('every config key the plan adds is actually consumed', () => {
     death: ['detectIntervalMs', 'alertConsole', 'alertPanel', 'alertStateFile'],
     web: ['bind', 'port'],
     safety: ['avoidManMade', 'requireNaturalTrees', 'requireLeaves', 'strictMining'],
-    survival: ['allowWoodChopping', 'allowDirtDigging']
+    survival: ['allowWoodChopping']
   };
 
   const dead = [];

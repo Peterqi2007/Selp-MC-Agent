@@ -58,9 +58,7 @@ const DEFAULTS = {
        * (`!chop`), but will not go looking for trees while idle - which is what you want on a
        * shared server where the trees are scenery rather than a resource.
        */
-      allowWoodChopping: true,
-      /** Dirt needs no tool and is never valuable: the always-available "keep busy" goal. */
-      allowDirtDigging: true
+      allowWoodChopping: true
     },
     /**
      * The control mod that drives a real Forge client (P0-PLAN §7.1). Host/port must match
