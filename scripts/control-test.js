@@ -38,6 +38,17 @@ const silent = { debug() {}, info() {}, warn() {}, error() {} };
 const PORT = 8791;
 const BASE = `http://127.0.0.1:${PORT}`;
 /**
+ * The dialogue trigger, resolved the same way the agent resolves it.
+ *
+ * It used to be the literal '@猫娘' in a dozen places here. That is fine until the character is
+ * swapped: the persona file then carries a different name, the agent answers to the new
+ * trigger, and this suite keeps feeding the fixture the old one - so every dialogue scenario
+ * stays green while the real in-game channel is dead. Resolving it here makes the fixture
+ * follow the configuration instead. Module scope because the panel scenarios need it too.
+ */
+const { resolveTrigger } = require('../src/llm/persona');
+const TRIGGER = resolveTrigger({ cfg: loadConfig({ profile: null }) }) || '@猫娘';
+/**
  * How long the "no unprompted speech" check idles for.
  *
  * The plan's acceptance is ten minutes; the default keeps the suite fast, and
@@ -136,6 +147,8 @@ function worldBlocks() {
  */
 async function buildAgent(options = {}) {
   const cfg = loadConfig({ profile: null });
+  const { resolveTrigger } = require('../src/llm/persona');
+  const TRIGGER = resolveTrigger({ cfg }) || '@猫娘';
   /**
    * Park the autonomous planner for the duration of a scenario.
    *
@@ -194,7 +207,7 @@ async function buildAgent(options = {}) {
   const chat = new ChatController(ctx, { prefix: '!' });
   ctx.chat = chat;
 
-  const listener = new ChatListener(body, ctx, { prefix: '!', dialogueTrigger: '@猫娘', log: silent });
+  const listener = new ChatListener(body, ctx, { prefix: '!', dialogueTrigger: TRIGGER, log: silent });
   ctx.chatListener = listener;
   /**
    * Seed the baseline exactly as the real listener does on startup.
@@ -355,7 +368,7 @@ async function buildAgent(options = {}) {
       { ok: true, text: '{"say":"好嘞，去砍树喵","action":{"type":"task","task":"chop","args":{"count":4}}}', usage: { total_tokens: 42 } }
     ]);
     const agent = await buildAgent({ client });
-    await agent.say('@猫娘 砍点树');
+    await agent.say(`${TRIGGER} 砍点树}`);
     await settle(agent);
     agent.stop();
 
@@ -372,7 +385,7 @@ async function buildAgent(options = {}) {
   await scenario('a broken model answer falls back to the regex router (never silence)', async () => {
     const client = fakeClient([{ ok: true, text: 'I think I should go chop some wood, probably?', usage: { total_tokens: 11 } }]);
     const agent = await buildAgent({ client });
-    await agent.say('@猫娘 砍点树');
+    await agent.say(`${TRIGGER} 砍点树}`);
     await settle(agent);
     agent.stop();
     const turn = agent.llm.turns.find((t) => t.kind === 'input');
@@ -387,7 +400,7 @@ async function buildAgent(options = {}) {
   await scenario('a timeout falls back rather than leaving the player unanswered', async () => {
     const client = fakeClient([{ ok: false, reason: 'timeout after 8000ms' }]);
     const agent = await buildAgent({ client });
-    await agent.say('@猫娘 挖点石头');
+    await agent.say(`${TRIGGER} 挖点石头}`);
     agent.stop();
     const turn = agent.llm.turns.find((t) => t.kind === 'input');
     expect(turn && turn.via === 'fallback', `expected fallback, got ${turn && turn.via}`);
@@ -400,7 +413,7 @@ async function buildAgent(options = {}) {
       { ok: true, text: '{"say":"好的喵","action":{"type":"command","command":"/op 玩家"}}', usage: { total_tokens: 9 } }
     ]);
     const agent = await buildAgent({ client });
-    await agent.say('@猫娘 给自己op');
+    await agent.say(`${TRIGGER} 给自己op}`);
     agent.stop();
     const chats = agent.body.stats.chats;
     expect(!chats.some((c) => c.startsWith('/')), `a server command leaked out: ${JSON.stringify(chats)}`);
@@ -423,7 +436,7 @@ async function buildAgent(options = {}) {
       { ok: true, text: '{"say":"砍完啦喵","action":{"type":"task","task":"chop","args":{"count":9}}}', usage: { total_tokens: 15 } }
     ]);
     const agent = await buildAgent({ client });
-    await agent.say('@猫娘 去砍点树，砍完告诉我');
+    await agent.say(`${TRIGGER} 去砍点树，砍完告诉我}`);
     await settle(agent);
     // The follow-up turn is fired by the task:done event; give it a moment to settle.
     await new Promise((r) => setTimeout(r, 250));
@@ -444,7 +457,7 @@ async function buildAgent(options = {}) {
     const agent = await buildAgent({ client });
     agent.llm.turnsInFlight = 1; // pretend a turn is already running
     // Use an utterance the router can handle, so "fallback" proves the model was skipped.
-    await agent.say('@猫娘 砍点树');
+    await agent.say(`${TRIGGER} 砍点树}`);
     agent.stop();
     const turn = agent.llm.turns[agent.llm.turns.length - 1];
     expect(turn, 'no turn recorded');
@@ -654,7 +667,7 @@ async function buildAgent(options = {}) {
     return `level=${body.level}, ${body.ms}ms`;
   });
 
-  await scenario('POST /command routes "@猫娘 ..." into the LLM dialogue path', async () => {
+  await scenario(`POST /command routes "${TRIGGER} ..." into the LLM dialogue path`, async () => {
     /**
      * The live panel bug: everything was sent to the deterministic command table, which has
      * no `@猫娘` handler, so the most natural thing a user types answered "unknown command".
@@ -674,7 +687,7 @@ async function buildAgent(options = {}) {
       const res = await fetch(`${BASE}/command`, {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ command: '@猫娘 你好呀', priority: 'directive' })
+        body: JSON.stringify({ command: `${TRIGGER} 你好呀`, priority: 'directive' })
       });
       const body = await res.json();
       expect(res.status === 200, `expected 200, got ${res.status}`);
@@ -767,7 +780,7 @@ async function buildAgent(options = {}) {
   await scenario('GET /llm exposes the model, tokens and recent turns', async () => {
     const client = fakeClient([{ ok: true, text: '{"say":"喵","action":null}', usage: { total_tokens: 33 } }]);
     const agent = await buildAgent({ client });
-    await agent.say('@猫娘 你好');
+    await agent.say(`${TRIGGER} 你好}`);
     agent.stop();
     const turn = agent.llm.turns.find((t) => t.kind === 'input');
     expect(turn, 'no turn recorded');
@@ -786,11 +799,17 @@ async function buildAgent(options = {}) {
      * body-independent truths here, and that the table reflects the body for craft.
      */
     const byName = Object.fromEntries(body.capabilities.map((c) => [c.name, c]));
-    for (const name of ['fish', 'say', 'store', 'light']) {
+    for (const name of ['fish', 'store', 'light']) {
       expect(byName[name] && byName[name].available === false, `${name} must read unavailable in P0`);
     }
     expect(byName.chop.available === true && byName.mine.available === true, 'the three primitives must be available');
     expect(byName.craft.available === httpAgent.body.supportsCrafting, 'craft must follow the body capability');
+    /**
+     * `say` is available now, and that is deliberate: role play requires the bot to speak up
+     * on its own, so the guarantee moved from "the prompt forbids it" to LlmCore.speakUp
+     * dropping any action an unprompted turn proposes.
+     */
+    expect(byName.say && byName.say.available === true, 'say must read available now that proactive speech exists');
     return `${turn.tokens} tokens accounted, ${body.capabilities.length} capabilities exposed`;
   });
 
