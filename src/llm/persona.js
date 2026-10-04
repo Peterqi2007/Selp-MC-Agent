@@ -244,7 +244,7 @@ function clearCache() {
  *
  * Both the in-game chat listener (`src/index.js`) and the control panel
  * (`src/web/statusServer.js`) need this, and they used to resolve it independently with their
- * own hardcoded `'@猫娘'` fallback. That is exactly the kind of duplication that goes wrong
+ * own hardcoded trigger fallback. That is exactly the kind of duplication that goes wrong
  * after a character swap: the panel would keep routing a dead trigger while the chat listener
  * used the new one.
  *

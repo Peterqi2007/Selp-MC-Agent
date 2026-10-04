@@ -3,7 +3,7 @@
 /**
  * The fallback router (P0-PLAN §5.5): deterministic intent extraction with no model.
  *
- * This is the component that makes the promise "`!chop 32` and `@猫娘 砍点树` both work"
+ * This is the component that makes the promise "`!chop 32` and `the dialogue trigger both work"
  * true *regardless of the LLM*. It runs in three situations, and the agent would be
  * unreliable without it in all three:
  *
@@ -27,13 +27,13 @@ const RULES = [
     // must win over the verb it mentions.
     pattern: /(停下|停止|别动|不要动|别砍|别挖|取消|中止|\bstop\b|\bcancel\b|\bhalt\b|\babort\b)/i,
     build: () => ({ type: 'stop' }),
-    say: '好，停下了喵'
+    say: '好，停下了'
   },
   {
     name: 'chop',
     pattern: /(砍|木头|原木|树木|树|伐木|\bchop\b|\bwood\b|\blogs?\b|\btree\b|\btimber\b)/i,
     build: (count) => ({ type: 'task', task: 'chop', args: { count: count || 8 } }),
-    say: (count) => `去砍 ${count || 8} 根木头喵`
+    say: (count) => `去砍 ${count || 8} 根木头`
   },
   /**
    * Phase 3 skill rules. Order matters the same way as the tasks above: eating must be
@@ -44,25 +44,25 @@ const RULES = [
     name: 'eat',
     pattern: /(饿|吃东西|吃点|吃饭|进食|填饱|食物不够|\beat\b|\bhungry\b|\bfood\b)/i,
     build: () => ({ type: 'skill', skill: 'eat', args: {} }),
-    say: '吃东西喵'
+    say: '吃东西'
   },
   {
     name: 'sleep',
     pattern: /(睡觉|睡一觉|过夜|上床|天黑.*睡|\bsleep\b|\bbed\b)/i,
     build: () => ({ type: 'skill', skill: 'sleep', args: {} }),
-    say: '去睡觉喵'
+    say: '去睡觉'
   },
   {
     name: 'farm',
     pattern: /(种地|种田|种庄稼|收庄稼|收割|种小麦|种点|\bfarm\b|\bharvest\b|\bplant\b)/i,
     build: (count, text) => ({ type: 'skill', skill: 'farm', args: count ? { radius: Math.min(16, Math.max(2, count)) } : {} }),
-    say: '去种地喵'
+    say: '去种地'
   },
   {
     name: 'fish',
     pattern: /(钓鱼|钓点鱼|去钓鱼|钓一?会儿鱼|钓鱼竿|\bfish\b|\bfishing\b|\bcast\b)/i,
     build: (count) => ({ type: 'skill', skill: 'fish', args: count ? { maxCatches: Math.min(64, Math.max(1, count)) } : {} }),
-    say: '去钓鱼喵'
+    say: '去钓鱼'
   },
   {
     name: 'craft',
@@ -72,7 +72,7 @@ const RULES = [
       if (!item) return null; // do not guess an item from prose
       return { type: 'skill', skill: 'craft', args: { item, count: count || 1 } };
     },
-    say: (count, text) => `去合成 ${itemIn(text) || '东西'} 喵`
+    say: (count, text) => `去合成 ${itemIn(text) || '东西'}`
   },
   {
     name: 'smelt',
@@ -82,25 +82,25 @@ const RULES = [
       if (!item) return null;
       return { type: 'skill', skill: 'smelt', args: { item, count: count || 1 } };
     },
-    say: '去熔炼喵'
+    say: '去熔炼'
   },
   {
     name: 'defend',
     pattern: /(自卫|打我|被围|有怪|怪物|危险|保护我|\bdefend\b|\bhelp me\b)/i,
     build: () => ({ type: 'skill', skill: 'defend', args: {} }),
-    say: '去自卫喵'
+    say: '去自卫'
   },
   {
     name: 'attack',
     pattern: /(攻击|打怪|打它|杀掉|打死|\battack\b|\bkill\b)/i,
     build: () => ({ type: 'skill', skill: 'attack', args: {} }),
-    say: '去打它喵'
+    say: '去打它'
   },
   {
     name: 'deposit',
     pattern: /(存起来|收起来|放进箱|存进箱|存一下|存东西|\bdeposit\b|\bstore\b)/i,
     build: () => ({ type: 'skill', skill: 'deposit', args: {} }),
-    say: '去存东西喵'
+    say: '去存东西'
   },
   {
     name: 'withdraw',
@@ -111,25 +111,25 @@ const RULES = [
       if (!item) return null;
       return { type: 'skill', skill: 'withdraw', args: { item, count: count || 1 } };
     },
-    say: '去取东西喵'
+    say: '去取东西'
   },
   {
     name: 'explore',
     pattern: /(探索|逛逛|四处看看|随便走走|\bexplore\b|\bwander\b)/i,
     build: (count) => ({ type: 'skill', skill: 'explore', args: count ? { distance: Math.min(64, Math.max(4, count)) } : {} }),
-    say: '四处逛逛喵'
+    say: '四处逛逛'
   },
   {
     name: 'mine',
     pattern: /(挖矿|挖|采矿|矿石|石头|圆石|铁|煤|钻石|金|沙|\bmine\b|\bdig\b|\bmining\b|\bstone\b|\bcobble(stone)?\b|\biron\b|\bcoal\b|\bdiamond\b|\bgold\b|\bsand\b)/i,
     build: (count, text) => ({ type: 'task', task: 'mine', args: { block: blocksFor(text), count: count || 8 } }),
-    say: (count) => `去挖 ${count || 8} 个喵`
+    say: (count) => `去挖 ${count || 8} 个`
   },
   {
     name: 'collect',
     pattern: /(捡|拾取|收集掉落|\bcollect\b|\bpick ?up\b|\bgrab\b|\bdrops?\b)/i,
     build: () => ({ type: 'task', task: 'collect', args: {} }),
-    say: '去捡东西喵'
+    say: '去捡东西'
   },
   {
     name: 'go_to',
@@ -139,7 +139,7 @@ const RULES = [
     // sender and no positions). Returning the action with no coordinates lets the caller
     // fill them in from the trigger position, or answer honestly if it cannot.
     build: () => ({ type: 'go_to', resolve: 'speaker' }),
-    say: '我这就过去喵'
+    say: '我这就过去'
   }
 ];
 

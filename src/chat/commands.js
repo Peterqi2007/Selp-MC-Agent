@@ -5,7 +5,7 @@
  *
  * This is channel A of the two input channels in P0: a human types `!chop 8` into the
  * Minecraft chat box, and it becomes a task. Channel B is the natural-language/LLM path
- * (`@猫娘 砍点树`), which lands in the same command table through `src/llm/`.
+ * (the persona trigger), which lands in the same command table through `src/llm/`.
  *
  * It is intentionally transport-agnostic: the same table backs the in-game listener, the
  * HTTP control panel and the CLI, so adding a command adds it everywhere at once.
@@ -140,12 +140,12 @@ class ChatController {
   buildHandlers() {
     const ctx = this.ctx;
     return {
-      help: () => this.say(HELP.join(' | ')),
+      help: () => this.say(HELP.join(' |')),
       status: () => {
         const s = ctx.world.summary();
         const brain = ctx.brain.status();
         this.say(
-          `hp=${s.health} food=${s.food} pos=${s.position.x},${s.position.y},${s.position.z} ` +
+          `hp=${s.health} food=${s.food} pos=${s.position.x},${s.position.y},${s.position.z}` +
             `day=${s.day} night=${!s.isDay} goal=${brain.current ? brain.current.description : 'idle'}`
         );
       },
@@ -157,8 +157,8 @@ class ChatController {
         const items = inventorySummary(this.inventorySource());
         const text = Object.entries(items)
           .map(([k, v]) => `${k}x${v}`)
-          .join(', ');
-        this.say(text ? `inventory: ${text}` : '背包是空的喵');
+          .join(',');
+        this.say(text ? `inventory: ${text}` : '背包是空的');
       },
       stop: () => {
         // A real stop: cancel everything AND silence the 2.5s planner. Without the flag the
@@ -168,11 +168,11 @@ class ChatController {
         ctx.nav.stop();
         if (ctx.body && typeof ctx.body.interrupt === 'function') ctx.body.interrupt('!stop');
         this.followTarget = null;
-        this.say('停下来了喵（自动规划已暂停，发 !resume 继续）');
+        this.say('停下来了（自动规划已暂停，发 !resume 继续）');
       },
       pause: () => {
         ctx.brain.pause();
-        this.say('暂停了喵');
+        this.say('暂停了');
       },
       resume: () => {
         // A resume after death is the one thing that clears the post-death stop.
@@ -180,23 +180,23 @@ class ChatController {
         if (ctx.deathWatch) ctx.deathWatch.dead = false;
         ctx.brain.autoPlanDisabled = false;
         ctx.brain.resume();
-        this.say('继续干活喵');
+        this.say('继续干活');
       },
       mine: (args) => {
         const block = args[0] || 'stone';
         const count = Number(args[1]) || 8;
         // Ask for a couple extra: the last block often drops nothing useful, and the task
         // counts *items collected*, so overshooting slightly beats falling short.
-        this.say(`去挖 ${count} 个 ${block} 喵`);
+        this.say(`去挖 ${count} 个 ${block}`);
         return this.enqueue(new MineBlockTask(ctx, { block: expandBlockNames(block), count: count + 2 }));
       },
       chop: (args) => {
         const count = Number(args[0]) || 8;
-        this.say(`去砍 ${count} 根木头喵`);
+        this.say(`去砍 ${count} 根木头`);
         return this.enqueue(new ChopWoodTask(ctx, { count }));
       },
       collect: () => {
-        this.say('去捡东西喵');
+        this.say('去捡东西');
         return this.enqueue(new ChopWoodTask(ctx, { count: 1, searchRadius: 24 }));
       },
       hunt: (args) => this.enqueue(new HuntTask(ctx, { count: Number(args[0]) || 3 })),
@@ -259,7 +259,7 @@ class ChatController {
           : '-';
         this.say(
           found
-            ? `准心: ${found.name} @ ${pos}${found.distance !== undefined ? ` (${Number(found.distance).toFixed(1)}m)` : ''}`
+            ? `准心: ${found.name} @ ${pos}${found.distance !== undefined ?` (${Number(found.distance).toFixed(1)}m)` : ''}`
             : '准心没有对着方块（或这个身体没有准心）'
         );
         return found;
@@ -283,7 +283,7 @@ class ChatController {
       shelter: () => this.enqueue(new ShelterTask(ctx)),
       light: (args) => this.enqueue(new LightTask(ctx, { count: Number(args[0]) || 4 })),
       store: () => this.enqueue(new DepositTask(ctx)),
-      goal: (args) => ctx.onGoal(args.join(' ')),
+      goal: (args) => ctx.onGoal(args.join('')),
       goto: async (args) => {
         const [x, y, z] = args.map(Number);
         if ([x, y, z].some((n) => Number.isNaN(n))) throw new Error('usage: !goto <x> <y> <z>');
@@ -292,7 +292,7 @@ class ChatController {
         // GoToTask reports the pathfinding reason itself, so the reply says *why* when the
         // walk fails rather than the useless "could not get there".
         const res = task.result || {};
-        this.say(res.ok ? `到了 ${x} ${y} ${z} 喵` : `走不过去喵: ${res.reason || 'unknown'}`);
+        this.say(res.ok ? `到了 ${x} ${y} ${z}` : `走不过去: ${res.reason || 'unknown'}`);
         return res;
       },
       follow: (args) => {
@@ -305,12 +305,12 @@ class ChatController {
       home: async () => {
         const shelter = ctx.memory.landmark('shelter');
         if (!shelter) {
-          this.say('我还没造过庇护所喵');
+          this.say('我还没造过庇护所');
           return;
         }
         const task = new GoToTask(ctx, { position: shelter, range: 2, timeoutMs: 90000 });
         await this.enqueue(task);
-        this.say(task.result && task.result.ok ? '到家了喵' : '找不到回家的路喵');
+        this.say(task.result && task.result.ok ? '到家了' : '找不到回家的路');
       }
     };
   }
@@ -350,7 +350,7 @@ class ChatController {
     const ok = !!(result && result.ok !== false);
     const detail = result && (result.detail || result.reason) ? result.detail || result.reason : '';
     // Always answer. A silent skill looked exactly like a broken command in live testing.
-    this.say(ok ? `好喵（${name}）${detail ? '：' + detail : ''}` : `不行喵（${name}）：${detail || '失败'}`);
+    this.say(ok ? `好（${name}）${detail ? '：' + detail : ''}` : `不行（${name}）：${detail || '失败'}`);
     if (!ok) this.log.warn(`skill ${name} refused: ${detail}`);
     return result;
   }
@@ -370,7 +370,7 @@ class ChatController {
       return this.enqueue(task);
     };
     if (/wood|log|tree|木头|原木|砍树|砍点|砍些/.test(t)) {
-      return direct(new ChopWoodTask(this.ctx, { count: Number(count) || 16 }), `去砍 ${Number(count) || 16} 根木头喵`);
+      return direct(new ChopWoodTask(this.ctx, { count: Number(count) || 16 }), `去砍 ${Number(count) || 16} 根木头`);
     }
     if (/iron|铁/.test(t)) {
       return direct(
@@ -379,24 +379,24 @@ class ChatController {
           count: Number(count) || 3,
           timeoutMs: 240000
         }),
-        '去挖铁喵'
+        '去挖铁'
       );
     }
     if (/stone|cobble|石头|圆石|挖矿|挖点/.test(t)) {
       return direct(
         new MineBlockTask(this.ctx, { block: ['stone', 'cobblestone', 'deepslate'], count: Number(count) || 16 }),
-        '去挖石头喵'
+        '去挖石头'
       );
     }
     if (/food|hunt|meat|食物|打猎|吃肉/.test(t)) {
-      return direct(new HuntTask(this.ctx, { count: Number(count) || 3 }), '去打猎喵');
+      return direct(new HuntTask(this.ctx, { count: Number(count) || 3 }), '去打猎');
     }
-    if (/shelter|house|庇护|房子|基地/.test(t)) return direct(new ShelterTask(this.ctx), '去造庇护所喵');
-    if (/light|torch|火把|照明/.test(t)) return direct(new LightTask(this.ctx, { count: Number(count) || 4 }), '去插火把喵');
-    if (/store|chest|存|箱子/.test(t)) return direct(new DepositTask(this.ctx), '去存东西喵');
+    if (/shelter|house|庇护|房子|基地/.test(t)) return direct(new ShelterTask(this.ctx), '去造庇护所');
+    if (/light|torch|火把|照明/.test(t)) return direct(new LightTask(this.ctx, { count: Number(count) || 4 }), '去插火把');
+    if (/store|chest|存|箱子/.test(t)) return direct(new DepositTask(this.ctx), '去存东西');
     if (/craft|合成/.test(t)) {
       const item = t.replace(/craft|合成|\d+|个/g, '').trim().replace(/\s+/g, '_');
-      return direct(new CraftTask(this.ctx, { item, count: Number(count) || 1 }), `去合成 ${item} 喵`);
+      return direct(new CraftTask(this.ctx, { item, count: Number(count) || 1 }), `去合成 ${item}`);
     }
     throw new Error(`goal not understood: "${text}"`);
   }

@@ -115,7 +115,7 @@ const DEFAULTS = {
     /** Chat input/output policy (P0-PLAN §7.1). */
     chat: {
       prefix: '!',
-      dialogueTrigger: '@猫娘',
+      dialogueTrigger: null,
       pollIntervalMs: 700,
       ignoreOtherChat: true,
       replyInGame: true,
@@ -179,8 +179,8 @@ const DEFAULTS = {
      */
     toolCalling: false,
     persona: {
-      name: '小咪',
-      style: "猫娘，每句不超过 40 字，说话带'喵'",
+      name: 'agent',
+      style: null,
       honesty: '只说自己观察到的；不认识的方块要承认；不承诺做不到的事'
     },
     history: { perPlayer: 8, global: 30 },

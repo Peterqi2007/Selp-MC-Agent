@@ -4,7 +4,7 @@
  * LlmCore: the decision core of P0 (P0-PLAN §5).
  *
  * Flow, in one paragraph: a player says something. `ChatListener` (the `!` channel) or the
- * dialogue trigger (`@猫娘`) hands the text here. The text is turned into a validated
+ * dialogue trigger hands the text here. The text is turned into a validated
  * intent either by the model or, if the model is missing/slow/wrong, by the deterministic
  * fallback router. The intent is then executed against the *same* command table the `!`
  * channel uses, so there is exactly one implementation of every action.
@@ -167,7 +167,7 @@ class LlmCore {
     // A failure announcement is opt-out, because a silent failure looks like a stuck bot.
     if (!ok && trigger.alsoOnFailure === false) return null;
 
-    const detail = `${info.description || info.name}${info.reason ? ` - ${String(info.reason).slice(0, 60)}` : ''}`;
+    const detail = `${info.description || info.name}${info.reason ?` - ${String(info.reason).slice(0, 60)}` : ''}`;
     // Returns the promise so the caller (and the tests) can await the utterance. It is
     // deliberately not awaited inside `attachTo` - a chat line must never block the brain's
     // event handler, which the task queue owns.
@@ -231,7 +231,7 @@ class LlmCore {
         this.trace(record);
         // The honest answer beats a guess: an invented task would run for minutes in the
         // wrong direction before anyone noticed.
-        await this.say('这句我没听懂喵，试试「砍点树」或「!chop 8」？');
+        await this.say('这句我没听懂，试试「砍点树」或「!chop 8」？');
         this.closeRequest(id, 'not-understood');
         return record;
       }

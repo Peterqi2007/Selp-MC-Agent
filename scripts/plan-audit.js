@@ -179,7 +179,7 @@ check('D: only the two trigger kinds are accepted, everything else is ignored', 
   if (!/startsWith\(this\.prefix\)/.test(listener)) throw new Error('no prefix filter');
   if (!/dialogueTrigger/.test(listener)) throw new Error('no dialogue trigger');
   if (!/ignoreOtherChat|stats\.ignored/.test(listener)) throw new Error('other chat is not explicitly ignored');
-  return '`!` commands + `@猫娘` dialogue; the rest is counted as ignored';
+  return '`!` commands + the persona dialogue trigger; the rest is counted as ignored';
 });
 
 check('D: the echo filter exists (the bot cannot answer itself)', () => {

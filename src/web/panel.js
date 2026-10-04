@@ -9,7 +9,7 @@
  *
  * What the panel is actually *for*, beyond buttons: it is the only place you can see
  * whether the bot understood you. P0 deliberately forbids unprompted speech, so when you
- * type `@猫娘 砍点树` there is no chatty confirmation loop to watch - the "recent input ->
+ * type a dialogue line there is no chatty confirmation loop to watch - the "recent input ->
  * routing" table is the feedback channel. That is why it shows the raw line, the router
  * used (llm or fallback) and the resulting action, not just "ok".
  *

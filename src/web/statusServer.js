@@ -587,9 +587,9 @@ function commandPage() {
     '<title>发送指令 · Minecraft Agent</title>' +
     `<style>${PANEL_CSS}</style></head><body>` +
     '<div class="card"><div class="row"><strong>发送指令</strong>' +
-    '<span class="dim">`!mine dirt 8` 是指令通道；`@猫娘 挖点土` 是自然语言通道</span></div>' +
+    '<span class="dim">`!mine dirt 8` 是指令通道；`@<角色名> 挖点土` 是自然语言通道</span></div>' +
     '<form method="post" action="/command" style="margin-top:8px">' +
-    '<div class="row"><input type="text" name="command" autofocus autocomplete="off" spellcheck="false" placeholder="例如 !mine dirt 8 或 @猫娘 挖点土">' +
+    '<div class="row"><input type="text" name="command" autofocus autocomplete="off" spellcheck="false" placeholder="例如 !mine dirt 8 或 @<角色名> 挖点土">' +
     '<label><input type="radio" name="priority" value="directive" checked> 指令</label>' +
     '<label><input type="radio" name="priority" value="urgent"> 紧急</label>' +
     '<button type="submit">发送</button></div></form>' +

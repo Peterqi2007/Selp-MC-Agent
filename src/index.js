@@ -301,7 +301,7 @@ async function main() {
    *
    * The trigger comes from `agent.chat.dialogueTrigger`, falling back to the persona file's own
    * frontmatter (see `resolveTrigger`). That ordering matters after a character swap:
-   * `persona.md` already carries the name, so a mismatch (config still saying `@猫娘` while the
+   * `persona.md` already carries the name, so a mismatch (config still carrying the old name while the
    * character is 大肥鱼) would leave the in-game channel silently dead. An explicit config value
    * still wins, so an operator can point the trigger at a nickname without touching the sheet.
    */

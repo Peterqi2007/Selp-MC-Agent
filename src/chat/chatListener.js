@@ -43,7 +43,7 @@ const COLOR_CODE = /\u00A7./g;
  * This is the bug that made the whole in-game input channel dead in production while every
  * unit test passed: the tests fed the listener a bare `!chop 8`, which is what a mineflayer
  * `chat` event delivers, and the client mod delivers something else entirely. Matching the
- * raw line meant `!` and `@猫娘` never matched on a real server.
+ * raw line meant `!` and the dialogue trigger never matched on a real server.
  */
 const LEADER_PATTERNS = [
   // <Name> message        - vanilla and most plugins
@@ -111,7 +111,7 @@ class ChatListener {
     /** How many lines the first poll seeded (reported in `describe()`). */
     this.seeded = 0;
     /**
-     * Natural-language channel (P0-PLAN §4.1.2). `@猫娘 砍点树` goes to the LLM while
+     * Natural-language channel (P0-PLAN §4.1.2). the dialogue trigger goes to the LLM while
      * `!chop 8` goes to the command table. Kept as a separate test so a bug in one channel
      * cannot silently disable the other - the plan requires both to work regardless of
      * whether the LLM is available. Dedupe is shared: `newLines()` already guarantees each
@@ -276,7 +276,7 @@ class ChatListener {
        * Compared on the *content* as well as the raw line: our reply arrives as
        * `<agent> <what we said>`, so a raw-line comparison never matches on a real server
        * and the guard is dead exactly where it is needed. It matters because the reply could
-       * otherwise start with `@猫娘` (the model echoing the player) and send the agent into a
+       * otherwise start with the trigger (the model echoing the player) and send the agent into a
        * conversation with itself.
        */
       if (this.said.includes(fp) || this.said.includes(fingerprint(content))) {
@@ -325,7 +325,7 @@ class ChatListener {
         await this.ctx.chat.handle(command, 'chat');
       } catch (err) {
         this.log.error(`chat command failed: ${err.message}`);
-        if (this.ctx.reply) await this.ctx.reply(`出错了喵: ${err.message}`).catch(() => {});
+        if (this.ctx.reply) await this.ctx.reply(`出错了: ${err.message}`).catch(() => {});
       }
     }
 
@@ -334,7 +334,7 @@ class ChatListener {
         await this.onDialogue(item.utterance, item.line);
       } catch (err) {
         this.log.error(`dialogue handling failed: ${err.message}`);
-        if (this.ctx.reply) await this.ctx.reply('我这边出错了喵').catch(() => {});
+        if (this.ctx.reply) await this.ctx.reply('我这边出错了').catch(() => {});
       }
     }
 

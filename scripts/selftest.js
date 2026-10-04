@@ -840,11 +840,11 @@ async function main() {
     const listener = new ChatListener(
       body,
       { chat: { handle: async (c) => commands.push(c) }, log: silent },
-      { log: silent, prefix: '!', dialogueTrigger: '@猫娘' }
+      { log: silent, prefix: '!', dialogueTrigger: '@T' }
     );
     listener.onDialogue = async (utterance) => dialogues.push(utterance);
     await listener.poll(); // seed the baseline
-    lines.push('<Steve> @猫娘 砍点树');
+    lines.push('<Steve> @T 砍点树');
     await listener.poll();
     if (commands.length) throw new Error('a dialogue line must not hit the command table');
     if (dialogues.length !== 1 || dialogues[0] !== '砍点树') throw new Error(`bad dialogue: ${JSON.stringify(dialogues)}`);
@@ -855,10 +855,10 @@ async function main() {
     const lines = ['<Steve> hi'];
     const body = { readChat: async () => ({ lines: lines.slice() }) };
     const dialogues = [];
-    const listener = new ChatListener(body, { chat: { handle: async () => {} }, log: silent }, { log: silent, dialogueTrigger: '@猫娘' });
+    const listener = new ChatListener(body, { chat: { handle: async () => {} }, log: silent }, { log: silent, dialogueTrigger: '@T' });
     listener.onDialogue = async (u) => dialogues.push(u);
     await listener.poll(); // seed
-    lines.push('<Steve> @猫娘');
+    lines.push('<Steve> @T');
     await listener.poll();
     if (dialogues.length) throw new Error('an empty utterance must not be dispatched');
     return 'ignored';

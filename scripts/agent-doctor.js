@@ -213,7 +213,7 @@ async function post(url, payload, timeoutMs = 6000) {
   process.stdout.write(`\n${'='.repeat(64)}\n`);
   if (!failed.length && !unknown.length) {
     process.stdout.write('VERDICT: the whole chain is working. Try a command:\n');
-    process.stdout.write('  in game chat : !chop 8      (or  @猫娘 砍点树)\n');
+    process.stdout.write('  in game chat : !chop 8      (or the persona dialogue trigger)\n');
     process.stdout.write(`  in the panel : http://127.0.0.1:${STATUS_PORT}/panel\n`);
     return;
   }
