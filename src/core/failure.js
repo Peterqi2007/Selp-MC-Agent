@@ -99,10 +99,16 @@ const RULES = [
   [/timed?\s?out|timeout|超时/i, FAILURE.TIMEOUT],
   [/screen|界面|pause menu|esc menu/i, FAILURE.OCCLUDED],
   [/ceiling|overhead|blocked overhead|obstruct|挡|headroom/i, FAILURE.OCCLUDED],
+  /**
+   * "No hostile nearby" is a missing target, not danger - checked before the hazard rule,
+   * which matches the word "hostile" itself (found while planning the live receipt test:
+   * the attack skill's honest "no hostile within 24 blocks" came back as `hazard`).
+   */
+  [/no (hostile|mob|monster|entity|entities|animal)s?\b/i, FAILURE.TARGET_LOST],
   [/lava|fire|magma|hostile|hostiles|danger|悬崖|cliff|drown|溺水/i, FAILURE.HAZARD],
   [/pickaxe|镐|tool|工具/i, FAILURE.WRONG_TOOL],
   [/rod (broke|broken|worn)|no torches|no (food|bread|seed|item|material)|not enough|need (a |an )?(torch|food|item|material)|缺|没有(火把|食物|种子)/i, FAILURE.NO_MATERIAL],
-  [/no (water|bed|tree|target|crop|ore)|none found|nothing to|找不到|没有(水|床|树|目标)/i, FAILURE.TARGET_LOST],
+  [/no (water|bed|tree|target|crop|ore|chest|furnace|container)|none found|nothing to|找不到|没有(水|床|树|目标)/i, FAILURE.TARGET_LOST],
   [/refus|denied|forbidden|not allowed|is not available|unavailable|不能|不允许/i, FAILURE.REFUSED],
   [/no body|body is not|not connected|no world (data|snapshot)/i, FAILURE.UNSUPPORTED],
   [/could not walk|cannot walk|no ?path|unreachable|no route|stuck|out-?of-?grid|走不|无路/i, FAILURE.NO_PATH],

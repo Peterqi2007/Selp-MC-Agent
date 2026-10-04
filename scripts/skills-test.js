@@ -558,6 +558,8 @@ class MenuBody extends Body {
       [classify('hostile zombie at 3 blocks'), FAILURE.HAZARD, 'hostile'],
       [classify('unknown parameter "flavour" for eat'), FAILURE.BAD_ARGUMENT, 'unknown parameter'],
       [classify('no water with a fishable bank within 24 blocks'), FAILURE.TARGET_LOST, 'no water'],
+      [classify('no hostile within 24 blocks (on this level)'), FAILURE.TARGET_LOST, 'no hostile'],
+      [classify('no chest nearby'), FAILURE.TARGET_LOST, 'no chest'],
       [classify('the task was cancelled'), FAILURE.INTERRUPTED, 'cancelled']
     ];
     const wrong = cases.filter(([got, want]) => got !== want);
