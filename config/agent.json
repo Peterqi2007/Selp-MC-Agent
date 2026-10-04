@@ -45,10 +45,9 @@
       "fireOnRespawn": { "enabled": true, "cooldownMs": 15000 }
     }
   },
-  "_comment_death": "Death aborts every task and alerts outside the game (console + panel + state file). autoResume is deliberately false: coming back is a human decision, and P0 has no way to click the client's respawn button.",
+  "_comment_death": "Death aborts every task and alerts outside the game (console + panel + state file). Recovery is ALWAYS manual - the panel's resume button or POST /command {\"command\":\"resume\"} - so there is no autoResume key: a respawn must never restart work on its own.",
   "death": {
     "detectIntervalMs": 500,
-    "autoResume": false,
     "alertConsole": true,
     "alertPanel": true,
     "alertStateFile": true
@@ -86,6 +85,7 @@
   },
   "behaviour": {
     "autoEat": true,
+    "_comment_screens": "autoCloseScreens only ever closes a CONTAINER screen (chest/furnace/crafting/...) so the agent can walk. Chat, the Escape menu, options, anvils, signs, books and anything unrecognised belong to the operator and are waited on, never dismissed - set false to refuse even containers and report screen-open instead. chatScreenWaitMs is how long it waits for a screen that is not ours.",
     "autoCloseScreens": true,
     "chatScreenWaitMs": 20000,
     "autoFight": true,

@@ -83,22 +83,26 @@ class ClientModBody extends Body {
      */
     this.directRange = options.directRange || (cfgSection.directRange === undefined ? 3 : cfgSection.directRange);
     /**
-     * Close an open GUI automatically when the agent needs to walk.
+     * May the agent close a container screen when it needs to walk?
      *
-     * Minecraft drops WASD while any screen is open, and the operator's normal workflow is
-     * to leave the inventory/pause screen open while commanding the bot. Set
-     * `behaviour.autoCloseScreens: false` to get the old behaviour (refuse with
-     * `screen-open` and let the human close it).
+     * Minecraft drops WASD while any screen is open, so a menu left open stalls movement. This
+     * switch only ever applies to *container* screens (`isContainerScreen`): the chat box, the
+     * Escape/pause menu, options, and any screen the agent does not recognise are waited on and
+     * never dismissed, because they belong to the operator - who may be mid-sentence in a text
+     * field, or may have deliberately paused the game.
+     *
+     * `false` refuses even a container, reporting `screen-open` and letting the human close it.
      */
     this.autoCloseScreens = options.autoCloseScreens === undefined
       ? (cfg.agent && cfg.agent.behaviour && cfg.agent.behaviour.autoCloseScreens) !== false
       : options.autoCloseScreens === true;
     /**
-     * How long to wait for a *chat* screen to close before giving up on a move.
+     * How long to wait for a screen that is not ours to close.
      *
-     * The chat box is never closed automatically: the operator may be typing `!stop`, and
-     * closing it mid-sentence was worse than waiting (live report: "I cannot interrupt it
-     * any more"). While they type we simply wait; the mod also freezes its stall timers.
+     * Applies to chat, the Escape menu, options and anything unrecognised. While the operator
+     * types we simply wait, and the mod freezes its stall timers so a long pause in a text
+     * field does not look like a pathfinding failure. Live report that set the default:
+     * "I cannot interrupt it any more" - an earlier version closed the chat mid-sentence.
      */
     this.chatWaitMs = options.chatWaitMs
       || (cfg.agent && cfg.agent.behaviour && cfg.agent.behaviour.chatScreenWaitMs)
@@ -460,21 +464,25 @@ class ClientModBody extends Body {
       const stillOpen = await this._screenStillOpen(900);
       if (stillOpen) {
         /**
-         * Screens that belong to the human: chat, the pause menu, options. The agent waits
-         * for them to close and never dismisses them itself (the operator keeps
-         * pause-on-lost-focus, so this happens every time they tab away).
+         * Only a container screen may be closed by the agent. Everything else - chat, the
+         * Escape/pause menu, options, and any screen whose class name we do not recognise as a
+         * container - is waited on, never dismissed.
+         *
+         * "Do not recognise" is the important half. The previous version was a denylist, so an
+         * unknown screen was closed by default; that is how a modded text-input screen loses
+         * whatever the player was typing. Waiting costs a stall the operator can see, and the
+         * failure is reported with the screen's name, which is recoverable. Closing their text
+         * box is not.
          */
-        const humanScreen = /chat|pause|game ?menu|options|social|advancement|death/i.test(String(screen || ''));
-        const recovered = humanScreen
-          ? await this._waitForScreenClose(this.chatWaitMs)
-          : this.autoCloseScreens
-            ? await this._tryCloseScreen(screen)
-            : false;
+        const closable = ClientModBody.isContainerScreen(screen);
+        const recovered = closable && this.autoCloseScreens
+          ? await this._tryCloseScreen(screen)
+          : await this._waitForScreenClose(this.chatWaitMs);
         if (!recovered) {
           this.lastMove = { ok: false, reason: 'screen-open', screen, target: { ...position }, ms: 0 };
           this.log.warn(
             `cannot walk: ${screen} is open in the game - ` +
-              (humanScreen ? 'finish typing or press Escape to resume' : 'close it first')
+              (closable ? 'close it first' : 'that screen is yours, so the agent will not touch it')
           );
           return false;
         }
@@ -552,12 +560,19 @@ class ClientModBody extends Body {
    * close - in which case the caller reports `screen-open` honestly.
    */
   async _tryCloseScreen(screen) {
-    // Never steal a screen that belongs to the human, whatever the caller believes.
-    if (/chat|pause|game ?menu|options|social|advancement|death/i.test(String(screen || ''))) {
-      this.log.info(`${screen} belongs to the operator - waiting instead of closing it`);
+    /**
+     * Second gate, and the one that actually holds.
+     *
+     * The caller already checks `isContainerScreen`, but this function is the only thing that
+     * sends the `close` command, so the check lives here too: a future caller cannot reach the
+     * verb for a screen that is not a container. The previous version guarded with a denylist
+     * of human screens, which meant a screen outside that list was closable by default.
+     */
+    if (!ClientModBody.isContainerScreen(screen)) {
+      this.log.info(`${screen || 'that screen'} is not a container - waiting instead of closing it`);
       return false;
     }
-    this.log.info(`a game screen is open (${screen}) - closing it so the agent can move`);
+    this.log.info(`a container screen is open (${screen}) - closing it so the agent can move`);
     const res = await this.command('close').catch(() => null);
     if (!res || !res.ok) return false;
     const deadline = Date.now() + 1500;
@@ -898,7 +913,40 @@ class ClientModBody extends Body {
     return true;
   }
 
-  /** Close the open container, if any. */
+  /**
+   * Is this a screen the agent may close on its own?
+   *
+   * **An allowlist, deliberately.** The rule the operator set is "the text box and the Escape
+   * menu belong to me" - and the honest reading of that is *only a plain container is ours to
+   * close*. A denylist gets this backwards: anything it fails to recognise is treated as fair
+   * game, so a screen the list missed gets dismissed mid-sentence.
+   *
+   * **No screen that takes typed text may appear here.** An anvil, a sign and a book are all
+   * `ContainerScreen` subclasses in vanilla, and all three are places the player types - so
+   * matching `anvil`/`sign`/`book` would close exactly the screens this list exists to protect.
+   * They were in the first draft of this pattern, and the protocol test caught it. Anything
+   * added later has to pass the same question: can a human be mid-sentence here?
+   *
+   * Container screens are otherwise safe because their contents return to the inventory, so
+   * nothing is destroyed - and the agent only ever opens one itself (from the container,
+   * crafting and smelting skills) before closing it again.
+   *
+   * The name is the vanilla/Forge screen class name, which the mod reports verbatim.
+   */
+  static isContainerScreen(screen) {
+    const name = String(screen || '');
+    if (!name || name === 'null') return false;
+    return /(container|chest|furnace|smelt|craft|inventory|hopper|dispenser|dropper|shulker|barrel|brewing|beacon|enchant|grindstone|stonecutter|loom|cartography|smithing|merchant|villager|horse|minecart|boat|lectern|crafter)/i.test(
+      name
+    );
+  }
+
+  /**
+   * Close the open container, if any.
+   *
+   * Kept for the container/crafting skills, which open a menu themselves and must put it away.
+   * It is not a general "dismiss whatever is on screen": see `isContainerScreen`.
+   */
   async closeMenu() {
     const res = await this.command('close');
     return !!(res && res.ok);

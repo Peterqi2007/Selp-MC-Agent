@@ -141,10 +141,16 @@ const DEFAULTS = {
         fireOnRespawn: { enabled: true, cooldownMs: 15000 }
       }
     },
-    /** Death handling (P0-PLAN §7.1). */
+    /**
+     * Death handling (P0-PLAN §7.1).
+     *
+     * There is no `autoResume` key: recovering from a death is always an explicit human action
+     * (panel resume button, or `POST /command {"command":"resume"}`). Respawning must never
+     * restart work on its own, so the option is absent rather than switched off - a flag that
+     * can be enabled is a flag that eventually is.
+     */
     death: {
       detectIntervalMs: 500,
-      autoResume: false,
       alertConsole: true,
       alertPanel: true,
       alertStateFile: true

@@ -948,21 +948,49 @@ async function main() {
     return 'aborted on death, stayed stopped after respawn';
   });
 
-  await check('death: autoResume=true is the only automatic recovery', () => {
+  await check('death: nothing resumes work automatically, even if config asks for it', () => {
+    /**
+     * This check used to assert the opposite: that `autoResume: true` would resume. The
+     * operator's rule is that a respawn must never restart work, so the switch is gone.
+     *
+     * The test still passes the old config key deliberately. A stale config file on someone's
+     * disk must not be able to re-enable automatic recovery - the option has to be ignored, not
+     * merely undocumented.
+     */
     const calls = [];
     const ctx = {
-      cfg: { agent: { death: { autoResume: true } } },
+      cfg: { agent: { death: { autoResume: true } } }, // legacy key: must have no effect
+      // `ready: true` matters: tick() ignores a snapshot that is not ready, because a detached
+      // client is not a death.
       body: { snapshot: () => ({ ready: true, dead: true, position: { x: 0, y: 64, z: 0 } }) },
       log: silent,
-      brain: { preempt() {}, stopForDeath() {}, resumeFromDeath: () => calls.push('resumeFromDeath') },
+      /**
+       * The brain stub records what it was asked to do.
+       *
+       * The first version of this check stubbed `stopForDeath` as a no-op and then asserted that
+       * it had been called - which failed for the honest reason that nothing recorded it. An
+       * assertion about behaviour needs a stub that observes behaviour.
+       */
+      brain: {
+        preempt: () => calls.push('preempt'),
+        stopForDeath: () => calls.push('stopForDeath'),
+        resumeFromDeath: () => calls.push('resumeFromDeath')
+      },
       memory: { recordDeath() {}, save() {}, data: {} }
     };
     const watch = new DeathWatch(ctx, { log: silent });
+    if (watch.autoResume !== undefined) throw new Error('an autoResume flag is stored again');
     watch.tick();
+    if (!watch.dead) throw new Error('death was not detected');
+    if (!calls.includes('stopForDeath')) throw new Error('death did not stop the brain');
     ctx.body.snapshot = () => ({ ready: true, dead: false, position: { x: 0, y: 64, z: 0 } });
     watch.tick();
-    if (!calls.includes('resumeFromDeath')) throw new Error('autoResume=true should resume');
-    return 'resumed once alive again';
+    if (calls.includes('resumeFromDeath')) throw new Error('a respawn resumed work - recovery must be manual');
+    if (watch.status().autoResume !== false) throw new Error('status must report autoResume as impossible');
+    // The human path still works, or a death would be a dead end.
+    watch.resume();
+    if (!calls.includes('resumeFromDeath')) throw new Error('manual resume is broken');
+    return 'respawn ignores the legacy key; only an explicit resume restarts work';
   });
 
   await check('llm: the enum is the capability boundary (no command type exists)', () => {

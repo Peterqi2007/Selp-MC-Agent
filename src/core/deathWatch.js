@@ -34,7 +34,18 @@ class DeathWatch {
     this.log = options.log || new Logger('death');
     const cfgDeath = (ctx.cfg && ctx.cfg.agent && ctx.cfg.agent.death) || {};
     this.intervalMs = options.intervalMs || cfgDeath.detectIntervalMs || 500;
-    this.autoResume = options.autoResume === undefined ? !!cfgDeath.autoResume : options.autoResume;
+    /**
+     * There is deliberately no auto-resume.
+     *
+     * The operator's rule is that coming back from a death is a human decision, so respawning
+     * must never restart work on its own. An earlier version had an `autoResume` switch for it;
+     * the switch is gone rather than merely defaulted off, because a flag that can be turned on
+     * is a flag that will be turned on, and the failure it produces - the bot quietly walking
+     * back into whatever killed it - is exactly what "stop everything" was meant to prevent.
+     *
+     * Recovery is always explicit: the panel's resume button, or POST /command {"command":
+     * "resume"}, both of which land in `resume()` below.
+     */
     /**
      * The three alert landing spots from §4.4.3, each individually switchable.
      *
@@ -141,9 +152,13 @@ class DeathWatch {
   /**
    * The bot is alive again.
    *
-   * `autoResume` defaults to false and that is the point: the request was "abort
-   * everything on death", so coming back must be a human decision. When it is enabled the
-   * brain is un-stopped, which is the only place that ever happens automatically.
+   * Nothing is resumed here, and that is the whole contract: death stops every task, and coming
+   * back is a human decision (the panel's resume button or `POST /command {"command":"resume"}`).
+   * A bot that restarts itself walks straight back into whatever killed it.
+   *
+   * The post-respawn hook still fires, because re-authenticating is not "resuming" - an
+   * unauthenticated bot can neither move nor talk, so skipping it would leave the agent stuck in
+   * a state that looks healthy.
    */
   onRespawned(snap) {
     this.dead = false;
@@ -152,7 +167,6 @@ class DeathWatch {
      *
      * Most AuthMe servers drop the session on death, and an unauthenticated bot can neither
      * move nor talk - it just stands there while the console shows a healthy connection.
-     * The hook is called before the auto-resume branch so a login attempt always happens.
      */
     if (typeof this.onRespawn === 'function') {
       try {
@@ -160,11 +174,6 @@ class DeathWatch {
       } catch (err) {
         this.log.debug(`post-respawn hook threw: ${err.message}`);
       }
-    }
-    if (this.autoResume) {
-      if (this.ctx.brain && typeof this.ctx.brain.resumeFromDeath === 'function') this.ctx.brain.resumeFromDeath();
-      this.log.warn('bot respawned - auto-resume is ON, resuming tasks');
-      return;
     }
     this.log.warn('bot respawned - tasks remain STOPPED, resume manually (panel or !resume)');
   }
@@ -182,7 +191,11 @@ class DeathWatch {
       dead: this.dead,
       deaths: this.count,
       lastDeath: this.death,
-      autoResume: this.autoResume,
+      /**
+       * Reported as a constant so the panel can show the rule rather than a setting. There is
+       * no way to make recovery automatic, so there is nothing to configure.
+       */
+      autoResume: false,
       /**
        * `alertPanel` decides whether the panel *renders* the red banner. It is reported here
        * rather than hidden, so the panel can honour the operator's choice instead of always

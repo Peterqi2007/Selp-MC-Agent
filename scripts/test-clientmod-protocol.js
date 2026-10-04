@@ -686,6 +686,79 @@ function check(name, ok, detail) {
     const afterChat = await body.moveTo({ x: 3, y: 64, z: 0 }, { range: 2, timeoutMs: 5000 });
     check('closing the chat ourselves restores walking', afterChat === true, JSON.stringify(body.lastMove));
 
+    /**
+     * Screen ownership: only a container may be closed by the agent.
+     *
+     * The rule the operator set is "the text box and the Escape menu are mine". The first
+     * implementation was a denylist of known human screens, which gets the default backwards -
+     * anything it did not recognise was closed. That is how a text-input screen loses what the
+     * player was typing, and modded packs add those freely (anvil, sign, book, and whatever a
+     * pack invents). So: an allowlist of containers, everything else waits.
+     */
+    check(
+      'the allowlist accepts containers and refuses text/pause screens',
+      ClientModBody.isContainerScreen('ContainerScreen') &&
+        ClientModBody.isContainerScreen('ChestScreen') &&
+        ClientModBody.isContainerScreen('CraftingScreen') &&
+        ClientModBody.isContainerScreen('FurnaceScreen') &&
+        !ClientModBody.isContainerScreen('ChatScreen') &&
+        !ClientModBody.isContainerScreen('PauseScreen') &&
+        !ClientModBody.isContainerScreen('OptionsScreen') &&
+        // The ones a denylist would have missed, and the reason for the switch.
+        !ClientModBody.isContainerScreen('EditBookScreen') &&
+        !ClientModBody.isContainerScreen('SignEditScreen') &&
+        !ClientModBody.isContainerScreen('SomeModScreen') &&
+        !ClientModBody.isContainerScreen('null') &&
+        !ClientModBody.isContainerScreen(''),
+      'ContainerScreen yes; Chat/Pause/Options/EditBook/SignEdit/SomeMod no'
+    );
+
+    // The regression this switch exists for: a text-input screen must survive the walk attempt.
+    for (const [screen, why] of [
+      ['PauseScreen', 'the operator paused the game'],
+      ['OptionsScreen', 'the operator is in the settings'],
+      ['EditBookScreen', 'the operator is typing in a book'],
+      ['SignEditScreen', 'the operator is typing on a sign'],
+      ['AnvilScreen', 'the operator is naming an item'],
+      ['SomeModScreen', 'an unrecognised screen might be anything']
+    ]) {
+      const closesBefore = closeCommands;
+      body.chatWaitMs = 300;
+      world.screenOpen = true;
+      world.screen = screen;
+      await body.refresh(true);
+      const walked = await body.moveTo({ x: 30, y: 64, z: 0 }, { range: 1.5, timeoutMs: 1200 });
+      check(
+        `${screen} is left alone (${why})`,
+        walked === false && closeCommands === closesBefore && body.lastMove.reason === 'screen-open',
+        `walk=${walked} closes=${closeCommands - closesBefore}`
+      );
+    }
+
+    // A real container is still closed, so the agent is not paralysed by its own menu.
+    {
+      const closesBefore = closeCommands;
+      world.screenOpen = true;
+      world.screen = 'ChestScreen';
+      await body.refresh(true);
+      const walked = await body.moveTo({ x: 4, y: 64, z: 0 }, { range: 2, timeoutMs: 6000 });
+      check(
+        'a container screen is still closed so the walk can continue',
+        walked === true && closeCommands > closesBefore && world.screenOpen === false,
+        `walk=${walked} closes=${closeCommands - closesBefore}`
+      );
+    }
+
+    // `closeMenu()` is the skills' own path; it must not become a general dismiss either.
+    {
+      const closesBefore = closeCommands;
+      const ok = await body.closeMenu();
+      check('closeMenu() still issues the close verb for the container skills', ok === true && closeCommands > closesBefore, `ok=${ok}`);
+    }
+    world.screenOpen = false;
+    world.screen = 'null';
+    await body.refresh(true);
+
     const dug = await body.dig({ name: 'minecraft:stone', position: { x: 5, y: 64, z: 0 } }, { timeoutMs: 5000 });
     check('dig() polls until the block is gone', dug === true);
     await body.refresh(true);

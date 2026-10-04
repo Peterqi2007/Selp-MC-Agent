@@ -232,13 +232,34 @@ check('E: /ui/state is a summary, not the block scan', () => {
   return `${text.length} bytes with a 2000-cell world behind it`;
 });
 
-check('E: death handling aborts everything and does not auto-resume', () => {
+check('E: death handling aborts everything and recovery is manual only', () => {
   const watch = read('src/core/deathWatch.js');
   if (!/stopForDeath/.test(watch)) throw new Error('death does not stop the brain');
-  if (!/autoResume/.test(watch)) throw new Error('autoResume is not handled');
+  /**
+   * Recovery must not be automatic, and must not be *configurable* to be automatic either.
+   *
+   * This check used to require `autoResume` to exist and default to false. The operator's rule
+   * is stronger than that: a respawn must never restart work, so the switch is gone. What has to
+   * hold now is the absence of the machinery - no stored flag, and no call to resume from the
+   * respawn path.
+   */
+  if (/this\.autoResume/.test(watch)) throw new Error('an auto-resume flag came back');
+  /**
+   * Scope the check to the `onRespawned` method body.
+   *
+   * A character window is not good enough: `resume()` sits just below `onRespawned()` and both
+   * mention `resumeFromDeath` (as they should - that is the manual path), so "nearby text"
+   * matched the human path and reported the automatic one.
+   */
+  const respawn = watch.slice(watch.indexOf('onRespawned('), watch.indexOf('resume()'));
+  if (respawn.includes('resumeFromDeath')) {
+    throw new Error('the respawn path calls resumeFromDeath - that is an automatic recovery');
+  }
+  // The human path must still exist, or a death would be unrecoverable.
+  if (!/resume\(\)/.test(watch)) throw new Error('there is no manual resume any more');
   const cfg = JSON.parse(read('config/agent.json'));
-  if (cfg.death.autoResume !== false) throw new Error('autoResume must default to false');
-  return 'stopForDeath + alerts, autoResume=false';
+  if ('autoResume' in (cfg.death || {})) throw new Error('death.autoResume is back in the config - recovery is manual only');
+  return 'stopForDeath + alerts; resume is manual, and there is no flag to make it automatic';
 });
 
 check('E: the three-level priority queue exists', () => {
@@ -366,7 +387,7 @@ check('every config key the plan adds is actually consumed', () => {
     pathfinding: ['maxPathLength', 'replanEvery', 'nodeTimeoutMs', 'tickTimeoutMs', 'allowSwim', 'allowDig', 'waypointRange', 'stuckThreshold', 'jumpStreakLimit', 'maxSidesteps', 'trace'],
     chat: ['prefix', 'dialogueTrigger', 'pollIntervalMs', 'ignoreOtherChat', 'replyInGame', 'maxChars', 'minReplyGapMs'],
     proactive: ['enabled', 'intervalMs'],
-    death: ['detectIntervalMs', 'autoResume', 'alertConsole', 'alertPanel', 'alertStateFile'],
+    death: ['detectIntervalMs', 'alertConsole', 'alertPanel', 'alertStateFile'],
     web: ['bind', 'port'],
     safety: ['avoidManMade', 'requireNaturalTrees', 'requireLeaves', 'strictMining'],
     survival: ['allowWoodChopping', 'allowDirtDigging']
