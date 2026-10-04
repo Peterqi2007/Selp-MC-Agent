@@ -14,6 +14,7 @@
     "pcl:client": "node scripts/launch-client.js",
     "pcl:info": "node scripts/pcl-info.js",
     "selftest": "node scripts/selftest.js",
+    "verify:roleplay": "node scripts/verify-roleplay.js",
     "inspect": "node scripts/inspect-world.js",
     "diagnose": "node src/index.js --diagnose --no-status",
     "probe": "node scripts/probe.js",
