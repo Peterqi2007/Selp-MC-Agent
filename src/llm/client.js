@@ -121,11 +121,23 @@ class LlmClient {
         return {
           ok: true,
           text: typeof text === 'string' ? text : '',
+          /**
+           * Thinking-mode providers (observed with DeepSeek's `deepseek-flash`) require the
+           * assistant message's `reasoning_content` to be replayed together with the tool
+           * results; dropping it makes the follow-up request answer `HTTP 400
+           * (reasoning_content ... must be passed back)` or return an empty completion.
+           * Optional on purpose: providers that never send the field never see it either.
+           */
+          reasoning:
+            typeof message.reasoning_content === 'string' && message.reasoning_content
+              ? message.reasoning_content
+              : null,
           toolCalls: toolCalls.map((call) => ({
             id: call.id,
             name: call.function ? call.function.name : call.name,
             arguments: call.function ? call.function.arguments : call.arguments
           })),
+          finishReason: choice ? choice.finish_reason : null,
           usage,
           model: payload.model || this.model
         };
@@ -134,9 +146,20 @@ class LlmClient {
       if (typeof text !== 'string') {
         this.stats.failures += 1;
         this.stats.lastError = 'response contained no message content';
-        return { ok: false, reason: 'no message content in the response' };
+        return {
+          ok: false,
+          reason: 'no message content in the response',
+          finishReason: choice ? choice.finish_reason : null
+        };
       }
-      return { ok: true, text, toolCalls: [], usage, model: payload.model || this.model };
+      return {
+        ok: true,
+        text,
+        toolCalls: [],
+        finishReason: choice ? choice.finish_reason : null,
+        usage,
+        model: payload.model || this.model
+      };
     } catch (err) {
       this.stats.failures += 1;
       const aborted = err && (err.name === 'AbortError' || /abort/i.test(err.message || ''));

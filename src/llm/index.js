@@ -285,20 +285,48 @@ class LlmCore {
       const baseMessages = buildMessages({ text, speaker, history, followUp });
       const system = systemPrompt(this.ctx, this.cfg);
 
-      const res = await this.client.complete({
-        system,
-        messages: baseMessages,
-        timeoutMs,
-        maxTokens: 400,
-        /**
-         * Tools are offered only when the provider can act on them.
-         *
-         * A provider that ignores `tools` still answers with plain JSON, so offering them is
-         * safe; what is *not* safe is assuming a tool call happened when it did not, which is
-         * why the loop below re-asks for the intent either way.
-         */
-        tools: this.toolsEnabled ? toolRegistry.toOpenAiTools(this.ctx) : undefined
-      });
+      /**
+       * One model call, with a retry that only thinking-mode providers need.
+       *
+       * `deepseek-flash` reasons inside the completion budget. Observed live: after a
+       * two-tool round the follow-up spent the whole 400-token budget on reasoning and
+       * returned `content: ""` with `finish_reason: "length"` - which the parser then
+       * reported as "empty response". One retry with a doubled budget is cheaper than
+       * failing a round that almost worked; the budget itself is now 1200 so the common
+       * case never needs the retry. Tokens from both attempts are returned for accounting.
+       */
+      const callModel = async (messages, tools) => {
+        const attempt = (maxTokens) =>
+          this.client.complete({
+            system,
+            messages,
+            timeoutMs,
+            maxTokens,
+            /**
+             * Tools are offered only when the provider can act on them.
+             *
+             * A provider that ignores `tools` still answers with plain JSON, so offering them
+             * is safe; what is *not* safe is assuming a tool call happened when it did not,
+             * which is why the loop below re-asks for the intent either way.
+             */
+            tools
+          });
+        let res = await attempt(1200);
+        let tokens = (res.ok && res.usage && res.usage.total_tokens) || 0;
+        if (res.ok && !(res.toolCalls || []).length && !String(res.text || '').trim() && res.finishReason === 'length') {
+          this.trace({ kind: 'model-retry', reason: 'empty answer with finish_reason=length', from: 1200, to: 2400 });
+          const retry = await attempt(2400);
+          tokens += (retry.ok && retry.usage && retry.usage.total_tokens) || 0;
+          res = retry;
+        }
+        return { res, tokens };
+      };
+
+      const first = await callModel(
+        baseMessages,
+        this.toolsEnabled ? toolRegistry.toOpenAiTools(this.ctx) : undefined
+      );
+      const res = first.res;
       const ms = Date.now() - started;
 
       if (!res.ok) {
@@ -306,8 +334,8 @@ class LlmCore {
         return { ok: false, reason: res.reason, ms };
       }
 
-      this.tokensToday += (res.usage && res.usage.total_tokens) || 0;
-      const tokens = (res.usage && res.usage.total_tokens) || 0;
+      this.tokensToday += first.tokens;
+      const tokens = first.tokens;
 
       /**
        * Bounded tool round (P0-PLAN §5.3).
@@ -319,25 +347,47 @@ class LlmCore {
        * what it learned, and then the intent is whatever it produces.
        */
       if (res.toolCalls && res.toolCalls.length) {
-        const used = await this.runToolCalls(res.toolCalls, { id: null, source: 'llm', speaker });
-        const second = await this.client.complete({
-          system,
-          messages: [...baseMessages, ...used.messages],
-          timeoutMs,
-          maxTokens: 400
+        const used = await this.runToolCalls(res.toolCalls, {
+          id: null,
+          source: 'llm',
+          speaker,
+          /**
+           * Carry the thinking-mode reasoning back with the tool results. DeepSeek's
+           * `deepseek-flash` rejects the follow-up (or answers empty) when the assistant's
+           * `reasoning_content` is missing; other providers never set the field.
+           */
+          reasoning: res.reasoning || null
         });
-        this.tokensToday += (second.ok && second.usage && second.usage.total_tokens) || 0;
+        const secondAttempt = await callModel([...baseMessages, ...used.messages], undefined);
+        const second = secondAttempt.res;
+        this.tokensToday += secondAttempt.tokens;
         if (!second.ok) {
           this.trace({ kind: 'model-error', reason: second.reason, afterTools: true, ms: Date.now() - started });
-          return { ok: false, reason: `${second.reason} (after ${used.calls.length} tool call(s))`, ms: Date.now() - started, toolCalls: used.calls };
+          return {
+            ok: false,
+            reason: `${second.reason} (after ${used.calls.length} tool call(s))`,
+            ms: Date.now() - started,
+            toolCalls: used.calls
+          };
         }
         const parsedAfter = parseIntent(second.text);
         if (!parsedAfter.ok) {
           this.trace({ kind: 'model-invalid', reason: parsedAfter.reason, afterTools: true, raw: String(second.text).slice(0, 300) });
-          return { ok: false, reason: `invalid intent: ${parsedAfter.reason}`, ms: Date.now() - started, toolCalls: used.calls };
+          return {
+            ok: false,
+            reason: `invalid intent: ${parsedAfter.reason}`,
+            ms: Date.now() - started,
+            toolCalls: used.calls
+          };
         }
         this.trace({ kind: 'tool-round', calls: used.calls, ms: Date.now() - started });
-        return { ok: true, intent: parsedAfter.intent, ms: Date.now() - started, tokens, toolCalls: used.calls };
+        return {
+          ok: true,
+          intent: parsedAfter.intent,
+          ms: Date.now() - started,
+          tokens: tokens + secondAttempt.tokens,
+          toolCalls: used.calls
+        };
       }
 
       const parsed = parseIntent(res.text);
@@ -359,14 +409,35 @@ class LlmCore {
    * call log is returned for the trace and the panel.
    *
    * @param {Array<{id:string,name:string,arguments:any}>} calls
-   * @param {object} context { id, source, speaker }
+   * @param {object} context { id, source, speaker, reasoning }
    */
   async runToolCalls(calls, context = {}) {
     const limit = (this.cfg.limits && this.cfg.limits.maxToolCallsPerTurn) || 4;
+    const selected = calls.slice(0, limit);
     const messages = [];
     const log = [];
 
-    for (const call of calls.slice(0, limit)) {
+    /**
+     * One assistant message carrying every tool call, then one tool result per call - the
+     * OpenAI/DeepSeek protocol shape. (`reasoning_content` must ride on this same message
+     * for thinking-mode providers; see LlmClient.complete.)
+     */
+    const assistantMessage = {
+      role: 'assistant',
+      content: null,
+      tool_calls: selected.map((call) => ({
+        id: call.id || call.name,
+        type: 'function',
+        function: {
+          name: call.name,
+          arguments: typeof call.arguments === 'string' ? call.arguments : JSON.stringify(call.arguments || {})
+        }
+      }))
+    };
+    if (context.reasoning) assistantMessage.reasoning_content = context.reasoning;
+    messages.push(assistantMessage);
+
+    for (const call of selected) {
       const result = await toolRegistry.call(this.ctx, call.name, call.arguments, {
         source: 'llm',
         speaker: context.speaker
@@ -378,11 +449,6 @@ class LlmCore {
         failure: result.failure || null,
         hint: result.hint || null,
         kind: result.kind || null
-      });
-      messages.push({
-        role: 'assistant',
-        content: null,
-        tool_calls: [{ id: call.id || call.name, type: 'function', function: { name: call.name, arguments: typeof call.arguments === 'string' ? call.arguments : JSON.stringify(call.arguments || {}) } }]
       });
       messages.push({
         role: 'tool',
@@ -397,9 +463,10 @@ class LlmCore {
 
     if (calls.length > limit) {
       log.push({ name: '(truncated)', ok: false, error: `${calls.length} calls, only ${limit} allowed per turn` });
+      // A plain note, not an orphan tool message: the provider requires every tool_call to
+      // have a matching result, and the dropped calls were never declared to the model.
       messages.push({
-        role: 'tool',
-        tool_call_id: 'limit',
+        role: 'user',
         content: JSON.stringify({
           error: `only ${limit} tool calls per turn are allowed`,
           failure: 'bad_argument',

@@ -402,3 +402,25 @@ actuator、工具注册表三处给失败结果补上 `{failure, hint}`，工具
 东 = +x 在右，`@ . ^ , v # T ~ ! x ?`），语义 pooling、岩浆邻格做膨胀缓冲、未加载格 `?`，
 网格用与寻路同一份 `body.blockAt`，绝不把未知当空气。纯函数渲染器离线可测；`llm:dry` 增加
 网格与符号断言，工具白名单从 7 个变成 8 个（read-only 3 → 4）。
+
+### 9.5 真机验证（2026-10-04，agent + Forge 客户端 + mc.example.com）
+
+| 项 | 结果 | 证据 |
+| --- | --- | --- |
+| A 能力表 | ✅ | `/llm` 30 条无重名；`fish` 单条且可用；`light/store/hunt` = no（mineflayer-only）；模型答"可以钓鱼，背包里正好有竿"（via llm，4387 tokens） |
+| B 失败回执 | ✅ | 真机工具层：`attack` 无目标 → `target_lost` + hint；`withdraw` 缺参 → `bad_argument` + hint；`moveTo` 实心格 → `lastMove.reason=noPath` → `no_path` + hint |
+| C 停牌表 | ✅ | `!stop` → `holdReason=owner-stop`（停止前规划器每 2.5s 重规划挖石，停后 10 秒零动作）；停牌中显式 `!mine dirt 2` 照跑（收 6 块）；`!resume` → holds 清空 |
+| D 感知网格 | ✅ | 水边 17×17：`~`×77 水、`^`×48 坡、`#`×58 建筑、`T`×2 树、无 `?`；模型（工具轮）调用 `scan_around` 后答"北边有几棵树，再往西北是一大片水" |
+
+> 模型侧两项（B 的 receipt、D 的模型用网格）在探针里以 `toolCalling: true` 运行并用真实模型；
+> 生产配置 `config/llm.json` 仍是 `toolCalling: false`，是否开启由操作员决定——关着时模型不会调用任何工具。
+
+真机暴露并修掉的两个问题（都属于"离线测试看不见"的一类）：
+
+1. **思考模式要求回传 `reasoning_content`**：`deepseek-flash` 返回的 assistant 消息带 `reasoning_content`，
+   工具结果回放时必须原样带上，否则第二跳 HTTP 400（`reasoning_content ... must be passed back`）或空响应。
+   修复：`LlmClient` 返回 `reasoning`，`runToolCalls` 的 assistant 消息携带 `reasoning_content`，并把消息形状
+   改成标准的一条 assistant（含全部 tool_calls）+ 每条一个 tool 结果。
+2. **思考推理吃掉 completion 预算**：两个工具轮后第二跳 `finish_reason=length`、content 为空。修复：单次预算
+   400 → 1200，空答案且 `finish_reason=length` 时翻倍（2400）重试一次；`llm:dry` 新增"reasoning 回传"与
+   "预算重试"两条断言（tools 34 → 37）。

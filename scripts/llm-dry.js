@@ -385,7 +385,14 @@ function matches(action, expect) {
   // ---- 6. a bounded tool round, end to end --------------------------------
   process.stdout.write('\n6. a model that looks before it decides (bounded tool round)\n');
   const toolScript = [
-    { ok: true, text: '', toolCalls: [{ id: 'call_1', name: 'observe', arguments: '{}' }], usage: { total_tokens: 12 } },
+    {
+      ok: true,
+      text: '',
+      toolCalls: [{ id: 'call_1', name: 'observe', arguments: '{}' }],
+      // Thinking-mode providers return this and require it back on the follow-up request.
+      reasoning: 'I should look at the world before deciding.',
+      usage: { total_tokens: 12 }
+    },
     {
       ok: true,
       text: '{"say":"看到 3 根木头喵","action":{"type":"task","task":"chop","args":{"count":3}}}',
@@ -396,9 +403,11 @@ function matches(action, expect) {
     configured: true,
     model: 'fake-model',
     baseUrl: 'http://fake',
+    requests: [],
     stats: { calls: 0, failures: 0, promptTokens: 0, completionTokens: 0, totalTokens: 0, lastError: null },
-    async complete() {
+    async complete(request) {
       this.stats.calls += 1;
+      this.requests.push(request);
       return script.length > 1 ? script.shift() : script[0];
     },
     describe() {
@@ -433,6 +442,26 @@ function matches(action, expect) {
     dispatched.length === 1 && dispatched[0].line === 'chop 3' && dispatched[0].source === 'llm',
     JSON.stringify(dispatched)
   );
+  /**
+   * Thinking-mode providers (DeepSeek `deepseek-flash`) reject the follow-up request when
+   * the assistant's `reasoning_content` is missing, so the replay must carry it verbatim.
+   * Found live: the tool round failed with `HTTP 400` / an empty completion.
+   */
+  const followUpRequest = toolClient.requests[1] || { messages: [] };
+  const assistantToolMessage = followUpRequest.messages.find((m) => m.role === 'assistant' && Array.isArray(m.tool_calls));
+  tcheck(
+    'the tool replay passes thinking-mode reasoning back',
+    !!assistantToolMessage && assistantToolMessage.reasoning_content === 'I should look at the world before deciding.',
+    JSON.stringify(assistantToolMessage ? { reasoning: !!assistantToolMessage.reasoning_content, calls: assistantToolMessage.tool_calls.length } : null)
+  );
+  tcheck(
+    'every declared tool call has exactly one matching tool result',
+    !!assistantToolMessage &&
+      assistantToolMessage.tool_calls.length === 1 &&
+      followUpRequest.messages.filter((m) => m.role === 'tool').length === 1 &&
+      followUpRequest.messages.find((m) => m.role === 'tool').tool_call_id === assistantToolMessage.tool_calls[0].id,
+    JSON.stringify(followUpRequest.messages.map((m) => m.role))
+  );
   tcheck('two model calls were made (tool round + decision)', toolClient.stats.calls === 2, `${toolClient.stats.calls} calls`);
 
   const loopingClient = fakeTransport([]);
@@ -446,6 +475,27 @@ function matches(action, expect) {
     'a model stuck in a tool loop still gets an answer (the round is bounded)',
     loopRecord.via === 'fallback' && !!loopRecord.action && /mine/.test(loopRecord.action),
     `via=${loopRecord.via}, action=${loopRecord.action}, calls=${loopingClient.stats.calls}`
+  );
+
+  /**
+   * Thinking-mode budget retry. Live evidence (deepseek-flash): after a two-tool round the
+   * follow-up spent the whole completion budget on reasoning and returned `content: ""`
+   * with `finish_reason: "length"`. The core must retry once with a doubled budget instead
+   * of reporting "empty response".
+   */
+  const retryClient = fakeTransport([
+    { ok: true, text: '', finishReason: 'length', usage: { total_tokens: 11 } },
+    { ok: true, text: '{"say":"好了","action":null}', finishReason: 'stop', usage: { total_tokens: 7 } }
+  ]);
+  const retryCore = new LlmCore(roundCtx, { ...llmCfg, enabled: true, toolCalling: false }, { log, client: retryClient });
+  const retryRecord = await retryCore.handle('你好', { source: 'chat', speaker: '玩家' });
+  tcheck(
+    'an empty answer with finish_reason=length is retried with a doubled budget',
+    retryRecord.via === 'llm' &&
+      retryClient.stats.calls === 2 &&
+      retryClient.requests[0].maxTokens === 1200 &&
+      retryClient.requests[1].maxTokens === 2400,
+    `calls=${retryClient.stats.calls}, budgets=${retryClient.requests.map((r) => r.maxTokens).join('->')}, via=${retryRecord.via}`
   );
 
   // ---- 7. the assembled prompt -------------------------------------------
