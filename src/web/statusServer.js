@@ -30,6 +30,7 @@ const { inventorySummary } = require('../world/items');
 const { countTrace } = require('../util/trace');
 const { PANEL_HTML, PANEL_JS } = require('./panel');
 const { Logger } = require('../util/logger');
+const { resolveTrigger, personaForConfig } = require('../llm/persona');
 
 function startStatusServer(ctx, options = {}) {
   const log = new Logger('http');
@@ -238,16 +239,20 @@ function startStatusServer(ctx, options = {}) {
         /**
          * Route the panel exactly like the in-game channels do.
          *
-         * In game, `!cmd` goes to the deterministic command table and `@猫娘 ...` goes to
-         * the LLM. The panel used to send everything to the command table, so the most
-         * natural thing a user types - `@猫娘 挖点土` - answered "unknown command @猫娘"
-         * and never reached the model. A leading `!` is tolerated here as well, because
-         * people paste the in-game form into the box.
+         * In game, `!cmd` goes to the deterministic command table and `<trigger> ...` goes to
+         * the LLM. The panel used to send everything to the command table, so the most natural
+         * thing a user types - `@大肥鱼 挖点土` - answered "unknown command @大肥鱼" and never
+         * reached the model. A leading `!` is tolerated here as well, because people paste the
+         * in-game form into the box.
+         *
+         * The trigger is resolved through `resolveTrigger` rather than read from the config
+         * directly: both this file and the chat listener need it, and two independent
+         * hardcoded fallbacks is how the panel ends up routing a dead trigger after a
+         * character swap.
          */
         const trimmed = String(line).trim();
-        const trigger =
-          (ctx.cfg && ctx.cfg.agent && ctx.cfg.agent.chat && ctx.cfg.agent.chat.dialogueTrigger) || '@猫娘';
-        if (trimmed.startsWith(trigger) && ctx.llm && typeof ctx.llm.handle === 'function') {
+        const trigger = resolveTrigger(ctx, { log });
+        if (trigger && trimmed.startsWith(trigger) && ctx.llm && typeof ctx.llm.handle === 'function') {
           const utterance = trimmed.slice(trigger.length).trim();
           const snap = ctx.body && typeof ctx.body.snapshot === 'function' ? ctx.body.snapshot() : null;
           const record = await ctx.llm.handle(utterance, {
@@ -315,12 +320,25 @@ function uiState(ctx) {
   const world = ctx.world && ctx.world.summary ? ctx.world.summary() : { ready: false };
   const brain = ctx.brain ? ctx.brain.status() : { running: false };
   const cfg = (ctx.cfg && ctx.cfg.agent) || {};
+  // Resolved once here: the panel shows which character is loaded, and a failed load is
+  // otherwise invisible (the bot just answers out of character).
+  const character = personaForConfig(ctx);
   const pathFile = (cfg.pathfinding && cfg.pathfinding.trace) || 'runtime/path-trace.jsonl';
   const llmFile = (ctx.cfg && ctx.cfg.llm && ctx.cfg.llm.trace && ctx.cfg.llm.trace.file) || 'runtime/llm-trace.jsonl';
 
   return {
     identity: {
       name: (cfg.bot && cfg.bot.username) || 'agent',
+      /**
+       * The character sheet's name, shown next to the account name.
+       *
+       * They are usually different (`agent` the account, 大肥鱼 the character) and the operator
+       * needs to see which persona is loaded - a persona file that silently failed to load is
+       * otherwise invisible until the bot says something out of character.
+       */
+      character: character.name,
+      characterLoaded: !!character.loaded,
+      trigger: resolveTrigger(ctx),
       bodyKind: bodyKind(ctx),
       bodyReady: isAlive(ctx)
     },

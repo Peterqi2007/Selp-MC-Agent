@@ -24,7 +24,7 @@
  */
 
 const { LlmClient } = require('./client');
-const { systemPrompt, buildMessages, capabilities } = require('./blackboard');
+const { systemPrompt, buildMessages, capabilities, personaFor } = require('./blackboard');
 const { parseIntent, describeIntent } = require('./intent');
 const fallbackRouter = require('./fallbackRouter');
 const toolRegistry = require('./tools/registry');
@@ -112,29 +112,69 @@ class LlmCore {
 
   /**
    * Subscribe to task events so a long job can be reported when it finishes (§5.6).
-   * Only tasks the LLM itself dispatched wake it - the planner's own work stays invisible.
+   *
+   * Two different reactions, and the distinction is the core of the role-play design:
+   *
+   *  - A task the LLM itself dispatched wakes turn 2 of *that player request* (report back).
+   *  - Any other player-facing task (from `!chop 8`, or the panel) is announced proactively:
+   *    the player asked for the work, so hearing "done" is expected rather than noise.
+   *    The planner's own work (`source: 'autonomous'`) is ignored - nobody asked for it.
    */
   attachTo(brain) {
     this.brain = brain;
     if (!brain || typeof brain.on !== 'function') return;
-    brain.on('task:done', (info) => this.onTaskFinished(info, true));
-    brain.on('task:failed', (info) => this.onTaskFinished(info, false));
+    brain.on('task:done', (info) => {
+      if (!this.onTaskFinished(info, true)) this.announceFinished(info, true);
+    });
+    brain.on('task:failed', (info) => {
+      if (!this.onTaskFinished(info, false)) this.announceFinished(info, false);
+    });
   }
 
+  /**
+   * @returns {boolean} true when the event was consumed as a follow-up to an LLM request
+   */
   onTaskFinished(info, ok) {
-    if (!info || info.source !== 'llm') return;
+    if (!info || info.source !== 'llm') return false;
     const request = [...this.requests.values()].find((r) => r.turns >= 1 && !r.closed);
     if (!request) {
       this.trace({ kind: 'wake-refused', reason: 'no originating player request', task: info.name });
-      return;
+      return false;
     }
     if (request.turns >= (this.cfg.limits && this.cfg.limits.maxTurnsPerRequest ? this.cfg.limits.maxTurnsPerRequest : 2)) {
       this.trace({ kind: 'wake-refused', reason: 'turn budget for this request is spent', task: info.name });
       this.closeRequest(request.id, 'turn-budget');
-      return;
+      return false;
     }
     request.turns += 1;
     this.followUp(request, info, ok).catch((err) => this.log.debug(`follow-up failed: ${err.message}`));
+    return true;
+  }
+
+  /**
+   * "Finished the job" line for work that came from a player channel but not from an LLM turn.
+   *
+   * Replaces the plain template the index used to send (`chop 搞定: ...`), which read like a
+   * log line rather than a character speaking and contradicted the persona file's whole point.
+   * Now the model writes the sentence in character, and the template survives only as the
+   * fallback for when the model is unavailable.
+   */
+  announceFinished(info, ok) {
+    if (!info || info.source === 'autonomous') return null;
+    const proactive = (this.ctx.cfg.agent && this.ctx.cfg.agent.proactive) || {};
+    const trigger = (proactive.triggers && proactive.triggers.taskDone) || {};
+    if (proactive.enabled === false || trigger.enabled === false) return null;
+    // A failure announcement is opt-out, because a silent failure looks like a stuck bot.
+    if (!ok && trigger.alsoOnFailure === false) return null;
+
+    const detail = `${info.description || info.name}${info.reason ? ` - ${String(info.reason).slice(0, 60)}` : ''}`;
+    // Returns the promise so the caller (and the tests) can await the utterance. It is
+    // deliberately not awaited inside `attachTo` - a chat line must never block the brain's
+    // event handler, which the task queue owns.
+    return this.speakUp('taskDone', { detail, taskOk: ok, taskName: info.name }).catch((err) => {
+      this.log.debug(`task announcement failed: ${err.message}`);
+      return null;
+    });
   }
 
   /**
@@ -381,12 +421,140 @@ class LlmCore {
       if (result.intent.say) await this.say(result.intent.say, { why: 'task follow-up' });
     } else {
       // Fallback for the report: a plain, factual sentence beats silence.
-      const verb = ok ? '搞定' : '没做成';
-      await this.say(`${info.name} ${verb}喵: ${String(info.reason || '').slice(0, 60)}`);
+      await this.say(await this.fallbackLine({ kind: 'taskDone', detail: info.name, taskOk: ok }), { why: 'task follow-up (template)' });
     }
     this.remember(record);
     this.trace(record);
     this.closeRequest(request.id, 'reported');
+  }
+
+  /**
+   * Speak without being spoken to - the role-play path.
+   *
+   * This is the one place the model produces speech with **no player turn behind it**, so it
+   * is also the most dangerous: a model given freedom here can invent a request, promise work,
+   * or narrate a world it has not observed. Three things keep it contained:
+   *
+   *  1. **Speech only, enforced in code.** Whatever the model returns, only `intent.say` is
+   *     used; any `action` is dropped and traced. "The bot decided to go mining on its own" is
+   *     therefore not a prompt-wording risk, it is impossible.
+   *  2. **The prompt says so too** (`proactiveNote`), because a model that is told the rules
+   *     wastes fewer turns trying to break them.
+   *  3. **A deterministic fallback sentence**, so a missing key, a timeout or a malformed
+   *     answer still produces a line. A hungry bot that says nothing is worse than one that
+   *     says something plain - the whole point of the trigger is to be noticed.
+   *
+   * @param {'taskDone'|'hungry'|'lowHealth'|'respawn'} kind
+   * @param {object} [data] { detail, taskOk, taskName }
+   * @returns {Promise<{ok:boolean, via:string, said:string|null, reason?:string}>}
+   */
+  async speakUp(kind, data = {}) {
+    const event = { kind, detail: data.detail || '', taskOk: data.taskOk, taskName: data.taskName || null };
+    const record = { kind: 'proactive', trigger: kind, at: new Date().toISOString(), detail: event.detail || null };
+
+    if (!this.enabled || this.budgetExceeded) {
+      const line = await this.fallbackLine(event);
+      record.via = 'template';
+      record.reason = this.enabled ? 'token budget' : this.disabledReason;
+      record.said = line;
+      record.spoken = await this.say(line, { why: `proactive:${kind}`, force: true });
+      this.remember(record);
+      this.trace(record);
+      return { ok: true, via: 'template', said: line, spoken: record.spoken };
+    }
+
+    let said = null;
+    let via = 'template';
+    let reason = null;
+
+    if (this.turnsInFlight < ((this.cfg.limits && this.cfg.limits.concurrentTurns) || 1)) {
+      this.turnsInFlight += 1;
+      const started = Date.now();
+      try {
+        const system = systemPrompt(this.ctx, this.cfg);
+        // No, or stale, player history: an unprompted line should be about *now*, and feeding
+        // old player messages would invite the model to answer a conversation that has ended.
+        const res = await this.client.complete({
+          system,
+          messages: buildMessages({ proactive: event }),
+          timeoutMs: (this.cfg.timeouts && this.cfg.timeouts.proactiveMs) || 6000,
+          maxTokens: 120
+        });
+        this.tokensToday += (res.ok && res.usage && res.usage.total_tokens) || 0;
+        record.tokens = (res.ok && res.usage && res.usage.total_tokens) || 0;
+        record.ms = Date.now() - started;
+
+        if (res.ok) {
+          const parsed = parseIntent(res.text);
+          if (parsed.ok && parsed.intent.say) {
+            said = parsed.intent.say;
+            via = 'llm';
+            if (parsed.intent.action) {
+              record.actionDropped = describeIntent(parsed.intent);
+              this.trace({ kind: 'proactive-action-refused', reason: 'unprompted turns may only speak', action: record.actionDropped });
+            }
+          } else {
+            reason = parsed.ok ? 'model said nothing' : `invalid intent: ${parsed.reason}`;
+            this.trace({ kind: 'model-invalid', proactive: kind, reason, raw: String(res.text).slice(0, 200) });
+          }
+        } else {
+          reason = res.reason;
+          this.trace({ kind: 'model-error', proactive: kind, reason, ms: record.ms });
+        }
+      } catch (err) {
+        reason = err.message;
+      } finally {
+        this.turnsInFlight -= 1;
+      }
+    } else {
+      reason = 'another turn is already running';
+    }
+
+    if (!said) {
+      said = await this.fallbackLine(event);
+      via = 'template';
+    }
+    record.via = via;
+    record.reason = reason;
+    record.said = said;
+    const spoke = await this.say(said, { why: `proactive:${kind}`, force: true });
+    record.spoken = spoke;
+    this.remember(record);
+    this.trace(record);
+    this.log.info(`proactive[${kind}] (${via}): ${said}`);
+    return { ok: true, via, said, reason };
+  }
+
+  /**
+   * The sentence used when the model cannot speak (no key, timeout, bad JSON, budget spent).
+   *
+   * Deliberately *not* a generic "something happened" line: the trigger exists to be noticed,
+   * so the fallback has to carry the one fact that matters. It reads off the live state rather
+   * than the persona, because it must work with no model and no persona file at all.
+   */
+  async fallbackLine(event) {
+    const persona = personaFor(this.ctx, this.cfg);
+    const name = persona.name || '我';
+    const snap = this.ctx.body && this.ctx.body.snapshot ? this.ctx.body.snapshot() : null;
+    const at = snap && snap.position ? `${Math.round(snap.position.x)},${Math.round(snap.position.y)},${Math.round(snap.position.z)}` : '未知位置';
+    const limit = (this.ctx.cfg.agent && this.ctx.cfg.agent.chat && this.ctx.cfg.agent.chat.maxChars) || 100;
+    const cut = (s) => (s.length > limit ? `${s.slice(0, Math.max(1, limit - 1))}…` : s);
+
+    switch (event.kind) {
+      case 'hungry':
+        return cut(`${name}肚子饿了，身上一点吃的都没有，谁能给我点食物？`);
+      case 'lowHealth':
+        return cut(`${name}快撑不住了，血量只剩 ${snap && snap.health !== undefined ? snap.health : '?'}，我在 ${at}，救命！`);
+      case 'respawn':
+        return cut(`${name}刚刚死掉了，现在在 ${at} 复活了。`);
+      case 'taskDone':
+      default:
+        return cut(
+          event.taskOk === false
+            ? `${name}没做成：${event.detail || '任务失败'}`
+            : `${name}搞定了：${event.detail || '任务完成'}`
+        );
+    }
   }
 
   /**

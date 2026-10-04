@@ -34,7 +34,7 @@ const ROOT = path.resolve(__dirname, '..');
 const DEFAULTS = {
   host: '127.0.0.1',
   port: 8765,
-  botPlayerName: 'AgentSteve',
+  botPlayerName: 'agent',
   timeoutMs: 3000,
 };
 

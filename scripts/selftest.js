@@ -1060,8 +1060,16 @@ async function main() {
     const { systemPrompt, capabilities, listCapabilities } = require(path.join(ROOT, 'src/llm/blackboard'));
     const ctx = { body: { kind: 'clientmod', supportsCrafting: false }, world: { snapshot: () => null }, brain: { status: () => ({ current: null }) } };
     const prompt = systemPrompt(ctx, { persona: { name: 'X' } });
-    if (!/cannot speak unless the player spoke to you/i.test(prompt)) throw new Error('the no-unprompted-speech rule is missing from the prompt');
     if (!/CAPABILITIES/.test(prompt)) throw new Error('capability table missing');
+    /**
+     * The prompt must state the say/action agreement rule.
+     *
+     * This replaced an assertion that the prompt forbids unprompted speech. That rule was
+     * removed on purpose: role play requires the bot to speak up on its own, so the guarantee
+     * moved from prompt wording to code (`LlmCore.speakUp` drops any action an unprompted turn
+     * proposes). Asserting the old sentence here would lock the feature out.
+     */
+    if (!/`say` and `action` must agree/i.test(prompt)) throw new Error('the say/action agreement rule is missing');
     // Tools are advertised only when they can actually be called, or the model answers with
     // a tool-call-shaped object that fails the intent schema.
     if (/TOOLS \(/.test(prompt)) throw new Error('tools must not be advertised when toolCalling is off');
@@ -1069,8 +1077,205 @@ async function main() {
     const caps = capabilities(ctx);
     const craft = caps.find((c) => c.name === 'craft');
     if (craft.available) throw new Error('craft must read unavailable on a body that cannot craft');
+    const say = caps.find((c) => c.name === 'say');
+    if (!say || !say.available) throw new Error('say must read available now that proactive speech exists');
     if (listCapabilities(ctx).length !== caps.length) throw new Error('list_capabilities() must mirror capabilities()');
     return `${prompt.length} chars, craft correctly unavailable`;
+  });
+
+  await check('llm: an unprompted turn is told to speak and nothing else', () => {
+    const { buildMessages, proactiveNote } = require(path.join(ROOT, 'src/llm/blackboard'));
+    for (const kind of ['taskDone', 'hungry', 'lowHealth', 'respawn']) {
+      const note = proactiveNote({ kind, detail: 'chop 8', taskOk: true });
+      if (!/Nobody spoke to you/i.test(note)) throw new Error(`${kind}: the note must say no player turn exists`);
+      if (!/action` to null/i.test(note)) throw new Error(`${kind}: the note must forbid acting`);
+    }
+    if (!/hungry/i.test(proactiveNote({ kind: 'hungry' }))) throw new Error('the hungry note must name the state');
+    if (!/hurt/i.test(proactiveNote({ kind: 'lowHealth' }))) throw new Error('the lowHealth note must name the danger');
+    const msgs = buildMessages({ proactive: { kind: 'hungry' } });
+    if (msgs.length !== 1 || msgs[0].role !== 'user') throw new Error('a proactive turn is one user message');
+    // A reactive turn must NOT carry the unprompted wording, or the model stops answering.
+    const reactive = buildMessages({ text: '砍点树', speaker: '玩家' });
+    if (/Nobody spoke to you/i.test(reactive[0].content)) throw new Error('a player turn must not look unprompted');
+    return '4 trigger notes forbid acting; reactive turns unaffected';
+  });
+
+  await check('llm: the persona file drives the prompt, name and trigger', () => {
+    const { parseFrontmatter, stripAuthorNotes } = require(path.join(ROOT, 'src/llm/persona'));
+    // A fixture rather than the live config/persona.md: the operator edits that file, and a
+    // test that breaks when they rewrite their character sheet is worse than useless.
+    const fixture = [
+      '---',
+      'schema: 1',
+      'name: 测试鱼        # trailing comment',
+      'trigger: "@测试鱼"   # must survive the comment strip',
+      'maxChars: 88',
+      '---',
+      '# 你是谁',
+      '正文内容。',
+      '',
+      '# ── 结尾提醒（加载器会追加） ──',
+      '# 加载器追加内容：',
+      '#   ① 输出契约'
+    ].join('\n');
+    const { fields, body } = parseFrontmatter(fixture);
+    if (fields.name !== '测试鱼') throw new Error(`name parsed as ${JSON.stringify(fields.name)}`);
+    if (fields.trigger !== '@测试鱼') throw new Error(`trigger parsed as ${JSON.stringify(fields.trigger)}`);
+    if (fields.maxChars !== 88) throw new Error('maxChars must parse as a number');
+    const cleaned = stripAuthorNotes(body);
+    if (/结尾提醒|加载器追加/.test(cleaned)) throw new Error('the maintenance block must not reach the prompt');
+    if (!/正文内容/.test(cleaned)) throw new Error('the real body must survive');
+    // A body without frontmatter still yields something usable rather than throwing.
+    const bare = parseFrontmatter('just prose');
+    if (bare.hadFrontmatter) throw new Error('prose must not be mistaken for frontmatter');
+    if (bare.body !== 'just prose') throw new Error('prose must pass through unchanged');
+    return 'frontmatter + comment stripping + maintenance-block removal verified';
+  });
+
+  await check('roleplay: the persona file on disk is loadable and consistent with config', () => {
+    const { loadPersona } = require(path.join(ROOT, 'src/llm/persona'));
+    const persona = loadPersona({ root: ROOT });
+    if (!persona.loaded) throw new Error(`config/persona.md did not load: ${persona.error}`);
+    if (!persona.name) throw new Error('the persona must have a name');
+    if (!persona.body || persona.body.length < 200) throw new Error('the persona body looks empty');
+    // The trigger is optional in the file (config may set it instead), but if present it must
+    // be a single token - a trigger with a space could never match a chat line.
+    if (persona.trigger && /\s/.test(persona.trigger)) throw new Error(`trigger "${persona.trigger}" contains whitespace`);
+    return `${persona.name}${persona.species ? ` (${persona.species})` : ''}, trigger ${persona.trigger || '(from config)'}, ${persona.body.length} chars`;
+  });
+
+  await checkAsync('roleplay: proactive triggers respect their cooldowns', async () => {
+    const { SpeechScheduler } = require(path.join(ROOT, 'src/chat/speechScheduler'));
+    const spoken = [];
+    const ctx = {
+      cfg: { agent: { proactive: { enabled: true, triggers: { hungry: { cooldownMs: 60000, foodThreshold: 6 } } } } },
+      body: { snapshot: () => ({ ready: true, health: 20, food: 3, inventory: {}, dead: false }) },
+      llm: { speakUp: async (kind) => { spoken.push(kind); return { ok: true }; } }
+    };
+    const s = new SpeechScheduler(ctx, {});
+    await s.tick();
+    await s.tick();
+    if (spoken.length !== 1) throw new Error(`expected 1 utterance inside the cooldown, got ${spoken.length}`);
+    if (spoken[0] !== 'hungry') throw new Error(`expected the hungry trigger, got ${spoken[0]}`);
+    /**
+     * A bot that CARRIES food must stay quiet: it is about to eat, and asking the player for
+     * food it already has is noise. This is the `hasFood` half of the condition.
+     */
+    const fed = new SpeechScheduler(
+      {
+        cfg: { agent: { proactive: { enabled: true, triggers: { hungry: { cooldownMs: 0, foodThreshold: 6 } } } } },
+        body: { snapshot: () => ({ ready: true, health: 20, food: 3, inventory: { 'minecraft:cooked_beef': 4 }, dead: false }) },
+        llm: { speakUp: async () => { throw new Error('must not speak when food is in the inventory'); } }
+      },
+      {}
+    );
+    await fed.tick();
+    // No snapshot means "unknown" (client detached) - not hungry, not hurt.
+    const offline = new SpeechScheduler(
+      {
+        cfg: { agent: { proactive: { enabled: true } } },
+        body: { snapshot: () => null },
+        llm: { speakUp: async () => { throw new Error('must not speak without a snapshot'); } }
+      },
+      {}
+    );
+    await offline.tick();
+    return 'fires once, then cooldown holds; silent when fed or detached';
+  });
+
+  await checkAsync('roleplay: an unprompted turn can speak but never act', async () => {
+    const { LlmCore } = require(path.join(ROOT, 'src/llm'));
+    const said = [];
+    const ctx = {
+      cfg: { root: ROOT, agent: { chat: { maxChars: 100 }, proactive: { enabled: true } } },
+      body: { snapshot: () => ({ ready: true, health: 5, food: 20, position: { x: 1, y: 2, z: 3 }, inventory: {} }), chat: async () => true },
+      world: { snapshot: () => null },
+      brain: { status: () => ({ current: null }) },
+      reply: async (text) => { said.push(text); return true; }
+    };
+    /**
+     * The guard under test. The model is fed an intent that *does* contain an action - the
+     * shape a model produces when it decides to "help" - and the assertion is that only the
+     * spoken part survives. This is what makes "no unprompted behaviour" structural.
+     */
+    const core = new LlmCore(ctx, { enabled: false }, { client: null });
+    core.client = {
+      configured: true,
+      apiKey: 'test',
+      model: 'test',
+      baseUrl: 'test',
+      complete: async () => ({
+        ok: true,
+        text: '{"say":"我快不行了，救命！","action":{"type":"task","task":"chop","args":{"count":8}}}',
+        usage: { total_tokens: 7 }
+      })
+    };
+    core.enabled = true;
+    const res = await core.speakUp('lowHealth');
+    if (!res.said) throw new Error('proactive speech produced nothing');
+    if (said.length !== 1) throw new Error(`expected exactly one utterance, got ${said.length}`);
+    // Nothing may have been dispatched: no chat.handle exists on this ctx, so a leaked action
+    // would have thrown instead of being dropped. Confirm via the trace record as well.
+    const last = core.turns[core.turns.length - 1];
+    if (last.kind !== 'proactive') throw new Error('the turn was not recorded as proactive');
+    if (!last.actionDropped) throw new Error('the proposed action was not recorded as dropped');
+
+    // The deterministic fallback must carry the fact that matters, with no model at all.
+    const bare = new LlmCore(ctx, { enabled: false }, { client: null });
+    bare.enabled = false;
+    said.length = 0;
+    const fb = await bare.speakUp('hungry');
+    if (fb.via !== 'template') throw new Error(`expected the template path, got ${fb.via}`);
+    if (!/饿|食物/.test(fb.said)) throw new Error(`the fallback ignored the trigger: ${fb.said}`);
+    const fb2 = await bare.speakUp('lowHealth');
+    if (!/救命|血/.test(fb2.said)) throw new Error(`the danger fallback ignored the trigger: ${fb2.said}`);
+    return 'action dropped and traced; template fallback carries the trigger facts';
+  });
+
+  await checkAsync('roleplay: player-requested work is announced, planner work is not', async () => {
+    const { LlmCore } = require(path.join(ROOT, 'src/llm'));
+    const { reply } = require(path.join(ROOT, 'src/chat/reply'));
+    /**
+     * Driven through the REAL reply() rather than a stub.
+     *
+     * Two things are being checked at once and a stub would hide the second: that a
+     * player-sourced task produces a line, and that the line actually reaches the game
+     * channel. `reply()` is the single output path (it sanitises, debounces and registers the
+     * echo), so asserting on `ctx.replies` - the record it writes - is asserting on what the
+     * player would have seen.
+     */
+    const ctx = {
+      cfg: {
+        root: ROOT,
+        agent: {
+          chat: { replyInGame: true, maxChars: 100, minReplyGapMs: 0 },
+          proactive: { enabled: true, triggers: { taskDone: { enabled: true } } }
+        }
+      },
+      body: { snapshot: () => ({ ready: true, health: 20, food: 20, position: { x: 0, y: 0, z: 0 }, inventory: {} }), chat: async () => true },
+      world: { snapshot: () => null },
+      brain: { status: () => ({ current: null }) }
+    };
+    ctx.reply = (text, options) => reply(ctx, text, options);
+
+    const core = new LlmCore(ctx, { enabled: false }, { client: null });
+    core.enabled = false; // template path: no network in a test
+    await core.announceFinished({ name: 'chop', description: '砍 8 根木头', reason: 'collected 8 logs', source: 'chat' }, true);
+    const spoken = (ctx.replies || []).map((r) => r.text);
+    if (spoken.length !== 1) throw new Error(`a player-sourced task must be announced once, got ${spoken.length}`);
+    if (!/砍 8 根木头/.test(spoken[0])) throw new Error(`the announcement ignored the task detail: ${spoken[0]}`);
+    // A line starting with `!` or `/` would come back through the input pipe as a command.
+    if (/^[!/]/.test(spoken[0])) throw new Error(`the announcement would re-enter as a command: ${spoken[0]}`);
+
+    // The planner's own work is nobody's business and would read as unprompted chatter.
+    await core.announceFinished({ name: 'dirt', description: '挖点土', reason: 'ok', source: 'autonomous' }, true);
+    if ((ctx.replies || []).length !== 1) throw new Error('planner-owned work must stay silent');
+
+    // Disabling the trigger must silence it too - the config is not decoration.
+    core.ctx.cfg.agent.proactive.triggers.taskDone.enabled = false;
+    await core.announceFinished({ name: 'mine', description: '挖石头', reason: 'ok', source: 'chat' }, true);
+    if ((ctx.replies || []).length !== 1) throw new Error('a disabled taskDone trigger must not speak');
+    return 'announced through the real reply path; autonomous and disabled cases silent';
   });
 
   await check('observability: the trace counter only reads newly appended bytes', () => {

@@ -11,7 +11,7 @@
  * Four problems it exists to solve
  * --------------------------------
  * 1. **The line is not the message.** `ChatLog` stores `getMessage().getString()` - the
- *    *rendered* line - so a player message arrives as `<AgentSteve> !chop 8` with the server's
+ *    *rendered* line - so a player message arrives as `<agent> !chop 8` with the server's
  *    own decoration around it. Matching the prefix against the raw line never fires on a real
  *    server; `messageContent()` strips the furniture first. (This was a live-only bug: the
  *    offline tests fed bare `!chop 8`, which is what a mineflayer `chat` event looks like.)
@@ -36,7 +36,7 @@ const COLOR_CODE = /\u00A7./g;
  * Leader decorations a server puts in front of the actual message.
  *
  * The mod stores `event.getMessage().getString()` - the *rendered* line - so a player message
- * arrives as `<AgentSteve> !chop 8`, not `!chop 8`. Servers and chat plugins add their own
+ * arrives as `<agent> !chop 8`, not `!chop 8`. Servers and chat plugins add their own
  * furniture on top: rank tags, faction names, vote badges, and on this server an `<name>`
  * prefix. None of that is the message.
  *
@@ -249,7 +249,7 @@ class ChatListener {
        * The message *content*, with the server's decoration removed.
        *
        * Everything below matches on this, not on the raw line: a real server renders a player
-       * message as `<AgentSteve> !chop 8`, so both the trigger check and the echo check are
+       * message as `<agent> !chop 8`, so both the trigger check and the echo check are
        * comparing against furniture if they use `text`.
        */
       const content = messageContent(text);
@@ -274,7 +274,7 @@ class ChatListener {
        * Our own reply coming back around.
        *
        * Compared on the *content* as well as the raw line: our reply arrives as
-       * `<AgentSteve> <what we said>`, so a raw-line comparison never matches on a real server
+       * `<agent> <what we said>`, so a raw-line comparison never matches on a real server
        * and the guard is dead exactly where it is needed. It matters because the reply could
        * otherwise start with `@猫娘` (the model echoing the player) and send the agent into a
        * conversation with itself.

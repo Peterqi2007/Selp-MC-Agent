@@ -459,14 +459,14 @@ async function buildAgent(options = {}) {
      * The bug that made the entire in-game input channel dead in production while every
      * offline test passed: the tests fed the listener a bare `!chop 8` (what a mineflayer
      * `chat` event looks like) and the client mod delivers `event.getMessage().getString()`,
-     * which on a real server is `<AgentSteve> !chop 8`. `startsWith('!')` never matched.
+     * which on a real server is `<agent> !chop 8`. `startsWith('!')` never matched.
      */
     const agent = await buildAgent();
-    await agent.say('<AgentSteve> !status');
+    await agent.say('<agent> !status');
     agent.stop();
     const commands = agent.listener.recent.map((r) => r.command);
     expect(commands.includes('status'), `the prefixed line was ignored: ${JSON.stringify(commands)}`);
-    return 'parsed "<AgentSteve> !status" as the command "status"';
+    return 'parsed "<agent> !status" as the command "status"';
   });
 
   await scenario('the same command twice runs twice (batch overlap, not fingerprint dedupe)', async () => {
@@ -482,7 +482,7 @@ async function buildAgent(options = {}) {
   await scenario('chat from before the agent started is not executed', async () => {
     // Commands sitting in the mod's ring buffer when the agent starts are history: running
     // them minutes later would be a surprise, not a feature. The first poll seeds the window.
-    const agent = await buildAgent({ history: ['<AgentSteve> !chop 8', '<AgentSteve> !stop'] });
+    const agent = await buildAgent({ history: ['<agent> !chop 8', '<agent> !stop'] });
     const u = agent.ctx;
     expect(!u.replies || u.replies.length === 0, `stale chat was acted on: ${JSON.stringify((u.replies || []).map((r) => r.text))}`);
     expect(agent.listener.recent.length === 0, 'stale chat produced a command');
@@ -568,7 +568,7 @@ async function buildAgent(options = {}) {
     expect(html.includes('http-equiv="refresh"'), 'the dashboard does not self-reload');
     expect(!html.includes('<script'), 'the dashboard must not depend on scripts');
     expect(html.includes('服务器端实时状态'), 'the server-rendered state header is missing');
-    expect(html.includes('AgentSteve'), 'the dashboard does not name the agent');
+    expect(html.includes('agent'), 'the dashboard does not name the agent');
     expect(html.includes('/panel/cmd'), 'the command page link is missing');
     expect(html.includes('/command?command='), 'the quick command links are missing');
     expect(res.headers.get('cache-control') === 'no-store', 'the dashboard must not be cached');
@@ -596,7 +596,7 @@ async function buildAgent(options = {}) {
     const html = await res.text();
     expect(res.status === 200, `expected 200, got ${res.status}`);
     expect(html.includes('http-equiv="refresh"'), 'the state page does not self-refresh');
-    expect(html.includes('AgentSteve'), 'the state page does not name the agent');
+    expect(html.includes('agent'), 'the state page does not name the agent');
     expect(html.includes('服务器端实时状态'), 'the state page is missing its header');
     expect(!html.includes('<script'), 'the state page must not need scripts');
     return `${html.length} bytes, meta-refresh`;

@@ -293,14 +293,23 @@ async function main() {
    * Channel B: the natural-language trigger.
    *
    * Deliberately a *second* poller over the same chat log rather than a second code path
-   * inside ChatListener: `!` is the deterministic fast path and `@猫娘` is the LLM path.
-   * They must not be able to interfere with each other's dedupe state, and a failure in
-   * one must leave the other working. That is also why the trigger is a distinct prefix
+   * inside ChatListener: `!` is the deterministic fast path and the persona trigger is the
+   * LLM path. They must not be able to interfere with each other's dedupe state, and a failure
+   * in one must leave the other working. That is also why the trigger is a distinct prefix
    * rather than "any message that is not a command" - ignoring everything else is a
    * requirement, not an oversight.
+   *
+   * The trigger comes from `agent.chat.dialogueTrigger`, falling back to the persona file's own
+   * frontmatter (see `resolveTrigger`). That ordering matters after a character swap:
+   * `persona.md` already carries the name, so a mismatch (config still saying `@猫娘` while the
+   * character is 大肥鱼) would leave the in-game channel silently dead. An explicit config value
+   * still wins, so an operator can point the trigger at a nickname without touching the sheet.
    */
-  const dialogueTrigger = chatCfg.dialogueTrigger || '@猫娘';
+  const { resolveTrigger, personaForConfig } = require('./llm/persona');
+  const persona = personaForConfig(ctx, { log: new Logger('persona') });
+  const dialogueTrigger = resolveTrigger(ctx, { log });
   if (dialogueTrigger) {
+    log.info(`dialogue trigger: "${dialogueTrigger}" (character: ${persona.name}${persona.loaded ? '' : ' [default]'})`);
     chatListener.onDialogue = async (text, line) => {
       const snap = ctx.body.snapshot();
       await llm.handle(text, {
@@ -320,25 +329,32 @@ async function main() {
   ctx.deathWatch = deathWatch;
 
   /**
-   * Optional "the task you asked for is done" line (P0-PLAN §7.1 `chat.replyOnTaskResult`).
+   * Proactive speech (role play): the bot speaks without being spoken to.
    *
-   * Off by default, because P0's rule is that the bot speaks only when spoken to. When it is
-   * switched on it stays *reactive in spirit*: it only reports tasks that came from a player
-   * channel (chat, panel, LLM) - never the planner's own work, which the player never asked
-   * about and would experience as unprompted chatter.
+   * Three triggers, and they come from two different mechanisms on purpose:
+   *
+   *  - **Finished work** is an event, and it is handled inside `LlmCore.announceFinished`,
+   *    which is subscribed to the same brain events. A task result is only announced when it
+   *    came from a player channel (chat / panel / llm) - the planner's own work stays silent,
+   *    because nobody asked about it. That path used to live here as a plain template
+   *    ("chop 搞定: ..."); it moved so the wording comes from the persona instead of a log line.
+   *  - **Hungry with no food** and **badly hurt** are states rather than events, so they need a
+   *    poller with per-trigger cooldowns. That is `SpeechScheduler`.
+   *
+   * Neither path can start work: every unprompted line goes through `LlmCore.speakUp`, which
+   * drops any action the model proposes. "The bot decided to act on its own" is therefore
+   * structurally impossible, not merely discouraged in the prompt.
    */
-  if ((cfg.agent.chat || {}).replyOnTaskResult === true) {
-    const announce = (info, ok) => {
-      if (!info || info.source === 'autonomous') return;
-      const verb = ok ? '搞定' : '没做成';
-      reply(ctx, `${info.description || info.name} ${verb}喵: ${String(info.reason || '').slice(0, 60)}`, {
-        why: 'task-result'
-      }).catch(() => {});
-    };
-    brain.on('task:done', (info) => announce(info, true));
-    brain.on('task:failed', (info) => announce(info, false));
-    log.info('chat.replyOnTaskResult is on: player-requested task results will be announced');
-  }
+  const { SpeechScheduler } = require('./chat/speechScheduler');
+  const speech = new SpeechScheduler(ctx, { log: new Logger('speech') });
+  ctx.speech = speech;
+  speech.start();
+
+  /**
+   * "I died and came back" is a one-shot event, so it is hooked rather than polled: DeathWatch
+   * already detects the transition and exposes `onRespawn` for exactly this.
+   */
+  deathWatch.onRespawn = () => speech.onRespawn();
 
   /**
    * AuthMe auto-login.
@@ -365,6 +381,7 @@ async function main() {
     chat.detach();
     chatListener.stop();
     deathWatch.stop();
+    if (ctx.speech) ctx.speech.stop();
     if (ctx.llm) ctx.llm.stop();
     if (statusServer) await statusServer.close().catch(() => {});
     memory.save();

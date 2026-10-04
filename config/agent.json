@@ -24,16 +24,27 @@
     "maxSidesteps": 2,
     "trace": "runtime/path-trace.jsonl"
   },
-  "_comment_chat": "Two input channels: prefix '!' is the deterministic command fast-path, dialogueTrigger goes to the LLM. Everything else in chat is ignored (ignoreOtherChat) - that is a requirement of P0, not an oversight. Output is reactive only: the bot answers when spoken to and never starts a conversation.",
+  "_comment_chat": "Two input channels: prefix '!' is the deterministic command fast-path, dialogueTrigger goes to the LLM. Everything else in chat is ignored (ignoreOtherChat). Output is reactive PLUS three role-play triggers (see the proactive section below). dialogueTrigger is left null so the persona file's own frontmatter decides - that keeps a character swap from silently killing the in-game channel.",
   "chat": {
     "prefix": "!",
-    "dialogueTrigger": "@猫娘",
+    "dialogueTrigger": null,
     "pollIntervalMs": 700,
     "ignoreOtherChat": true,
     "replyInGame": true,
-    "replyOnTaskResult": false,
+    "replyOnTaskResult": true,
     "maxChars": 100,
     "minReplyGapMs": 1200
+  },
+  "_comment_proactive": "Role-play: the bot speaks without being spoken to. taskDone is event-driven (brain task events, player-sourced only); hungry and lowHealth are states, so they are polled with per-trigger cooldowns - without a cooldown a starving bot would repeat forever. Every unprompted line goes through LlmCore.speakUp, which drops any action the model proposes, so these triggers can never start work.",
+  "proactive": {
+    "enabled": true,
+    "intervalMs": 1000,
+    "triggers": {
+      "taskDone": { "enabled": true, "cooldownMs": 30000, "alsoOnFailure": true },
+      "hungry": { "enabled": true, "cooldownMs": 60000, "foodThreshold": 6 },
+      "lowHealth": { "enabled": true, "cooldownMs": 45000, "healthThreshold": 6 },
+      "fireOnRespawn": { "enabled": true, "cooldownMs": 15000 }
+    }
   },
   "_comment_death": "Death aborts every task and alerts outside the game (console + panel + state file). autoResume is deliberately false: coming back is a human decision, and P0 has no way to click the client's respawn button.",
   "death": {
@@ -49,7 +60,7 @@
     "port": null
   },
   "bot": {
-    "username": "AgentSteve",
+    "username": "agent",
     "password": null,
     "auth": "offline",
     "host": "mc.example.com",

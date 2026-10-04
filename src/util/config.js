@@ -21,7 +21,7 @@ const DEFAULTS = {
      */
     body: { kind: 'mineflayer' },
     bot: {
-      username: 'AgentSteve',
+      username: 'agent',
       auth: 'offline',
       host: '127.0.0.1',
       port: 25565,
@@ -119,9 +119,35 @@ const DEFAULTS = {
       pollIntervalMs: 700,
       ignoreOtherChat: true,
       replyInGame: true,
-      replyOnTaskResult: false,
+      /**
+       * Announce player-requested task results (finish / failure) in chat.
+       *
+       * ON for role play: "完工后发言" is one of the three proactive-speech requirements, so
+       * the default flipped from false to true. Only tasks that came from a player channel
+       * (chat / panel / llm) are announced - never the planner's own work.
+       */
+      replyOnTaskResult: true,
       maxChars: 100,
       minReplyGapMs: 1200
+    },
+    /**
+     * Proactive speech - the bot speaking when NOT spoken to (role-play requirement).
+     *
+     * Three triggers, matching the operator's list: a finished task, being hungry with no
+     * food, and being in danger. Each has its own cooldown because the states persist: a
+     * starving bot is hungry every tick, and without a cooldown the chat would be unusable.
+     *
+     * `fireOnRespawn` is separate on purpose - "I died" is a one-shot event, not a state.
+     */
+    proactive: {
+      enabled: true,
+      intervalMs: 1000,
+      triggers: {
+        taskDone: { enabled: true, cooldownMs: 30000, alsoOnFailure: true },
+        hungry: { enabled: true, cooldownMs: 60000, foodThreshold: 6 },
+        lowHealth: { enabled: true, cooldownMs: 45000, healthThreshold: 6 },
+        fireOnRespawn: { enabled: true, cooldownMs: 15000 }
+      }
     },
     /** Death handling (P0-PLAN §7.1). */
     death: {
