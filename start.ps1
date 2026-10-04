@@ -10,8 +10,24 @@
     .\start.ps1 -Wait 420              多等一会儿（默认 300 秒）
     .\start.ps1 -Help
 
-  如果提示「在此系统上禁止运行脚本」，用这一行绕过（不用改全局策略）：
+  如果提示「未对文件进行数字签名 / 在此系统上禁止运行脚本」，用这一行绕过：
     powershell -NoProfile -ExecutionPolicy Bypass -File .\start.ps1
+
+  为什么会被拦（2026-10 实测定位，结论和直觉不一样）：
+    本机执行策略是 RemoteSigned，它**允许**本地未签名脚本，所以报「未签名」不是
+    策略太严，而是 PowerShell 把**这个目录**当成了远程位置。
+
+    证据：字节完全相同的 start.ps1
+      · 在 %TEMP%、E:\PCL、以及任何新建目录里   -> 正常运行
+      · 只有放在 <repo> 里          -> 被拦
+    而且在该目录里新建一个两行的 .ps1 也会被拦，所以与文件内容、换行符、BOM 都无关。
+
+    已排除的原因：Zone.Identifier（Get-Item -Stream * 和 dir /r 都查不到）、
+    目录重解析点（fsutil 报 not a reparse point）、受控文件夹访问（关闭）、
+    AppLocker/Safer/WDAC（无有效规则）、路径空格（带空格的其他目录正常）。
+
+    所以：不要用 Unblock-File（没有 zone 流，它是空操作），也不必改全局策略。
+    用上面那行 Bypass；或者把项目复制到一个新目录，那个目录就是干净的。
 
   为什么要等，而不是两条命令直接连着跑：
     控制 Mod 的 HTTP 口（8899）在**进入世界之前**就开了，端口通 ≠ 能干活。
