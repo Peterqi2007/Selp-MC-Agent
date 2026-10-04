@@ -62,6 +62,11 @@ const HELP = [
   '!shelter - build a night shelter',
   '!light [n] - place torches',
   '!store - deposit loot in a chest',
+  '!task status|stop - the background task slot',
+  '!area add|list|show|delete - named areas (permission rules can point at them)',
+  '!route add|plan|go|list|show|delete - named routes; plan first, go walks it',
+  '!rule list|allow|deny|ask|remove|mode - permission rules',
+  '!yes [always] | !no - answer a pending permission question',
   '!stop - cancel current goal',
   '!pause | !resume - freeze or unfreeze the planner',
   '!inv - inventory summary',
@@ -166,6 +171,8 @@ class ChatController {
         // immediately and the bot looked unstoppable. An explicit command still runs.
         ctx.brain.preempt();
         ctx.brain.hold('owner-stop', '!stop from chat');
+        // The background task slot is separate from the brain queue; stop means both.
+        if (ctx.hub) ctx.hub.cancel('!stop').catch(() => {});
         ctx.nav.stop();
         if (ctx.body && typeof ctx.body.interrupt === 'function') ctx.body.interrupt('!stop');
         this.followTarget = null;
@@ -289,12 +296,15 @@ class ChatController {
         const [x, y, z] = args.map(Number);
         if ([x, y, z].some((n) => Number.isNaN(n))) throw new Error('usage: !goto <x> <y> <z>');
         const task = new GoToTask(ctx, { position: { x, y, z }, range: 2, timeoutMs: 120000 });
-        await this.enqueue(task);
-        // GoToTask reports the pathfinding reason itself, so the reply says *why* when the
-        // walk fails rather than the useless "could not get there".
-        const res = task.result || {};
-        this.say(res.ok ? `到了 ${x} ${y} ${z}` : `走不过去: ${res.reason || 'unknown'}`);
-        return res;
+        /**
+         * Acceptance, not completion: the receipt comes back now and the arrival is
+         * announced by the task event (the GoToTask reports the pathfinding reason itself,
+         * so the follow-up says *why* when it fails).
+         */
+        const receipt = await this.enqueue(task);
+        if (receipt && receipt.accepted === false) return receipt;
+        this.say(`出发去 ${x} ${y} ${z}`);
+        return receipt;
       },
       follow: (args) => {
         const name = args[0];
@@ -310,8 +320,210 @@ class ChatController {
           return;
         }
         const task = new GoToTask(ctx, { position: shelter, range: 2, timeoutMs: 90000 });
-        await this.enqueue(task);
-        this.say(task.result && task.result.ok ? '到家了' : '找不到回家的路');
+        const receipt = await this.enqueue(task);
+        if (receipt && receipt.accepted === false) return receipt;
+        this.say('往庇护所走');
+        return receipt;
+      },
+
+      // ------------------------------------------------------------ second batch
+      task: async (args) => {
+        const sub = (args[0] || 'status').toLowerCase();
+        if (sub === 'stop') {
+          const result = ctx.hub ? await ctx.hub.cancel('!task stop') : { cancelled: null };
+          this.say(result.cancelled ? `已停止后台任务 ${result.cancelled}` : '现在没有后台任务');
+          return result;
+        }
+        const status = ctx.hub ? ctx.hub.status() : { busy: false, current: null, recent: [] };
+        if (status.busy) {
+          this.say(`后台任务 ${status.current.id}「${status.current.name}」跑了 ${Math.round(status.current.ms / 1000)} 秒`);
+        } else {
+          this.say('现在没有后台任务');
+        }
+        return status;
+      },
+
+      area: (args) => {
+        const sub = (args[0] || 'list').toLowerCase();
+        if (!ctx.places) throw new Error('this agent has no place store');
+        if (sub === 'list') {
+          const list = ctx.places.listAreas();
+          this.say(list.length ? `区域: ${list.map((a) => a.name).join(', ')}` : '还没有命名区域');
+          return list;
+        }
+        if (sub === 'show') {
+          const area = ctx.places.area(args[1]);
+          if (!area) throw new Error(`没有区域 ${args[1] || '?'}`);
+          const text = area.parts.map((p) => require('../core/places').describePart(p)).join(' | ');
+          this.say(`区域 ${area.name}: ${text}`);
+          return area;
+        }
+        if (sub === 'delete') {
+          const ok = ctx.places.deleteArea(args[1]);
+          this.say(ok ? `删掉了区域 ${args[1]}` : `没有区域 ${args[1] || '?'}`);
+          return { ok };
+        }
+        if (sub === 'add') {
+          const name = args[1];
+          if (!name) throw new Error('usage: !area add <name> <x1 y1 z1> [x2 y2 z2] | !area add <name> here <r>');
+          if ((args[2] || '').toLowerCase() === 'here') {
+            const r = Number(args[3]) || 8;
+            const snap = ctx.world && typeof ctx.world.snapshot === 'function' ? ctx.world.snapshot(true) : null;
+            if (!snap || !snap.position) throw new Error('no position yet');
+            const at = { x: Math.floor(snap.position.x), y: Math.floor(snap.position.y), z: Math.floor(snap.position.z) };
+            const added = ctx.places.addArea(name, { type: 'radius', at, r });
+            if (!added.ok) throw new Error(added.reason);
+            this.say(`区域 ${name} = 我周围 ${r} 格`);
+            return added;
+          }
+          const nums = args.slice(2).map(Number);
+          if (nums.length < 3 || nums.some((n) => Number.isNaN(n))) {
+            throw new Error('usage: !area add <name> <x1 y1 z1> [x2 y2 z2] | !area add <name> here <r>');
+          }
+          const from = { x: nums[0], y: nums[1], z: nums[2] };
+          const to = nums.length >= 6 ? { x: nums[3], y: nums[4], z: nums[5] } : from;
+          const added = ctx.places.addArea(name, { type: 'box', from, to });
+          if (!added.ok) throw new Error(added.reason);
+          this.say(`区域 ${name} 已记住（${nums.length >= 6 ? '盒子' : '单点'}）`);
+          return added;
+        }
+        throw new Error('usage: !area add|list|show|delete ...');
+      },
+
+      route: async (args) => {
+        const sub = (args[0] || 'list').toLowerCase();
+        if (!ctx.places) throw new Error('this agent has no place store');
+        if (sub === 'list') {
+          const list = ctx.places.listRoutes();
+          this.say(list.length ? `路线: ${list.map((r) => r.name).join(', ')}` : '还没有命名路线');
+          return list;
+        }
+        if (sub === 'show') {
+          const route = ctx.places.route(args[1]);
+          if (!route) throw new Error(`没有路线 ${args[1] || '?'}`);
+          this.say(
+            `路线 ${route.name}: ${route.points.length} 个途经点, 终点 ` +
+              `${route.points[route.points.length - 1].x},${route.points[route.points.length - 1].y},${route.points[route.points.length - 1].z}` +
+              (route.plan ? `, 上次计划 ${route.plan.status}` : '')
+          );
+          return route;
+        }
+        if (sub === 'delete') {
+          const ok = ctx.places.deleteRoute(args[1]);
+          this.say(ok ? `删掉了路线 ${args[1]}` : `没有路线 ${args[1] || '?'}`);
+          return { ok };
+        }
+        if (sub === 'add') {
+          const name = args[1];
+          const nums = args.slice(2).map(Number);
+          if (!name || nums.length < 3 || nums.some((n) => Number.isNaN(n))) {
+            throw new Error('usage: !route add <name> <x> <y> <z>');
+          }
+          const added = ctx.places.addRoutePoint(name, { x: nums[0], y: nums[1], z: nums[2] });
+          if (!added.ok) throw new Error(added.reason);
+          this.say(`路线 ${name} 加了途经点 ${nums[0]} ${nums[1]} ${nums[2]}`);
+          return added;
+        }
+        if (sub === 'plan' || sub === 'go') {
+          const name = args[1];
+          const route = ctx.places.route(name);
+          if (!route || !route.points.length) throw new Error(`没有路线 ${name || '?'}`);
+          const target = route.points[route.points.length - 1];
+          const planner = ctx.body && typeof ctx.body.plan === 'function' ? ctx.body.plan.bind(ctx.body) : null;
+          if (!planner) throw new Error('this body cannot preview a route');
+          const plan = await planner(target, { range: 2, allowManMade: true });
+          const stored = route.plan;
+          if (sub === 'plan') {
+            ctx.places.setRoutePlan(name, { ...plan, path: undefined, at: Date.now() });
+            this.say(
+              plan.ok
+                ? `路线 ${name}: ${plan.waypoints} 个航点, ${plan.distance} 格, 纯步行不改地形`
+                : `路线 ${name} 现在走不通: ${plan.reason}`
+            );
+            return plan;
+          }
+          /**
+           * `go` is the commitment check: the stored plan said this route was walkable, so
+           * if the world changed and it no longer is, the agent refuses and asks for a new
+           * plan instead of strolling into a wall.
+           */
+          if (!plan.ok) {
+            this.say(
+              stored && stored.ok
+                ? `不走了：世界变了（上次计划可走，现在 ${plan.reason}），先 !route plan ${name}`
+                : `走不了：${plan.reason}`
+            );
+            return { ok: false, reason: plan.reason };
+          }
+          ctx.hub
+            .submit({
+              name: `route ${name}`,
+              description: `walk route ${name} to ${target.x},${target.y},${target.z}`,
+              source: 'chat',
+              run: async () => {
+                const ok = await ctx.body
+                  .moveTo(target, { range: 2, timeoutMs: 120000, allowManMade: true })
+                  .catch(() => false);
+                return ok
+                  ? { ok: true, detail: `arrived on route ${name} at ${target.x},${target.y},${target.z}` }
+                  : { ok: false, reason: (ctx.body.lastMove && ctx.body.lastMove.reason) || 'walk failed' };
+              }
+            })
+            .then((receipt) => ctx.places.recordWalk(name, { at: Date.now(), accepted: receipt.taskId }))
+            .catch(() => {});
+          this.say(`出发走路线 ${name}（${plan.waypoints} 个航点）`);
+          return { ok: true, accepted: true, plan };
+        }
+        throw new Error('usage: !route add|plan|go|list|show|delete ...');
+      },
+
+      rule: (args) => {
+        if (!ctx.permissions) throw new Error('this agent has no permission store');
+        const sub = (args[0] || 'list').toLowerCase();
+        if (sub === 'list') {
+          const summary = ctx.permissions.summary();
+          const rules = summary.rules.map((r) => `#${r.index} ${r.effect} ${r.action} ${r.match}`).join(' | ');
+          this.say(`权限模式=${summary.mode}${rules ? `；${rules}` : '；没有规则'}`);
+          return summary;
+        }
+        if (sub === 'remove') {
+          const result = ctx.permissions.removeRule(args[1]);
+          if (!result.ok) throw new Error(result.reason);
+          this.say(`删掉了规则 #${args[1]}`);
+          return result;
+        }
+        if (sub === 'mode') {
+          const result = ctx.permissions.setMode((args[1] || '').toLowerCase());
+          if (!result.ok) throw new Error(result.reason);
+          this.say(`权限模式=${result.mode}`);
+          return result;
+        }
+        if (['allow', 'deny', 'ask'].includes(sub)) {
+          const action = args[1] || '*';
+          const match = args[2] || '*';
+          const result = ctx.permissions.addRule({ effect: sub, action, match });
+          if (!result.ok) throw new Error(result.reason);
+          this.say(`规则 #${result.index}: ${sub} ${action} ${match}`);
+          return result;
+        }
+        throw new Error('usage: !rule list | !rule allow|deny|ask <action> <match> | !rule remove <n> | !rule mode <ask|bypass|observe>');
+      },
+
+      yes: (args) => {
+        if (!ctx.consent) throw new Error('this agent has no consent desk');
+        const always = (args[0] || '').toLowerCase() === 'always';
+        const result = ctx.consent.answer(always ? 'yes always' : 'yes');
+        if (!result.ok) throw new Error(result.reason);
+        this.say(always ? '好，以后都允许' : '好，这次允许');
+        return result;
+      },
+
+      no: () => {
+        if (!ctx.consent) throw new Error('this agent has no consent desk');
+        const result = ctx.consent.answer('no');
+        if (!result.ok) throw new Error(result.reason);
+        this.say('好，不做');
+        return result;
       }
     };
   }
@@ -335,7 +547,23 @@ class ChatController {
    */
   enqueue(task) {
     const source = this.dispatchSource || 'chat';
-    return this.ctx.brain.enqueue(task, { level: 'directive', source });
+    /**
+     * Surface refusals. `brain.enqueue` now answers immediately, and it may refuse because
+     * the body is held by a background task (`task` hold) or after death; without this the
+     * handler's cheerful "on my way" line would be the last thing the player hears.
+     */
+    return Promise.resolve(this.ctx.brain.enqueue(task, { level: 'directive', source })).then((receipt) => {
+      if (receipt && receipt.accepted === false) {
+        const why =
+          receipt.reason === 'body-busy'
+            ? `后台任务占用中（${receipt.detail || 'task'}），先 !task stop`
+            : receipt.reason === 'stopped-after-death'
+              ? '死亡后停着，发 !resume 再继续'
+              : receipt.reason || '任务被拒绝';
+        this.say(`现在不行：${why}`);
+      }
+      return receipt;
+    });
   }
 
   /**

@@ -96,7 +96,9 @@ const TOOLS = [
   {
     name: 'do_task',
     kind: 'write',
-    description: 'Start one of the three gathering tasks. This is the only way to make the bot work.',
+    description:
+      'Start one of the three gathering tasks. Returns an acceptance receipt immediately; ' +
+      'the result arrives later as a task event (do not poll).',
     parameters: {
       type: 'object',
       properties: {
@@ -137,7 +139,10 @@ const TOOLS = [
     description:
       `Run one named skill from the skill catalogue: ${skills.names().join(', ')}. ` +
       'Prefer this for anything beyond plain gathering; the skill validates its own parameters and ' +
-      'refuses unknown names or parameters instead of guessing.',
+      'refuses unknown names or parameters instead of guessing. Long jobs (mine_ore, fish, farm, ' +
+      'walking skills, sleep, container work, crafting, smelting, combat) answer immediately with ' +
+      'a task id and report later as a task event; instant skills (equip, eat, drop, armor, ' +
+      'place, use_on) answer with their result directly.',
     parameters: {
       type: 'object',
       properties: {

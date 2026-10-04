@@ -11,6 +11,7 @@
 
 const { register } = require('./registry');
 const { bare } = require('../world/items');
+const { RecoveryLadder } = require('../core/recoveryLadder');
 
 const GROUND = /^(dirt|coarse_dirt|rooted_dirt|grass_block|podzol|mycelium)$/;
 const SEEDS = /(_seeds$|^carrot$|^potato$|^beetroot_seeds$|^nether_wart$)/;
@@ -201,24 +202,53 @@ register({
       ? []
       : crops.filter((crop) => Number(crop.age) >= Number(crop.maxAge));
     let harvested = 0;
+
+    /**
+     * One harvest attempt, extracted so the ladder can offer a genuinely different second
+     * execution: the direct walk, then a fresh scan with a wider arrival tolerance. A crop
+     * left standing by the first rung is still ripe for the second - the recovery boundary
+     * is "take this crop", nothing wider.
+     */
+    const harvestCrop = async (crop, options = {}) => {
+      const reached = await body
+        .moveTo(crop.position, {
+          range: options.range || 2,
+          timeoutMs: options.timeoutMs || 15000,
+          allowManMade: true,
+          // Dry route: the farm's irrigation channels must not be waded through.
+          allowSwim: false
+        })
+        .catch(() => false);
+      if (!reached) return { ok: false, reason: 'could not reach the crop', failure: 'no_path' };
+      const ok = await body.dig({ name: crop.name, position: crop.position }).catch(() => false);
+      return ok ? { ok: true } : { ok: false, reason: 'the crop dig was refused', failure: 'refused' };
+    };
+
     for (const crop of ripe) {
       /**
        * `allowManMade` on every farm walk: a farm IS player-built ground (farmland, water
        * channels, fences), and the default guard that keeps the bot off other people's
        * builds made every harvest step answer `noPath` - 4 of 60 ripe wheat got collected.
        */
-      const reached = await body
-        .moveTo(crop.position, {
-          range: 2,
-          timeoutMs: 15000,
-          allowManMade: true,
-          // Dry route: the farm's irrigation channels must not be waded through.
-          allowSwim: false
-        })
-        .catch(() => false);
-      if (!reached) continue;
-      const ok = await body.dig({ name: crop.name, position: crop.position }).catch(() => false);
-      if (ok) harvested += 1;
+      const ladder = new RecoveryLadder('farm-harvest', [
+        {
+          name: 'direct',
+          handles: ['no_path', 'out_of_reach', 'unknown', 'hazard'],
+          maxAttempts: 1,
+          run: () => harvestCrop(crop, {})
+        },
+        {
+          name: 'fresh-scan-wide',
+          handles: ['no_path', 'out_of_reach', 'unknown'],
+          maxAttempts: 1,
+          run: async () => {
+            if (typeof body.refresh === 'function') await body.refresh(true).catch(() => null);
+            return harvestCrop(crop, { range: 2.5, timeoutMs: 25000 });
+          }
+        }
+      ]);
+      const result = await ladder.run();
+      if (result.ok) harvested += 1;
       // Every few crops, sweep what has fallen on the field.
       if (harvested % 4 === 0) await collectDrops(5);
     }

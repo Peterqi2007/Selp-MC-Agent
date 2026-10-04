@@ -367,6 +367,17 @@ function uiState(ctx) {
       queueLength: brain.queueLength,
       queued: (brain.queued || []).slice(0, 8)
     },
+    /**
+     * Second-batch machinery: the background task slot, the pending permission question,
+     * the rules and the named places. Same reasoning as the block scan: summaries only, so
+     * the one-second panel poll stays small.
+     */
+    hub: ctx.hub ? ctx.hub.status() : { busy: false, current: null, recent: [] },
+    consent: ctx.consent ? ctx.consent.status() : { pending: null, recent: [] },
+    permissions: ctx.permissions ? ctx.permissions.summary() : null,
+    places: ctx.places
+      ? { areas: ctx.places.listAreas().length, routes: ctx.places.listRoutes().length }
+      : null,
     death: ctx.deathWatch ? ctx.deathWatch.status() : { dead: false, deaths: 0, lastDeath: null },
     llm: ctx.llm
       ? {
@@ -690,6 +701,8 @@ function emergencyStop(ctx) {
       // may not have it, and silently missing the stop would be worse than the flag.
       if (typeof ctx.brain.hold === 'function') ctx.brain.hold('owner-stop', 'panel emergency stop');
       else ctx.brain.autoPlanDisabled = true;
+      // The background task slot is not the brain queue; an emergency stop means both.
+      if (ctx.hub && typeof ctx.hub.cancel === 'function') ctx.hub.cancel('panel emergency stop').catch(() => {});
       ctx.log.warn('EMERGENCY STOP: queue cleared, current task cancelled');
     }
     steps.brain = { ok: true, ms: Date.now() - started };

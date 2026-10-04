@@ -16,6 +16,7 @@
  */
 
 const { bare } = require('../world/items');
+const { RecoveryLadder } = require('../core/recoveryLadder');
 
 const registry = require('./registry');
 const { register } = registry;
@@ -150,7 +151,7 @@ register({
     };
 
     /** Nearest water block that has a standable bank cell next to it. */
-    const findWater = async () => {
+    const findWater = async (options = {}) => {
       const snap = await refresh(ctx);
       const here = feetOf(snap);
       if (!here) return null;
@@ -232,6 +233,10 @@ register({
       candidates.sort(
         (a, b) => Number(b.open) - Number(a.open) || a.distance - b.distance
       );
+      if (options.openOnly) {
+        const open = candidates.filter((c) => c.open);
+        return open[0] || null;
+      }
       return candidates[0] || null;
     };
 
@@ -471,48 +476,77 @@ register({
        * bot wander - and occasionally wade in.
        */
       if (!spot) {
-        spot = await findWater();
-        if (!spot) {
+        /**
+         * Recovery ladder instead of an ad-hoc retry loop: prefer a spot whose cast lands in
+         * open water (that is what rolls the fish table), then fall back to the next bank
+         * the scan can find. A spot whose route wades or fails is added to `blockedWater`,
+         * so the next rung picks a genuinely different one.
+         */
+        const walkTo = async (candidate) => {
+          if (!candidate) return { ok: false, reason: 'no water with a fishable bank', failure: 'target_lost' };
+          const reached = await body
+            /**
+             * Dry route (never through the pond) that may also cross the operator's own base:
+             * after sleeping the bot starts *inside* the base, and with the default man-made
+             * guard every route out of it answered `noPath`.
+             */
+            .moveTo(candidate.stand, {
+              range: 1.6,
+              timeoutMs: 40000,
+              allowSwim: false,
+              allowManMade: true
+            })
+            .catch(() => false);
+          const afterWalk = await refresh(ctx);
+          if (!reached || afterWalk.inWater) {
+            if (ctx.log && ctx.log.warn) {
+              ctx.log.warn(
+                afterWalk.inWater
+                  ? 'the route to this fishing spot wades - skipping it'
+                  : 'could not reach this fishing spot - skipping it'
+              );
+            }
+            blockedWater.add(waterKey(candidate.water));
+            return {
+              ok: false,
+              reason: afterWalk.inWater ? 'the route to this fishing spot wades' : 'could not reach this fishing spot',
+              failure: afterWalk.inWater ? 'hazard' : 'no_path'
+            };
+          }
+          spot = candidate;
+          if (ctx.log && ctx.log.info) {
+            ctx.log.info(
+              `fishing spot: standing at ${candidate.stand.x},${candidate.stand.y},${candidate.stand.z}, ` +
+                `casting at ${candidate.water.x},${candidate.water.y},${candidate.water.z} ` +
+                `(open water: ${candidate.open ? 'yes' : 'no'})`
+            );
+          }
+          return { ok: true, detail: `spot open=${candidate.open ? 'yes' : 'no'}` };
+        };
+
+        const ladder = new RecoveryLadder('fish-spot', [
+          {
+            name: 'open-water',
+            handles: ['no_path', 'out_of_reach', 'unknown', 'target_lost', 'hazard'],
+            maxAttempts: 1,
+            run: async () => walkTo(await findWater({ openOnly: true }))
+          },
+          {
+            name: 'next-bank',
+            handles: ['no_path', 'out_of_reach', 'unknown', 'target_lost', 'hazard'],
+            maxAttempts: 2,
+            run: async () => walkTo(await findWater({ openOnly: false }))
+          }
+        ]);
+        const picked = await ladder.run();
+        if (!picked.ok) {
           return {
             ok: stats.catches > 0,
             stopped: 'no-water',
             catches: stats.catches,
             sleeps: stats.sleeps,
-            detail: `no water with a fishable bank within ${params.searchRadius} blocks`
+            detail: `no water with a fishable bank within ${params.searchRadius} blocks (${picked.reason || picked.failure})`
           };
-        }
-        const reached = await body
-          /**
-           * Dry route (never through the pond) that may also cross the operator's own base:
-           * after sleeping the bot starts *inside* the base, and with the default man-made
-           * guard every route out of it answered `noPath`.
-           */
-          .moveTo(spot.stand, {
-            range: 1.6,
-            timeoutMs: 40000,
-            allowSwim: false,
-            allowManMade: true
-          })
-          .catch(() => false);
-        const afterWalk = await refresh(ctx);
-        if (!reached || afterWalk.inWater) {
-          if (ctx.log && ctx.log.warn) {
-            ctx.log.warn(
-              afterWalk.inWater
-                ? 'the route to this fishing spot wades - skipping it'
-                : 'could not reach this fishing spot - skipping it'
-            );
-          }
-          blockedWater.add(waterKey(spot.water));
-          spot = null;
-          continue;
-        }
-        if (ctx.log && ctx.log.info) {
-          ctx.log.info(
-            `fishing spot: standing at ${spot.stand.x},${spot.stand.y},${spot.stand.z}, ` +
-              `casting at ${spot.water.x},${spot.water.y},${spot.water.z} ` +
-              `(open water: ${spot.open ? 'yes' : 'no'})`
-          );
         }
       }
 

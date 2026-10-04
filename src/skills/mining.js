@@ -19,6 +19,7 @@
 const { register } = require('./registry');
 const { bare } = require('../world/items');
 const { toolPlan } = require('../world/toolPolicy');
+const { RecoveryLadder } = require('../core/recoveryLadder');
 
 const AIR = /^(air|cave_air|void_air)$/;
 const HAZARD = /water|lava/;
@@ -605,54 +606,110 @@ register({
        * without a dig-forward step. If the server refuses (out of reach), the tunnel path
        * below handles it as before.
        */
-      {
-        const reachSnap = await refresh(ctx);
-        const reachHere = feetOf(reachSnap);
-        const reach = reachHere
-          ? Math.hypot(
-              ore.position.x - reachHere.x,
-              ore.position.y - reachHere.y,
-              ore.position.z - reachHere.z
-            )
+      /**
+       * Per-ore recovery ladder (src/core/recoveryLadder.js):
+       *   rung 1 `direct` - reach it if it is already within arm's reach, otherwise dig the
+       *                    sloped tunnel the skill has always dug;
+       *   rung 2 `flank`  - when that column is walled off or unreachable, walk to a stand
+       *                    cell on the FAR side of the ore and take it from there. Same
+       *                    bounded goal ("this ore"), genuinely different execution.
+       * Danger and cavern stops are not recoverable: they fall through the ladder and end
+       * the task exactly as before.
+       */
+      const takeOre = async () => {
+        const snapNow = await refresh(ctx);
+        const here = feetOf(snapNow);
+        const dist = here
+          ? Math.hypot(ore.position.x - here.x, ore.position.y - here.y, ore.position.z - here.z)
           : 99;
-        if (reach <= 4.0) {
-          const plan = minePlan(reachSnap, ore.name);
-          if (plan.tool) await body.equip(plan.tool.name).catch(() => false);
-          if (await body.dig({ name: ore.name, position: ore.position }).catch(() => false)) {
-            stats.ores += 1;
-            stats.blocks += 1;
-            if (ctx.log && ctx.log.info) {
-              ctx.log.info(`mined ${bare(ore.name)} at ${posKey(ore.position)} (within reach)`);
-            }
-            await collectDrops();
-            continue;
+        if (dist > 4.0) return { ok: false, reason: 'the ore is out of reach', failure: 'out_of_reach' };
+        const plan = minePlan(snapNow, ore.name);
+        if (plan.tool) await body.equip(plan.tool.name).catch(() => false);
+        if (await body.dig({ name: ore.name, position: ore.position }).catch(() => false)) {
+          stats.ores += 1;
+          stats.blocks += 1;
+          if (ctx.log && ctx.log.info) {
+            ctx.log.info(`mined ${bare(ore.name)} at ${posKey(ore.position)}`);
           }
+          // Do not walk away from the vein before taking its drops with us - the first live
+          // run left iron on the floor and moved on to the next ore.
+          await collectDrops();
+          return { ok: true, dug: true };
         }
-      }
+        return { ok: false, reason: 'the ore dig was refused', failure: 'refused' };
+      };
 
-      let outcome = { ok: false, reason: 'gave up' };
-      for (let step = 0; step < MAX_STEPS_PER_ORE; step += 1) {
-        if (Date.now() > deadline) {
-          stats.outOfTime = true;
-          break;
+      const attempt = async (waypoint) => {
+        const direct = waypoint.x === ore.position.x && waypoint.y === ore.position.y && waypoint.z === ore.position.z;
+        if (direct) {
+          const already = await takeOre();
+          if (already.ok) return already;
         }
-        outcome = await stepToward(ore);
-        if (outcome.reached) break;
-        if (!outcome.ok) break;
-        // Sweep the stone drops the tunnel leaves behind every few steps, so the floor does
-        // not silt up with items we then have to walk back for.
-        if (step % 4 === 3) await collectDrops(3);
-        const afterStep = await refresh(ctx);
-        const feetAfter = feetOf(afterStep);
-        if (feetAfter && openness(afterStep, feetAfter) >= 0.45) {
-          stats.cavern = true;
-          if (ctx.log && ctx.log.warn) {
-            ctx.log.warn(`large cavern ahead at ${feetAfter.x},${feetAfter.y},${feetAfter.z} - stopping`);
+        let outcome = { ok: false, reason: 'gave up' };
+        for (let step = 0; step < MAX_STEPS_PER_ORE; step += 1) {
+          if (Date.now() > deadline) {
+            stats.outOfTime = true;
+            return { ok: false, reason: 'out of time', failure: 'timeout', outOfTime: true };
           }
-          break;
+          outcome = await stepToward({ position: waypoint });
+          if (outcome.reached) break;
+          if (!outcome.ok) break;
+          // Sweep the stone drops the tunnel leaves behind every few steps, so the floor does
+          // not silt up with items we then have to walk back for.
+          if (step % 4 === 3) await collectDrops(3);
+          const afterStep = await refresh(ctx);
+          const feetAfter = feetOf(afterStep);
+          if (feetAfter && openness(afterStep, feetAfter) >= 0.45) {
+            stats.cavern = true;
+            if (ctx.log && ctx.log.warn) {
+              ctx.log.warn(`large cavern ahead at ${feetAfter.x},${feetAfter.y},${feetAfter.z} - stopping`);
+            }
+            return { ok: false, reason: 'large cavern ahead', failure: 'hazard', cavern: true };
+          }
         }
-      }
-      if (stats.outOfTime) break;
+        if (outcome.danger) {
+          return { ok: false, reason: outcome.reason, failure: 'hazard', danger: true, hostile: outcome.hostile };
+        }
+        if (!outcome.reached) {
+          return { ok: false, reason: outcome.reason || 'did not reach the waypoint', failure: 'no_path' };
+        }
+        return takeOre();
+      };
+
+      const flankWaypoint = async () => {
+        const here = feetOf(await refresh(ctx));
+        if (!here) return null;
+        const dx = Math.sign(ore.position.x - Math.floor(here.x)) || 1;
+        const dz = Math.sign(ore.position.z - Math.floor(here.z)) || 0;
+        const candidates = [
+          { x: ore.position.x + dx, y: ore.position.y, z: ore.position.z + dz },
+          { x: ore.position.x + dx, y: ore.position.y, z: ore.position.z },
+          { x: ore.position.x, y: ore.position.y, z: ore.position.z + dz }
+        ];
+        return candidates.find((c) => !(c.x === ore.position.x && c.z === ore.position.z)) || null;
+      };
+
+      const ladder = new RecoveryLadder('mine_ore', [
+        {
+          name: 'direct',
+          handles: ['no_path', 'out_of_reach', 'occluded', 'unknown', 'target_lost'],
+          maxAttempts: 1,
+          run: () => attempt(ore.position)
+        },
+        {
+          name: 'flank',
+          handles: ['no_path', 'out_of_reach', 'occluded'],
+          maxAttempts: 1,
+          run: async () => {
+            const waypoint = await flankWaypoint();
+            if (!waypoint) return { ok: false, reason: 'no flank waypoint', failure: 'no_path' };
+            return attempt(waypoint);
+          }
+        }
+      ]);
+      const outcome = await ladder.run();
+
+      if (stats.outOfTime || outcome.outOfTime) break;
       if (outcome.danger) {
         // Lava/fall: sweep the drops on the way out. A monster: leave them, walk nothing.
         if (!outcome.hostile) await collectDrops();
@@ -670,7 +727,7 @@ register({
           detail: `stopped before a dangerous step (${outcome.reason}); mined ${stats.ores} so far`
         };
       }
-      if (stats.cavern) {
+      if (stats.cavern || outcome.cavern) {
         await collectDrops();
         const stop = await refresh(ctx);
         return {
@@ -685,25 +742,8 @@ register({
           detail: `stopped: the tunnel opened into a large cavern (mined ${stats.ores} so far)`
         };
       }
-
-      if (outcome.reached) {
-        const finalSnap = await refresh(ctx);
-        const plan = minePlan(finalSnap, ore.name);
-        if (plan.tool) await body.equip(plan.tool.name).catch(() => false);
-        if (await body.dig({ name: ore.name, position: ore.position }).catch(() => false)) {
-          stats.ores += 1;
-          stats.blocks += 1;
-          if (ctx.log && ctx.log.info) {
-            ctx.log.info(`mined ${bare(ore.name)} at ${ore.position.x},${ore.position.y},${ore.position.z}`);
-          }
-          // Do not walk away from the vein before taking its drops with us - the first live
-          // run left iron on the floor and moved on to the next ore.
-          await collectDrops();
-        } else {
-          blocked.add(posKey(ore.position));
-        }
-      } else {
-        // Unreachable, drowned or walled in: never try this vein again.
+      if (!(outcome.ok && outcome.dug)) {
+        // Unreachable, drowned or walled in - even the flank route did not work.
         blocked.add(posKey(ore.position));
         stats.skipped += 1;
         if (ctx.log && ctx.log.warn) {

@@ -20,6 +20,26 @@ const { fold } = require('../../core/failure');
 const TASK_NAMES = ['chop', 'mine', 'collect'];
 /** Upper bound on how much one request may ask for; beyond it the reply is a refusal. */
 const MAX_COUNT = 256;
+/**
+ * Skills whose duration depends on the world (walking, waiting, digging) - numen's
+ * "unbounded" half of the dispatch rule. They are accepted into the background task slot and
+ * report via a `task_finished` event; instant skills (equip/eat/drop/armor/place/use_on)
+ * still run inline because the answer is the action itself.
+ */
+const LONG_SKILLS = new Set([
+  'mine_ore',
+  'fish',
+  'farm',
+  'sleep',
+  'explore',
+  'come',
+  'withdraw',
+  'deposit',
+  'craft',
+  'smelt',
+  'attack',
+  'defend'
+]);
 
 /**
  * Start a gathering task.
@@ -110,7 +130,25 @@ async function doSkill(ctx, args, options = {}) {
       failure: 'unsupported'
     });
   }
-  const result = await skills.run(name, ctx, (args && args.params) || {});
+  const params = (args && args.params) || {};
+
+  /**
+   * Long skills go through the task slot: accepted now, finished later, reported as a
+   * `task_finished` event into the same pipeline the brain's own tasks use. A new task
+   * replaces the running one (TaskHub), which is what makes "change of mind" work while a
+   * ten-minute job is in flight.
+   */
+  if (ctx.hub && LONG_SKILLS.has(name)) {
+    const receipt = await ctx.hub.submit({
+      name,
+      description: `skill ${name}`,
+      source: options.source || 'llm',
+      run: () => skills.run(name, ctx, params)
+    });
+    return { ...receipt, skill: name };
+  }
+
+  const result = await skills.run(name, ctx, params);
   return result.ok
     ? { ok: true, skill: name, detail: result.detail || result.reason || null, result }
     : { ...fold({ ok: false, error: result.reason || `${name} failed`, failure: result.failure }), skill: name };
@@ -141,4 +179,4 @@ async function dispatch(ctx, line, options, extra) {
   }
 }
 
-module.exports = { doTask, goTo, stop, doSkill, TASK_NAMES, MAX_COUNT };
+module.exports = { doTask, goTo, stop, doSkill, TASK_NAMES, MAX_COUNT, LONG_SKILLS };

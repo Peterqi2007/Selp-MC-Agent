@@ -64,7 +64,13 @@ function observe(ctx) {
     players: snap.players || [],
     hostiles: (snap.hostiles || []).slice(0, 5).map((h) => ({ name: bare(h.name || ''), distance: h.distance })),
     currentTask: brain.current ? brain.current.description : null,
-    busy: !!brain.current
+    busy: !!brain.current,
+    /**
+     * Named places the operator/agent stored (src/core/places.js). The model can point at
+     * "home" or "ore field" without spending a scan round trip; unknown coordinates are
+     * still one `find_blocks` away.
+     */
+    places: ctx.places && typeof ctx.places.summary === 'function' ? ctx.places.summary() : undefined
   };
 }
 

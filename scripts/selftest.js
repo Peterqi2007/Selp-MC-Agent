@@ -1617,6 +1617,246 @@ async function main() {
     return `stone -> ${known.result.kind}, some_mod:weird_thing -> unknown`;
   });
 
+  // ====================================================== second batch
+  section('second batch: task slot, recovery ladders, places, permissions');
+
+  await checkAsync('task hub: accepts, replaces and reports through the brain', async () => {
+    const { TaskHub } = require(path.join(ROOT, 'src/core/taskHub'));
+    const holds = new Set();
+    const events = [];
+    const interrupts = [];
+    const brain = {
+      activeTask: { name: 'planner work' },
+      preempted: false,
+      preempt() {
+        this.preempted = true;
+      },
+      hold(reason) {
+        holds.add(reason);
+      },
+      release(reason) {
+        holds.delete(reason);
+      },
+      emit(kind, info) {
+        events.push({ kind, ...info });
+      }
+    };
+    const ctx = {
+      brain,
+      nav: { interrupt: (reason) => interrupts.push(reason) },
+      body: { interrupt: (reason) => interrupts.push(reason) },
+      cfg: {}
+    };
+    const hub = new TaskHub(ctx, { log: silent, trace() {} });
+
+    let finishFirst = null;
+    const first = await hub.submit({
+      name: 'first',
+      source: 'selftest',
+      run: () => new Promise((resolve) => {
+        finishFirst = resolve;
+      })
+    });
+    if (!first.accepted || first.async !== true || first.taskId !== 't1') throw new Error(`bad receipt ${JSON.stringify(first)}`);
+    if (!hub.busy || !holds.has('task')) throw new Error('the hub did not take the body');
+    if (!brain.preempted) throw new Error('the planner was not preempted');
+
+    const secondPromise = hub.submit({
+      name: 'second',
+      source: 'selftest',
+      run: async () => ({ ok: true, detail: 'second done' })
+    });
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    finishFirst({ ok: true, detail: 'finished late' });
+    const second = await secondPromise;
+    if (second.replaced !== 't1') throw new Error(`replacement not reported: ${JSON.stringify(second)}`);
+    await new Promise((resolve) => setTimeout(resolve, 30));
+
+    const firstEvent = events.find((e) => e.name === 'first');
+    const secondEvent = events.find((e) => e.name === 'second');
+    if (!firstEvent || firstEvent.ok || firstEvent.interrupted !== 'replaced') {
+      throw new Error(`a replaced task must settle stopped, not ok: ${JSON.stringify(firstEvent)}`);
+    }
+    if (!secondEvent || !secondEvent.ok) throw new Error(`the replacement did not report success: ${JSON.stringify(secondEvent)}`);
+    if (holds.size !== 0 || hub.busy) throw new Error('the hub did not release the body');
+    if (interrupts.length < 2) throw new Error('nav/body were not interrupted on replacement');
+    return 'accept -> replace -> settle, hold released, events emitted';
+  });
+
+  await checkAsync('recovery ladder: rungs catch only the causes they declare', async () => {
+    const { RecoveryLadder } = require(path.join(ROOT, 'src/core/recoveryLadder'));
+    const tried = [];
+    const ladder = new RecoveryLadder('selftest', [
+      {
+        name: 'direct',
+        handles: ['no_path'],
+        maxAttempts: 2,
+        run: async ({ attempt }) => {
+          tried.push(`direct${attempt}`);
+          return { ok: false, reason: 'noPath', failure: 'no_path' };
+        }
+      },
+      {
+        name: 'unrelated',
+        handles: ['wrong_tool'],
+        run: async () => {
+          tried.push('unrelated');
+          return { ok: false, reason: 'need a pickaxe', failure: 'wrong_tool' };
+        }
+      },
+      {
+        name: 'flank',
+        handles: ['no_path'],
+        run: async () => {
+          tried.push('flank');
+          return { ok: true, detail: 'flank worked', marker: 42 };
+        }
+      }
+    ]);
+    const result = await ladder.run();
+    if (!result.ok || result.marker !== 42) throw new Error(`the flank rung did not win: ${JSON.stringify(result)}`);
+    if (tried.join(',') !== 'direct1,direct2,flank') throw new Error(`wrong rung order: ${tried.join(',')}`);
+
+    const stuck = new RecoveryLadder('stuck', [
+      {
+        name: 'only',
+        handles: ['no_path'],
+        run: async () => ({ ok: false, reason: 'permission denied', failure: 'refused' })
+      }
+    ]);
+    const refused = await stuck.run();
+    if (refused.ok || refused.failure !== 'refused' || !refused.ladder.exhausted) {
+      throw new Error(`a cause nobody handles must fall through: ${JSON.stringify(refused)}`);
+    }
+    return `${tried.join(' -> ')}; refused falls through`;
+  });
+
+  await check('places: areas and routes survive a reload', () => {
+    const fs = require('fs');
+    const { Places } = require(path.join(ROOT, 'src/core/places'));
+    const file = path.join(ROOT, '.tmp', 'places-selftest.json');
+    fs.rmSync(file, { force: true });
+    const places = new Places({ root: ROOT }, { file, log: silent });
+    places.addArea('home', { type: 'box', from: { x: 0, y: 64, z: 0 }, to: { x: 4, y: 70, z: 4 } });
+    places.addArea('pond', { type: 'radius', at: { x: 20, y: 64, z: 0 }, r: 3 });
+    if (!places.areaContains('home', { x: 2, y: 65, z: 2 })) throw new Error('box containment failed');
+    if (places.areaContains('home', { x: 9, y: 65, z: 2 })) throw new Error('box containment leaked');
+    if (!places.areaContains('pond', { x: 22, y: 64, z: 2 })) throw new Error('radius containment failed');
+    places.addRoutePoint('fishing', { x: 20, y: 64, z: 5 });
+    places.setRoutePlan('fishing', { status: 'success', ok: true, at: 1 });
+    const reloaded = new Places({ root: ROOT }, { file, log: silent });
+    if (!reloaded.area('home')) throw new Error('the area did not survive the reload');
+    if (reloaded.listRoutes()[0].planned !== 'success') throw new Error('the route plan did not survive the reload');
+    fs.rmSync(file, { force: true });
+    return '2 areas + 1 route round-tripped';
+  });
+
+  await check('permissions: deny > allow > ask, with globs, areas and self:placed', () => {
+    const fs = require('fs');
+    const { Places } = require(path.join(ROOT, 'src/core/places'));
+    const { Permissions } = require(path.join(ROOT, 'src/core/permissions'));
+    const placesFile = path.join(ROOT, '.tmp', 'perm-places-selftest.json');
+    const rulesFile = path.join(ROOT, '.tmp', 'permissions-selftest.json');
+    fs.rmSync(placesFile, { force: true });
+    fs.rmSync(rulesFile, { force: true });
+    const places = new Places({ root: ROOT }, { file: placesFile, log: silent });
+    places.addArea('house', { type: 'box', from: { x: 0, y: 60, z: 0 }, to: { x: 8, y: 70, z: 8 } });
+    const perms = new Permissions({ root: ROOT }, { file: rulesFile, log: silent, places });
+    perms.addRule({ effect: 'allow', action: 'break', match: 'create:*' });
+    perms.addRule({ effect: 'ask', action: 'break', match: '*' });
+    perms.addRule({ effect: 'deny', action: 'break', match: 'area:house' });
+    if (perms.check('break', { name: 'minecraft:dirt', position: { x: 1, y: 64, z: 1 } }).verdict !== 'deny') {
+      throw new Error('deny did not win over ask');
+    }
+    if (perms.check('break', { name: 'create:cogwheel' }).verdict !== 'allow') throw new Error('namespace glob failed');
+    if (perms.check('break', { name: 'minecraft:dirt' }).verdict !== 'ask') throw new Error('catch-all ask failed');
+    if (perms.check('place', { name: 'minecraft:torch' }).verdict !== 'allow') throw new Error('no rule must default to allow');
+    if (!perms.matches({ action: 'break', match: 'self:placed' }, 'break', { selfPlaced: true })) {
+      throw new Error('self:placed did not match');
+    }
+    perms.setMode('observe');
+    if (perms.check('break', { name: 'x' }).verdict !== 'deny') throw new Error('observe must deny');
+    perms.setMode('bypass');
+    if (perms.check('break', { name: 'x' }).verdict !== 'allow') throw new Error('bypass must allow');
+    fs.rmSync(placesFile, { force: true });
+    fs.rmSync(rulesFile, { force: true });
+    return 'order + glob + area + self + modes';
+  });
+
+  await checkAsync('consent desk: answers, remembers and times out', async () => {
+    const { ConsentDesk } = require(path.join(ROOT, 'src/core/permissions'));
+    const said = [];
+    const desk = new ConsentDesk({}, { log: silent, speak: (text) => said.push(text), timeoutMs: 60 });
+    const first = desk.ask({ action: 'break', target: { name: 'minecraft:dirt', position: { x: 1, y: 2, z: 3 } } });
+    if (!desk.status().pending) throw new Error('no pending question recorded');
+    desk.answer('yes');
+    if ((await first) !== 'allow') throw new Error('yes did not allow');
+    const always = desk.ask({ action: 'break', target: { name: 'minecraft:stone' } });
+    desk.answer('yes always');
+    if ((await always) !== 'always') throw new Error('yes always did not answer');
+    const timedOut = desk.ask({ action: 'place', target: { name: 'minecraft:torch' } });
+    if ((await timedOut) !== 'deny') throw new Error('a timeout must deny');
+    if (!said.length || !desk.status().recent.length) throw new Error('the question was not spoken/recorded');
+    return `${said.length} question(s), allow/always/timeout`;
+  });
+
+  await checkAsync('permission gate: deny blocks, ask consents, placement is remembered', async () => {
+    const fs = require('fs');
+    const { Permissions, ConsentDesk } = require(path.join(ROOT, 'src/core/permissions'));
+    const { installPermissionGate } = require(path.join(ROOT, 'src/core/permissionGate'));
+    const file = path.join(ROOT, '.tmp', 'gate-selftest.json');
+    fs.rmSync(file, { force: true });
+    const perms = new Permissions({ root: ROOT }, { file, log: silent });
+    const desk = new ConsentDesk({}, { log: silent, speak: () => {}, timeoutMs: 200 });
+    const calls = [];
+    const body = {
+      dig: async (block) => {
+        calls.push(`dig:${block.name}`);
+        return true;
+      },
+      place: async (item) => {
+        calls.push(`place:${item}`);
+        return true;
+      },
+      useOn: async () => {
+        calls.push('use');
+        return true;
+      },
+      blockAt: () => null
+    };
+    const gate = installPermissionGate(body, { permissions: perms, consent: desk, log: silent });
+    if (gate.installed.length !== 3) throw new Error(`gate installed ${gate.installed.length} methods`);
+
+    perms.addRule({ effect: 'deny', action: 'break', match: 'minecraft:dirt' });
+    if ((await body.dig({ name: 'minecraft:dirt', position: { x: 0, y: 64, z: 0 } })) !== false) {
+      throw new Error('a denied dig must return false');
+    }
+    if (!body.lastRefusal || !/deny/.test(body.lastRefusal.reason)) throw new Error('the refusal was not recorded');
+
+    perms.addRule({ effect: 'ask', action: 'break', match: '*' });
+    const pending = body.dig({ name: 'minecraft:stone', position: { x: 1, y: 64, z: 0 } });
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    desk.answer('yes');
+    if ((await pending) !== true) throw new Error('an allowed dig did not run');
+
+    const askAlways = body.dig({ name: 'minecraft:stone', position: { x: 2, y: 64, z: 0 } });
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    desk.answer('yes always');
+    if ((await askAlways) !== true) throw new Error('the always-allow dig did not run');
+    if (perms.list().filter((r) => r.effect === 'allow' && r.match === 'minecraft:stone').length !== 1) {
+      throw new Error('yes always did not append an allow rule');
+    }
+
+    await body.place('minecraft:torch', { x: 3, y: 64, z: 0 }, { x: 0, y: 1, z: 0 });
+    perms.addRule({ effect: 'ask', action: 'break', match: 'self:placed' });
+    const selfPlaced = body.dig({ name: 'minecraft:torch', position: { x: 3, y: 65, z: 0 } });
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    desk.answer('no');
+    if ((await selfPlaced) !== false) throw new Error('self:placed ask + no must refuse');
+    fs.rmSync(file, { force: true });
+    return `deny/ask/always/self:placed verified (${calls.length} body calls)`;
+  });
+
   // ------------------------------------------------------------- summary
   const failed = results.filter((r) => !r.ok);
   process.stdout.write(`\n${'='.repeat(52)}\n`);

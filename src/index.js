@@ -262,6 +262,34 @@ async function main() {
    */
   ctx.reply = (text, options) => reply(ctx, text, options);
 
+  // ------------------------------------------------- second-batch machinery
+  /**
+   * Named places (area/route), the permission rules and the consent desk are created here,
+   * before anything can act: the gate below wraps the body's two hands, so every later
+   * skill/task goes through the rules whether it knows about them or not.
+   */
+  const { Places } = require('./core/places');
+  const { Permissions, ConsentDesk } = require('./core/permissions');
+  const { TaskHub } = require('./core/taskHub');
+  const { installPermissionGate } = require('./core/permissionGate');
+
+  ctx.places = new Places(cfg, { log: new Logger('places') });
+  ctx.permissions = new Permissions(cfg, { log: new Logger('permissions'), places: ctx.places });
+  ctx.consent = new ConsentDesk(ctx, {
+    log: new Logger('consent'),
+    speak: (text) => ctx.reply(text, { why: 'permission question', force: true })
+  });
+  ctx.hub = new TaskHub(ctx, { log: new Logger('task'), trace: (entry) => ctx.trace && ctx.trace(entry) });
+  ctx.permissionGate = installPermissionGate(ctx.body, {
+    permissions: ctx.permissions,
+    consent: ctx.consent,
+    log: new Logger('permission')
+  });
+  log.info(
+    `places: ${ctx.places.listAreas().length} area(s), ${ctx.places.listRoutes().length} route(s); ` +
+      `permission mode=${ctx.permissions.summary().mode}, rules=${ctx.permissions.summary().rules.length}`
+  );
+
   // ------------------------------------------------------- channel A: `!`
   const chatCfg = cfg.agent.chat || {};
   const chatListener = new ChatListener(ctx.body, ctx, {

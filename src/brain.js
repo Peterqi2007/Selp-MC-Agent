@@ -589,6 +589,23 @@ class Brain {
       this.log.warn(`refusing ${task.describe()}: stopped after death (resume first)`);
       return { accepted: false, level: levelName, preempted: null, queuedBehind: this.queue.length, reason: 'stopped-after-death' };
     }
+    /**
+     * One body, one task. A background task (src/core/taskHub.js) holds the body while it
+     * runs; explicit work is refused with the reason instead of silently fighting it for
+     * the same keyboard. Urgent control verbs (`!stop`) still pass - they are how it ends.
+     */
+    if (this.holds.has('task') && level !== LEVELS.urgent) {
+      const hold = this.holds.list().find((h) => h.reason === 'task');
+      this.log.warn(`refusing ${task.describe()}: body is busy (${hold ? hold.note || 'background task' : 'background task'})`);
+      return {
+        accepted: false,
+        level: levelName,
+        preempted: null,
+        queuedBehind: this.queue.length,
+        reason: 'body-busy',
+        detail: hold ? hold.note || null : null
+      };
+    }
 
     let preempted = null;
 
@@ -622,8 +639,19 @@ class Brain {
         (preempted ? ` [preempted ${preempted}]` : '')
     );
 
-    if (!this.activeTask && !this.paused) {
-      await this.slowLoop().catch((err) => this.log.debug(`drain after enqueue: ${err.message}`));
+    /**
+     * Accept and return - do not wait for the work to finish.
+     *
+     * The old `await this.slowLoop()` made every command receipt mean "finished": the panel
+     * POST blocked for the whole task (29s for two dirt blocks in live testing) and an LLM
+     * turn could not answer until the job was over. numen's TaskDispatch draws the line at
+     * "accepted" = "this can start now"; the completion is a separate task event, which the
+     * LLM/proactive wiring already consumes (`brain.emit('task:done'|'task:failed')`).
+     */
+    if (!this.activeTask && !this.paused && !this.stopped) {
+      setTimeout(() => {
+        this.drainQueue().catch((err) => this.log.debug(`drain after enqueue: ${err.message}`));
+      }, 0);
     }
 
     return { accepted: true, level: levelName, preempted, queuedBehind: Math.max(0, this.queue.length - 1) };

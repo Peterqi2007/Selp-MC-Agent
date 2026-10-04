@@ -498,6 +498,39 @@ function matches(action, expect) {
     `calls=${retryClient.stats.calls}, budgets=${retryClient.requests.map((r) => r.maxTokens).join('->')}, via=${retryRecord.via}`
   );
 
+  /**
+   * Task slot: a long skill is accepted now and reported later; an instant skill still
+   * answers inline. The receipt is what the model reads, so it has to carry the id and say
+   * that polling is not needed.
+   */
+  const submitted = [];
+  const hubCtx = {
+    ...toolCtx,
+    hub: {
+      submit: async (job) => {
+        submitted.push(job);
+        return { ok: true, accepted: true, async: true, taskId: 't7', name: job.name, replaced: null, note: 'background' };
+      }
+    }
+  };
+  const accepted = await toolRegistry.call(hubCtx, 'do_skill', { name: 'fish', params: { maxCatches: 1 } });
+  tcheck(
+    'a long skill is accepted into the task slot with a task id',
+    accepted.ok &&
+      accepted.result.accepted === true &&
+      accepted.result.async === true &&
+      accepted.result.taskId === 't7' &&
+      submitted.length === 1 &&
+      submitted[0].source === 'llm',
+    JSON.stringify(accepted.result || accepted.error)
+  );
+  const instant = await toolRegistry.call(hubCtx, 'do_skill', { name: 'equip', params: { item: 'stone_pickaxe' } });
+  tcheck(
+    'an instant skill still answers inline through the same tool',
+    instant.ok && instant.result.skill === 'equip' && instant.result.async !== true && submitted.length === 1,
+    JSON.stringify(instant.result || instant.error)
+  );
+
   // ---- 7. the assembled prompt -------------------------------------------
   const body = new MockBody(cfg, { blocks: [{ name: 'oak_log', position: { x: 4, y: 64, z: 0 } }] });
   await body.connect();

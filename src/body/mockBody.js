@@ -197,6 +197,26 @@ class MockBody extends Body {
     return entry ? { name: entry.name, position: { ...entry.position } } : null;
   }
 
+  /**
+   * Mock plan preview: the scripted world always walks in a straight line, so the preview
+   * is a straight-line summary. Exists so `!route plan` and its tests do not need a real
+   * client; the real planning belongs to ClientModBody.plan.
+   */
+  async plan(position) {
+    if (!position) return { ok: false, status: 'bad-target', reason: 'no target given', waypoints: 0, distance: 0, nodes: 0, path: [] };
+    const dist = distance(this.position, position);
+    return {
+      ok: true,
+      status: 'success',
+      reason: 'mock world: every walk is a straight line',
+      waypoints: 1,
+      distance: +dist.toFixed(1),
+      nodes: 1,
+      edits: 0,
+      path: [{ x: Math.floor(position.x), y: Math.floor(position.y), z: Math.floor(position.z) }]
+    };
+  }
+
   findBlocks(names, options = {}) {
     const set = new Set(names.map(normalize));
     return this.findBlocksMatching((n) => set.has(n), options);

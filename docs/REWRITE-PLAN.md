@@ -424,3 +424,49 @@ actuator、工具注册表三处给失败结果补上 `{failure, hint}`，工具
 2. **思考推理吃掉 completion 预算**：两个工具轮后第二跳 `finish_reason=length`、content 为空。修复：单次预算
    400 → 1200，空答案且 `finish_reason=length` 时翻倍（2400）重试一次；`llm:dry` 新增"reasoning 回传"与
    "预算重试"两条断言（tools 34 → 37）。
+
+---
+
+## 十、第二批结构升级（2026-10-04，numen 第二/三层的落地）
+
+### 10.1 任务槽：受理即回执（`src/core/taskHub.js`）
+
+一个身体一个后台任务槽。长技能（mine_ore/fish/farm/走路/睡觉/容器/合成/熔炼/战斗）不再阻塞调用方：
+`do_skill` 校验与可用性门通过后提交给 TaskHub，立刻返回 `{accepted, async, taskId}`；完成/失败/被顶替
+通过 `task:done`/`task:failed` 事件回到既有管道（LLM 的 follow-up 回合、主动汇报）。新任务顶掉正在跑的
+（被顶者按 `interrupted: replaced` 结算，不算成功）；`!stop`/死亡/面板急停都会取消槽内任务。
+`brain.enqueue` 同步改为"受理即回执"：面板 POST 不再被 29 秒的挖土任务挂住；槽占用期间 brain 进入
+`task` hold，自动规划停止、显式任务被拒绝并说明原因（先 `!task stop`）。
+新增命令：`!task status`、`!task stop`；`/ui/state` 增加 `hub`。
+
+### 10.2 失败阶梯（`src/core/recoveryLadder.js`）
+
+numen 式 RecoveryLadder：每一级声明它能接住的 `failure` 类型与重试上限，只有声明接住的失败才会在同一级
+重试或进入后面明确处理它的级别；没人接的失败原样上抛。落地点：
+
+- **mining**：`direct`（够得着就挖，否则挖斜井）→ `flank`（从矿的**另一侧**站位再试，同样的边界目标、
+  真正不同的执行）；危险/大型矿洞不接，直接按原逻辑停止。
+- **fishing**：`open-water`（优先开阔水域钓位）→ `next-bank`（扫描里的下一个岸点，最多两次），
+  走水路/够不着的钓位记入 `blockedWater` 后换下一个。
+- **farm**：`direct`（正常走到作物旁收割）→ `fresh-scan-wide`（强制刷新 + 放宽到达范围重试同一株，
+  作物没被收走就还是熟的）。
+
+### 10.3 名词：area / route（`src/core/places.js`）
+
+命名区域（盒子/点/以我为半径）与命名路线（途经点 + 最近一次计划 + 走过记录），持久化到
+`runtime/places.json`。`!area add|list|show|delete`、`!route add|plan|go|list|show|delete`。
+`route plan` 用 `PathNavigator.plan`（`ctx.body.plan`）**只算不走**，回执给出航点/距离并注明"纯步行、
+不改地形"；`route go` 先按当前位置重算：上次计划可走而现在走不通时**拒绝出发**并让人重规划（Terraform
+式承诺：执行不越出计划）。`observe()` 把已知区域/路线摘要带给模型。
+
+### 10.4 权限规则 + 征询（`src/core/permissions.js`、`src/core/permissionGate.js`）
+
+`deny`/`allow`/`ask` 规则表（`!rule list|allow|deny|ask|remove|mode`），匹配方块/物品名、
+`namespace:*`、`area:<名字>`、`self:placed`（本 agent 自己放下的方块）。默认无规则=放行，deny 优先。
+`ask` 会在**动手前**阻塞并征询：游戏内发问"要挖掉 X @坐标 吗？回 !yes / !no / !yes always"，
+`!yes` 只放行这一次，`!yes always` 追加 allow 规则，超时算拒绝。闸门装在 body 的 `dig`/`place`/`useOn`
+三个入口（启动时一次安装），所有技能与任务共用，漏写检查的代码路径不会绕过它。
+
+验证（离线）：`selftest` 167/167（+6：任务槽顶替/阶梯/名词持久化/规则顺序/征询/闸门）、
+`control:test` 35/35（+3：名词命令、body-busy 拒绝与释放、ask→!yes 后才挖）、`llm:dry` 39/39
+（+2：长技能进槽收据、瞬时技能仍内联）。旧套件无回归。

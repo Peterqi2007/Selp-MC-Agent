@@ -259,8 +259,17 @@ class LlmCore {
     this.remember(record);
     this.trace(record);
 
-    // A request that dispatched no task has nothing to wake up for.
-    if (!decision.action || decision.action.type !== 'task' || !(record.executed && record.executed.accepted)) {
+    /**
+     * A request that dispatched no work has nothing to wake up for. A task keeps it open
+     * (the existing design), and now so does an asynchronous skill accepted into the task
+     * slot: its `task_finished` event is what opens turn 2 and lets the model report back.
+     */
+    const pending = !!(
+      record.executed &&
+      record.executed.accepted &&
+      (decision.action.type === 'task' || record.executed.async === true)
+    );
+    if (!decision.action || !pending) {
       this.closeRequest(id, 'no-follow-up-needed');
     }
     return record;
@@ -667,7 +676,6 @@ class LlmCore {
      * command line, which is what lets `do_skill` and the intent enum share one schema.
      */
     if (action.type === 'skill') {
-      const skills = require('../skills');
       this.trace({
         kind: 'dispatch',
         id: context.id || null,
@@ -676,13 +684,24 @@ class LlmCore {
         via: 'llm',
         channel: context.source || 'llm'
       });
-      const result = await skills.run(action.skill, this.ctx, action.args || {});
+      /**
+       * One implementation for both tool and intent paths: `actuators.doSkill` owns the
+       * validation gate, the background-task slot and the failure receipt.
+       */
+      const actuators = require('./tools/actuators');
+      const result = await actuators.doSkill(
+        this.ctx,
+        { name: action.skill, params: action.args || {} },
+        { source: context.source || 'llm', speaker: context.speaker }
+      );
       return {
         ok: result.ok !== false,
         line: `skill ${action.skill}`,
         accepted: result.ok !== false,
+        async: result.async === true,
+        taskId: result.taskId || null,
         detail: result,
-        reason: result.reason || null
+        reason: result.reason || result.error || null
       };
     }
 

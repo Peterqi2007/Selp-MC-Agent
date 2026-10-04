@@ -53,6 +53,18 @@ const HOLD_TABLE = Object.freeze([
     blocksPlanning: true,
     blocksExplicit: false,
     clears: '!resume; an explicit command still runs while this hold is active'
+  },
+  {
+    /**
+     * A background task owns the body (src/core/taskHub.js). Planning stops and new explicit
+     * work is refused until it settles - one body, one task. `!stop` cancels it.
+     */
+    reason: 'task',
+    label: '后台任务占用中',
+    blocksReflexes: false,
+    blocksPlanning: true,
+    blocksExplicit: true,
+    clears: 'the background task finishing (done/failed/stopped), or !stop'
   }
 ]);
 

@@ -34,6 +34,12 @@ const { DeathWatch } = require('../src/core/deathWatch');
 const { LlmCore } = require('../src/llm');
 const { startStatusServer } = require('../src/web/statusServer');
 
+const path = require('path');
+const fs = require('fs');
+const ROOT = path.resolve(__dirname, '..');
+/** Unique temp files per built agent, so scenarios cannot leak rules into each other. */
+let hubSeq = 0;
+
 const silent = { debug() {}, info() {}, warn() {}, error() {} };
 const PORT = 8791;
 const BASE = `http://127.0.0.1:${PORT}`;
@@ -204,6 +210,29 @@ async function buildAgent(options = {}) {
 
   ctx.reply = (text, opts) => reply(ctx, text, opts);
 
+  /**
+   * Second-batch machinery, wired the same way `src/index.js` wires it, so the command
+   * scenarios exercise the real rules/consent/slot code with per-agent temp files.
+   */
+  const { Places } = require('../src/core/places');
+  const { Permissions, ConsentDesk } = require('../src/core/permissions');
+  const { TaskHub } = require('../src/core/taskHub');
+  const { installPermissionGate } = require('../src/core/permissionGate');
+  const fs = require('fs');
+  const path = require('path');
+  hubSeq += 1;
+  const placesFile = path.join(ROOT, '.tmp', `control-places-${hubSeq}.json`);
+  const rulesFile = path.join(ROOT, '.tmp', `control-permissions-${hubSeq}.json`);
+  // Fresh per agent: a previous run's file would otherwise accumulate areas/routes and the
+  // assertions would count another run's leftovers.
+  fs.rmSync(placesFile, { force: true });
+  fs.rmSync(rulesFile, { force: true });
+  ctx.places = new Places(cfg, { file: placesFile, log: silent });
+  ctx.permissions = new Permissions(cfg, { file: rulesFile, log: silent, places: ctx.places });
+  ctx.consent = new ConsentDesk(ctx, { log: silent, speak: (t) => ctx.reply(t, { why: 'consent', force: true }), timeoutMs: 3000 });
+  ctx.hub = new TaskHub(ctx, { log: silent, trace() {} });
+  ctx.permissionGate = installPermissionGate(body, { permissions: ctx.permissions, consent: ctx.consent, log: silent });
+
   const chat = new ChatController(ctx, { prefix: '!' });
   ctx.chat = chat;
 
@@ -339,6 +368,91 @@ async function buildAgent(options = {}) {
     expect(agent.brain.status().holds.length === 0, 'resume left a hold active');
     agent.stop();
     return 'stop honoured, explicit work allowed, resume restores planning';
+  });
+
+  await scenario('second batch: area/route/rule commands keep named nouns and rules', async () => {
+    const agent = await buildAgent();
+    await agent.say('!area add home here 6');
+    expect(agent.ctx.places.area('home'), 'the area was not stored');
+    expect(/home/.test((agent.ctx.replies || []).map((r) => r.text).join(' ')), 'no area acknowledgement');
+
+    await agent.say('!route add fishing 21 63 49');
+    await agent.say('!route plan fishing');
+    const route = agent.ctx.places.route('fishing');
+    expect(
+      route && route.points.length === 1,
+      `the route was not stored; replies=${JSON.stringify((agent.ctx.replies || []).map((r) => r.text))} ` +
+        `history=${JSON.stringify(agent.chat.history.map((h) => `${h.command} ${h.args.join(' ')} ok=${h.ok} reason=${h.reason || ''}`))} ` +
+        `listenerStats=${JSON.stringify(agent.listener.stats)} ` +
+        `store=${JSON.stringify(agent.ctx.places.data)}`
+    );
+    expect(route.plan && route.plan.ok === true, `the plan preview failed: ${JSON.stringify(route.plan)}`);
+    expect(route.plan.waypoints >= 1, 'the plan preview reported no waypoints');
+
+    await agent.say('!rule ask break minecraft:oak_log');
+    expect(agent.ctx.permissions.check('break', { name: 'minecraft:oak_log' }).verdict === 'ask', 'the rule was not stored');
+    await agent.say('!rule list');
+    expect(agent.ctx.permissions.list().length === 1, 'rule list is wrong');
+
+    // Query the result directly: command acks are debounced (minReplyGapMs), so reading the
+    // spoken text of the fourth command in a burst would test the anti-spam gap, not the slot.
+    const taskStatus = await agent.chat.handle('task status', 'test');
+    expect(taskStatus.result && taskStatus.result.busy === false, `task status is wrong: ${JSON.stringify(taskStatus)}`);
+    agent.stop();
+    return 'area + route plan + rule + task status verified';
+  });
+
+  await scenario('second batch: a background task holds the body and frees it on settle', async () => {
+    const agent = await buildAgent();
+    let release;
+    const receipt = await agent.ctx.hub.submit({
+      name: 'selftest-hold',
+      description: 'selftest hold',
+      source: 'test',
+      run: () => new Promise((resolve) => {
+        release = resolve;
+      })
+    });
+    expect(receipt.accepted === true && receipt.async === true, `the hub did not accept: ${JSON.stringify(receipt)}`);
+    expect(agent.brain.holds.has('task'), 'the body hold was not taken');
+
+    const refused = await agent.chat.handle('mine dirt 1', 'test');
+    expect(
+      refused.result && refused.result.accepted === false && refused.result.reason === 'body-busy',
+      `expected a body-busy refusal, got ${JSON.stringify(refused)}`
+    );
+
+    release({ ok: true, detail: 'released' });
+    await new Promise((r) => setTimeout(r, 30));
+    expect(!agent.brain.holds.has('task'), 'the body hold was not released');
+    const accepted = await agent.chat.handle('mine dirt 1', 'test');
+    expect(accepted.result && accepted.result.accepted === true, `work after settle was refused: ${JSON.stringify(accepted)}`);
+    await settle(agent);
+    agent.stop();
+    return 'accept -> refuse while busy -> release -> accept';
+  });
+
+  await scenario('second batch: ask-rule blocks the dig until !yes, and the dig then runs', async () => {
+    const agent = await buildAgent();
+    await agent.say('!rule ask break minecraft:oak_log');
+    await agent.say('!chop 1');
+
+    const deadline = Date.now() + 4000;
+    while (Date.now() < deadline && !agent.ctx.consent.status().pending) {
+      await new Promise((r) => setTimeout(r, 25));
+    }
+    const pending = agent.ctx.consent.status().pending;
+    expect(pending, 'no permission question was asked for the gated dig');
+    expect(/oak_log/.test(pending.question), `the question does not name the block: ${pending.question}`);
+
+    await agent.say('!yes');
+    await settle(agent, 8000);
+    const event = (agent.events || []).find((e) => e.name === 'chop-wood');
+    expect(event && event.ok, `the chop did not finish after !yes: ${JSON.stringify(agent.events)}`);
+    const recent = agent.ctx.consent.status().recent;
+    expect(recent.some((r) => r.answer === 'allow'), 'the consent answer was not recorded');
+    agent.stop();
+    return 'question -> !yes -> chop completed';
   });
 
   await scenario('!status answers using the body, not a mineflayer instance', async () => {

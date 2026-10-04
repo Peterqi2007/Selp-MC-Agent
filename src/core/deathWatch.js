@@ -107,6 +107,10 @@ class DeathWatch {
     if (brain) {
       if (typeof brain.preempt === 'function') brain.preempt();
       if (typeof brain.stopForDeath === 'function') brain.stopForDeath(this.death);
+      // The background task slot is separate from the brain queue; death means both.
+      if (this.ctx.hub && typeof this.ctx.hub.cancel === 'function') {
+        this.ctx.hub.cancel('death').catch(() => {});
+      }
     }
 
     // 2. Stop the client too - otherwise it may still be holding the forward key.

@@ -362,6 +362,49 @@ class PathNavigator {
     this.walker.interruptBody('navigator stop');
   }
 
+  /**
+   * Plan without walking: a query, not a task (numen's `route plan`).
+   *
+   * The caller gets the same status the planner already reports plus a small summary the
+   * operator can read. Nothing here touches the body, so `!route plan` cannot move the bot;
+   * `!route go` re-runs this from the current position and only walks when the plan still
+   * holds. Our movement model never digs or bridges, so there is no edit budget to commit -
+   * "walk-only" is guaranteed by construction and stated in the summary.
+   *
+   * @param {{x:number,y:number,z:number}} target
+   * @param {object} [options] { range, timeoutMs }
+   */
+  async plan(target, options = {}) {
+    if (!this.ready) {
+      return { ok: false, status: 'body-lost', reason: 'body is not attached to a client', waypoints: 0, distance: 0, nodes: 0, path: [] };
+    }
+    const range = options.range === undefined ? 2 : options.range;
+    const res = await this.planner.plan(target, {
+      range,
+      timeoutMs: options.timeoutMs || 5000
+    });
+    const path = (res.path || []).map((p) => ({ x: p.x, y: p.y, z: p.z }));
+    const snap = this.body.snapshot();
+    const start = snap && snap.position;
+    let distance = 0;
+    if (start && path.length) {
+      distance += Math.hypot(path[0].x - start.x, path[0].y - start.y, path[0].z - start.z);
+    }
+    for (let i = 1; i < path.length; i += 1) {
+      distance += Math.hypot(path[i].x - path[i - 1].x, path[i].y - path[i - 1].y, path[i].z - path[i - 1].z);
+    }
+    return {
+      ok: res.status === 'success',
+      status: res.status,
+      reason: res.reason,
+      waypoints: path.length,
+      distance: +distance.toFixed(1),
+      nodes: res.nodes || 0,
+      edits: 0,
+      path
+    };
+  }
+
   done(ok, reason, iterations) {
     this.trace({
       kind: 'goTo',

@@ -707,6 +707,27 @@ class ClientModBody extends Body {
     return this._manMadeNavigator;
   }
 
+  /**
+   * Plan a walk without walking it - the query half of the route nouns (`!route plan`).
+   *
+   * Picks the same navigator `moveTo` would (dry / man-made variants) so the preview
+   * matches the execution, then asks the planner for a path and moves nothing.
+   */
+  async plan(position, options = {}) {
+    if (!position) {
+      return { ok: false, status: 'bad-target', reason: 'no target given', waypoints: 0, distance: 0, nodes: 0, path: [] };
+    }
+    const navigator =
+      options.allowSwim === false
+        ? options.allowManMade === true
+          ? this.dryManMadeNavigator
+          : this.dryNavigator
+        : options.allowManMade === true
+          ? this.manMadeNavigator
+          : this.navigator;
+    return navigator.plan(position, options);
+  }
+
   /** Build a navigator with the configured movement rules plus any overrides. */
   _buildNavigator(overrides) {
     const { ClientWorldAdapter } = require('../pathfinding/clientWorldAdapter');
