@@ -27,8 +27,9 @@ const { MockBody } = require('../src/body/mockBody');
 const { BodyWorldView } = require('../src/world/bodyWorldView');
 const { LlmCore } = require('../src/llm');
 const { parseIntent, describeIntent } = require('../src/llm/intent');
-const { systemPrompt, capabilityTable } = require('../src/llm/blackboard');
+const { systemPrompt, capabilityTable, capabilities } = require('../src/llm/blackboard');
 const fallbackRouter = require('../src/llm/fallbackRouter');
+const skills = require('../src/skills');
 const { sanitize } = require('../src/chat/reply');
 
 const log = { debug() {}, info() {}, warn() {}, error() {} };
@@ -228,9 +229,9 @@ function matches(action, expect) {
   }
 
   // Phase 3 adds do_skill: the skill catalogue reached through one validated tool.
-  const EXPECTED_TOOLS = ['observe', 'find_blocks', 'lookup_item', 'do_task', 'do_skill', 'go_to', 'stop'];
+  const EXPECTED_TOOLS = ['observe', 'find_blocks', 'scan_around', 'lookup_item', 'do_task', 'do_skill', 'go_to', 'stop'];
   const names = toolRegistry.toolNames();
-  tcheck('exactly the 7 planned tools exist', names.length === 7 && EXPECTED_TOOLS.every((n) => names.includes(n)), names.join(', '));
+  tcheck('exactly the 8 planned tools exist', names.length === 8 && EXPECTED_TOOLS.every((n) => names.includes(n)), names.join(', '));
   tcheck(
     'there is deliberately NO say tool (speech is a reply field, not a capability)',
     !names.includes('say') && !names.includes('chat'),
@@ -243,7 +244,7 @@ function matches(action, expect) {
   );
   tcheck(
     'read-only tools are separated from the ones that change the world',
-    toolRegistry.readOnlyTools().length === 3 && toolRegistry.readOnlyTools().every((t) => t.kind === 'read'),
+    toolRegistry.readOnlyTools().length === 4 && toolRegistry.readOnlyTools().every((t) => t.kind === 'read'),
     `${toolRegistry.readOnlyTools().map((t) => t.name).join(', ')} are read-only`
   );
 
@@ -265,6 +266,22 @@ function matches(action, expect) {
     const res = await toolRegistry.call(bareCtx, c.tool, c.args);
     tcheck(c.name, res.ok === c.wantOk, res.ok ? undefined : res.error);
   }
+  /**
+   * Every failure that reaches the model carries a failure type and a copy-able hint
+   * (src/core/failure.js), so the model can branch instead of guessing from the string.
+   */
+  const badArgs = await toolRegistry.call(bareCtx, 'find_blocks', {});
+  tcheck(
+    'a refused call carries failure + hint',
+    badArgs.ok === false && badArgs.failure === 'bad_argument' && /required argument/.test(badArgs.error) && !!badArgs.hint,
+    `${badArgs.failure}: ${badArgs.hint}`
+  );
+  const unsupported = await toolRegistry.call(bareCtx, 'do_skill', { name: 'sleep' });
+  tcheck(
+    'an unavailable skill is reported as unsupported, not as a mystery',
+    unsupported.ok === false && unsupported.failure === 'unsupported' && !!unsupported.hint,
+    `${unsupported.failure}: ${unsupported.hint}`
+  );
   process.stdout.write('\n');
 
   // ---- 5. the perceptors against a real (mock) world ----------------------
@@ -328,6 +345,42 @@ function matches(action, expect) {
     modded.result.note
   );
   tcheck('lookup_item() rejects nonsense', nonsense.ok && nonsense.result.known === false, nonsense.result.note);
+
+  /**
+   * scan_around: the egocentric terrain grid (src/world/spatialGrid.js). The mock world
+   * must model air explicitly - the real mod scan does, and a sparse mock world would
+   * honestly answer "unknown" for every empty cell.
+   */
+  const gridBlocks = [];
+  for (let x = -4; x <= 4; x += 1) {
+    for (let z = -4; z <= 4; z += 1) {
+      gridBlocks.push({ name: 'stone', position: { x, y: 63, z } });
+      gridBlocks.push({ name: 'air', position: { x, y: 64, z } });
+      gridBlocks.push({ name: 'air', position: { x, y: 65, z } });
+    }
+  }
+  for (let z = -4; z <= 4; z += 1) {
+    // A full-height wall east (feet + head): '#'
+    gridBlocks.push({ name: 'oak_planks', position: { x: 2, y: 64, z } });
+  }
+  gridBlocks.push({ name: 'dirt', position: { x: 0, y: 64, z: -2 } }); // a one-high step: '^'
+  gridBlocks.push({ name: 'water', position: { x: -2, y: 64, z: 2 } });
+  gridBlocks.push({ name: 'lava', position: { x: 3, y: 64, z: -3 } });
+  const gridBody = new MockBody(cfg, { start: { x: 0, y: 64, z: 0 }, blocks: gridBlocks });
+  await gridBody.connect();
+  const gridCtx = { ...toolCtx, body: gridBody, world: new BodyWorldView(gridBody, cfg, { log }) };
+  const scan = await toolRegistry.call(gridCtx, 'scan_around', { radius: 4 });
+  const grid = scan.ok && scan.result && scan.result.grid ? scan.result.grid : '';
+  tcheck(
+    'scan_around() returns an egocentric grid centred on the bot',
+    scan.ok && grid.includes('@') && grid.split('\n').length >= 10,
+    grid.split('\n')[0] || scan.error
+  );
+  tcheck(
+    'scan_around() pools blocks into walkability symbols',
+    ['#', '^', '~', '!', 'x'].every((symbol) => grid.includes(symbol)),
+    `missing one of # ^ ~ ! x`
+  );
 
   // ---- 6. a bounded tool round, end to end --------------------------------
   process.stdout.write('\n6. a model that looks before it decides (bounded tool round)\n');
@@ -415,6 +468,45 @@ function matches(action, expect) {
     reply: async () => true
   };
   const promptCore = new LlmCore(ctx, { ...llmCfg, enabled: false }, { log });
+
+  /**
+   * Capability table consistency (src/llm/blackboard.js): every row comes from a live
+   * registry, so nothing may appear twice, be both yes and no, or be advertised as a
+   * Phase 5 promise while the skill actually exists. This is the check that would have
+   * caught `fish` reading both "available" and "not implemented".
+   */
+  const caps = capabilities(ctx);
+  const capNames = caps.map((c) => c.name);
+  tcheck(
+    'capability table has no duplicate names',
+    new Set(capNames).size === capNames.length,
+    `${caps.length} rows: ${capNames.join(', ')}`
+  );
+  const conflicts = capNames.filter((name) => {
+    const rows = caps.filter((c) => c.name === name);
+    return new Set(rows.map((r) => r.available)).size > 1;
+  });
+  tcheck('capability table has no available/unavailable conflicts', conflicts.length === 0, conflicts.join(', '));
+  const fishRow = caps.find((c) => c.name === 'fish');
+  tcheck(
+    'fish is the implemented skill, not a Phase 5 promise',
+    !!fishRow && fishRow.available === true,
+    JSON.stringify(fishRow || null)
+  );
+  const unavailable = caps.filter((c) => !c.available).map((c) => c.name);
+  tcheck(
+    'only genuinely missing features read "no"',
+    ['trade', 'breed', 'build'].every((n) => unavailable.includes(n)) && !unavailable.includes('fish'),
+    unavailable.join(', ')
+  );
+  const doSkillTool = toolRegistry.TOOLS.find((t) => t.name === 'do_skill');
+  const unlisted = skills.names().filter((n) => !String(doSkillTool.description).includes(n));
+  tcheck(
+    'do_skill description lists every registered skill (prompt == registry)',
+    unlisted.length === 0,
+    unlisted.length ? `missing: ${unlisted.join(', ')}` : `${skills.names().length} skills`
+  );
+
   process.stdout.write('\n7. capabilities advertised to the model (as a client-mod body)\n');
   process.stdout.write(`${capabilityTable(ctx)}\n\n`);
 

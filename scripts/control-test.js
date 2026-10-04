@@ -317,6 +317,10 @@ async function buildAgent(options = {}) {
     await agent.say('!stop');
     expect(agent.brain.autoPlanDisabled === true, 'stop must disable autonomous planning');
     expect(agent.brain.queue.length === 0, 'stop must clear the queue');
+    expect(
+      agent.brain.status().holds.some((h) => h.reason === 'owner-stop'),
+      `!stop did not enter the owner-stop hold: ${JSON.stringify(agent.brain.status().holds)}`
+    );
 
     // The planner must stay quiet even when its loop runs.
     await agent.brain.slowLoop();
@@ -332,6 +336,7 @@ async function buildAgent(options = {}) {
 
     await agent.say('!resume');
     expect(agent.brain.autoPlanDisabled === false, 'resume must re-enable autonomous planning');
+    expect(agent.brain.status().holds.length === 0, 'resume left a hold active');
     agent.stop();
     return 'stop honoured, explicit work allowed, resume restores planning';
   });
@@ -799,9 +804,14 @@ async function buildAgent(options = {}) {
      * body-independent truths here, and that the table reflects the body for craft.
      */
     const byName = Object.fromEntries(body.capabilities.map((c) => [c.name, c]));
-    for (const name of ['fish', 'store', 'light']) {
-      expect(byName[name] && byName[name].available === false, `${name} must read unavailable in P0`);
+    const names = body.capabilities.map((c) => c.name);
+    expect(new Set(names).size === names.length, `the capability table has duplicates: ${names.join(', ')}`);
+    for (const name of ['store', 'light']) {
+      expect(byName[name] && byName[name].available === false, `${name} is mineflayer-only and must read unavailable here`);
     }
+    // `fish` used to be listed twice - once as the implemented skill (yes) and once as an
+    // old "Phase 5" promise (no). The registry is the single source now.
+    expect(byName.fish && byName.fish.available === true, 'fish must follow the skill registry, not the old Phase 5 list');
     expect(byName.chop.available === true && byName.mine.available === true, 'the three primitives must be available');
     expect(byName.craft.available === httpAgent.body.supportsCrafting, 'craft must follow the body capability');
     /**
@@ -831,6 +841,7 @@ async function buildAgent(options = {}) {
 
     expect(agent.deathWatch.dead, 'death was not detected');
     expect(agent.brain.stopped, 'the brain was not stopped');
+    expect(agent.brain.status().holdReason === 'dead', `the hold table does not name the death: ${agent.brain.status().holdReason}`);
     expect(agent.brain.queue.length === 0, 'the queue was not cleared');
     expect(agent.ctx.memory.data.runtime.death, 'the death was not written to the state-file payload');
 
@@ -846,10 +857,12 @@ async function buildAgent(options = {}) {
     agent.deathWatch.stop();
     expect(!agent.deathWatch.dead, 'respawn was not noticed');
     expect(agent.brain.stopped, 'the brain auto-resumed after death (it must not)');
+    expect(agent.brain.status().holdReason === 'dead', 'the respawn cleared the death hold (it must not)');
 
     // An explicit resume is the only way back.
     agent.deathWatch.resume();
     expect(!agent.brain.stopped, 'explicit resume did not clear the stop');
+    expect(agent.brain.status().holds.length === 0, 'explicit resume left a hold active');
     agent.stop();
     return 'aborted, stayed stopped across respawn, resumed only on request';
   });

@@ -360,6 +360,8 @@ function uiState(ctx) {
       stopped: brain.stopped,
       autoPlanDisabled: brain.autoPlanDisabled === true,
       stoppedReason: brain.stoppedReason,
+      holdReason: brain.holdReason || null,
+      holds: Array.isArray(brain.holds) ? brain.holds : [],
       safeMode: brain.safeMode,
       current: brain.current,
       queueLength: brain.queueLength,
@@ -684,7 +686,10 @@ function emergencyStop(ctx) {
     if (ctx.brain) {
       ctx.brain.preempt();
       ctx.brain.queue.length = 0;
-      ctx.brain.autoPlanDisabled = true;
+      // The hold table is the preferred entry; a lightweight brain stub (selftest, doctor)
+      // may not have it, and silently missing the stop would be worse than the flag.
+      if (typeof ctx.brain.hold === 'function') ctx.brain.hold('owner-stop', 'panel emergency stop');
+      else ctx.brain.autoPlanDisabled = true;
       ctx.log.warn('EMERGENCY STOP: queue cleared, current task cancelled');
     }
     steps.brain = { ok: true, ms: Date.now() - started };

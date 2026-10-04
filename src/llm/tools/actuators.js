@@ -14,6 +14,7 @@
 
 const { bare } = require('../../world/safety');
 const skills = require('../../skills');
+const { fold } = require('../../core/failure');
 
 /** Task names the model may request, matching the intent enum in src/llm/intent.js. */
 const TASK_NAMES = ['chop', 'mine', 'collect'];
@@ -30,12 +31,16 @@ const MAX_COUNT = 256;
 async function doTask(ctx, args, options = {}) {
   const task = String(args.task || '').trim();
   if (!TASK_NAMES.includes(task)) {
-    return { ok: false, error: `unknown task "${task}" - available: ${TASK_NAMES.join(', ')}` };
+    return fold({
+      ok: false,
+      error: `unknown task "${task}" - available: ${TASK_NAMES.join(', ')}`,
+      failure: 'bad_argument'
+    });
   }
   const inner = args.args || {};
   const count = inner.count === undefined ? undefined : Number(inner.count);
   if (count !== undefined && (!Number.isFinite(count) || count <= 0 || count > MAX_COUNT)) {
-    return { ok: false, error: `count must be between 1 and ${MAX_COUNT}` };
+    return fold({ ok: false, error: `count must be between 1 and ${MAX_COUNT}`, failure: 'bad_argument' });
   }
 
   let line;
@@ -45,7 +50,7 @@ async function doTask(ctx, args, options = {}) {
     line = 'collect';
   } else {
     const blocks = (inner.block || []).map((b) => bare(b)).filter(Boolean);
-    if (!blocks.length) return { ok: false, error: 'mine needs at least one block name' };
+    if (!blocks.length) return fold({ ok: false, error: 'mine needs at least one block name', failure: 'bad_argument' });
     // One block name per call: the command table takes a single target plus a count, and
     // silently mining only the first of a list would be a lie about what was requested.
     line = `mine ${blocks[0]} ${count || 8}`;
@@ -61,9 +66,13 @@ async function doTask(ctx, args, options = {}) {
  */
 async function goTo(ctx, args, options = {}) {
   const coords = ['x', 'y', 'z'].map((axis) => Number(args[axis]));
-  if (coords.some((n) => !Number.isFinite(n))) return { ok: false, error: 'x, y and z must be numbers' };
+  if (coords.some((n) => !Number.isFinite(n))) {
+    return fold({ ok: false, error: 'x, y and z must be numbers', failure: 'bad_argument' });
+  }
   // The world border; beyond it there is nothing to walk to and the request is nonsense.
-  if (coords.some((n) => Math.abs(n) > 30000000)) return { ok: false, error: 'coordinates are outside the world border' };
+  if (coords.some((n) => Math.abs(n) > 30000000)) {
+    return fold({ ok: false, error: 'coordinates are outside the world border', failure: 'bad_argument' });
+  }
   return dispatch(ctx, `goto ${Math.round(coords[0])} ${Math.round(coords[1])} ${Math.round(coords[2])}`, options, {
     kind: 'go_to'
   });
@@ -84,17 +93,27 @@ async function stop(ctx, args, options = {}) {
  */
 async function doSkill(ctx, args, options = {}) {
   const name = String((args && (args.name || args.skill)) || '').trim();
-  if (!name) return { ok: false, error: 'do_skill needs a name' };
+  if (!name) return fold({ ok: false, error: 'do_skill needs a name', failure: 'bad_argument' });
   const skill = skills.get(name);
   if (!skill) {
-    return { ok: false, error: `unknown skill "${name}" - available: ${skills.names().join(', ')}` };
+    return fold({
+      ok: false,
+      error: `unknown skill "${name}" - available: ${skills.names().join(', ')}`,
+      failure: 'bad_argument'
+    });
   }
   const gate = skill.available ? skill.available(ctx) : { ok: true };
-  if (gate && gate.ok === false) return { ok: false, error: gate.reason || `${name} is unavailable on this body` };
+  if (gate && gate.ok === false) {
+    return fold({
+      ok: false,
+      error: gate.reason || `${name} is unavailable on this body`,
+      failure: 'unsupported'
+    });
+  }
   const result = await skills.run(name, ctx, (args && args.params) || {});
   return result.ok
     ? { ok: true, skill: name, detail: result.detail || result.reason || null, result }
-    : { ok: false, error: result.reason || `${name} failed`, skill: name };
+    : { ...fold({ ok: false, error: result.reason || `${name} failed`, failure: result.failure }), skill: name };
 }
 
 /**
@@ -104,7 +123,7 @@ async function doSkill(ctx, args, options = {}) {
  */
 async function dispatch(ctx, line, options, extra) {
   const chat = ctx.chat;
-  if (!chat) return { ok: false, error: 'no command table available' };
+  if (!chat) return fold({ ok: false, error: 'no command table available', failure: 'internal' });
 
   const started = Date.now();
   try {
@@ -118,7 +137,7 @@ async function dispatch(ctx, line, options, extra) {
       ...extra
     };
   } catch (err) {
-    return { ok: false, error: err.message, dispatched: line };
+    return { ...fold({ ok: false, error: err.message, failure: 'internal' }), dispatched: line };
   }
 }
 

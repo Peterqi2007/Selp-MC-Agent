@@ -24,6 +24,8 @@
 
 const skills = new Map();
 
+const { fold } = require('../core/failure');
+
 function register(skill) {
   if (!skill || !skill.name || typeof skill.run !== 'function') {
     throw new Error('a skill needs a name and a run()');
@@ -110,25 +112,44 @@ function validate(skill, raw) {
  */
 async function run(name, ctx, raw) {
   const skill = get(name);
-  if (!skill) return { ok: false, reason: `unknown skill "${name}" - have: ${names().join(', ')}` };
+  if (!skill) {
+    return fold({
+      ok: false,
+      reason: `unknown skill "${name}" - have: ${names().join(', ')}`,
+      failure: 'bad_argument',
+      hint: `use one of: ${names().join(', ')}`
+    });
+  }
 
   const validated = validate(skill, raw);
-  if (!validated.ok) return { ok: false, reason: validated.error };
+  if (!validated.ok) return fold({ ok: false, reason: validated.error, failure: 'bad_argument' });
 
   let gate;
   try {
     gate = skill.available(ctx || {}) || { ok: true };
   } catch (err) {
-    return { ok: false, reason: `skill ${name} availability check failed: ${err.message}` };
+    return fold({
+      ok: false,
+      reason: `skill ${name} availability check failed: ${err.message}`,
+      failure: 'internal'
+    });
   }
-  if (gate.ok === false) return { ok: false, reason: gate.reason || `${name} is not available on this body` };
+  if (gate.ok === false) {
+    return fold({
+      ok: false,
+      reason: gate.reason || `${name} is not available on this body`,
+      failure: 'unsupported'
+    });
+  }
 
   try {
     const result = await skill.run(ctx || {}, validated.params);
-    if (!result || typeof result !== 'object') return { ok: false, reason: `${name} returned nothing` };
-    return { ok: result.ok !== false, ...result };
+    if (!result || typeof result !== 'object') {
+      return fold({ ok: false, reason: `${name} returned nothing`, failure: 'internal' });
+    }
+    return fold({ ok: result.ok !== false, ...result });
   } catch (err) {
-    return { ok: false, reason: `${name} failed: ${err.message}` };
+    return fold({ ok: false, reason: `${name} failed: ${err.message}`, failure: 'internal' });
   }
 }
 

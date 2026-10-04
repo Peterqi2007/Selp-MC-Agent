@@ -23,6 +23,8 @@
 
 const percectors = require('./perceptors');
 const actuators = require('./actuators');
+const skills = require('../../skills');
+const { FAILURE, HINTS, fold } = require('../../core/failure');
 
 /** Argument types the validator understands. Deliberately small. */
 const TYPES = new Set(['string', 'number', 'integer', 'boolean', 'array', 'object']);
@@ -75,6 +77,23 @@ const TOOLS = [
     run: (ctx, args) => percectors.lookupItem(ctx, args)
   },
   {
+    name: 'scan_around',
+    kind: 'read',
+    description:
+      'Return a compact, egocentric ASCII map of the terrain (north up, east right). ' +
+      'Symbols: @ you, . walkable, ^ step up, , drop 1-2, v drop 3+, # blocked, T tree, ' +
+      '~ water, ! lava/fire, x hazard buffer, ? unknown. Use it before walking or when a ' +
+      'flat coordinate list is not enough to see walls, water and cliffs.',
+    parameters: {
+      type: 'object',
+      properties: {
+        radius: { type: 'integer', description: 'radius in blocks (4-16, default 8)' }
+      },
+      additionalProperties: false
+    },
+    run: (ctx, args) => percectors.scanAround(ctx, args)
+  },
+  {
     name: 'do_task',
     kind: 'write',
     description: 'Start one of the three gathering tasks. This is the only way to make the bot work.',
@@ -116,8 +135,7 @@ const TOOLS = [
     name: 'do_skill',
     kind: 'write',
     description:
-      'Run one named skill from the skill catalogue: eat, equip, drop, armor, place, use_on, ' +
-      'attack, defend, explore, come, craft, smelt, farm, sleep, withdraw, deposit, target, look, look_at. ' +
+      `Run one named skill from the skill catalogue: ${skills.names().join(', ')}. ` +
       'Prefer this for anything beyond plain gathering; the skill validates its own parameters and ' +
       'refuses unknown names or parameters instead of guessing.',
     parameters: {
@@ -251,11 +269,24 @@ function validateValue(key, spec, value) {
 async function call(ctx, name, rawArgs, options = {}) {
   const tool = BY_NAME.get(name);
   if (!tool) {
-    return { ok: false, error: `unknown tool "${name}" - available: ${toolNames().join(', ')}` };
+    return {
+      ok: false,
+      error: `unknown tool "${name}" - available: ${toolNames().join(', ')}`,
+      failure: FAILURE.BAD_ARGUMENT,
+      hint: `use one of: ${toolNames().join(', ')}`
+    };
   }
 
   const verdict = validate(tool.parameters, rawArgs);
-  if (!verdict.ok) return { ok: false, error: verdict.reason, kind: tool.kind };
+  if (!verdict.ok) {
+    return {
+      ok: false,
+      error: verdict.reason,
+      failure: FAILURE.BAD_ARGUMENT,
+      hint: HINTS[FAILURE.BAD_ARGUMENT],
+      kind: tool.kind
+    };
+  }
 
   try {
     const result = await tool.run(ctx, verdict.value, options);
@@ -268,13 +299,26 @@ async function call(ctx, name, rawArgs, options = {}) {
      * a successful tool call next to a task that does not exist.
      */
     if (result && typeof result === 'object' && result.ok === false) {
-      return { ok: false, error: result.error || 'the tool refused the request', kind: tool.kind };
+      const failed = fold({ ok: false, error: result.error || 'the tool refused the request', failure: result.failure, hint: result.hint });
+      return {
+        ok: false,
+        error: failed.error,
+        failure: failed.failure,
+        hint: failed.hint,
+        kind: tool.kind
+      };
     }
     return { ok: true, result, kind: tool.kind };
   } catch (err) {
     // A tool that throws is a tool failure, not an agent failure: report it back so the model
     // can react, rather than letting the exception end the turn.
-    return { ok: false, error: err.message, kind: tool.kind };
+    return {
+      ok: false,
+      error: err.message,
+      failure: FAILURE.INTERNAL,
+      hint: HINTS[FAILURE.INTERNAL],
+      kind: tool.kind
+    };
   }
 }
 

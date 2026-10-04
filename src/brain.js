@@ -26,6 +26,7 @@ const { Logger } = require('./util/logger');
 const { countItem, countMatching, isFood, isLog, bestTool, TOOL_TIERS } = require('./world/items');
 const { SnapshotInventory } = require('./world/snapshotInventory');
 const { sleep } = require('./core/movement');
+const { Holds } = require('./core/holds');
 const { needsRescue, escapeToGround, hideUnderground, isDaytime } = require('./core/recovery');
 
 /** Priority levels for `enqueue` (P0-PLAN §5.7). Lower number wins. */
@@ -44,12 +45,30 @@ class Brain {
     this.slowTimer = null;
     this.currentTask = null;
     this.queue = [];
-    this.paused = false;
     /**
-     * Post-death stop. Distinct from `paused`: only an explicit resume clears it, because
-     * "abort everything on death" must not be undone by the next autonomous planning tick.
+     * Holds: the single table of "why is the brain not working" (src/core/holds.js).
+     *
+     * `paused` / `stopped` / `autoPlanDisabled` are accessors over it, kept because the
+     * panel, the CLI, the doctor and the tests have read them since P0. The table is the
+     * one place that says what each reason blocks and what clears it, so the flags cannot
+     * drift apart again (the post-death stop once resumed itself on respawn).
      */
-    this.stopped = false;
+    this.holds = new Holds();
+    Object.defineProperty(this, 'paused', {
+      configurable: true,
+      get: () => this.holds.has('paused') || this.holds.has('dead'),
+      set: (on) => (on ? this.holds.hold('paused') : this.holds.release('paused'))
+    });
+    Object.defineProperty(this, 'stopped', {
+      configurable: true,
+      get: () => this.holds.has('dead'),
+      set: (on) => (on ? this.holds.hold('dead') : this.holds.release('dead'))
+    });
+    Object.defineProperty(this, 'autoPlanDisabled', {
+      configurable: true,
+      get: () => this.holds.has('owner-stop'),
+      set: (on) => (on ? this.holds.hold('owner-stop') : this.holds.release('owner-stop'))
+    });
     this.stoppedReason = null;
     this.deathDetail = null;
     /** Task lifecycle listeners, used by the LLM for event-driven follow-ups (§5.6). */
@@ -619,9 +638,8 @@ class Brain {
    * three seconds later.
    */
   stopForDeath(detail = null) {
-    this.stopped = true;
+    this.holds.hold('dead', detail ? String(detail) : null);
     this.stoppedReason = 'death';
-    this.paused = true;
     this.queue.length = 0;
     if (this.currentTask && this.currentTask.state === 'running') this.currentTask.cancel();
     this.deathDetail = detail;
@@ -631,9 +649,9 @@ class Brain {
 
   /** Clear the post-death stop. Only a human (or the panel) should call this. */
   resumeFromDeath() {
-    this.stopped = false;
+    this.holds.release('dead');
+    this.holds.release('paused');
     this.stoppedReason = null;
-    this.paused = false;
     this.log.info('brain resumed after death');
     return this.status();
   }
@@ -644,6 +662,8 @@ class Brain {
       paused: this.paused,
       stopped: this.stopped,
       autoPlanDisabled: !!this.autoPlanDisabled,
+      holdReason: this.holds.primary() ? this.holds.primary().reason : null,
+      holds: this.holds.list(),
       stoppedReason: this.stoppedReason,
       death: this.deathDetail,
       safeMode: this.safeMode,
@@ -681,20 +701,37 @@ class Brain {
   }
 
   pause() {
-    this.paused = true;
+    this.holds.hold('paused', '!pause');
     if (this.currentTask) this.currentTask.cancel();
     this.ctx.nav.interrupt('brain paused');
     this.log.warn('brain paused');
   }
 
   resume() {
-    if (this.stopped) {
+    if (this.holds.has('dead')) {
       this.log.warn('resume ignored: the brain is stopped after a death (use resumeFromDeath)');
       return this.status();
     }
-    this.paused = false;
-    this.autoPlanDisabled = false;
+    this.holds.release('paused');
+    this.holds.release('owner-stop');
     this.log.info('brain resumed');
+    return this.status();
+  }
+
+  /**
+   * Enter a named hold (src/core/holds.js). Every reason a component wants to freeze the
+   * brain goes through here or its accessor, so `status()` can answer "why" in one place.
+   */
+  hold(reason, note = null) {
+    this.holds.hold(reason, note);
+    this.log.warn(`brain hold: ${reason}${note ? ` (${note})` : ''}`);
+    return this.status();
+  }
+
+  /** Clear a named hold. */
+  release(reason) {
+    const wasActive = this.holds.release(reason);
+    if (wasActive) this.log.info(`brain hold released: ${reason}`);
     return this.status();
   }
 }

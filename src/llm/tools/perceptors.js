@@ -13,6 +13,7 @@
  */
 
 const { bare } = require('../../world/safety');
+const { renderSpatialGrid } = require('../../world/spatialGrid');
 
 /** How many block types to summarise in `observe`, most common first. */
 const TOP_BLOCKS = 8;
@@ -125,6 +126,42 @@ function findBlocks(ctx, args) {
 }
 
 /**
+ * Egocentric terrain map: the dense, near-field half of perception.
+ *
+ * `find_blocks` answers "where is X"; this answers "what is around me" - walls, water,
+ * cliffs and hazards as a small grid the model can trace a route on. It reads the same
+ * body scan the pathfinder uses (`body.blockAt`), so unknown cells stay `?` instead of
+ * being invented as air.
+ *
+ * @param {object} ctx
+ * @param {object} args { radius }
+ */
+function scanAround(ctx, args = {}) {
+  const body = ctx.body;
+  if (!body || typeof body.blockAt !== 'function' || typeof body.snapshot !== 'function') {
+    return { ok: false, error: 'no body attached - connect the agent first', failure: 'unsupported' };
+  }
+  const snap =
+    (ctx.world && typeof ctx.world.snapshot === 'function' ? ctx.world.snapshot(true) : null) || body.snapshot();
+  if (!snap || !snap.ready || !snap.position) {
+    return { ok: false, error: 'no world data yet - the body is not attached', failure: 'unsupported' };
+  }
+  const radius = Math.max(4, Math.min(16, Math.floor(Number(args.radius) || 8)));
+  const read = (x, y, z) => {
+    const block = body.blockAt({ x, y, z });
+    return block && block.name ? block.name : null;
+  };
+  const grid = renderSpatialGrid({ read, position: snap.position, radius });
+  return {
+    ok: true,
+    radius: grid.radius,
+    position: grid.position,
+    legend: grid.legend,
+    grid: grid.text
+  };
+}
+
+/**
  * Does this item or block exist?
  *
  * Backed by `minecraft-data` for vanilla names. A modded name is reported as unknown **on
@@ -191,4 +228,4 @@ function clamp(value, min, max) {
   return Math.max(min, Math.min(max, value));
 }
 
-module.exports = { observe, findBlocks, lookupItem, census };
+module.exports = { observe, findBlocks, scanAround, lookupItem, census };

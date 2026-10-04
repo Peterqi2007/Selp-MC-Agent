@@ -127,11 +127,11 @@ check('C: the LLM module set matches §5.1', () => {
   return 'index/client/blackboard/intent/fallbackRouter/tools/* + config/llm.json';
 });
 
-check('C: the planned tools (P0 + Phase-3 do_skill), and no say tool', () => {
+check('C: the planned tools (P0 + Phase-3 do_skill + scan_around), and no say tool', () => {
   const registry = require(path.join(ROOT, 'src/llm/tools/registry'));
   const names = registry.toolNames();
-  const expected = ['observe', 'find_blocks', 'lookup_item', 'do_task', 'do_skill', 'go_to', 'stop'];
-  if (names.length !== 7 || !expected.every((n) => names.includes(n))) throw new Error(`got ${names.join(', ')}`);
+  const expected = ['observe', 'find_blocks', 'scan_around', 'lookup_item', 'do_task', 'do_skill', 'go_to', 'stop'];
+  if (names.length !== 8 || !expected.every((n) => names.includes(n))) throw new Error(`got ${names.join(', ')}`);
   if (names.includes('say')) throw new Error('a say tool would reintroduce autonomous speech');
   return names.join(', ');
 });

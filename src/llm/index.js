@@ -371,7 +371,14 @@ class LlmCore {
         source: 'llm',
         speaker: context.speaker
       });
-      log.push({ name: call.name, ok: result.ok, error: result.error || null, kind: result.kind || null });
+      log.push({
+        name: call.name,
+        ok: result.ok,
+        error: result.error || null,
+        failure: result.failure || null,
+        hint: result.hint || null,
+        kind: result.kind || null
+      });
       messages.push({
         role: 'assistant',
         content: null,
@@ -380,7 +387,11 @@ class LlmCore {
       messages.push({
         role: 'tool',
         tool_call_id: call.id || call.name,
-        content: JSON.stringify(result.ok ? result.result : { error: result.error }).slice(0, 4000)
+        content: JSON.stringify(
+          result.ok
+            ? result.result
+            : { error: result.error, failure: result.failure || null, hint: result.hint || null }
+        ).slice(0, 4000)
       });
     }
 
@@ -389,7 +400,11 @@ class LlmCore {
       messages.push({
         role: 'tool',
         tool_call_id: 'limit',
-        content: JSON.stringify({ error: `only ${limit} tool calls per turn are allowed` })
+        content: JSON.stringify({
+          error: `only ${limit} tool calls per turn are allowed`,
+          failure: 'bad_argument',
+          hint: 'ask again with fewer tool calls'
+        })
       });
     }
     return { calls: log, messages };

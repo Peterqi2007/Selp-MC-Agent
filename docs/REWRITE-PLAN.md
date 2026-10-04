@@ -366,3 +366,39 @@ FIND_WATER → MOVE_TO_WATER → CAST → WAIT_BITE → REEL → COLLECT → 循
 （planks/chest/农田/机器等）。理由：这是操作员自己的服务器与基地，之前该闸门导致的 `noPath`
 （农田收割只收到 4/60、床边寻路失败）比"踩到建筑"代价大得多。技能里显式的 `allowManMade` 选项保留，
 作为"这次行走确实要越过自建地面"的书面意图。`strictMining`、`requireLeaves` 等其余安全策略不变。
+
+---
+
+## 九、第一批任务执行优化（2026-10-04，参考 numen 的第一批）
+
+按「读完 numen 设计后的第一批」落地，四条互相独立、全部离线可验：
+
+### 9.1 能力表单一来源（`src/llm/blackboard.js`）
+
+能力表不再由「手写副本 + 注册表」拼成，而是：采集动词来自工具白名单（`go_to/chop/mine/collect/stop`）、
+技能来自 `skills.describe(ctx)`、遗留任务（`light/store/hunt`）按当前 body 标可用性（对 clientmod 说明
+"mineflayer-only"而不是含糊的"未实现"）、真正没做的（`trade/breed/build`）才保持 `no`。`push()` 去重，
+所以「某技能一边写着可用、一边写着 Phase 5 未实现」（此前 `fish` 的实际情况）不可能再发生。
+`llm:dry` 新增 5 条一致性断言（无重名、无可用/不可用冲突、fish 可用、deferred 只含真缺的功能、
+`do_skill` 的描述列出注册表里的每一个技能）。
+
+### 9.2 失败类型 + 统一回执（`src/core/failure.js`）
+
+新增 14 种失败类型与对应的"下一步提示"：寻路器的 `noPath/blocked/jump-blocked/screen-open/timeout…`、
+技能的 `stopped: danger/hostile/rod-worn/no-water…`、自由文本三类来源统一映射；`fold(result)` 在技能注册表、
+actuator、工具注册表三处给失败结果补上 `{failure, hint}`，工具消息与日志都带上。技能测试新增 2 条
+（10 条原因 + 1 个 stopped 码的分类；失败技能带 failure+hint、body 不支持时为 unsupported）。
+
+### 9.3 停牌表（`src/core/holds.js` + `src/brain.js`）
+
+把 `paused / stopped / autoPlanDisabled` 三个散落布尔收敛成一张表：`dead`（只有显式 resume 能清，
+复活不自动恢复）、`paused`（`!resume`）、`owner-stop`（`!stop`/面板急停：只停自动规划，显式指令照跑）。
+三个旧字段保留为表上的访问器，面板/CLI/doctor/测试无需改动；`status()` 增加 `holdReason` 与 `holds`，
+`/ui/state` 同步透出。control 测试在 stop 与死亡/复活两条场景里断言了 hold 的进入与清除。
+
+### 9.4 空间感知网格（`src/world/spatialGrid.js` + `scan_around` 工具）
+
+新增只读工具 `scan_around(radius 4-16)`：以 bot 为中心输出 17×17 语义字符网格（北 = -z 在上、
+东 = +x 在右，`@ . ^ , v # T ~ ! x ?`），语义 pooling、岩浆邻格做膨胀缓冲、未加载格 `?`，
+网格用与寻路同一份 `body.blockAt`，绝不把未知当空气。纯函数渲染器离线可测；`llm:dry` 增加
+网格与符号断言，工具白名单从 7 个变成 8 个（read-only 3 → 4）。

@@ -545,6 +545,47 @@ class MenuBody extends Body {
     return result.detail;
   });
 
+  // ------------------------------------------------------------------ failure types
+  await scenario('failure: every reason family maps to one vocabulary', async () => {
+    const { classify, classifyMove, fromResult, FAILURE } = require('../src/core/failure');
+    const cases = [
+      [classifyMove('noPath'), FAILURE.NO_PATH, 'noPath'],
+      [classifyMove('timeout'), FAILURE.TIMEOUT, 'timeout'],
+      [classifyMove('screen-open'), FAILURE.OCCLUDED, 'screen-open'],
+      [classifyMove('jump-blocked'), FAILURE.OCCLUDED, 'jump-blocked'],
+      [classify('need a pickaxe to mine stone'), FAILURE.WRONG_TOOL, 'pickaxe'],
+      [classify('no torches and no coal to craft them'), FAILURE.NO_MATERIAL, 'no torches'],
+      [classify('hostile zombie at 3 blocks'), FAILURE.HAZARD, 'hostile'],
+      [classify('unknown parameter "flavour" for eat'), FAILURE.BAD_ARGUMENT, 'unknown parameter'],
+      [classify('no water with a fishable bank within 24 blocks'), FAILURE.TARGET_LOST, 'no water'],
+      [classify('the task was cancelled'), FAILURE.INTERRUPTED, 'cancelled']
+    ];
+    const wrong = cases.filter(([got, want]) => got !== want);
+    expect(wrong.length === 0, `misclassified: ${JSON.stringify(wrong)}`);
+    const folded = fromResult({ stopped: 'rod-worn', reason: 'the fishing rod is down to its last use' });
+    expect(folded.failure === FAILURE.NO_MATERIAL && !!folded.hint, `rod-worn folded wrong: ${JSON.stringify(folded)}`);
+    return `${cases.length} reasons + 1 stopped-code mapped`;
+  });
+
+  await scenario('failure: a failed skill result carries failure + hint', async () => {
+    skills.register({
+      name: 'test_failure_receipt',
+      title: 'test-only failing skill',
+      description: 'always fails, so the receipt shape is checked without a game',
+      run: async () => ({ ok: false, reason: 'noPath while walking to the target' })
+    });
+    const body = new MockBody(cfg, {});
+    await body.connect();
+    const result = await skills.run('test_failure_receipt', makeCtx(body), {});
+    expect(result.ok === false, `expected a failure, got ${JSON.stringify(result)}`);
+    expect(result.failure === 'no_path', `expected no_path, got ${JSON.stringify(result)}`);
+    expect(typeof result.hint === 'string' && result.hint.length > 0, 'the receipt has no hint');
+    // An unavailable skill is a different kind: the body cannot do it, not the world.
+    const gated = await skills.run('sleep', { cfg, log, body: null }, {});
+    expect(gated.ok === false && gated.failure === 'unsupported', `expected unsupported, got ${JSON.stringify(gated)}`);
+    return `${result.failure} + ${gated.failure} receipts`;
+  });
+
   // ------------------------------------------------------------------ summary
   const failed = results.filter((r) => !r.ok);
   process.stdout.write(`\n${'='.repeat(60)}\n`);

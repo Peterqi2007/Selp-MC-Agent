@@ -161,10 +161,11 @@ class ChatController {
         this.say(text ? `inventory: ${text}` : '背包是空的');
       },
       stop: () => {
-        // A real stop: cancel everything AND silence the 2.5s planner. Without the flag the
-        // planner re-queued the next goal immediately and the bot looked unstoppable.
+        // A real stop: cancel everything AND silence the 2.5s planner (src/core/holds.js,
+        // reason `owner-stop`). Without the hold the planner re-queued the next goal
+        // immediately and the bot looked unstoppable. An explicit command still runs.
         ctx.brain.preempt();
-        ctx.brain.autoPlanDisabled = true;
+        ctx.brain.hold('owner-stop', '!stop from chat');
         ctx.nav.stop();
         if (ctx.body && typeof ctx.body.interrupt === 'function') ctx.body.interrupt('!stop');
         this.followTarget = null;
@@ -351,7 +352,7 @@ class ChatController {
     const detail = result && (result.detail || result.reason) ? result.detail || result.reason : '';
     // Always answer. A silent skill looked exactly like a broken command in live testing.
     this.say(ok ? `好（${name}）${detail ? '：' + detail : ''}` : `不行（${name}）：${detail || '失败'}`);
-    if (!ok) this.log.warn(`skill ${name} refused: ${detail}`);
+    if (!ok) this.log.warn(`skill ${name} failed (${result.failure || 'unknown'}): ${detail}`);
     return result;
   }
 

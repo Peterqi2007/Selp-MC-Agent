@@ -1519,11 +1519,11 @@ async function main() {
     return `second attempt held for ${second.reason}`;
   });
 
-  await check('tools: the tool list is exactly what the plans specify (P0 + Phase-3 do_skill)', () => {
+  await check('tools: the tool list is exactly what the plans specify (P0 + Phase-3 do_skill + scan_around)', () => {
     const registry = require(path.join(ROOT, 'src/llm/tools/registry'));
     const names = registry.toolNames();
-    const expected = ['observe', 'find_blocks', 'lookup_item', 'do_task', 'do_skill', 'go_to', 'stop'];
-    if (names.length !== 7) throw new Error(`expected 7 tools, got ${names.length}: ${names.join(', ')}`);
+    const expected = ['observe', 'find_blocks', 'scan_around', 'lookup_item', 'do_task', 'do_skill', 'go_to', 'stop'];
+    if (names.length !== 8) throw new Error(`expected 8 tools, got ${names.length}: ${names.join(', ')}`);
     for (const name of expected) {
       if (!names.includes(name)) throw new Error(`missing tool ${name}`);
     }

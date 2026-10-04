@@ -20,61 +20,108 @@
 
 const { ACTION_TYPES, TASK_NAMES } = require('./intent');
 const toolRegistry = require('./tools/registry');
+const actuators = require('./tools/actuators');
 const skills = require('../skills');
 const { loadPersona } = require('./persona');
 
 /**
  * What the agent can actually do right now, per body (P0-PLAN §5.4).
  *
- * Phase 3: the list is generated from the skill registry, so it cannot drift from what the
- * `!` channel and `do_skill` can actually run. A skill that reports itself unavailable on
- * this body (for example `craft` without a menu API) shows up as unavailable with its own
- * reason - the model is told the truth about its body rather than a hand-maintained copy.
+ * Single source of truth, numen-style (docs/architecture-mind-model.md §六): every row
+ * comes from a live registry - the actuator whitelist, the skill catalogue, or the
+ * explicit deferred list - and `push` refuses duplicates. That last part is not cosmetic:
+ * before this, `fish` was advertised twice, once as available (skill registry) and once as
+ * "Phase 5 - not implemented" (a hand-written legacy list), and the model read both.
+ *
+ * Availability is per body. The `!light` / `!store` / `!hunt` tasks are mineflayer-era
+ * code that reaches into `ctx.bot` (inventory, entities, placeBlock); on the client-mod
+ * body there is no such bot, so they are listed as unavailable there with the honest
+ * reason instead of being promised.
  */
 function capabilities(ctx) {
-  const legacy = [
-    { name: 'go_to', available: true, note: 'walk to coordinates using A*; targets beyond the 24-block scan are approached iteratively' },
-    { name: 'chop', available: true, note: 'walk to a tree, break the trunk, collect the dropped logs' },
-    { name: 'mine', available: true, note: 'stone and ores need a pickaxe at (or above) the block tier; dirt, sand, gravel, logs and modded blocks need NO tool - a shovel/axe only speeds them up' },
-    { name: 'collect', available: true, note: 'walk over nearby dropped items so the client picks them up' },
-    { name: 'stop', available: true, note: 'stop everything immediately' }
-  ];
-  const fromRegistry = skills.describe(ctx || {}).map((skill) => ({
-    name: skill.name,
-    available: skill.available,
-    beta: skill.beta,
-    note:
-      (skill.beta ? '[beta] ' : '') +
-      (skill.description || skill.title) +
-      (skill.available ? '' : ` - unavailable: ${skill.reason || 'not on this body'}`)
-  }));
-  /**
-   * Operations the plan defers to a later phase. They stay in the table (as `no`) so the
-   * model answers "I cannot fish yet" instead of promising it - the original reason the P0
-   * capability table existed.
-   */
-  const deferred = [
-    { name: 'fish', available: false, note: 'Phase 5 - fishing rod + bobber detection is not implemented yet' },
-    { name: 'trade', available: false, note: 'Phase 5 - villager menus are not implemented yet' },
-    { name: 'breed', available: false, note: 'Phase 5 - animal feeding is not implemented yet' },
-    { name: 'hunt', available: false, note: 'the client mod reports hostile entities only, so passive mobs are invisible' },
-    { name: 'light', available: false, note: 'no light-level-driven torch placement yet' },
-    { name: 'store', available: false, note: 'containers work through the deposit/withdraw skills; base-level stockpiling is Phase 5' },
-    { name: 'build', available: false, note: 'not part of Phase 2/3' }
-  ];
-  return [
-    ...legacy,
-    ...fromRegistry,
-    ...deferred,
-    {
-      name: 'say',
-      available: true,
+  const out = [];
+  const seen = new Set();
+  const push = (entry) => {
+    if (!entry || !entry.name || seen.has(entry.name)) return;
+    seen.add(entry.name);
+    out.push(entry);
+  };
+
+  /* 1. Gathering verbs and movement: derived from the actuator whitelist, so the prompt
+   *    cannot advertise a task the do_task tool would refuse. */
+  const gatherNotes = {
+    go_to: 'walk to coordinates using A*; targets beyond the 24-block scan are approached iteratively',
+    chop: 'walk to a tree, break the trunk, collect the dropped logs',
+    mine: 'stone and ores need a pickaxe at (or above) the block tier; dirt, sand, gravel, logs and modded blocks need NO tool - a shovel/axe only speeds them up',
+    collect: 'walk over nearby dropped items so the client picks them up',
+    stop: 'stop everything immediately'
+  };
+  const toolNames = new Set(toolRegistry.toolNames());
+  if (toolNames.has('go_to')) push({ name: 'go_to', available: true, note: gatherNotes.go_to });
+  for (const task of actuators.TASK_NAMES) push({ name: task, available: true, note: gatherNotes[task] || '' });
+  if (toolNames.has('stop')) push({ name: 'stop', available: true, note: gatherNotes.stop });
+
+  /* 2. The skill catalogue, straight from the live registry (availability included). */
+  for (const skill of skills.describe(ctx || {})) {
+    push({
+      name: skill.name,
+      available: skill.available,
+      beta: skill.beta,
       note:
-        'you speak in chat when the player talks to you, and you also speak up on your own ' +
-        'when you finish work, when you are hungry with no food, and when you are badly hurt. ' +
-        'You can never start a task on your own and you can never run a command'
+        (skill.beta ? '[beta] ' : '') +
+        (skill.description || skill.title) +
+        (skill.available ? '' : ` - unavailable: ${skill.reason || 'not on this body'}`)
+    });
+  }
+
+  /* 3. Implemented-but-mineflayer-only tasks: listed with the real reason they cannot run
+   *    on this body, instead of a vague "not implemented". */
+  const bodyKind = (ctx && ctx.body && ctx.body.kind) || (ctx && ctx.bodyKind) || 'none';
+  const legacyTasks = [
+    {
+      name: 'light',
+      note: 'place torches when the area is dark (`!light`); crafts them from coal/charcoal + sticks',
+      unavailable: 'the !light task is mineflayer-only; on this body use place/use_on with a torch'
+    },
+    {
+      name: 'store',
+      note: 'deposit loot into a chest (`!store`); crafts and places a chest when none is nearby',
+      unavailable: 'the !store task is mineflayer-only; on this body use deposit/withdraw'
+    },
+    {
+      name: 'hunt',
+      note: 'hunt passive animals for food (`!hunt`)',
+      unavailable: 'the !hunt task is mineflayer-only; this body reports hostile entities only'
     }
   ];
+  for (const task of legacyTasks) {
+    const available = bodyKind === 'mineflayer';
+    push({
+      name: task.name,
+      available,
+      note: available ? task.note : `${task.note} - unavailable: ${task.unavailable}`
+    });
+  }
+
+  /* 4. Genuinely deferred features: kept in the table (as `no`) so the model answers
+   *    "I cannot do that yet" instead of promising it. Filtered by the same `push`, so a
+   *    name that becomes implemented can never be listed as unavailable afterwards. */
+  const deferred = [
+    { name: 'trade', note: 'Phase 5 - villager menus are not implemented yet' },
+    { name: 'breed', note: 'Phase 5 - animal feeding is not implemented yet' },
+    { name: 'build', note: 'not part of Phase 2/3' }
+  ];
+  for (const d of deferred) push({ name: d.name, available: false, note: d.note });
+
+  push({
+    name: 'say',
+    available: true,
+    note:
+      'you speak in chat when the player talks to you, and you also speak up on your own ' +
+      'when you finish work, when you are hungry with no food, and when you are badly hurt. ' +
+      'You can never start a task on your own and you can never run a command'
+  });
+  return out;
 }
 
 /** Render the capability table for the prompt. */
