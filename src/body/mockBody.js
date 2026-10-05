@@ -149,7 +149,16 @@ class MockBody extends Body {
       heldDurability:
         this.held && this.rodUses !== null && /fishing_rod/.test(this.held)
           ? { remaining: this.rodUses, max: this.rodUses }
-          : null
+          : null,
+      /**
+       * The scripted world as the client-mod scan would report it: a flat `"x,y,z" -> name`
+       * table. Without this, any skill that reads through `snapshot.blocks.cells` (mining's
+       * cellAt, for one) sees air everywhere - which is how an offline mine run "mined" the
+       * same ore a million times without ever removing the block.
+       */
+      blocks: {
+        cells: Object.fromEntries([...this.world].map(([k, entry]) => [k, entry.name]))
+      }
     };
   }
 

@@ -1886,6 +1886,63 @@ async function main() {
     return `deny/ask/always/self:placed/task-scope verified (${calls.length} body calls)`;
   });
 
+  await check('mining plan: quotes price digging over distance, hazards refuse', () => {
+    const { quoteApproach } = require(path.join(ROOT, 'src/skills/miningPlan'));
+    const readFrom = (cells) => (cell) => cells.get(`${cell.x},${cell.y},${cell.z}`) || 'minecraft:air';
+    const base = {
+      from: { x: 0, y: 64, z: 0 },
+      ore: { x: 6, y: 64, z: 0 },
+      passable: (name) => /air/.test(name),
+      mineable: () => true,
+      hazard: (name) => /water|lava/.test(name),
+      reachableCount: () => 1
+    };
+    const open = quoteApproach({ ...base, read: readFrom(new Map()) });
+    // Chebyshev arrival: the last step lands on x=5, already within 1 of the ore at x=6.
+    if (!open.ok || open.digs !== 0 || open.steps !== 5) throw new Error(`open quote wrong: ${JSON.stringify(open)}`);
+
+    const stone = new Map();
+    for (let x = 1; x <= 6; x += 1) {
+      stone.set(`${x},64,0`, 'minecraft:stone');
+      stone.set(`${x},65,0`, 'minecraft:stone');
+    }
+    const encased = quoteApproach({ ...base, read: readFrom(stone) });
+    if (!encased.ok || encased.digs < 10) throw new Error(`encased quote wrong: ${JSON.stringify(encased)}`);
+    if (encased.cost <= open.cost) throw new Error(`digging (${encased.cost}) must cost more than walking (${open.cost})`);
+
+    const vein = quoteApproach({ ...base, read: readFrom(stone), reachableCount: () => 4 });
+    if (!(vein.cost < encased.cost)) throw new Error(`the vein bonus did not lower the cost: ${vein.cost} vs ${encased.cost}`);
+
+    const flooded = quoteApproach({ ...base, read: readFrom(new Map([['3,64,0', 'minecraft:water']])) });
+    if (flooded.ok || !flooded.hazard) throw new Error(`a water cell must refuse the approach: ${JSON.stringify(flooded)}`);
+
+    const risky = quoteApproach({
+      ...base,
+      read: readFrom(new Map([['2,64,0', 'minecraft:stone']])),
+      risky: (cell) => (cell.x === 2 && cell.y === 64 ? 'falling sand above' : null)
+    });
+    if (risky.ok || !risky.hazard) throw new Error(`a physical risk must refuse the approach: ${JSON.stringify(risky)}`);
+    return `open ${open.cost} vs encased ${encased.cost} (digs ${encased.digs}), vein ${vein.cost}, hazard + risk refused`;
+  });
+
+  await check('mining plan: the ledger separates planned from extra and enforces the budget', () => {
+    const { DigLedger } = require(path.join(ROOT, 'src/skills/miningPlan'));
+    const ledger = new DigLedger([
+      { x: 1, y: 64, z: 0 },
+      { x: 2, y: 64, z: 0 }
+    ]);
+    const planned = ledger.note({ x: 1, y: 64, z: 0 });
+    const surprise = ledger.note({ x: 9, y: 64, z: 0 });
+    ledger.note({ x: 8, y: 64, z: 0 });
+    const summary = ledger.summary(1);
+    if (planned !== false || surprise !== true) throw new Error('planned/extra classification is wrong');
+    if (summary.planned !== 2 || summary.dug !== 3 || summary.extra !== 2) {
+      throw new Error(`ledger counts wrong: ${JSON.stringify(summary)}`);
+    }
+    if (!summary.exceeded || !ledger.exceeded(1) || ledger.exceeded(2)) throw new Error('the budget gate is wrong');
+    return `planned 2 / dug 3 / extra 2, budget 1 exceeded`;
+  });
+
   // ------------------------------------------------------------- summary
   const failed = results.filter((r) => !r.ok);
   process.stdout.write(`\n${'='.repeat(52)}\n`);

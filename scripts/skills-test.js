@@ -39,6 +39,25 @@ function makeCtx(body, extra = {}) {
   return { cfg, log, body, mods: null, world: body, ...extra };
 }
 
+/**
+ * A solid stone slab with an optional carved corridor.
+ *
+ * Mining fixtures cannot be sparse: the skill's cavern rule stops when the space around the
+ * tunnel is more than 45% air, which every sparse mock world is. Real rock + a 1-wide
+ * corridor keeps the geometry honest (and gives `dangerAt` a floor to find).
+ */
+function mineWorld({ minX = -12, maxX = 12, corridor = [], extras = [] } = {}) {
+  const blocks = [];
+  for (let x = minX; x <= maxX; x += 1) {
+    for (let y = 63; y <= 66; y += 1) {
+      for (let z = -3; z <= 3; z += 1) blocks.push({ name: 'stone', position: { x, y, z } });
+    }
+  }
+  for (const cell of corridor) blocks.push({ name: 'air', position: cell });
+  for (const block of extras) blocks.push(block);
+  return blocks;
+}
+
 /** A hand-built body that only implements the menu protocol, for container/armour flows. */
 class MenuBody extends Body {
   constructor(cfg, script) {
@@ -286,6 +305,79 @@ class MenuBody extends Body {
       'nothing may be dug while a monster is inside the avoidance box'
     );
     return result.detail;
+  });
+
+  await scenario('mine_ore: quotes pick the cheaper ore (open beats encased-nearer)', async () => {
+    /**
+     * numen's look -> plan rule in a fixture: reaching the near ore at (3,64,0) means digging
+     * four stone cells through a wall; the farther ore at (-7,64,0) sits in open air. The
+     * quote must pick the open one first even though it is farther.
+     */
+    /** Rock with a carved corridor to the open ore; the near ore is left behind solid stone. */
+    const corridor = [];
+    for (let x = 0; x >= -6; x -= 1) corridor.push({ x, y: 64, z: 0 }, { x, y: 65, z: 0 });
+    corridor.push({ x: -7, y: 65, z: 0 });
+    const blocks = mineWorld({
+      corridor,
+      extras: [
+        { name: 'iron_ore', position: { x: -7, y: 64, z: 0 } },
+        { name: 'iron_ore', position: { x: 3, y: 64, z: 0 } }
+      ]
+    });
+    const body = new MockBody(cfg, {
+      start: { x: 0, y: 64, z: 0 },
+      blocks,
+      inventory: { 'minecraft:stone_pickaxe': 1 }
+    });
+    await body.connect();
+    const result = await skills.run('mine_ore', makeCtx(body), { maxMs: 30000, eatAt: 1 });
+    expect(result.ok, `expected the skill to finish, got ${JSON.stringify(result)}`);
+    expect(Array.isArray(result.minedAt) && result.minedAt.length === 2, `expected both ores, got ${JSON.stringify(result.minedAt)}`);
+    expect(
+      result.minedAt[0].position.x === -7,
+      `expected the open ore (-7) first, got ${JSON.stringify(result.minedAt[0])} (plan=${JSON.stringify(result.plan)})`
+    );
+    expect(
+      result.ledger && result.ledger.extra === 0,
+      `a static world must not need digs outside the plan: ${JSON.stringify(result.ledger)}`
+    );
+    return `first ${result.minedAt[0].position.x}, plan digs ${result.plan && result.plan.digs}, ledger ${JSON.stringify(result.ledger)}`;
+  });
+
+  await scenario('mine_ore: refuses a tunnel that would drop sand and takes the open ore', async () => {
+    /**
+     * The near ore needs a head cell at (1,65) with sand directly above it - digging it would
+     * drop the sand on the bot, so the quote refuses that target before any dig happens
+     * (numen: 受理之前判"顶着落沙"), and the open ore is mined instead.
+     */
+    const corridor = [];
+    for (let x = 0; x >= -4; x -= 1) corridor.push({ x, y: 64, z: 0 }, { x, y: 65, z: 0 });
+    corridor.push({ x: -5, y: 65, z: 0 });
+    const blocks = mineWorld({
+      minX: -10,
+      maxX: 10,
+      corridor,
+      extras: [
+        { name: 'sand', position: { x: 1, y: 66, z: 0 } },
+        { name: 'iron_ore', position: { x: -5, y: 64, z: 0 } },
+        { name: 'iron_ore', position: { x: 3, y: 64, z: 0 } }
+      ]
+    });
+    const body = new MockBody(cfg, {
+      start: { x: 0, y: 64, z: 0 },
+      blocks,
+      inventory: { 'minecraft:stone_pickaxe': 1 }
+    });
+    await body.connect();
+    const result = await skills.run('mine_ore', makeCtx(body), { maxMs: 30000, eatAt: 1 });
+    expect(result.ok, `expected a graceful finish, got ${JSON.stringify(result)}`);
+    expect(result.mined === 1 && result.minedAt[0].position.x === -5, `expected only the open ore, got ${JSON.stringify(result.minedAt)}`);
+    expect(result.rejectedTargets >= 1, `the sand target was not rejected up front: ${JSON.stringify(result)}`);
+    expect(
+      !body.history.some((h) => h.action === 'dig' && /sand/.test(h.name)),
+      'the falling sand must never be dug'
+    );
+    return `mined x=-5, rejected ${result.rejectedTargets} target(s), sand untouched`;
   });
 
   // ------------------------------------------------------------------ movement

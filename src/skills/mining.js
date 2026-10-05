@@ -20,6 +20,7 @@ const { register } = require('./registry');
 const { bare } = require('../world/items');
 const { toolPlan } = require('../world/toolPolicy');
 const { RecoveryLadder } = require('../core/recoveryLadder');
+const { quoteApproach, stepVector, stepCells, DigLedger } = require('./miningPlan');
 
 const AIR = /^(air|cave_air|void_air)$/;
 const HAZARD = /water|lava/;
@@ -73,7 +74,11 @@ register({
   name: 'mine_ore',
   title: '寻矿挖掘',
   description:
-    'Find the nearest ore through walls (x/z within maxXZ, vertical within maxY), dig a tunnel or sloped stair to it and mine it; lights the tunnel with torches and pauses when it runs out in the dark.',
+    'Quote every ore within range (x/z maxXZ, vertical maxY) by its approach cost - cells to dig, ' +
+    'steps to take, vein blocks the arrival stand can reach - and take the cheapest; dig the sloped ' +
+    'tunnel the quote describes, mine it and collect the drops. Refuses targets whose tunnel would ' +
+    'drop sand on the bot or open into water, lights the tunnel with torches, and pauses when it runs ' +
+    'out of torches in the dark.',
   params: {
     ore: { type: 'string', default: 'iron_ore' },
     maxXZ: { type: 'number', default: 30, min: 4, max: 48 },
@@ -82,7 +87,14 @@ register({
     eatAt: { type: 'number', default: 18, min: 1, max: 20 },
     food: { type: 'string', default: 'bread' },
     torch: { type: 'string', default: 'torch' },
-    lightThreshold: { type: 'number', default: 2, min: 0, max: 15 }
+    lightThreshold: { type: 'number', default: 2, min: 0, max: 15 },
+    /**
+     * numen's dig budget: refuse a target whose approach would need more than this many
+     * terrain edits, and stop the task when execution digs this many cells the plan never
+     * named (the plan is a commitment; the ledger is the actual account).
+     */
+    maxApproachDigs: { type: 'number', default: 96, min: 4, max: 512 },
+    maxExtraDigs: { type: 'number', default: 12, min: 1, max: 200 }
   },
   available: (ctx) => (ctx.body && typeof ctx.body.dig === 'function' && typeof ctx.body.moveTo === 'function'
     ? { ok: true }
@@ -97,6 +109,12 @@ register({
       ate: 0,
       collected: 0,
       skipped: 0,
+      refusedCells: 0,
+      rejectedTargets: 0,
+      planExceeded: false,
+      plan: null,
+      ledger: { planned: 0, dug: 0, extra: 0, extraCells: [] },
+      minedAt: [],
       outOfTime: false,
       paused: false,
       cavern: false
@@ -119,19 +137,68 @@ register({
 
     // ---- helpers -----------------------------------------------------------
 
+    /** The plan the current ore is committed to; re-quoted for every new target. */
+    let ledger = null;
+
+    /**
+     * Physical risks of digging one cell that "the cell itself is water/lava" cannot see.
+     *
+     * numen's dig admission prices both of these (DigQuote: 挖不动、贴着流体、顶着落沙):
+     *   - falling sand/gravel directly above: digging this cell drops that column on the bot;
+     *   - water in a horizontal neighbour: digging this cell opens the tunnel to a flood.
+     * Both mark the target ore as not worth it (it is skipped), never the whole task.
+     */
+    const digRisk = (snap, position) => {
+      const above = bare(cellAt(snap, { x: position.x, y: position.y + 1, z: position.z }));
+      if (/(^|_)(sand|gravel)$/.test(above)) return `falling ${above} directly above`;
+      for (const [dx, dz] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
+        const neighbour = bare(cellAt(snap, { x: position.x + dx, y: position.y, z: position.z + dz }));
+        if (/^(water|flowing_water)$/.test(neighbour)) return `water beside the block (${dx},${dz})`;
+      }
+      return null;
+    };
+
     const digAt = async (position) => {
       const now = await refresh(ctx);
       const name = cellAt(now, position);
       if (AIR.test(bare(name))) return true;
       if (HAZARD.test(bare(name))) return false;
+      const risk = digRisk(now, position);
+      if (risk) {
+        stats.refusedCells += 1;
+        if (ctx.log && ctx.log.warn) {
+          ctx.log.warn(`refusing to dig ${bare(name)} at ${posKey(position)}: ${risk}`);
+        }
+        return false;
+      }
       const plan = minePlan(now, name);
       if (!plan.ok) {
-        stats.skipped += 1;
+        stats.refusedCells += 1;
         return false;
       }
       if (plan.tool) await body.equip(plan.tool.name).catch(() => false);
       const ok = await body.dig({ name, position }).catch(() => false);
-      if (ok) stats.blocks += 1;
+      if (ok) {
+        stats.blocks += 1;
+        /** The actual account: which planned cells were dug, and how many were not planned. */
+        stats.ledger.dug += 1;
+        if (ledger) {
+          const unplanned = ledger.note(position);
+          if (unplanned) {
+            stats.ledger.extra = ledger.extra;
+            stats.ledger.extraCells = ledger.extraCells;
+            if (ledger.exceeded(params.maxExtraDigs)) {
+              stats.planExceeded = true;
+              if (ctx.log && ctx.log.warn) {
+                ctx.log.warn(
+                  `plan exceeded: ${ledger.extra} cell(s) dug outside the quoted approach ` +
+                    `(budget ${params.maxExtraDigs}) - stopping`
+                );
+              }
+            }
+          }
+        }
+      }
       return ok;
     };
 
@@ -396,7 +463,16 @@ register({
       }
     };
 
-    /** Nearest ore in range, nearest first. */
+    /** The quote for the ore the loop is currently working on (set by findOre). */
+    let lastQuote = null;
+
+    /**
+     * Cheapest usable ore, numen-style (DigQuote/Goals.dig): every candidate gets a dig
+     * quote - cells to dig, steps to take, and how many same-type ore blocks the arrival
+     * stand can reach - and the cheapest wins. Distance only breaks ties, so a far ore
+     * behind open air beats a near one behind six blocks of stone, and a vein stand beats
+     * a single-block stand at equal cost.
+     */
     const findOre = async () => {
       const snap = await refresh(ctx);
       const here = feetOf(snap);
@@ -416,12 +492,86 @@ register({
         if (Math.abs(dy) > params.maxY) return false;
         return minePlan(snap, block.name).ok;
       });
+      if (!usable.length) {
+        lastQuote = null;
+        return null;
+      }
+      /**
+       * Quote only the nearest candidates: the quote simulates the stair on the snapshot,
+       * and running it for every one of 96 ores would walk the whole scan repeatedly.
+       * 32 is far more than a real vein field has within 30 blocks.
+       */
       usable.sort(
         (a, b) =>
           Math.hypot(a.position.x - here.x, a.position.z - here.z) -
           Math.hypot(b.position.x - here.x, b.position.z - here.z)
       );
-      return usable[0] || null;
+      const shortlist = usable.slice(0, 32);
+      const countReachable = (arrival) =>
+        found.filter(
+          (block) =>
+            Math.hypot(
+              block.position.x - arrival.x,
+              block.position.y - arrival.y,
+              block.position.z - arrival.z
+            ) <= 4
+        ).length;
+
+      const quoted = [];
+      for (const block of shortlist) {
+        const quote = quoteApproach({
+          from: here,
+          ore: block.position,
+          read: (cell) => bare(cellAt(snap, cell)),
+          passable: (name) => AIR.test(name),
+          mineable: (name) => minePlan(snap, name).ok,
+          hazard: (name) => HAZARD.test(name),
+          chooseSide: (cell) => chooseSide(snap, cell),
+          reachableCount: countReachable,
+          /**
+           * numen's admission check before a job is accepted: a cell whose dig would drop
+           * sand on the bot or open the tunnel to water is not a target at all.
+           */
+          risky: (cell) => digRisk(snap, cell),
+          maxDigs: params.maxApproachDigs
+        });
+        if (quote.ok) quoted.push({ block, quote });
+        else stats.rejectedTargets += 1;
+      }
+      quoted.sort((a, b) => a.quote.cost - b.quote.cost || a.quote.travel - b.quote.travel);
+      const best = quoted[0] || null;
+      lastQuote = best;
+      if (best && ctx.log && ctx.log.info) {
+        ctx.log.info(
+          `plan: ${bare(best.block.name)} @${posKey(best.block.position)} - cost ${best.quote.cost} ` +
+            `(dig ${best.quote.digs}, steps ${best.quote.steps}, vein ${best.quote.vein}, ` +
+            `travel ${best.quote.travel.toFixed(1)})`
+        );
+      }
+      return best ? best.block : null;
+    };
+
+    /**
+     * A lateral side for a target directly above/below.
+     *
+     * An ore directly above/below has no horizontal offset, and a vertical shaft is a trap:
+     * the bot digs it and then cannot climb out, so the vein got abandoned after two ores.
+     * Pick a side and take a diagonal stair step instead. Shared with the quote, so the plan
+     * and the execution choose the same side.
+     */
+    const chooseSide = (snap, here) => {
+      const sides = [
+        { sx: 1, sz: 0 },
+        { sx: -1, sz: 0 },
+        { sx: 0, sz: 1 },
+        { sx: 0, sz: -1 }
+      ];
+      const clear = sides.find((side) => {
+        const cell = { x: here.x + side.sx, y: here.y, z: here.z + side.sz };
+        const name = bare(cellAt(snap, cell));
+        return !HAZARD.test(name) && minePlan(snap, name).ok;
+      });
+      return clear || sides[0];
     };
 
     /** One tunnel step toward `target`; digs the sloped opening and walks in. */
@@ -429,36 +579,20 @@ register({
       const snap = await refresh(ctx);
       const here = feetOf(snap);
       if (!here) return { ok: false, reason: 'no position' };
-      const dx = target.position.x - here.x;
-      const dz = target.position.z - here.z;
-      const dy = target.position.y - here.y;
-      if (Math.abs(dx) <= 1 && Math.abs(dz) <= 1 && Math.abs(dy) <= 1) return { ok: true, reached: true };
-
-      let sx = Math.abs(dx) >= Math.abs(dz) ? Math.sign(dx) : 0;
-      let sz = sx === 0 ? Math.sign(dz) : 0;
       /**
-       * An ore directly above/below has no horizontal offset, and a vertical shaft is a
-       * trap: the bot digs it and then cannot climb out, so the vein got abandoned after
-       * two ores. Pick a side and take a diagonal stair step instead.
+       * The geometry comes from src/skills/miningPlan.js - the same module the quote uses -
+       * so "planned cells" and "cells actually dug" compare without a second implementation
+       * drifting away from the executor.
        */
-      if (sx === 0 && sz === 0) {
-        const sides = [
-          { dx: 1, dz: 0 },
-          { dx: -1, dz: 0 },
-          { dx: 0, dz: 1 },
-          { dx: 0, dz: -1 }
-        ];
-        const clear = sides.find((side) => {
-          const cell = { x: here.x + side.dx, y: here.y, z: here.z + side.dz };
-          const name = bare(cellAt(snap, cell));
-          return !HAZARD.test(name) && minePlan(snap, name).ok;
-        });
-        const side = clear || sides[0];
-        sx = side.dx;
-        sz = side.dz;
+      const vector = stepVector(here, target.position);
+      if (!vector) return { ok: true, reached: true };
+      if (vector.vertical) {
+        const side = chooseSide(snap, here);
+        vector.sx = side.sx;
+        vector.sz = side.sz;
       }
-      const stepY = dy >= 2 ? 1 : dy <= -2 ? -1 : 0;
-      const next = { x: here.x + sx, y: here.y + stepY, z: here.z + sz };
+      const { next, cells } = stepCells(here, vector);
+      const { stepY } = vector;
 
       const danger = dangerAt(snap, { x: next.x, y: next.y, z: next.z });
       if (danger) {
@@ -475,9 +609,7 @@ register({
          * pogoed in place under it and could never go up. The block at the old foot level
          * stays - it is the step the bot jumps onto.
          */
-        const ceiling = { x: here.x, y: here.y + 2, z: here.z };
-        const newFoot = { x: next.x, y: here.y + 1, z: next.z };
-        const newHead = { x: next.x, y: here.y + 2, z: next.z };
+        const [ceiling, newFoot, newHead] = cells;
         if (ctx.log && ctx.log.info) {
           ctx.log.info(
             `climb: feet ${here.x},${here.y},${here.z} -> ${next.x},${next.y},${next.z}; ` +
@@ -502,18 +634,18 @@ register({
         }
       } else if (stepY === -1) {
         // Sloped descent: three cells - the new foot level, the old foot and the old head.
-        if (!(await digAt({ x: next.x, y: here.y - 1, z: next.z }))) {
+        const [below, newFoot, newHead] = cells;
+        if (!(await digAt(below))) {
           return { ok: false, reason: 'blocked on the descent' };
         }
-        if (!(await digAt({ x: next.x, y: here.y, z: next.z }))) {
+        if (!(await digAt(newFoot))) {
           return { ok: false, reason: 'blocked on the descent (foot)' };
         }
-        if (!(await digAt({ x: next.x, y: here.y + 1, z: next.z }))) {
+        if (!(await digAt(newHead))) {
           return { ok: false, reason: 'blocked on the descent (head)' };
         }
       } else {
-        const foot = { x: next.x, y: here.y, z: next.z };
-        const head = { x: next.x, y: here.y + 1, z: next.z };
+        const [foot, head] = cells;
         const footName = bare(cellAt(snap, foot));
         const headName = bare(cellAt(snap, head));
         if (HAZARD.test(footName) || HAZARD.test(headName)) return { ok: false, reason: 'water or lava ahead' };
@@ -565,12 +697,34 @@ register({
           ate: stats.ate,
           collected: stats.collected,
           position: stop ? stop.position : null,
+          refusedCells: stats.refusedCells,
+          minedAt: stats.minedAt,
+          plan: stats.plan,
+          ledger: { ...stats.ledger },
           detail: `stopped: ${bare(hostileNow.name)} within 3 blocks`
         };
       }
 
       const ore = await findOre();
       if (!ore) break;
+
+      /**
+       * The plan is a commitment (numen: 计划即承诺). The chosen ore brings the quoted
+       * approach with it; every cell dug from here on is accounted against that quote, and
+       * a later target re-quotes from the live world instead of carrying stale bookkeeping.
+       */
+      if (lastQuote && lastQuote.block === ore) {
+        ledger = new DigLedger([...lastQuote.quote.edits, ore.position]);
+        stats.ledger.planned += ledger.planned.size;
+        stats.plan = {
+          name: bare(ore.name),
+          target: { ...ore.position },
+          digs: lastQuote.quote.digs,
+          steps: lastQuote.quote.steps,
+          vein: lastQuote.quote.vein,
+          cost: lastQuote.quote.cost
+        };
+      }
 
       const snapNow = await refresh(ctx);
       const here = feetOf(snapNow);
@@ -591,6 +745,10 @@ register({
             torches: stats.torches,
             ate: stats.ate,
             position: here,
+            refusedCells: stats.refusedCells,
+            minedAt: stats.minedAt,
+            plan: stats.plan,
+            ledger: { ...stats.ledger },
             reason: light.reason,
             detail: `paused after ${stats.ores} ore(s): ${light.reason}`
           };
@@ -623,11 +781,27 @@ register({
           ? Math.hypot(ore.position.x - here.x, ore.position.y - here.y, ore.position.z - here.z)
           : 99;
         if (dist > 4.0) return { ok: false, reason: 'the ore is out of reach', failure: 'out_of_reach' };
-        const plan = minePlan(snapNow, ore.name);
-        if (plan.tool) await body.equip(plan.tool.name).catch(() => false);
-        if (await body.dig({ name: ore.name, position: ore.position }).catch(() => false)) {
+        /**
+         * A stale scan can list an ore another actor already took. `digAt` answers true for
+         * air (nothing to dig), which is right for a tunnel cell but must never count as a
+         * mined ore - numen kicks this back as TARGET_LOST. This was a real offline loop:
+         * without it the skill "mined" one ore a million times.
+         */
+        if (AIR.test(bare(cellAt(snapNow, ore.position)))) {
+          return { ok: false, reason: 'the ore is already gone (stale scan)', failure: 'target_lost' };
+        }
+        /**
+         * The ore itself goes through the same dig admission as every tunnel cell, so the
+         * ledger sees it, the falling-sand/water checks apply, and the tool is chosen in one
+         * place instead of three.
+         */
+        if (await digAt(ore.position)) {
+          const after = await refresh(ctx);
+          if (!AIR.test(bare(cellAt(after, ore.position)))) {
+            return { ok: false, reason: 'the dig reported success but the ore is still there', failure: 'internal' };
+          }
           stats.ores += 1;
-          stats.blocks += 1;
+          stats.minedAt.push({ name: bare(ore.name), position: { ...ore.position } });
           if (ctx.log && ctx.log.info) {
             ctx.log.info(`mined ${bare(ore.name)} at ${posKey(ore.position)}`);
           }
@@ -710,6 +884,7 @@ register({
       const outcome = await ladder.run();
 
       if (stats.outOfTime || outcome.outOfTime) break;
+      if (stats.planExceeded) break;
       if (outcome.danger) {
         // Lava/fall: sweep the drops on the way out. A monster: leave them, walk nothing.
         if (!outcome.hostile) await collectDrops();
@@ -724,6 +899,10 @@ register({
           ate: stats.ate,
           collected: stats.collected,
           position: stop ? stop.position : null,
+          refusedCells: stats.refusedCells,
+          minedAt: stats.minedAt,
+          plan: stats.plan,
+          ledger: { ...stats.ledger },
           detail: `stopped before a dangerous step (${outcome.reason}); mined ${stats.ores} so far`
         };
       }
@@ -739,6 +918,10 @@ register({
           ate: stats.ate,
           collected: stats.collected,
           position: stop ? stop.position : null,
+          refusedCells: stats.refusedCells,
+          minedAt: stats.minedAt,
+          plan: stats.plan,
+          ledger: { ...stats.ledger },
           detail: `stopped: the tunnel opened into a large cavern (mined ${stats.ores} so far)`
         };
       }
@@ -755,21 +938,34 @@ register({
     // Final sweep before reporting: the last vein's drops are usually still on the floor.
     await collectDrops(12);
     const end = await refresh(ctx);
+    const ledgerSummary = {
+      planned: stats.ledger.planned,
+      dug: stats.ledger.dug,
+      extra: stats.ledger.extra,
+      extraCells: stats.ledger.extraCells
+    };
     return {
-      ok: true,
+      ok: !stats.planExceeded,
+      stopped: stats.planExceeded ? 'plan-exceeded' : null,
       mined: stats.ores,
       blocks: stats.blocks,
       torches: stats.torches,
       ate: stats.ate,
       collected: stats.collected,
       skipped: stats.skipped,
+      refusedCells: stats.refusedCells,
+      rejectedTargets: stats.rejectedTargets,
       outOfTime: stats.outOfTime,
+      minedAt: stats.minedAt,
+      plan: stats.plan,
+      ledger: ledgerSummary,
       position: end ? end.position : null,
       detail:
         `mined ${stats.ores} ${bare(params.ore)} (dug ${stats.blocks} blocks, ` +
         `${stats.torches} torch(es), collected ${stats.collected} drop(s), ate ${stats.ate}, ` +
         `skipped ${stats.skipped})` +
-        (stats.outOfTime ? ' - time budget reached' : '')
+        `; ledger planned ${ledgerSummary.planned} / dug ${ledgerSummary.dug} / extra ${ledgerSummary.extra}` +
+        (stats.planExceeded ? ' - plan exceeded, stopped' : stats.outOfTime ? ' - time budget reached' : '')
     };
   }
 });
