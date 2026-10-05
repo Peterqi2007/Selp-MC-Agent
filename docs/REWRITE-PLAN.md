@@ -529,3 +529,51 @@ numen 式 RecoveryLadder：每一级声明它能接住的 `failure` 类型与重
 验证：`skills:test` 27 → **29/29**（新增"报价选便宜的矿""落沙目标被拒、改采开阔矿"两条端到端），
 `selftest` 167 → **169/169**（报价数学/危险拒绝、账本分类与预算），`p0:verify` **8/8**。
 按操作员要求，本轮**没有做真实客户端测试**。
+
+---
+
+## 十二、矿道挖掘：走挖一体 `tunnel`（2026-10-05，第一批改进 + Mod 重编译）
+
+对应操作员的要求："让 agent 边走边挖；斜上/斜下不出现反复跳跃"。第一批落地如下（Mod 已重编译并安装，
+**未做客户端测试**）。
+
+### 12.1 Node：计划驱动 + 清障重试（`miningPlan` / `mine_ore`）
+
+- `quoteApproach` 在报价的同时产出**有序步骤清单** `plan[]`：每步 = 目标脚位（waypoint）+ 该步要挖的格。
+  台阶几何与执行完全同源（`stepVector/stepCells`），计划与执行不再各写一份。
+- `mine_ore` 的每矿阶梯升级为：
+  `tunnel`（把步骤清单交给客户端走挖一体动作）→ `clear-retry`（客户端报出"卡在哪一格"→ 挖掉那一格 → 重跑
+  tunnel，对应陈旧扫描/服务器未确认的挖掘）→ `direct`（旧 Node 斜井，供没有 tunnel 的 body 兜底）→
+  `flank`（从另一侧绕）。
+- 客户端 tunnel 回传的 `dugCells` **直接记进账本**（执行器的实际账，不是计划的副本）；`extra` 超预算即停。
+- 失败语义映射：`jump-blocked/headroom/blocked/unbreakable` → `occluded`；`stuck/timeout/budget` → `no_path`；
+  `falling/hazard` → `hazard`（没人接就跳过该矿）。
+
+### 12.2 Mod：`tunnel` 走挖一体控制器（`ClientActions.Tunnel`）
+
+一个连续动作跑完整条矿道，每 tick：
+
+1. 向当前 waypoint 的**方块中心**转向并按住前进（不再朝整数角点走——蹭台阶角正是反复跳的来源之一）；
+2. 用**碰撞箱**判断进入列：脚/头都空 → 直接走；脚实头空且自己头顶净空够 → **一次一级台阶跳**
+   （落地且仍贴着台阶才按下一次，三次无进展即 `jump-blocked` 并报格子）；否则把准星收到挡路的格上，
+   按住攻击直到它变 air 再继续走（走与挖在同一个控制器里，不再"停下挖、再走一步"）；
+3. 斜向下：直接前进走下台阶，**不跳**；
+4. 严格到达 = **脚所在格（含 y）== waypoint 格**；
+5. 危险/落沙先拒绝（`hazard`/`falling` 并报格子与方块）；挖同一格超过 4 秒报 `unbreakable`；
+   整条超时/卡死/挖掘预算都有结构化结局。
+
+### 12.3 Mod：动作 verdict 不再丢失（关键接线修复）
+
+`/progress` 原来在动作结束的那一刻被清空，晚到的轮询只看到 `{busy:false}`，Node 端默认判成成功——
+真机日志里"走位失败却报 arrived"就是这么来的，A* 行走器的 jumpStreak/侧移逻辑也因此部分失效。
+现在最终 verdict（done/failed/reason/cell/dugCells）保留到下一个动作开始；`stop` 明确回
+`failed:true, reason:"stopped"`。`WalkTo` 通用行为未改，改动只在 verdict 保留与新增 `tunnel`。
+
+### 12.4 验证
+
+- `skills:test` 29 → **30/30**（新增"tunnel 报出卡住的格子 → 清障 → 重跑成功，账本 extra=0"）。
+- `client:test`（协议假 Mod）**59/59**（新增 `tunnel` 命令与回传断言：一次动作、回传实际挖掘格、到达最后 waypoint）。
+- `p0:verify` **8/8**（selftest 169/169）。
+- Mod 离线编译成功：`agent-client-1.0.0.jar` 48551 → **54730 字节**，已安装进 PCL 配置（153 个 Mod）。
+- **未做真实客户端测试**：真机验证清单（斜上 10 格、斜下 10 格各 3 次；`jumpsBlocked` 是否 0；全程是否还有
+  逐格停顿）留待操作员安排。

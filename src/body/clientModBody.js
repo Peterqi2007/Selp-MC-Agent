@@ -802,6 +802,50 @@ class ClientModBody extends Body {
     return this.awaitAction('dig', timeoutMs);
   }
 
+  /**
+   * Walk a planned tunnel as ONE continuous client action: hold forward, clear whatever
+   * blocks the way, and jump only real one-block steps (the client controller checks the
+   * step geometry and headroom before pressing jump, and reports the offending cell when
+   * it gives up). This is the "dig while walking" primitive: no round trip per cell, no
+   * stop-start between digging and stepping.
+   *
+   * @param {Array<{x:number,y:number,z:number}>} waypoints feet cells, in order
+   * @param {object} [options] { timeoutMs }
+   * @returns {Promise<{ok:boolean, reason:string|null, cell:object|null, block:string|null,
+   *                     dugCells:Array<object>, ms:number}>}
+   */
+  async tunnel(waypoints, options = {}) {
+    const list = (waypoints || []).map((w) => ({
+      x: Math.floor(w.x),
+      y: Math.floor(w.y),
+      z: Math.floor(w.z)
+    }));
+    if (!list.length) {
+      return { ok: false, reason: 'no waypoints', cell: null, block: null, dugCells: [], ms: 0 };
+    }
+    const started = Date.now();
+    const timeoutMs = options.timeoutMs || Math.min(240000, 20000 * list.length);
+    const args = list.map((w) => `${w.x} ${w.y} ${w.z}`).join(' ');
+    const sent = await this.command(`tunnel ${args}`);
+    if (!sent || sent.ok === false) {
+      this.lastTunnel = { ok: false, reason: 'tunnel refused', cell: null, block: null, dugCells: [], target: list[list.length - 1], ms: Date.now() - started };
+      return this.lastTunnel;
+    }
+    const ok = await this.awaitAction('tunnel', timeoutMs);
+    const verdict = this.lastAction || {};
+    this.lastTunnel = {
+      ok,
+      reason: ok ? null : verdict.reason || 'tunnel-failed',
+      cell: verdict.cell || null,
+      block: verdict.block || null,
+      dugCells: Array.isArray(verdict.dugCells) ? verdict.dugCells : [],
+      target: list[list.length - 1],
+      ms: Date.now() - started
+    };
+    this.trace({ kind: 'tunnel', ...this.lastTunnel, waypoints: list.length });
+    return this.lastTunnel;
+  }
+
   /** Poll /progress until the named action finishes. */
   async awaitAction(actionName, timeoutMs) {
     const deadline = Date.now() + timeoutMs;
@@ -825,7 +869,16 @@ class ClientModBody extends Body {
          * need - "the bot kept jumping" is a diagnosis, "walk failed" is not.
          */
         this.lastAction = progress
-          ? { action: progress.action || actionName, ok: done, reason: progress.reason || null }
+          ? {
+              action: progress.action || actionName,
+              ok: done,
+              reason: progress.reason || null,
+              /** Structured failure location/block from the client controller (tunnel). */
+              cell: progress.cell || null,
+              block: progress.block || null,
+              /** Actual cells the client dug, for the mining ledger. */
+              dugCells: Array.isArray(progress.dugCells) ? progress.dugCells : []
+            }
           : null;
         return done;
       }

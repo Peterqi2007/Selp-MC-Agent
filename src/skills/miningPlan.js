@@ -99,7 +99,7 @@ function key(cell) {
  * @param {number} [options.maxSteps]
  * @param {number} [options.maxDigs] refuse an approach that would need more digs than this
  * @returns {{ok:true, digs:number, steps:number, travel:number, vein:number, cost:number,
- *            arrival:object, edits:Array<object>}
+ *            arrival:object, edits:Array<object>, plan:Array<{waypoint:object, dig:Array<object>}>}
  *          | {ok:false, reason:string, failure:string, hazard?:boolean, digs?:number}}
  */
 function quoteApproach(options) {
@@ -113,6 +113,8 @@ function quoteApproach(options) {
   const seenSteps = new Set();
   let digs = 0;
   let steps = 0;
+  /** The ordered execution plan: one entry per stair step, with the cells that step digs. */
+  const plan = [];
 
   for (let i = 0; i < maxSteps; i += 1) {
     const step = stepVector(here, ore);
@@ -128,41 +130,44 @@ function quoteApproach(options) {
       return { ok: false, reason: 'the approach loops on itself', failure: 'no_path', digs };
     }
     seenSteps.add(stepKey);
+    const stepDigs = [];
     for (const cell of cells) {
       const name = read(cell);
       if (hazard(name)) {
-        return { ok: false, reason: `hazard (${name}) on the approach`, failure: 'hazard', hazard: true, digs };
+        return { ok: false, reason: `hazard (${name}) on the approach`, failure: 'hazard', hazard: true, digs, plan };
       }
       if (passable(name)) continue;
       const risk = typeof options.risky === 'function' ? options.risky(cell) : null;
       if (risk) {
-        return { ok: false, reason: `physical risk: ${risk}`, failure: 'hazard', hazard: true, digs };
+        return { ok: false, reason: `physical risk: ${risk}`, failure: 'hazard', hazard: true, digs, plan };
       }
       if (!mineable(name)) {
-        return { ok: false, reason: `blocked by ${name}`, failure: 'occluded', digs };
+        return { ok: false, reason: `blocked by ${name}`, failure: 'occluded', digs, plan };
       }
       const cellKey = key(cell);
       if (!seenEdits.has(cellKey)) {
         seenEdits.add(cellKey);
         edits.push({ ...cell });
       }
+      stepDigs.push({ ...cell });
       digs += 1;
       if (digs > maxDigs) {
-        return { ok: false, reason: `would need more than ${maxDigs} digs`, failure: 'no_path', digs };
+        return { ok: false, reason: `would need more than ${maxDigs} digs`, failure: 'no_path', digs, plan };
       }
     }
+    plan.push({ waypoint: { ...next }, dig: stepDigs });
     here = next;
     steps += 1;
   }
 
   if (stepVector(here, ore)) {
-    return { ok: false, reason: `more than ${maxSteps} steps away`, failure: 'no_path', digs };
+    return { ok: false, reason: `more than ${maxSteps} steps away`, failure: 'no_path', digs, plan };
   }
 
   const vein = Math.max(1, typeof options.reachableCount === 'function' ? options.reachableCount(here) : 1);
   const travel = Math.hypot(ore.x - from.x, ore.z - from.z) + Math.abs(ore.y - from.y);
   const cost = digs * DIG_WEIGHT + steps * STEP_WEIGHT - (vein - 1) * VEIN_BONUS;
-  return { ok: true, digs, steps, travel, vein, cost, arrival: here, edits };
+  return { ok: true, digs, steps, travel, vein, cost, arrival: here, edits, plan };
 }
 
 /**

@@ -112,6 +112,8 @@ register({
       refusedCells: 0,
       rejectedTargets: 0,
       planExceeded: false,
+      tunnelRuns: 0,
+      tunnelCells: 0,
       plan: null,
       ledger: { planned: 0, dug: 0, extra: 0, extraCells: [] },
       minedAt: [],
@@ -158,6 +160,32 @@ register({
       return null;
     };
 
+    /**
+     * Post one successfully dug cell to the actual account.
+     *
+     * Shared by the Node-side digger and the client's tunnel controller: whichever hand did
+     * the digging, the ledger compares it against the quote and stops the task when the
+     * world needed more edits than the plan named (numen's edit ledger).
+     */
+    const noteDug = (position) => {
+      stats.blocks += 1;
+      stats.ledger.dug += 1;
+      if (!ledger) return;
+      const unplanned = ledger.note(position);
+      if (!unplanned) return;
+      stats.ledger.extra = ledger.extra;
+      stats.ledger.extraCells = ledger.extraCells;
+      if (ledger.exceeded(params.maxExtraDigs)) {
+        stats.planExceeded = true;
+        if (ctx.log && ctx.log.warn) {
+          ctx.log.warn(
+            `plan exceeded: ${ledger.extra} cell(s) dug outside the quoted approach ` +
+              `(budget ${params.maxExtraDigs}) - stopping`
+          );
+        }
+      }
+    };
+
     const digAt = async (position) => {
       const now = await refresh(ctx);
       const name = cellAt(now, position);
@@ -178,27 +206,7 @@ register({
       }
       if (plan.tool) await body.equip(plan.tool.name).catch(() => false);
       const ok = await body.dig({ name, position }).catch(() => false);
-      if (ok) {
-        stats.blocks += 1;
-        /** The actual account: which planned cells were dug, and how many were not planned. */
-        stats.ledger.dug += 1;
-        if (ledger) {
-          const unplanned = ledger.note(position);
-          if (unplanned) {
-            stats.ledger.extra = ledger.extra;
-            stats.ledger.extraCells = ledger.extraCells;
-            if (ledger.exceeded(params.maxExtraDigs)) {
-              stats.planExceeded = true;
-              if (ctx.log && ctx.log.warn) {
-                ctx.log.warn(
-                  `plan exceeded: ${ledger.extra} cell(s) dug outside the quoted approach ` +
-                    `(budget ${params.maxExtraDigs}) - stopping`
-                );
-              }
-            }
-          }
-        }
-      }
+      if (ok) noteDug(position);
       return ok;
     };
 
@@ -765,14 +773,18 @@ register({
        * below handles it as before.
        */
       /**
-       * Per-ore recovery ladder (src/core/recoveryLadder.js):
-       *   rung 1 `direct` - reach it if it is already within arm's reach, otherwise dig the
-       *                    sloped tunnel the skill has always dug;
-       *   rung 2 `flank`  - when that column is walled off or unreachable, walk to a stand
-       *                    cell on the FAR side of the ore and take it from there. Same
-       *                    bounded goal ("this ore"), genuinely different execution.
-       * Danger and cavern stops are not recoverable: they fall through the ladder and end
-       * the task exactly as before.
+       * Per-ore recovery ladder (src/core/recoveryLadder.js), numen-style:
+       *   rung 1 `tunnel`      - hand the quoted step list to the client's dig-while-walking
+       *                          controller: one continuous action that holds forward, clears
+       *                          what blocks the way and jumps only real one-block steps;
+       *   rung 2 `clear-retry` - the controller reports the exact cell that stopped it; dig
+       *                          that cell (again) and re-run the same tunnel. This is the
+       *                          answer to a stale scan / a dig the server did not confirm,
+       *                          which is exactly when the old code jumped at a wall;
+       *   rung 3 `direct`      - bodies without the tunnel primitive use the Node-side stair;
+       *   rung 4 `flank`       - walled off from this side: approach from the far side.
+       * Hazard/cavern stops are not recoverable: no rung handles them, so the ore is skipped
+       * (danger) or the task ends (cavern) exactly as before.
        */
       const takeOre = async () => {
         const snapNow = await refresh(ctx);
@@ -863,10 +875,100 @@ register({
         return candidates.find((c) => !(c.x === ore.position.x && c.z === ore.position.z)) || null;
       };
 
-      const ladder = new RecoveryLadder('mine_ore', [
+      /**
+       * Map the client controller's vocabulary onto the failure types the ladder routes on.
+       * `jump-blocked`/`headroom`/`blocked` are all "something solid is still in the way" -
+       * the clear-retry rung's business; `stuck`/`timeout` are route problems; falling/liquid
+       * are hazards nobody should retry.
+       */
+      const classifyTunnelFailure = (reason) => {
+        const text = String(reason || '');
+        if (/jump-blocked|headroom|occluded|blocked|unbreakable/i.test(text)) return 'occluded';
+        if (/stuck|no-progress|timeout|budget/i.test(text)) return 'no_path';
+        if (/falling|hazard|water|lava/i.test(text)) return 'hazard';
+        return 'unknown';
+      };
+
+      /**
+       * One tunnel execution: hand the quoted steps to the client and post the cells it
+       * actually dug to the ledger. `lastTunnelCell` keeps the controller's structured
+       * stopping point for the clear-retry rung.
+       */
+      const tunnelSteps =
+        lastQuote && lastQuote.block === ore && Array.isArray(lastQuote.quote.plan) ? lastQuote.quote.plan : [];
+      let lastTunnelCell = null;
+      let lastTunnelBlock = null;
+      const runTunnel = async (steps) => {
+        if (!steps.length) return { ok: false, reason: 'no quoted steps for this ore', failure: 'no_path' };
+        stats.tunnelRuns += 1;
+        const result = await body
+          .tunnel(
+            steps.map((s) => s.waypoint),
+            { timeoutMs: Math.min(240000, 20000 * steps.length) }
+          )
+          .catch((err) => ({ ok: false, reason: `tunnel threw: ${err.message}`, cell: null, block: null, dugCells: [] }));
+        if (!result.ok) {
+          lastTunnelCell = result.cell ? { ...result.cell } : null;
+          lastTunnelBlock = result.block || null;
+          return {
+            ok: false,
+            reason: result.reason || 'the tunnel walk failed',
+            failure: classifyTunnelFailure(result.reason),
+            cell: lastTunnelCell,
+            block: lastTunnelBlock
+          };
+        }
+        lastTunnelCell = null;
+        lastTunnelBlock = null;
+        for (const cell of result.dugCells || []) {
+          stats.tunnelCells += 1;
+          noteDug(cell);
+        }
+        if (stats.planExceeded) {
+          return { ok: false, reason: 'the tunnel dug outside the quoted plan', failure: 'no_path' };
+        }
+        return takeOre();
+      };
+
+      const rungs = [];
+      if (typeof body.tunnel === 'function' && tunnelSteps.length) {
+        rungs.push({
+          name: 'tunnel',
+          handles: ['no_path', 'occluded', 'out_of_reach', 'unknown', 'target_lost'],
+          maxAttempts: 1,
+          run: () => runTunnel(tunnelSteps)
+        });
+        rungs.push({
+          name: 'clear-retry',
+          handles: ['occluded', 'no_path'],
+          maxAttempts: 1,
+          run: async () => {
+            if (!lastTunnelCell) {
+              return { ok: false, reason: 'the tunnel gave up without naming a cell', failure: 'unknown' };
+            }
+            if (ctx.log && ctx.log.warn) {
+              ctx.log.warn(
+                `tunnel stopped at ${posKey(lastTunnelCell)}${lastTunnelBlock ? ` (${lastTunnelBlock})` : ''} - ` +
+                  'clearing that cell and retrying'
+              );
+            }
+            const cleared = await digAt(lastTunnelCell);
+            if (!cleared) {
+              return {
+                ok: false,
+                reason: `could not clear the cell the tunnel stopped at (${posKey(lastTunnelCell)})`,
+                failure: 'refused',
+                cell: lastTunnelCell
+              };
+            }
+            return runTunnel(tunnelSteps);
+          }
+        });
+      }
+      rungs.push(
         {
           name: 'direct',
-          handles: ['no_path', 'out_of_reach', 'occluded', 'unknown', 'target_lost'],
+          handles: ['no_path', 'out_of_reach', 'occluded', 'unknown', 'target_lost', 'refused'],
           maxAttempts: 1,
           run: () => attempt(ore.position)
         },
@@ -880,7 +982,8 @@ register({
             return attempt(waypoint);
           }
         }
-      ]);
+      );
+      const ladder = new RecoveryLadder('mine_ore', rungs);
       const outcome = await ladder.run();
 
       if (stats.outOfTime || outcome.outOfTime) break;
@@ -955,6 +1058,7 @@ register({
       skipped: stats.skipped,
       refusedCells: stats.refusedCells,
       rejectedTargets: stats.rejectedTargets,
+      tunnel: { runs: stats.tunnelRuns, cells: stats.tunnelCells },
       outOfTime: stats.outOfTime,
       minedAt: stats.minedAt,
       plan: stats.plan,

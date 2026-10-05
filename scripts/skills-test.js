@@ -380,6 +380,47 @@ class MenuBody extends Body {
     return `mined x=-5, rejected ${result.rejectedTargets} target(s), sand untouched`;
   });
 
+  await scenario('mine_ore: a tunnel that stops at a named cell clears it and retries', async () => {
+    /**
+     * The client controller reports the exact cell that stopped it (numen's structured
+     * execution reason). The skill must dig that cell once and re-run the tunnel instead of
+     * jumping at it again - the offline stand-in for "a dig the server did not confirm".
+     */
+    const blocks = mineWorld({
+      minX: -4,
+      maxX: 6,
+      corridor: [{ x: 0, y: 64, z: 0 }, { x: 0, y: 65, z: 0 }],
+      extras: [{ name: 'iron_ore', position: { x: 3, y: 64, z: 0 } }]
+    });
+    const body = new MockBody(cfg, { start: { x: 0, y: 64, z: 0 }, blocks, inventory: { 'minecraft:stone_pickaxe': 1 } });
+    await body.connect();
+    const realTunnel = body.tunnel.bind(body);
+    let failedOnce = false;
+    body.tunnel = async (waypoints, options) => {
+      if (!failedOnce) {
+        failedOnce = true;
+        return {
+          ok: false,
+          reason: 'jump-blocked',
+          cell: { x: 1, y: 64, z: 0 },
+          block: 'minecraft:stone',
+          dugCells: []
+        };
+      }
+      return realTunnel(waypoints, options);
+    };
+    const result = await skills.run('mine_ore', makeCtx(body), { maxMs: 30000, eatAt: 1 });
+    expect(failedOnce, 'the tunnel was never made to fail');
+    expect(result.ok && result.mined === 1, `expected the ore to be mined after the retry, got ${JSON.stringify(result)}`);
+    expect(result.tunnel && result.tunnel.runs === 2, `expected exactly one retry, got ${JSON.stringify(result.tunnel)}`);
+    expect(
+      body.history.some((h) => h.action === 'dig' && h.position.x === 1 && h.position.y === 64 && /stone/.test(h.name)),
+      'the cell the tunnel named was not cleared'
+    );
+    expect(result.ledger.extra === 0, `clearing a planned cell must not count as extra: ${JSON.stringify(result.ledger)}`);
+    return `cleared (1,64,0), tunnel runs ${result.tunnel.runs}, ledger ${JSON.stringify(result.ledger)}`;
+  });
+
   // ------------------------------------------------------------------ movement
   process.stdout.write('\n5. movement - explore / come\n');
 

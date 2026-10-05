@@ -18,7 +18,9 @@ import net.minecraft.world.phys.BlockHitResult;
 import net.minecraft.world.phys.HitResult;
 import net.minecraft.world.phys.Vec3;
 
+import java.util.ArrayList;
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.concurrent.CompletableFuture;
@@ -51,6 +53,15 @@ public final class ClientActions {
 
     /** Currently running continuous action, polled each client tick. */
     private volatile Continuous continuous;
+    /**
+     * Verdict of the last finished action.
+     *
+     * The continuous slot is cleared the moment an action finishes, so a /progress poll that
+     * lands after that tick used to see only `{busy:false}` - the caller then treated every
+     * finished action, including a failed walk, as a success by default. Retaining the final
+     * progress means "done/failed/reason/cell" survive until the next action starts.
+     */
+    private volatile String lastProgress;
 
     // ------------------------------------------------------------------ simple
 
@@ -316,6 +327,7 @@ public final class ClientActions {
             if (mc.player == null || mc.level == null) {
                 return false;
             }
+            this.lastProgress = null;
             this.continuous = new WalkTo(new Vec3(x, y, z), range);
             return true;
         });
@@ -341,7 +353,39 @@ public final class ClientActions {
                 return false;
             }
             lookAtOnClient(x + 0.5D, y + 0.5D, z + 0.5D);
+            this.lastProgress = null;
             this.continuous = new DigBlock(pos);
+            return true;
+        });
+    }
+
+    /**
+     * Walk a planned tunnel as ONE continuous action: hold forward, clear whatever blocks the
+     * way, jump only real one-block steps, and report the cells actually dug plus the cell
+     * that stopped it.
+     *
+     * This is the "dig while walking" primitive. The Node side computes the stair (quotable,
+     * testable, offline); this controller executes it tick by tick, so walking and digging
+     * are no longer two alternating HTTP actions with a stop in between - and a step-up is
+     * decided from the block's collision shape (a real one-block step with headroom) instead
+     * of "collided, therefore jump".
+     *
+     * @param waypoints feet cells in order ({x, y, z} triples)
+     */
+    public boolean tunnel(List<int[]> waypoints) {
+        return onClient(() -> {
+            if (mc.player == null || mc.level == null || mc.gameMode == null) {
+                return false;
+            }
+            if (waypoints == null || waypoints.isEmpty()) {
+                return false;
+            }
+            List<BlockPos> cells = new ArrayList<>(waypoints.size());
+            for (int[] wp : waypoints) {
+                cells.add(new BlockPos(wp[0], wp[1], wp[2]));
+            }
+            this.lastProgress = null;
+            this.continuous = new Tunnel(cells);
             return true;
         });
     }
@@ -507,12 +551,27 @@ public final class ClientActions {
     /** Stop whatever continuous action is running. */
     public boolean stop() {
         return onClient(() -> {
+            Continuous interrupted = this.continuous;
             this.continuous = null;
             setKeyInClient("forward", false);
             setKeyInClient("jump", false);
             setKeyInClient("sprint", false);
             if (mc.gameMode != null && mc.gameMode.isDestroying()) {
                 mc.gameMode.stopDestroyBlock();
+            }
+            /**
+             * Keep a verdict for whoever is waiting on /progress: an interrupted action is
+             * not a success. Without this the stopped action leaves no trace and a late poll
+             * defaults to "done".
+             */
+            if (interrupted != null) {
+                this.lastProgress = Json.obj(new java.util.LinkedHashMap<>(java.util.Map.of(
+                        "busy", Json.bool(false),
+                        "action", Json.str(interrupted.describe()),
+                        "done", Json.bool(false),
+                        "failed", Json.bool(true),
+                        "reason", Json.str("stopped")
+                )));
             }
             return true;
         });
@@ -528,10 +587,19 @@ public final class ClientActions {
         }
         try {
             if (action.tick(mc)) {
+                // Capture the verdict before dropping the action; see lastProgress.
+                this.lastProgress = action.progressJson();
                 this.continuous = null;
             }
         } catch (Exception e) {
             AgentClientMod.LOGGER.warn("continuous action failed: {}", e.getMessage());
+            this.lastProgress = Json.obj(new java.util.LinkedHashMap<>(java.util.Map.of(
+                    "busy", Json.bool(false),
+                    "action", Json.str(action.describe()),
+                    "done", Json.bool(false),
+                    "failed", Json.bool(true),
+                    "reason", Json.str("crashed")
+            )));
             this.continuous = null;
         }
     }
@@ -549,6 +617,9 @@ public final class ClientActions {
     public String progressJson() {
         Continuous action = this.continuous;
         if (action == null) {
+            if (this.lastProgress != null) {
+                return this.lastProgress;
+            }
             return Json.obj(new java.util.LinkedHashMap<>(java.util.Map.of("busy", Json.bool(false))));
         }
         return action.progressJson();
@@ -820,6 +891,285 @@ public final class ClientActions {
             map.put("target", Json.point(pos.getX(), pos.getY(), pos.getZ()));
             return Json.obj(map);
         }
+    }
+
+    /**
+     * Dig-while-walking controller for one planned tunnel (see {@link #tunnel}).
+     *
+     * Per tick: steer to the current waypoint's block centre, hold forward, and decide the
+     * next action from the collision shapes of the column being entered -
+     *
+     *   - both cells free  -> just walk (a descent is walked off the edge, never jumped);
+     *   - foot solid, head free, own headroom free -> a real one-block step: jump while
+     *     touching it (pressed once per landing, capped, so it can never pogo a wall);
+     *   - anything else solid -> aim at the blocking cell and hold the attack until it is
+     *     air, then keep walking. No separate dig action, no stop between steps.
+     *
+     * Arrival is strict ("feet block == waypoint block", y included). Giving up names the
+     * cell and block so the planner can clear exactly that cell and retry.
+     */
+    private final class Tunnel implements Continuous {
+        private static final long TOTAL_TIMEOUT_MS = 180_000L;
+        private static final long STUCK_MS = 8_000L;
+        private static final long DIG_STALL_MS = 4_000L;
+        private static final int MAX_BLOCKED_JUMPS = 3;
+        private static final int MAX_DIGS = 256;
+
+        private final List<BlockPos> waypoints;
+        private final long started = System.currentTimeMillis();
+        /** Resolved on the first tick from the body's actual position (retries skip ahead). */
+        private int index = -1;
+        private boolean done;
+        private boolean failed;
+        private String reason = "";
+        private BlockPos failCell;
+        private String failBlock;
+        private int jumpsSinceProgress;
+        private boolean jumpHeld;
+        private double bestDistance = Double.MAX_VALUE;
+        private long lastProgressAt = System.currentTimeMillis();
+        private BlockPos digTarget;
+        private long digStartedAt;
+        private int digs;
+        private final List<BlockPos> dug = new ArrayList<>();
+
+        Tunnel(List<BlockPos> waypoints) {
+            this.waypoints = waypoints;
+        }
+
+        @Override
+        public boolean tick(Minecraft mc) {
+            LocalPlayer player = mc.player;
+            ClientLevel level = mc.level;
+            if (player == null || level == null || mc.gameMode == null) {
+                fail("no-body", null, null);
+                release();
+                return true;
+            }
+            long now = System.currentTimeMillis();
+            if (now - started > TOTAL_TIMEOUT_MS) {
+                fail("timeout", null, null);
+                release();
+                return true;
+            }
+            if (index < 0) {
+                int best = 0;
+                double bestD = Double.MAX_VALUE;
+                for (int i = 0; i < waypoints.size(); i += 1) {
+                    double d = player.distanceToSqr(Vec3.atCenterOf(waypoints.get(i)));
+                    if (d < bestD) {
+                        bestD = d;
+                        best = i;
+                    }
+                }
+                index = best;
+            }
+            if (index >= waypoints.size()) {
+                release();
+                done = true;
+                return true;
+            }
+            BlockPos wp = waypoints.get(index);
+
+            // Strict arrival: the feet block is the waypoint block, y included.
+            if ((int) Math.floor(player.getX()) == wp.getX()
+                    && (int) Math.floor(player.getZ()) == wp.getZ()
+                    && Math.abs(player.getY() - wp.getY()) < 0.5D) {
+                index += 1;
+                bestDistance = Double.MAX_VALUE;
+                lastProgressAt = now;
+                jumpsSinceProgress = 0;
+                digTarget = null;
+                return false;
+            }
+
+            double distance = player.position().distanceTo(Vec3.atCenterOf(wp));
+            if (distance < bestDistance - 0.2D) {
+                bestDistance = distance;
+                lastProgressAt = now;
+                jumpsSinceProgress = 0;
+            }
+            if (now - lastProgressAt > STUCK_MS) {
+                fail("stuck", wp, null);
+                release();
+                return true;
+            }
+
+            int fx = (int) Math.floor(player.getX());
+            int fy = (int) Math.floor(player.getY());
+            int fz = (int) Math.floor(player.getZ());
+            int dx = wp.getX() - fx;
+            int dz = wp.getZ() - fz;
+            int sx = Math.abs(dx) >= Math.abs(dz) ? Integer.signum(dx) : 0;
+            int sz = sx == 0 ? Integer.signum(dz) : 0;
+            BlockPos frontFoot = new BlockPos(fx + sx, fy, fz + sz);
+            BlockPos frontHead = frontFoot.above();
+            boolean footSolid = isSolid(level, frontFoot);
+            boolean headSolid = isSolid(level, frontHead);
+            boolean ownCeiling = isSolid(level, new BlockPos(fx, fy + 2, fz));
+
+            // Steer at the block CENTRE, not the integer corner: walking at a corner is what
+            // makes a step-up clip the edge and fall back into a jump loop.
+            lookAtOnClient(wp.getX() + 0.5D, player.getY() + 1.0D, wp.getZ() + 0.5D);
+            setKeyInClient("forward", true);
+            setKeyInClient("sprint", false);
+
+            BlockPos toDig = null;
+            boolean stepUp = false;
+            if (footSolid && !headSolid) {
+                if (!ownCeiling) {
+                    stepUp = true;
+                } else {
+                    toDig = new BlockPos(fx, fy + 2, fz); // clear our own headroom first
+                }
+            } else if (footSolid) {
+                toDig = frontFoot; // a full-height wall: break the lower cell first
+            } else if (headSolid) {
+                toDig = frontHead; // a low lintel
+            }
+
+            if (toDig != null) {
+                if (isLiquid(level, toDig)) {
+                    fail("hazard", toDig, blockName(level, toDig));
+                    release();
+                    return true;
+                }
+                if (isFallingAbove(level, toDig)) {
+                    fail("falling", toDig, blockName(level, toDig));
+                    release();
+                    return true;
+                }
+                if (digTarget == null || !digTarget.equals(toDig)) {
+                    digTarget = toDig;
+                    digStartedAt = now;
+                    mc.gameMode.stopDestroyBlock();
+                    mc.gameMode.startDestroyBlock(toDig, faceToward(toDig, player));
+                } else {
+                    mc.gameMode.continueDestroyBlock(toDig, faceToward(toDig, player));
+                }
+                lookAtOnClient(toDig.getX() + 0.5D, toDig.getY() + 0.5D, toDig.getZ() + 0.5D);
+                player.swing(InteractionHand.MAIN_HAND);
+                if (now - digStartedAt > DIG_STALL_MS) {
+                    fail("unbreakable", toDig, blockName(level, toDig));
+                    release();
+                    return true;
+                }
+                setKeyInClient("jump", false);
+                jumpHeld = false;
+                return false;
+            }
+
+            if (digTarget != null) {
+                if (level.getBlockState(digTarget).isAir()) {
+                    digs += 1;
+                    if (dug.size() < MAX_DIGS) dug.add(digTarget);
+                    if (digs > MAX_DIGS) {
+                        fail("dig-budget", digTarget, null);
+                        release();
+                        return true;
+                    }
+                }
+                digTarget = null;
+                digStartedAt = 0L;
+                mc.gameMode.stopDestroyBlock();
+            }
+
+            if (player.isInWater()) {
+                // The swim-up key doubles as jump; a flooded pocket must not sink the walk.
+                setKeyInClient("jump", true);
+                jumpHeld = true;
+                return false;
+            }
+
+            if (stepUp) {
+                boolean press = player.onGround() && player.horizontalCollision;
+                setKeyInClient("jump", press);
+                if (press && !jumpHeld) jumpsSinceProgress += 1;
+                jumpHeld = press;
+                if (jumpsSinceProgress >= MAX_BLOCKED_JUMPS && now - lastProgressAt > 1500L) {
+                    fail("jump-blocked", frontFoot, blockName(level, frontFoot));
+                    release();
+                    return true;
+                }
+            } else {
+                setKeyInClient("jump", false);
+                jumpHeld = false;
+            }
+            return false;
+        }
+
+        private void fail(String why, BlockPos cell, String block) {
+            failed = true;
+            reason = why;
+            failCell = cell;
+            failBlock = block;
+        }
+
+        private void release() {
+            setKeyInClient("forward", false);
+            setKeyInClient("sprint", false);
+            setKeyInClient("jump", false);
+            jumpHeld = false;
+            if (mc.gameMode != null && mc.gameMode.isDestroying()) {
+                mc.gameMode.stopDestroyBlock();
+            }
+        }
+
+        @Override
+        public String describe() {
+            return "tunnel";
+        }
+
+        @Override
+        public String progressJson() {
+            Map<String, String> map = new LinkedHashMap<>();
+            map.put("busy", Json.bool(!done && !failed));
+            map.put("action", Json.str("tunnel"));
+            map.put("done", Json.bool(done));
+            map.put("failed", Json.bool(failed));
+            map.put("reason", Json.str(reason));
+            map.put("index", Json.num(index));
+            map.put("waypoints", Json.num(waypoints.size()));
+            map.put("dug", Json.num(digs));
+            map.put("jumpsBlocked", Json.num(jumpsSinceProgress));
+            if (failCell != null) {
+                map.put("cell", Json.point(failCell.getX(), failCell.getY(), failCell.getZ()));
+            }
+            if (failBlock != null) {
+                map.put("block", Json.str(failBlock));
+            }
+            StringBuilder cells = new StringBuilder("[");
+            for (int i = 0; i < dug.size(); i += 1) {
+                if (i > 0) {
+                    cells.append(',');
+                }
+                BlockPos p = dug.get(i);
+                cells.append(Json.point(p.getX(), p.getY(), p.getZ()));
+            }
+            cells.append(']');
+            map.put("dugCells", cells.toString());
+            return Json.obj(map);
+        }
+    }
+
+    /** Collision-shape solidity, the same test vanilla movement uses. */
+    private static boolean isSolid(ClientLevel level, BlockPos pos) {
+        return !level.getBlockState(pos).getCollisionShape(level, pos).isEmpty();
+    }
+
+    private static boolean isLiquid(ClientLevel level, BlockPos pos) {
+        return !level.getBlockState(pos).getFluidState().isEmpty();
+    }
+
+    private static boolean isFallingAbove(ClientLevel level, BlockPos pos) {
+        String name = blockName(level, pos.above());
+        return name.endsWith("sand") || name.endsWith("gravel");
+    }
+
+    private static String blockName(ClientLevel level, BlockPos pos) {
+        return net.minecraft.core.registries.BuiltInRegistries.BLOCK
+                .getKey(level.getBlockState(pos).getBlock())
+                .toString();
     }
 
     // ------------------------------------------------------------------ helpers

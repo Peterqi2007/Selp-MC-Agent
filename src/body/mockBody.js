@@ -299,6 +299,37 @@ class MockBody extends Body {
     return true;
   }
 
+  /**
+   * Mock tunnel: walk the planned waypoint list in order, clearing the foot/head cell of
+   * each step the way the real client's dig-while-walking controller does, and report the
+   * cells it dug so the mining ledger can be checked offline.
+   *
+   * The real controller digs whatever blocks the way and jumps real one-block steps; the
+   * mock is a teleport, but the *accounting shape* is identical, which is what the skill's
+   * tunnel rung depends on.
+   */
+  async tunnel(waypoints = []) {
+    await this._delay();
+    const dugCells = [];
+    for (const wp of waypoints) {
+      const cell = { x: Math.floor(wp.x), y: Math.floor(wp.y), z: Math.floor(wp.z) };
+      for (const c of [cell, { x: cell.x, y: cell.y + 1, z: cell.z }]) {
+        const entry = this.world.get(key(c));
+        if (!entry) continue;
+        // Carved corridor cells are stored as explicit `air` entries; the real controller
+        // only digs solid blocks, so the mock must not report an air cell as dug either.
+        if (/(^|:)air$/.test(String(entry.name))) continue;
+        this.world.delete(key(c));
+        this.stats.dug += 1;
+        this.history.push({ action: 'dig', name: entry.name, position: { ...c } });
+        dugCells.push({ ...c });
+      }
+      this.position = { x: cell.x + 0.5, y: cell.y, z: cell.z + 0.5 };
+      this._pickUpDrops();
+    }
+    return { ok: true, reason: null, cell: null, block: null, dugCells };
+  }
+
   async place(itemName, referenceBlock) {
     await this._delay();
     const name = normalize(itemName);

@@ -431,6 +431,34 @@ public final class ControlHttpServer {
                     out.put("ok", Json.bool(xyz != null && actions.dig(xyz[0], xyz[1], xyz[2])));
                     out.put("note", Json.str("continuous - poll /progress"));
                 }
+                /**
+                 * Dig-while-walking: a planned list of feet cells, "x y z [x y z ...]".
+                 * The controller holds forward, clears what blocks the tunnel and jumps only
+                 * real one-block steps; poll /progress for the verdict and the cells dug.
+                 */
+                case "tunnel" -> {
+                    String[] tokens = rest.isEmpty() ? new String[0] : rest.split("\\s+");
+                    boolean ok = tokens.length >= 3 && tokens.length % 3 == 0;
+                    java.util.List<int[]> points = new java.util.ArrayList<>();
+                    for (int i = 0; ok && i < tokens.length; i += 3) {
+                        try {
+                            points.add(new int[] {
+                                    (int) Math.floor(Double.parseDouble(tokens[i])),
+                                    (int) Math.floor(Double.parseDouble(tokens[i + 1])),
+                                    (int) Math.floor(Double.parseDouble(tokens[i + 2]))
+                            });
+                        } catch (NumberFormatException e) {
+                            ok = false;
+                        }
+                    }
+                    if (!ok) {
+                        out.put("ok", Json.bool(false));
+                        out.put("error", Json.str("usage: tunnel x y z [x y z ...]"));
+                    } else {
+                        out.put("ok", Json.bool(actions.tunnel(points)));
+                        out.put("note", Json.str("continuous - poll /progress"));
+                    }
+                }
                 case "place" -> {
                     int[] xyz = ints(rest, 3);
                     // "place x y z [face] [item]" - tokens 3 and 4, not 4 and 5.

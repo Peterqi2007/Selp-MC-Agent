@@ -319,6 +319,38 @@ const server = http.createServer((req, res) => {
         }, 120);
         return send({ command, ok: true, note: 'continuous' });
       }
+      if (verb === 'tunnel') {
+        // Walk-and-dig as one continuous action: clear every solid cell on the waypoint
+        // line, then report the cells that were actually dug (the mining ledger uses them).
+        const nums = tokensOf(args).map(Number);
+        if (nums.length < 3 || nums.length % 3 !== 0 || nums.some((n) => !Number.isFinite(n))) {
+          return send({ command, ok: false, error: 'usage: tunnel x y z [x y z ...]' });
+        }
+        const points = [];
+        for (let i = 0; i < nums.length; i += 3) points.push({ x: nums[i], y: nums[i + 1], z: nums[i + 2] });
+        let ticks = 0;
+        const dugCells = [];
+        busy = { busy: true, action: 'tunnel', done: false, failed: false };
+        const timer = setInterval(() => {
+          ticks += 1;
+          if (ticks < 2) return;
+          clearInterval(timer);
+          for (const point of points) {
+            for (const cell of [point, { x: point.x, y: point.y + 1, z: point.z }]) {
+              const k = `${cell.x},${cell.y},${cell.z}`;
+              const name = world.blocks.cells[k];
+              if (!name || /air$/.test(name)) continue;
+              delete world.blocks.cells[k];
+              dugCells.push({ ...cell });
+              world.inventory['minecraft:cobblestone'] = (world.inventory['minecraft:cobblestone'] || 0) + 1;
+            }
+          }
+          const last = points[points.length - 1];
+          world.position = { x: last.x, y: last.y, z: last.z };
+          busy = { busy: false, action: 'tunnel', done: true, failed: false, reason: null, dugCells };
+        }, 120);
+        return send({ command, ok: true, note: 'continuous' });
+      }
       if (verb === 'select') {
         world.heldItem = args;
         return send({ command, ok: true });
@@ -764,6 +796,27 @@ function check(name, ok, detail) {
     await body.refresh(true);
     check('dig() result is visible in the next snapshot', body.blockAt({ x: 5, y: 64, z: 0 }) === null);
     check('dig() yield landed in the inventory', (body.snapshot().inventory['minecraft:stone'] || 0) >= 1);
+
+    // ---- dig-while-walking: one tunnel action, actual dug cells reported ----
+    // The planned-route test above replaced this part of the grid with air, so put a fresh
+    // solid block on the tunnel line: the controller must dig it and report it.
+    world.blocks.cells['7,64,0'] = 'minecraft:stone';
+    const tunneled = await body.tunnel([
+      { x: 6, y: 64, z: 0 },
+      { x: 7, y: 64, z: 0 }
+    ]);
+    check(
+      'tunnel() runs as one action and reports the cells it dug',
+      tunneled.ok === true &&
+        tunneled.dugCells.length >= 1 &&
+        tunneled.dugCells.some((c) => c.x === 7 && c.y === 64),
+      JSON.stringify(tunneled)
+    );
+    check(
+      'tunnel() ends standing on the last waypoint',
+      body.snapshot().position.x === 7 && body.snapshot().position.z === 0,
+      JSON.stringify(body.snapshot().position)
+    );
 
     // ---- aimed vision: crosshair raycast + look sweep ---------------------
     world.target = { name: 'minecraft:dirt', position: { x: 1, y: 63, z: 0 }, face: 'up', distance: 1.2 };
