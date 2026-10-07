@@ -421,6 +421,61 @@ class MenuBody extends Body {
     return `cleared (1,64,0), tunnel runs ${result.tunnel.runs}, ledger ${JSON.stringify(result.ledger)}`;
   });
 
+  await scenario('mine_ore: refuses a tunnel waypoint that hangs over a deep drop', async () => {
+    /**
+     * The quoted stair descends toward an ore below, but this world has no floor under the
+     * first waypoint (below y=63 is missing -> air). The pre-run `dangerAt` admission must
+     * stop the task with `danger` before the continuous tunnel is handed to the client - the
+     * Node half of the anti-fall pair.
+     */
+    const blocks = mineWorld({
+      minX: -4,
+      maxX: 6,
+      corridor: [{ x: 0, y: 64, z: 0 }, { x: 0, y: 65, z: 0 }],
+      extras: [{ name: 'iron_ore', position: { x: 3, y: 62, z: 0 } }]
+    });
+    const body = new MockBody(cfg, {
+      start: { x: 0, y: 64, z: 0 },
+      blocks,
+      inventory: { 'minecraft:stone_pickaxe': 1 }
+    });
+    await body.connect();
+    let tunnelCalled = false;
+    body.tunnel = async () => {
+      tunnelCalled = true;
+      return { ok: true, reason: null, cell: null, block: null, dugCells: [] };
+    };
+    const result = await skills.run('mine_ore', makeCtx(body), { maxMs: 20000, eatAt: 1 });
+    expect(!tunnelCalled, 'the tunnel must not run toward a waypoint hanging over a deep drop');
+    expect(result.stopped === 'danger', `expected a danger stop, got ${JSON.stringify(result)}`);
+    expect(/drop below/.test(result.detail || ''), `expected the drop to be named: ${result.detail}`);
+    expect(!body.history.some((h) => h.action === 'dig'), 'nothing may be dug toward the drop');
+    return result.detail;
+  });
+
+  await scenario('mine_ore: a tunnel that breaks into a cavern stops the task', async () => {
+    /**
+     * Floor-only world: every waypoint has solid ground below it (the pre-check passes), but
+     * the space around the tunnel is open air. The post-run openness check must catch what a
+     * one-shot pre-check cannot see and stop the task like the direct stair path does.
+     */
+    const blocks = [];
+    for (let x = -8; x <= 8; x += 1) {
+      for (let z = -4; z <= 4; z += 1) blocks.push({ name: 'stone', position: { x, y: 63, z } });
+    }
+    blocks.push({ name: 'iron_ore', position: { x: 3, y: 64, z: 0 } });
+    const body = new MockBody(cfg, {
+      start: { x: 0, y: 64, z: 0 },
+      blocks,
+      inventory: { 'minecraft:stone_pickaxe': 1 }
+    });
+    await body.connect();
+    const result = await skills.run('mine_ore', makeCtx(body), { maxMs: 20000, eatAt: 1 });
+    expect(result.stopped === 'cavern', `expected a cavern stop, got ${JSON.stringify(result)}`);
+    expect(result.mined === 0, `the ore behind the cavern must not be taken: mined ${result.mined}`);
+    return result.detail;
+  });
+
   // ------------------------------------------------------------------ movement
   process.stdout.write('\n5. movement - explore / come\n');
 

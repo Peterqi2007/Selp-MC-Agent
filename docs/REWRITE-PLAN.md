@@ -577,3 +577,22 @@ numen 式 RecoveryLadder：每一级声明它能接住的 `failure` 类型与重
 - Mod 离线编译成功：`agent-client-1.0.0.jar` 48551 → **54730 字节**，已安装进 PCL 配置（153 个 Mod）。
 - **未做真实客户端测试**：真机验证清单（斜上 10 格、斜下 10 格各 3 次；`jumpsBlocked` 是否 0；全程是否还有
   逐格停顿）留待操作员安排。
+
+### 12.5 防坠落补丁（同日，Mod 重编译）
+
+操作员问"代码是否已加了防坠落"，复盘确认：Node 阶梯（direct/flank）本来就有 `dangerAt`（>2 格悬空、岩浆、
+±3 怪物 → 拒绝）和洞窟检查，但新的 `tunnel` 连续动作把整段路交给客户端执行，这两个检查被绕过；客户端控制器
+自身当时只检查"要挖的格子是不是液体、上方有没有落沙"。补上两层：
+
+1. **Mod `Tunnel` tick 级探底**：走路分支（非跳台阶）向下探 1~3 格——2 格内见地板 = 正常下台阶；3 格空气
+   （悬崖 / 被挖穿的地层）或先见液体 = `fail("ledge")` 并报格子，立即松键停住。正常 1~2 格自然下坡、平走与
+   跳台阶不受影响；游泳分支跳过检查。
+2. **Node `runTunnel` 前置预检**：每个 waypoint 过同一 `dangerAt`（>2 格悬空、±1 范围岩浆、±3 怪物）——危险即
+   `failure:"hazard", danger:true` 停止任务（与 direct 阶梯一致），不再把危险路段交给客户端。
+3. **Node `runTunnel` 后置洞窟检查**：tunnel 成功返回后、取矿前，按当前 feet 重算 `openness ≥ 0.45`——洞窟即
+   `stopped:"cavern"` 停止任务，把洞窟保护覆盖到主路径。
+4. 失败词表：`ledge` 并入 `falling/hazard/water/lava` → `hazard`（不做重试）。
+
+验证：`skills:test` 30 → **32/32**（新增"深落差 waypoint 前置拒绝：不调用 tunnel、不挖任何格"与"floor-only
+世界 tunnel 成功后洞窟停止"两例）；`client:test` **59/59**；`p0:verify` **8/8**（selftest 169/169）。Jar
+54730 → **54969 字节**，已安装进 PCL 配置（153 个 Mod）；仍**未做真实客户端测试**。

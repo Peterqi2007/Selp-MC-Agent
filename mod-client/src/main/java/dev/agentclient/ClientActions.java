@@ -1092,6 +1092,37 @@ public final class ClientActions {
                     return true;
                 }
             } else {
+                /**
+                 * Anti-fall: this is a plain walk (not a step-up), so the next thing the feet
+                 * meet is whatever lies under the front cell. Probe down: a floor within two
+                 * blocks is an ordinary step down (or already flat ground); three or more air
+                 * (a ledge over a cave, ravine or a column someone mined out) or liquid first
+                 * (walking straight into a pool/lava pocket) is refused before the feet leave
+                 * the ground.
+                 *
+                 * The Node side pre-checks the quoted waypoints against its own scan; this
+                 * tick-level probe is what catches a world that changed after that scan, which
+                 * a one-shot pre-check can never see.
+                 */
+                BlockPos stopCell = null;
+                String stopBlock = null;
+                int fall = 0;
+                for (int i = 1; i <= 3; i += 1) {
+                    BlockPos probe = frontFoot.below(i);
+                    if (isLiquid(level, probe)) {
+                        stopCell = probe;
+                        stopBlock = blockName(level, probe);
+                        break;
+                    }
+                    if (isSolid(level, probe)) break;
+                    fall = i;
+                    stopCell = probe;
+                }
+                if (stopBlock != null || fall > 2) {
+                    fail("ledge", stopCell, stopBlock);
+                    release();
+                    return true;
+                }
                 setKeyInClient("jump", false);
                 jumpHeld = false;
             }

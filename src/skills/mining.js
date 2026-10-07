@@ -878,14 +878,15 @@ register({
       /**
        * Map the client controller's vocabulary onto the failure types the ladder routes on.
        * `jump-blocked`/`headroom`/`blocked` are all "something solid is still in the way" -
-       * the clear-retry rung's business; `stuck`/`timeout` are route problems; falling/liquid
-       * are hazards nobody should retry.
+       * the clear-retry rung's business; `stuck`/`timeout` are route problems; falling sand,
+       * liquid and a `ledge` (a step whose floor is more than two blocks down) are hazards
+       * nobody should retry.
        */
       const classifyTunnelFailure = (reason) => {
         const text = String(reason || '');
         if (/jump-blocked|headroom|occluded|blocked|unbreakable/i.test(text)) return 'occluded';
         if (/stuck|no-progress|timeout|budget/i.test(text)) return 'no_path';
-        if (/falling|hazard|water|lava/i.test(text)) return 'hazard';
+        if (/falling|hazard|water|lava|ledge/i.test(text)) return 'hazard';
         return 'unknown';
       };
 
@@ -893,6 +894,13 @@ register({
        * One tunnel execution: hand the quoted steps to the client and post the cells it
        * actually dug to the ledger. `lastTunnelCell` keeps the controller's structured
        * stopping point for the clear-retry rung.
+       *
+       * The client walks the whole list itself, so the path guards a per-step executor would
+       * apply have to run around the hand-off: before it every waypoint goes through the same
+       * `dangerAt` admission the direct stair uses (deep drop below, lava nearby, hostiles),
+       * and after it the space around the feet is re-read so a run that broke into a cavern
+       * stops the task exactly like the direct path does. The controller's own tick-level
+       * ledge probe covers whatever changes after the scan.
        */
       const tunnelSteps =
         lastQuote && lastQuote.block === ore && Array.isArray(lastQuote.quote.plan) ? lastQuote.quote.plan : [];
@@ -900,6 +908,24 @@ register({
       let lastTunnelBlock = null;
       const runTunnel = async (steps) => {
         if (!steps.length) return { ok: false, reason: 'no quoted steps for this ore', failure: 'no_path' };
+        const pre = await refresh(ctx);
+        if (pre) {
+          for (const step of steps) {
+            const danger = dangerAt(pre, step.waypoint);
+            if (!danger) continue;
+            const where = posKey(step.waypoint);
+            if (ctx.log && ctx.log.warn) {
+              ctx.log.warn(`unsafe tunnel waypoint ${where}: ${danger.reason} - stopping`);
+            }
+            return {
+              ok: false,
+              reason: `unsafe tunnel waypoint ${where}: ${danger.reason}`,
+              failure: 'hazard',
+              danger: true,
+              hostile: danger.hostile
+            };
+          }
+        }
         stats.tunnelRuns += 1;
         const result = await body
           .tunnel(
@@ -926,6 +952,20 @@ register({
         }
         if (stats.planExceeded) {
           return { ok: false, reason: 'the tunnel dug outside the quoted plan', failure: 'no_path' };
+        }
+        /**
+         * Cavern guard for the continuous action: the tunnel may have opened into air the
+         * scan did not show. Re-read before the ore is taken - the same rule the direct stair
+         * applies between its steps.
+         */
+        const after = await refresh(ctx);
+        const afterFeet = feetOf(after);
+        if (afterFeet && openness(after, afterFeet) >= 0.45) {
+          stats.cavern = true;
+          if (ctx.log && ctx.log.warn) {
+            ctx.log.warn(`large cavern ahead at ${afterFeet.x},${afterFeet.y},${afterFeet.z} - stopping`);
+          }
+          return { ok: false, reason: 'large cavern ahead', failure: 'hazard', cavern: true };
         }
         return takeOre();
       };
