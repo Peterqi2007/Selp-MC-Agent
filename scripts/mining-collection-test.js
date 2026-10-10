@@ -27,9 +27,10 @@ const {
   sealBaseline,
   recordMineResult,
   observeAcquisition,
-  verifyAcquisition
+  verifyAcquisition,
+  reconcilePendingGoals
 } = require('../src/skills/miningAcquisition');
-const { attemptCollection } = require('../src/skills/miningCollection');
+const { attemptCollection, selectPickupStands } = require('../src/skills/miningCollection');
 
 const cfg = loadConfig({ profile: null });
 const silent = { debug() {}, info() {}, warn() {}, error() {} };
@@ -191,6 +192,41 @@ async function main() {
     assert.strictEqual(verdict.delta, 1);
     assert.strictEqual(goal.collectedItems, 1);
     return 'delta 3 capped to 1';
+  });
+  await check('live fix 10-10: a banked product reconciled after the sweep verifies the goal', () => {
+    const goal = goalFor(snap({}));
+    recordMineResult(goal, { receipt: { ok: true, dug: true } });
+    // The collector failed (goal still pending), then the incidental sweep banked it.
+    const reconciled = reconcilePendingGoals([goal], snap({ inventory: { 'minecraft:diamond': 1 } }));
+    assert.strictEqual(reconciled.length, 1);
+    assert.strictEqual(goal.status, 'verified');
+    assert.strictEqual(goal.collectedItems, 1);
+    return 'pending -> verified from inventory evidence, not from the sweep counter';
+  });
+  await check('live fix 10-10: the mined ore cell is a legal pickup stand once it is air', () => {
+    const cells = {
+      '0,63,0': 'minecraft:stone',
+      '1,63,0': 'minecraft:stone',
+      '0,64,0': 'minecraft:air', '0,65,0': 'minecraft:air',
+      '1,64,0': 'minecraft:air', '1,65,0': 'minecraft:air',
+      '2,64,0': 'minecraft:air', '2,65,0': 'minecraft:air'
+    };
+    const snapshot = snap({ cells });
+    const goal = goalFor(snap({ cells }), { target: { blockId: 'diamond_ore', position: { x: 1, y: 64, z: 0 } } });
+    recordMineResult(goal, { receipt: { ok: true, dug: true } });
+    goal.pendingDrops = [{ name: 'diamond', count: 1, position: { x: 1, y: 64, z: 0 } }];
+    const io = {
+      feetOf: (s) => ({ x: Math.floor(s.position.x), y: Math.floor(s.position.y), z: Math.floor(s.position.z) }),
+      read: (s, cell) => (s.blocks && s.blocks.cells[`${cell.x},${cell.y},${cell.z}`]) || 'minecraft:air',
+      passable: (n) => /air$/.test(n),
+      solid: (n) => !/air$/.test(n)
+    };
+    const stands = selectPickupStands(snapshot, goal, io);
+    assert(
+      stands.some((c) => c.position.x === 1 && c.position.y === 64 && c.position.z === 0),
+      `the ore cell must be a stand: ${JSON.stringify(stands.map((c) => c.position))}`
+    );
+    return 'target cell included after the dig';
   });
 
   process.stdout.write('\n3. collection unit behaviour (C02/C13/C14)\n');
