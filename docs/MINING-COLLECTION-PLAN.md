@@ -436,8 +436,8 @@ Mock 夹具必须能表达：受限拾取高度/空间、拾取延迟、服务�
 
 共享收集在真机（mc.example.com，角色 `agent`）通过 `npm run mining:live` 验证：
 
-* 两轮深板岩钻石（各 1 块）完整走通"挖前基线封存 → 挖后入包证据"链路：
-  结果均为 `[verified] collected=1 pending=0`，库存增量与目标产物一致（钻石 +1）。
+* 连续 5 轮（深板岩钻石 ×2、深板岩铁 ×2、金矿 ×1）完整走通"挖前基线封存 → 挖后入包证据"链路：
+  结果均为 `[verified] collected=1 pending=0`，库存增量与目标产物一致（diamond/raw_iron/raw_gold 各 +1）。
 * 实机暴露并修复两处：① 收尾清扫（`collectDrops`）可能捡走目标产物而目标记录仍为 pending——
   已加清扫后的证据对账（`reconcilePendingGoals`）；② 站位候选曾无条件排除"矿块原格"——
   挖后那一格是最佳拾取点位，已允许（是否可站仍由可通行性检查决定）。
