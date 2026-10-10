@@ -345,6 +345,34 @@ function isPassable(name) {
   return PASSABLE.has(name);
 }
 
+/**
+ * Blocks a player actually pillars with, in preference order.
+ *
+ * One list for the mining skill, the pillar executor and the mock body: the offline
+ * tests must choose the same support block the live run would, or "no scaffold" passes
+ * offline and fails in game.
+ */
+const SCAFFOLD_BLOCKS = [
+  'cobblestone', 'cobbled_deepslate', 'dirt', 'oak_planks', 'spruce_planks', 'birch_planks',
+  'oak_log', 'spruce_log', 'birch_log', 'stone', 'deepslate', 'granite', 'diorite',
+  'andesite', 'tuff', 'netherrack'
+];
+
+/**
+ * Pick the best scaffold stack from a `{name: count}` inventory.
+ *
+ * @param {object} inventory
+ * @returns {string|null} the inventory key (namespace preserved) or null
+ */
+function findScaffold(inventory) {
+  const inv = inventory || {};
+  for (const want of SCAFFOLD_BLOCKS) {
+    const found = Object.keys(inv).find((name) => bare(name) === want && inv[name] > 0);
+    if (found) return found;
+  }
+  return null;
+}
+
 module.exports = {
   FOOD_PRIORITY,
   RAW_FOODS,
@@ -376,5 +404,7 @@ module.exports = {
   bestTool,
   hasPickaxe,
   needsPickaxe,
-  isPassable
+  isPassable,
+  SCAFFOLD_BLOCKS,
+  findScaffold
 };

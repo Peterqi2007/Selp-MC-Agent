@@ -1708,6 +1708,32 @@ async function main() {
     return 'accept -> replace -> settle, hold released, events emitted';
   });
 
+  await checkAsync('task hub: a task that will not stop keeps the slot and blocks replacement', async () => {
+    const { TaskHub } = require(path.join(ROOT, 'src/core/taskHub'));
+    const ctx = { brain: null, nav: { interrupt() {} }, body: { interrupt() {} }, cfg: {} };
+    const hub = new TaskHub(ctx, { log: silent, trace() {}, settleTimeoutMs: 80 });
+    const stuck = await hub.submit({
+      name: 'stuck',
+      source: 'selftest',
+      run: () => new Promise(() => {}) // never settles
+    });
+    const refused = await hub.submit({
+      name: 'next',
+      source: 'selftest',
+      run: async () => ({ ok: true })
+    });
+    if (refused.accepted !== false || refused.reason !== 'busy') {
+      throw new Error(`the replacement should have been refused: ${JSON.stringify(refused)}`);
+    }
+    if (!hub.current || hub.current.id !== stuck.taskId) throw new Error('the stuck task lost the slot');
+    const cancelled = await hub.cancel('selftest stop');
+    if (cancelled.ok !== false || !/did not stop/.test(String(cancelled.note))) {
+      throw new Error(`cancel should report the un-stopped task: ${JSON.stringify(cancelled)}`);
+    }
+    if (!hub.current) throw new Error('cancel released a task that never stopped');
+    return 'replacement refused, slot kept, cancel reports gracefully';
+  });
+
   await checkAsync('recovery ladder: rungs catch only the causes they declare', async () => {
     const { RecoveryLadder } = require(path.join(ROOT, 'src/core/recoveryLadder'));
     const tried = [];
@@ -1909,6 +1935,56 @@ async function main() {
     if ((await nextTask) !== false) throw new Error('the new-task deny did not refuse');
     fs.rmSync(file, { force: true });
     return `deny/ask/always/self:placed/task-scope verified (${calls.length} body calls)`;
+  });
+
+  await checkAsync('permission gate: a single-hop pillar is a place; multi-hop is refused', async () => {
+    const fs = require('fs');
+    const { Permissions, ConsentDesk } = require(path.join(ROOT, 'src/core/permissions'));
+    const { installPermissionGate } = require(path.join(ROOT, 'src/core/permissionGate'));
+    const file = path.join(ROOT, '.tmp', 'gate-pillar-selftest.json');
+    fs.rmSync(file, { force: true });
+    const perms = new Permissions({ root: ROOT }, { file, log: silent });
+    const desk = new ConsentDesk({}, { log: silent, speak: () => {}, timeoutMs: 200 });
+    const calls = [];
+    const body = {
+      pillar: async (count) => {
+        calls.push(`pillar:${count}`);
+        return { ok: true, steps: count };
+      },
+      snapshot: () => ({ position: { x: 0, y: 64, z: 0 }, heldItem: 'minecraft:cobblestone' }),
+      dig: async () => true,
+      place: async () => true,
+      useOn: async () => true
+    };
+    const gate = installPermissionGate(body, { permissions: perms, consent: desk, log: silent, taskScope: () => null });
+    if (!gate.installed.includes('pillar')) throw new Error('the gate did not wrap pillar');
+
+    const multi = await body.pillar(2);
+    if (multi.ok !== false || calls.length) throw new Error('multi-hop pillar must be refused before the body');
+
+    const denyIndex = perms.addRule({ effect: 'deny', action: 'place', match: 'minecraft:cobblestone' }).index;
+    const denied = await body.pillar(1);
+    if (denied.ok !== false || calls.length) throw new Error('a denied placement must not reach the body');
+    if (!body.lastRefusal || !/deny/.test(body.lastRefusal.reason)) throw new Error('the pillar refusal was not recorded');
+    perms.removeRule(denyIndex);
+
+    perms.addRule({ effect: 'allow', action: 'place', match: 'minecraft:cobblestone' });
+    const hop = await body.pillar(1);
+    if (hop.ok !== true || calls.length !== 1 || calls[0] !== 'pillar:1') throw new Error(`the allowed hop did not run: ${JSON.stringify(calls)}`);
+
+    /**
+     * The placed cell must be remembered as self:placed - that is the other half of the
+     * "single pillar = one place" contract. A self:placed ask only fires when the set has
+     * the feet cell, so a missing record would run the dig without asking.
+     */
+    perms.addRule({ effect: 'ask', action: 'break', match: 'self:placed' });
+    const selfDig = body.dig({ name: 'minecraft:cobblestone', position: { x: 0, y: 64, z: 0 } });
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    if (!desk.status().pending) throw new Error('the pillar placement was not recorded in self:placed');
+    desk.answer('yes');
+    if ((await selfDig) !== true) throw new Error('the self:placed dig did not run after consent');
+    fs.rmSync(file, { force: true });
+    return 'multi-hop refused, deny blocked, allowed hop recorded as self:placed';
   });
 
   await check('mining plan: quotes price digging over distance, hazards refuse', () => {

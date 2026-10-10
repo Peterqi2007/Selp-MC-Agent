@@ -19,7 +19,7 @@
  */
 
 const { Body, BodyUnavailableError } = require('./body');
-const { isLog, planksFor, isFood, foodScore, blockDrop, blockDropCount } = require('../world/items');
+const { isLog, planksFor, isFood, foodScore, blockDrop, blockDropCount, findScaffold } = require('../world/items');
 const { chooseTool } = require('../world/toolPolicy');
 
 class MockBody extends Body {
@@ -331,28 +331,62 @@ class MockBody extends Body {
   }
 
   /**
-   * Mock pillar: rise `count` blocks the way the client controller does (jump + place under
-   * the feet). The mock has no physics, so it just moves the position and records the action;
-   * the decision layer only needs the {ok, steps, reason} shape and the history entry.
+   * Mock pillar: rise `count` blocks the way the client controller does (jump + place the
+   * support block under the feet).
+   *
+   * The mock enforces the constraints that make offline pillar scenarios predictive
+   * (plan §5.4.1: "不能仅靠模拟器直接修改 y 判成功"):
+   *   - a scaffold block must exist in the inventory, and one is consumed per hop;
+   *   - the two cells above the head a jump needs (feet+2, feet+3) must be clear;
+   *   - the block is really written into the world at the old feet cell.
+   * "Just add 1 to y" hid three separate live bugs; it is not good enough any more.
    */
   async pillar(count = 1) {
     await this._delay();
     const steps = Math.max(1, Math.min(64, Math.floor(Number(count) || 1)));
     let done = 0;
+    let reason = null;
+    const placedCells = [];
     for (let i = 0; i < steps; i += 1) {
       const here = {
         x: Math.floor(this.position.x),
         y: Math.floor(this.position.y),
         z: Math.floor(this.position.z)
       };
-      const aboveHead = this.world.get(key({ x: here.x, y: here.y + 2, z: here.z }));
-      if (aboveHead && !/air$/.test(String(aboveHead.name))) break;
+      for (const dy of [2, 3]) {
+        const overhead = this.world.get(key({ x: here.x, y: here.y + dy, z: here.z }));
+        if (overhead && !/air$/.test(String(overhead.name))) {
+          reason = 'no-headroom';
+          break;
+        }
+      }
+      if (reason) break;
+      const scaffold = findScaffold(this.inventory);
+      if (!scaffold) {
+        reason = 'no_material';
+        break;
+      }
+      /**
+       * The real controller places whatever is held. "Holding the wrong thing" is exactly
+       * how a live run ends up eating bread and then trying to pillar with it (2026-10-08),
+       * so the mock refuses instead of silently consuming from the bag.
+       */
+      if (!this.held || String(this.held).replace(/^[a-z0-9_]+:/, '') !== String(scaffold).replace(/^[a-z0-9_]+:/, '')) {
+        reason = 'not-holding-scaffold';
+        break;
+      }
+      this.inventory[scaffold] -= 1;
+      if (this.inventory[scaffold] <= 0) delete this.inventory[scaffold];
+      this.world.set(key(here), { name: scaffold, position: { ...here } });
       this.position = { ...this.position, y: this.position.y + 1 };
+      placedCells.push({ ...here, block: scaffold });
+      this.history.push({ action: 'place', name: scaffold, position: { ...here } });
+      this.stats.placed += 1;
       done += 1;
     }
     this.stats.pillared = (this.stats.pillared || 0) + done;
-    this.history.push({ action: 'pillar', steps: done });
-    return { ok: done === steps, reason: done === steps ? null : 'no-headroom', steps: done };
+    this.history.push({ action: 'pillar', steps: done, placed: placedCells });
+    return { ok: done === steps, reason: done === steps ? null : reason || 'hop-failed', steps: done, placedCells };
   }
 
   async place(itemName, referenceBlock) {

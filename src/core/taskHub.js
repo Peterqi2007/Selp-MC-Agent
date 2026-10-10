@@ -38,6 +38,8 @@ class TaskHub {
     this.ctx = ctx;
     this.log = options.log || { info() {}, warn() {}, debug() {} };
     this.trace = options.trace || (() => {});
+    /** How long a stop is awaited before replacement is refused (tests shrink it). */
+    this.settleTimeoutMs = options.settleTimeoutMs || SETTLE_TIMEOUT_MS;
     this.seq = 0;
     /** @type {null|{id:string,name:string,description:string,source:string,startedAt:number}} */
     this.current = null;
@@ -62,7 +64,24 @@ class TaskHub {
     if (this.current) {
       replaced = this.current.id;
       this.current.replacedBy = id;
-      await this._interruptCurrent('replaced');
+      /**
+       * Plan §5.4.3: when the old task did not confirm it stopped, refuse the replacement
+       * and keep the slot occupied. Starting a second executor while the first still holds
+       * the body is how two scripts end up fighting over the keyboard.
+       */
+      const settled = await this._interruptCurrent('replaced');
+      if (!settled) {
+        this.current.replacedBy = null;
+        return {
+          ok: false,
+          accepted: false,
+          reason: 'busy',
+          taskId: null,
+          replaced,
+          detail: `${replaced} did not stop in time; refusing to replace it with ${name}`,
+          note: 'the previous task still owns the body - stop it explicitly and retry'
+        };
+      }
     }
 
     const handle = {
@@ -72,7 +91,15 @@ class TaskHub {
       source: job.source || 'unknown',
       startedAt: Date.now(),
       interruptReason: null,
-      replacedBy: null
+      replacedBy: null,
+      /**
+       * The task's own cancellation token, handed to the job's run().
+       *
+       * Skills check it at action boundaries (plan §5.4.3). It is deliberately *not* a
+       * global flag: `owner-stop` allows the operator to start a new explicit task, so a
+       * global "stopped" bit would kill the replacement too.
+       */
+      signal: { cancelled: false, reason: null, at: null }
     };
     handle.settle = new Promise((resolve) => {
       handle.resolveSettle = resolve;
@@ -97,7 +124,7 @@ class TaskHub {
     (async () => {
       let result;
       try {
-        result = await job.run();
+        result = await job.run(handle.signal, handle);
       } catch (err) {
         result = fold({ ok: false, reason: `${name} threw: ${err.message}`, failure: 'internal' });
       }
@@ -122,8 +149,8 @@ class TaskHub {
     if (!this.current) return { ok: true, cancelled: null };
     const id = this.current.id;
     this.log.warn(`task ${id} cancelled: ${reason}`);
-    await this._interruptCurrent(reason);
-    return { ok: true, cancelled: id, reason };
+    const settled = await this._interruptCurrent(reason);
+    return { ok: settled, cancelled: id, reason, note: settled ? null : 'the task did not stop in time; it still owns the body' };
   }
 
   /** Snapshot for the panel, `!task status` and tests. */
@@ -143,8 +170,11 @@ class TaskHub {
 
   async _interruptCurrent(reason) {
     const handle = this.current;
-    if (!handle) return;
+    if (!handle) return true;
     handle.interruptReason = reason;
+    handle.signal.cancelled = true;
+    handle.signal.reason = reason;
+    handle.signal.at = Date.now();
     try {
       if (this.ctx.nav && typeof this.ctx.nav.interrupt === 'function') {
         this.ctx.nav.interrupt(`task ${handle.id} ${reason}`);
@@ -157,11 +187,12 @@ class TaskHub {
     } catch {}
     const settled = await Promise.race([
       handle.settle.then(() => true),
-      new Promise((resolve) => setTimeout(() => resolve(false), SETTLE_TIMEOUT_MS))
+      new Promise((resolve) => setTimeout(() => resolve(false), this.settleTimeoutMs))
     ]);
     if (!settled) {
-      this.log.warn(`task ${handle.id} did not settle after ${reason}; continuing anyway`);
+      this.log.warn(`task ${handle.id} did not settle after ${reason}`);
     }
+    return settled;
   }
 
   _settle(handle, result) {
@@ -220,4 +251,14 @@ class TaskHub {
   }
 }
 
-module.exports = { TaskHub };
+/**
+ * Run a job under a task's cancellation token: a thin prototype wrapper so the skill
+ * sees `ctx.taskSignal` without any caller mutating the shared context object.
+ */
+function ctxWithSignal(ctx, signal) {
+  const scoped = Object.create(ctx || {});
+  scoped.taskSignal = signal;
+  return scoped;
+}
+
+module.exports = { TaskHub, ctxWithSignal };

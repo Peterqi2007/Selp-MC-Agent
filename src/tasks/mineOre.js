@@ -13,6 +13,7 @@
 
 const { Task } = require('./task');
 const { normalizeMiningRequest, resolverFromCtx } = require('../core/miningRequest');
+const { ctxWithSignal } = require('../core/taskHub');
 
 class MineOreTask extends Task {
   /**
@@ -54,12 +55,25 @@ class MineOreTask extends Task {
     const params = { block: normalized.blocks.join(','), ...this.skillParams };
     if (normalized.count !== undefined) params.count = normalized.count;
     const skills = require('../skills');
-    const result = await skills.run('mine_ore', this.ctx, params);
+    /**
+     * Bridge the base Task's cancel() into the skill's token so a planner pre-emption
+     * stops the mining loop at its next action boundary instead of after the next ore.
+     */
+    this._signal = { cancelled: false, reason: null };
+    const result = await skills.run('mine_ore', ctxWithSignal(this.ctx, this._signal), params);
     /**
      * Keep the skill's full result (mined/ledger/minedAt/progress): the plan asks the
      * adapter to preserve `progress` and `mined/ledger/failure`, not just ok/reason.
      */
     return { ...result, ok: result.ok !== false };
+  }
+
+  cancel() {
+    if (this._signal) {
+      this._signal.cancelled = true;
+      this._signal.reason = 'task cancelled';
+    }
+    super.cancel();
   }
 
   progress() {

@@ -17,11 +17,12 @@
  */
 
 const { register } = require('./registry');
-const { bare } = require('../world/items');
+const { bare, findScaffold } = require('../world/items');
 const { toolPlan } = require('../world/toolPolicy');
 const { RecoveryLadder } = require('../core/recoveryLadder');
 const { quoteApproach, stepVector, stepCells, DigLedger } = require('./miningPlan');
 const { normalizeOreParams, resolverFromCtx, targetMatches } = require('../core/miningRequest');
+const { pillarUpRounds } = require('./pillarUp');
 
 const AIR = /^(air|cave_air|void_air)$/;
 const HAZARD = /water|lava/;
@@ -117,6 +118,13 @@ register({
   async run(ctx, params) {
     const body = ctx.body;
     const deadline = Date.now() + params.maxMs;
+    /**
+     * The task's cancellation token (TaskHub). It belongs to *this* task, so it must be
+     * checked at every action boundary - a global `owner-stop` flag would also stop work
+     * after the operator has explicitly started a new task (plan §5.4.3).
+     */
+    const taskSignal = ctx.taskSignal || null;
+    const cancelled = () => !!(taskSignal && taskSignal.cancelled);
     const stats = {
       ores: 0,
       blocks: 0,
@@ -129,6 +137,9 @@ register({
       planExceeded: false,
       tunnelRuns: 0,
       tunnelCells: 0,
+      pillarRises: 0,
+      pillarPlaced: 0,
+      pillarCleared: 0,
       plan: null,
       ledger: { planned: 0, dug: 0, extra: 0, extraCells: [] },
       minedAt: [],
@@ -238,6 +249,27 @@ register({
       const name = cellAt(now, position);
       if (AIR.test(bare(name))) return true;
       if (HAZARD.test(bare(name))) return false;
+      /**
+       * The Mod refuses a dig whose block center is more than 4.5 blocks from the player
+       * (ClientActions.dig, plan §3.1). Do not send the request at all: a "dig refused"
+       * that never left Node keeps the logs honest and makes the offline tests measure the
+       * same admission rule the live run applies.
+       */
+      const feetNow = feetOf(now);
+      if (feetNow) {
+        const reach = Math.hypot(
+          feetNow.x - position.x,
+          feetNow.y - (position.y + 0.5),
+          feetNow.z - position.z
+        );
+        if (reach > 4.5) {
+          stats.refusedCells += 1;
+          if (ctx.log && ctx.log.warn) {
+            ctx.log.warn(`refusing to dig ${bare(name)} at ${posKey(position)}: ${reach.toFixed(2)} blocks away (> 4.5)`);
+          }
+          return false;
+        }
+      }
       const risk = digRisk(now, position);
       if (risk) {
         stats.refusedCells += 1;
@@ -531,17 +563,8 @@ register({
      * cobblestone/dirt/planks/logs are what survives the trip (live 2026-10-10).
      */
     const scaffoldBlock = (snap) => {
-      const prefs = [
-        'cobblestone', 'cobbled_deepslate', 'dirt', 'oak_planks', 'spruce_planks', 'birch_planks',
-        'oak_log', 'spruce_log', 'birch_log', 'stone', 'deepslate', 'granite', 'diorite',
-        'andesite', 'tuff', 'netherrack'
-      ];
-      const inv = (snap && snap.inventory) || {};
-      for (const want of prefs) {
-        const found = Object.keys(inv).find((name) => bare(name) === want && inv[name] > 0);
-        if (found) return found;
-      }
-      return null;
+      // One preference list for the skill, the pillar executor and the mock body.
+      return findScaffold((snap && snap.inventory) || {});
     };
 
     /** The quote for the ore the loop is currently working on (set by findOre). */
@@ -750,6 +773,21 @@ register({
     // ---- main loop: nearest ore -> tunnel -> collect -> next ore ------------
     let lastDirection = { dx: 0, dz: 0 };
     for (;;) {
+      if (cancelled()) {
+        const stop = await refresh(ctx);
+        return {
+          ok: false,
+          interrupted: true,
+          failure: 'interrupted',
+          reason: taskSignal.reason || 'task cancelled',
+          mined: stats.ores,
+          blocks: stats.blocks,
+          collected: stats.collected,
+          minedAt: stats.minedAt,
+          position: stop ? stop.position : null,
+          detail: `cancelled after ${stats.ores} ore(s)`
+        };
+      }
       if (Date.now() > deadline) {
         stats.outOfTime = true;
         break;
@@ -912,6 +950,9 @@ register({
         }
         let outcome = { ok: false, reason: 'gave up' };
         for (let step = 0; step < MAX_STEPS_PER_ORE; step += 1) {
+        if (cancelled()) {
+          return { ok: false, reason: taskSignal.reason || 'task cancelled', failure: 'interrupted', interrupted: true };
+        }
           if (Date.now() > deadline) {
             stats.outOfTime = true;
             return { ok: false, reason: 'out of time', failure: 'timeout', outOfTime: true };
@@ -1150,53 +1191,116 @@ register({
                   hostile: !!lastDanger.hostile
                 };
               }
-              const snap = await refresh(ctx);
-              const block = scaffoldBlock(snap);
-              const here = feetOf(snap);
-              if (!block || !here) {
-                return { ok: false, reason: 'no scaffold block to pillar with', failure: 'refused' };
+              const firstSnap = await refresh(ctx);
+              const here = feetOf(firstSnap);
+              if (!here) {
+                return { ok: false, reason: 'no position for the pillar climb', failure: 'internal' };
+              }
+              if (!scaffoldBlock(firstSnap)) {
+                return { ok: false, reason: 'no scaffold block to pillar with', failure: 'no_material' };
               }
               /**
-               * How high to pillar: straight under the ore the last hop would need the ore's
-               * own cell as headroom, so stop two short there; from a neighbouring column one
-               * short is better - the ore stays visible so the dig can start immediately.
-               * Either way it stays inside the skill's 4-block reach.
+               * Fixed climb endpoint (plan §5.4.2 rule 1): straight under the ore stop two
+               * short (its own cell would become the head cell), from a neighbouring column
+               * one short - the ore stays visible. Recomputing this from the live feet each
+               * round would turn a partial rise into a fresh oversized request.
                */
               const sameColumn = here.x === ore.position.x && here.z === ore.position.z;
-              let need = Math.max(1, Math.min(16, ore.position.y - here.y - (sameColumn ? 2 : 1)));
-              /**
-               * Clear the headroom every hop needs, exactly like climbOut does for the
-               * mineflayer body: the jump apex is ~3 blocks and a solid cap stopped every
-               * placement dead at the player's own feet (live 2026-10-10: a deepslate cap at
-               * y-56 under the diamond). Never dig the target ore - it stays in reach.
-               */
-              for (let j = 2; j <= need + 2; j += 1) {
-                const cell = { x: here.x, y: here.y + j, z: here.z };
-                if (cell.x === ore.position.x && cell.y === ore.position.y && cell.z === ore.position.z) continue;
-                const name = bare(cellAt(snap, cell));
-                if (AIR.test(name)) continue;
-                await digAt(cell);
-              }
+              const goalFeetY = Math.max(here.y + 1, ore.position.y - (sameColumn ? 2 : 1));
               if (ctx.log && ctx.log.info) {
-                ctx.log.info(`pillar-up: rising ${need} block(s) with ${bare(block)} toward ${posKey(ore.position)}`);
+                ctx.log.info(`pillar-up: climbing from y=${here.y} toward y=${goalFeetY} (${posKey(ore.position)})`);
               }
-              const climb = async (n) => {
-                await body.equip(block).catch(() => false);
-                return body.pillar(n, { timeoutMs: 8000 * n + 8000 }).catch((err) => ({ ok: false, reason: err.message }));
+              const result = await pillarUpRounds({
+                deadline,
+                signal: ctx.taskSignal,
+                goalFeetY,
+                log: ctx.log,
+                io: {
+                  refresh: async () => {
+                    const s = await refresh(ctx);
+                    return s && s.ready !== false ? s : null;
+                  },
+                  feetOf,
+                  scanCell: (s, cell) => bare(cellAt(s, cell)),
+                  isAir: (name) => AIR.test(name),
+                  sameColumn: (s, start) => {
+                    const f = feetOf(s);
+                    return !!f && f.x === start.x && f.z === start.z;
+                  },
+                  dangerAt: (s, cell) => {
+                    const d = dangerAt(s, cell);
+                    return d ? { reason: d.reason, hostile: !!d.hostile } : null;
+                  },
+                  isTargetCell: (cell) =>
+                    cell.x === ore.position.x && cell.y === ore.position.y && cell.z === ore.position.z,
+                  protectedCell: (name) => matchesOre(name),
+                  digCell: async (cell) => {
+                    const ok = await digAt(cell);
+                    return ok
+                      ? { ok: true }
+                      : { ok: false, reason: `could not clear the headroom cell ${posKey(cell)}`, failure: 'refused' };
+                  },
+                  takePossible: (_s, feet) =>
+                    Math.hypot(ore.position.x - feet.x, ore.position.y - feet.y, ore.position.z - feet.z) <= 4.0,
+                  takeTarget: async () => takeOre(),
+                  pickScaffold: (s) => scaffoldBlock(s),
+                  equip: async (item) => {
+                    await body.equip(item).catch(() => false);
+                  },
+                  pillarHop: async (timeoutMs) => {
+                    const res = await body
+                      .pillar(1, { timeoutMs })
+                      .catch((err) => ({ ok: false, reason: err.message, steps: 0 }));
+                    return {
+                      ok: !!(res && res.ok),
+                      steps: Number(res && res.steps) || 0,
+                      reason: (res && res.reason) || null,
+                      cell: (res && res.cell) || null
+                    };
+                  }
+                }
+              });
+              stats.pillarCleared += result.clearedCells ? result.clearedCells.length : 0;
+              stats.pillarPlaced += result.placedCells ? result.placedCells.length : 0;
+              stats.pillarRises += result.risen || 0;
+              if (ctx.log && ctx.log.info) {
+                ctx.log.info(
+                  `pillar-up: risen ${result.risen}, cleared ${stats.pillarCleared}, placed ${stats.pillarPlaced}` +
+                    (result.reason ? ` - ${result.reason}` : '')
+                );
+              }
+              if (result.ok && result.minedTarget) return { ok: true, dug: true };
+              if (result.ok) return attempt(ore.position);
+              if (result.failure === 'target_lost') {
+                return { ok: false, reason: result.reason, failure: 'target_lost', targetLost: true };
+              }
+              if (result.failure === 'interrupted') {
+                return { ok: false, reason: result.reason, failure: 'interrupted', interrupted: true };
+              }
+              if (result.failure === 'hazard') {
+                return { ok: false, reason: result.reason, failure: 'hazard', danger: true, hostile: !!result.hostile };
+              }
+              /**
+               * A partial rise is kept, never thrown away: the ore may already be in reach,
+               * so try the take once before reporting the climb's failure upward.
+               */
+              if (result.risen > 0) return attempt(ore.position);
+              /**
+               * Preserve the executor's own failure class. A refused dig / occluded
+               * headroom must NOT be relabelled as `no_path`, or the ladder hands it to
+               * the flank rung and a permission refusal gets "recovered" by more digging
+               * (plan §5.4.3: 危险、拒绝、取消与预算耗尽不可被普通换路吞掉).
+               */
+              const failure = ['no_material', 'timeout', 'refused', 'occluded', 'no_path', 'internal'].includes(result.failure)
+                ? result.failure
+                : 'no_path';
+              return {
+                ok: false,
+                reason: `pillar up failed: ${result.reason}`,
+                failure,
+                cell: result.cell || null,
+                block: result.block || null
               };
-              let res = await climb(need);
-              if (!res.ok && need > 1) {
-                // A tighter cap may still allow fewer hops; being two-to-three short is fine,
-                // the ore stays within the skill's 4-block reach.
-                need -= 1;
-                res = await climb(need);
-              }
-              const rose = Math.max(0, Number(res.steps) || 0);
-              if (!res.ok && rose === 0) {
-                return { ok: false, reason: `pillar up failed: ${res.reason}`, failure: 'no_path' };
-              }
-              // A partial rise can still put the ore in reach and line of sight from below.
-              return attempt(ore.position);
             }
           });
         }
@@ -1216,6 +1320,26 @@ register({
 
       if (stats.outOfTime || outcome.outOfTime) break;
       if (stats.planExceeded) break;
+      /**
+       * A cancellation is not "this ore failed, try the next one": no further side effects
+       * may follow, and the ladder must not fall through to flank/direct work (plan §5.4.3).
+       */
+      if (outcome.interrupted || outcome.failure === 'interrupted') {
+        const stop = await refresh(ctx);
+        return {
+          ok: false,
+          interrupted: true,
+          failure: 'interrupted',
+          reason: outcome.reason || (taskSignal && taskSignal.reason) || 'task cancelled',
+          mined: stats.ores,
+          blocks: stats.blocks,
+          collected: stats.collected,
+          minedAt: stats.minedAt,
+          position: stop ? stop.position : null,
+          pillar: { rises: stats.pillarRises, placed: stats.pillarPlaced, cleared: stats.pillarCleared },
+          detail: `cancelled after ${stats.ores} ore(s)`
+        };
+      }
       if (outcome.danger) {
         // Lava/fall: sweep the drops on the way out. A monster: leave them, walk nothing.
         if (!outcome.hostile) await collectDrops();
@@ -1287,6 +1411,7 @@ register({
       refusedCells: stats.refusedCells,
       rejectedTargets: stats.rejectedTargets,
       tunnel: { runs: stats.tunnelRuns, cells: stats.tunnelCells },
+      pillar: { rises: stats.pillarRises, placed: stats.pillarPlaced, cleared: stats.pillarCleared },
       outOfTime: stats.outOfTime,
       minedAt: stats.minedAt,
       plan: stats.plan,

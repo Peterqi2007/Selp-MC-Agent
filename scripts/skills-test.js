@@ -551,19 +551,137 @@ class MenuBody extends Body {
     return `block/count alias accepted; mined ${result.mined}, stopped ${result.stopped}`;
   });
 
-  await scenario('mine_ore: pillars up a 1-wide shaft when the stair cannot climb', async () => {
+  /**
+   * P4 (plan §5.4 / §6.2): the iterative single-cell pillar.
+   *
+   * `makeShaftRig` builds the live failure's geometry: a 1-wide column, feet at y=64,
+   * stone caps all the way up and the ore floating above them. The stair cannot climb
+   * (upward `moveTo` fails), the client tunnel reports `stuck`, and the ore is only
+   * diggable when no solid cell sits between the feet and it - the mock has no raycast,
+   * so the rig models occlusion explicitly.
+   */
+  const makeShaftRig = ({ oreY = 70, cobble = 8, refuseDigAt = null, hopFailAt = null, hopLieAt = null } = {}) => {
     /**
-     * A 1-wide shaft has no horizontal room for the sloped stair, and the client walker
-     * cannot jump onto a block it is pressed against (live 2026-10-10: the bot oscillated at
-     * one step and abandoned the ore). The ore sits directly overhead behind a stone cap, so
-     * it can neither be reached nor dug from below; the pillar-up rung must clear the hop
-     * corridor, rise with a scaffold block and finish the take.
+     * Real caps above the slab: the stone floor fixture stops at y=66, so every cell
+     * between it and the ore is explicitly solid unless the test says otherwise.
      */
+    const extras = [{ name: 'gold_ore', position: { x: 0, y: oreY, z: 0 } }];
+    for (let y = 67; y < oreY; y += 1) extras.push({ name: 'stone', position: { x: 0, y, z: 0 } });
     const blocks = mineWorld({
       minX: -6,
       maxX: 6,
       corridor: [{ x: 0, y: 64, z: 0 }, { x: 0, y: 65, z: 0 }],
-      extras: [{ name: 'gold_ore', position: { x: 0, y: 67, z: 0 } }]
+      extras
+    });
+    const body = new MockBody(cfg, {
+      start: { x: 0, y: 64, z: 0 },
+      blocks,
+      inventory: { 'minecraft:iron_pickaxe': 1, 'minecraft:cobblestone': cobble }
+    });
+    const orePos = { x: 0, y: oreY, z: 0 };
+    const digLog = [];
+    const hopLog = [];
+    const rig = { body, orePos: { ...orePos }, digLog, hopLog };
+    rig.setup = async () => {
+      await body.connect();
+      body.tunnel = async () => ({ ok: false, reason: 'stuck', cell: null, block: null, dugCells: [] });
+      const realMoveTo = body.moveTo.bind(body);
+      body.moveTo = async (position, options) => {
+        if (Math.floor(position.y) > Math.floor(body.position.y)) return false;
+        return realMoveTo(position, options);
+      };
+      const realDig = body.dig.bind(body);
+      body.dig = async (block, options) => {
+        const p = block && block.position;
+        const feet = { x: Math.floor(body.position.x), y: Math.floor(body.position.y), z: Math.floor(body.position.z) };
+        digLog.push({ cell: p ? { ...p } : null, feet, held: body.held });
+        if (!p) return false;
+        if (p.x === orePos.x && p.y === orePos.y && p.z === orePos.z) {
+          for (let y = feet.y + 1; y < orePos.y; y += 1) {
+            const entry = body.world.get(`${orePos.x},${y},${orePos.z}`);
+            if (entry && !/air$/.test(String(entry.name))) return false; // occluded
+          }
+        }
+        if (refuseDigAt && p.x === refuseDigAt.x && p.y === refuseDigAt.y && p.z === refuseDigAt.z) return false;
+        return realDig(block, options);
+      };
+      const realPillar = body.pillar.bind(body);
+      let hops = 0;
+      body.pillar = async (count, options) => {
+        hops += 1;
+        hopLog.push({ count, held: body.held, feetY: Math.floor(body.position.y) });
+        if (hopFailAt && hops >= hopFailAt) return { ok: false, steps: 0, reason: 'place-failed' };
+        if (hopLieAt && hops >= hopLieAt) return { ok: true, steps: 1, reason: null }; // claims success, does not move
+        return realPillar(count, options);
+      };
+    };
+    return rig;
+  };
+
+  await scenario('B1/B2: iterative pillar clears cap by cap, rises 3+, mines the ore', async () => {
+    const rig = makeShaftRig({ oreY: 70, cobble: 8 });
+    await rig.setup();
+    const result = await skills.run('mine_ore', makeCtx(rig.body), { ore: 'gold_ore', maxY: 16, maxMs: 30000, eatAt: 1 });
+    expect(result.ok && result.mined === 1, `expected the ore after pillaring, got ${JSON.stringify(result)}`);
+    expect(result.pillar && result.pillar.rises >= 3, `expected >=3 rises, got ${JSON.stringify(result.pillar)}`);
+    const pillars = rig.body.history.filter((h) => h.action === 'pillar');
+    expect(pillars.length >= 3 && pillars.every((p) => p.steps === 1), `one-hop requests expected, got ${JSON.stringify(pillars)}`);
+    expect(rig.hopLog.every((h) => h.count === 1), `pillar requests must be single-hop: ${JSON.stringify(rig.hopLog)}`);
+    expect(rig.hopLog.every((h) => /cobblestone/.test(String(h.held))), 'the support block must be held for a hop');
+    // B2: caps above the start reach are only dug after a real rise, and no dig ever
+    // exceeds the Mod's own 4.5-block admission.
+    const highCaps = rig.digLog.filter((d) => d.cell && d.cell.x === 0 && d.cell.z === 0 && d.cell.y >= 68);
+    expect(highCaps.length >= 1, 'the rig should have cleared high caps');
+    expect(highCaps.every((d) => d.feet.y >= 65), `caps dug too early: ${JSON.stringify(highCaps)}`);
+    const reach = (d) => Math.hypot(d.feet.x - d.cell.x, d.feet.y - (d.cell.y + 0.5), d.feet.z - d.cell.z);
+    expect(rig.digLog.filter((d) => d.cell).every((d) => reach(d) <= 4.5 + 1e-6), 'a dig beyond 4.5 blocks was sent');
+    expect(result.minedAt && result.minedAt[0] && result.minedAt[0].position.y === 70, 'minedAt should name the ore');
+    return `rises=${result.pillar.rises}, hops=${rig.hopLog.length}, digs=${rig.digLog.length}`;
+  });
+
+  await scenario('B3: hop 2 fails - the first rise is kept and the hop is not blindly re-sent', async () => {
+    /**
+     * The live bug this pins: a failed `pillar(n)` made the old rung retry with `n-1`
+     * from scratch, throwing the completed hop away. Digging stone also replenishes the
+     * scaffold stack with cobblestone, so "material runs out" is not a reliable failure
+     * fixture - a failing second hop is.
+     */
+    const rig = makeShaftRig({ oreY: 70, cobble: 8, hopFailAt: 2 });
+    await rig.setup();
+    const result = await skills.run('mine_ore', makeCtx(rig.body), { ore: 'gold_ore', maxY: 16, maxMs: 30000, eatAt: 1 });
+    expect(result.mined === 0, `no ore should be mined, got ${result.mined}`);
+    expect(result.pillar && result.pillar.rises === 1, `the first rise must survive, got ${JSON.stringify(result.pillar)}`);
+    const pillarCalls = rig.hopLog.length;
+    expect(pillarCalls === 2, `one success + one failed hop, no re-send storm; got ${pillarCalls}`);
+    expect(Math.floor(rig.body.position.y) === 65, `feet should have stayed at 65, got ${rig.body.position.y}`);
+    const placed = rig.body.world.get('0,64,0');
+    expect(placed && /cobblestone/.test(placed.name), 'the support block must be in the old feet cell');
+    return `rises=1 kept, hop attempts=${pillarCalls} (second failed, not retried)`;
+  });
+
+  await skillsTestScenarioRefuseDig();
+
+  async function skillsTestScenarioRefuseDig() {
+    const rig = makeShaftRig({ oreY: 70, cobble: 8, refuseDigAt: { x: 0, y: 66, z: 0 } });
+    await rig.setup();
+    const warns = [];
+    const captureLog = { debug() {}, info() {}, warn: (...args) => warns.push(args.join(' ')), error() {} };
+    const result = await skills.run('mine_ore', makeCtx(rig.body, { log: captureLog }), { ore: 'gold_ore', maxY: 16, maxMs: 30000, eatAt: 1 });
+    await scenario('B4: a refused headroom dig stops the climb with zero pillar hops', async () => {
+      expect(result.mined === 0, `no ore expected, got ${result.mined}`);
+      expect(rig.hopLog.length === 0, `no pillar hop may follow a refused dig, got ${rig.hopLog.length}`);
+      expect((result.pillar && result.pillar.rises) === 0, 'no rise may be reported');
+      expect(warns.some((w) => /could not clear the headroom cell 0,66,0|refusing to dig/.test(w)), `failure cell missing from logs: ${warns.join(' | ')}`);
+      return 'refused dig kept as the failure location; zero pillars';
+    });
+  }
+
+  await scenario('B5: the target ore in the next-hop headroom is reported blocked, never jumped through', async () => {
+    const blocks = mineWorld({
+      minX: -6,
+      maxX: 6,
+      corridor: [{ x: 0, y: 64, z: 0 }, { x: 0, y: 65, z: 0 }],
+      extras: [{ name: 'gold_ore', position: { x: 0, y: 66, z: 0 } }]
     });
     const body = new MockBody(cfg, {
       start: { x: 0, y: 64, z: 0 },
@@ -571,30 +689,65 @@ class MenuBody extends Body {
       inventory: { 'minecraft:iron_pickaxe': 1, 'minecraft:cobblestone': 8 }
     });
     await body.connect();
-    // The tunnel controller cannot help in a walled shaft, and every upward walk fails:
-    // this is exactly the physical situation the mock cannot model on its own.
     body.tunnel = async () => ({ ok: false, reason: 'stuck', cell: null, block: null, dugCells: [] });
     const realMoveTo = body.moveTo.bind(body);
-    body.moveTo = async (position, options) => {
-      if (Math.floor(position.y) > Math.floor(body.position.y)) return false;
-      return realMoveTo(position, options);
-    };
-    // The ore is occluded by the stone at y=66: digging it only becomes possible once the
-    // bot is within two blocks vertically (the mock cannot model the raycast itself).
-    const orePos = { x: 0, y: 67, z: 0 };
+    body.moveTo = async (position, options) =>
+      Math.floor(position.y) > Math.floor(body.position.y) ? false : realMoveTo(position, options);
+    // Occlusion model: the ore at feet+2 cannot be taken from below in this fixture.
     const realDig = body.dig.bind(body);
-    body.dig = async (block) => {
+    body.dig = async (block, options) => {
       const p = block && block.position;
-      if (p && p.x === orePos.x && p.y === orePos.y && p.z === orePos.z && Math.floor(body.position.y) < orePos.y - 2) {
-        return false;
-      }
-      return realDig(block);
+      if (p && p.x === 0 && p.y === 66 && p.z === 0 && Math.floor(body.position.y) < 65) return false;
+      return realDig(block, options);
     };
     const result = await skills.run('mine_ore', makeCtx(body), { ore: 'gold_ore', maxMs: 30000, eatAt: 1 });
-    expect(result.ok && result.mined === 1, `expected the ore after pillaring, got ${JSON.stringify(result)}`);
-    const pillar = body.history.find((h) => h.action === 'pillar');
-    expect(pillar && pillar.steps >= 1, `expected a pillar step, got ${JSON.stringify(body.history.filter((h) => h.action === 'pillar'))}`);
-    return `pillared ${pillar.steps} block(s), mined ${result.mined}`;
+    expect(result.mined === 0 && result.skipped >= 1, `expected a blocked skip, got ${JSON.stringify({ mined: result.mined, skipped: result.skipped })}`);
+    const hops = body.history.filter((h) => h.action === 'pillar');
+    expect(hops.length === 0, `the climb must not jump through the ore: ${JSON.stringify(hops)}`);
+    return 'occluded target reported; no hop attempted';
+  });
+
+  await scenario('B7: cancellation after the first hop stops all further actions', async () => {
+    const rig = makeShaftRig({ oreY: 70, cobble: 8 });
+    await rig.setup();
+    const signal = { cancelled: false, reason: null };
+    let cancelledAt = null;
+    const realPillar = rig.body.pillar.bind(rig.body);
+    rig.body.pillar = async (count, options) => {
+      const res = await realPillar(count, options);
+      if (!signal.cancelled) {
+        signal.cancelled = true;
+        signal.reason = 'operator stop';
+        cancelledAt = rig.body.history.length;
+      }
+      return res;
+    };
+    const result = await skills.run('mine_ore', makeCtx(rig.body, { taskSignal: signal }), { ore: 'gold_ore', maxY: 16, maxMs: 30000, eatAt: 1 });
+    expect(result.interrupted === true, `expected an interrupted result, got ${JSON.stringify({ ok: result.ok, interrupted: result.interrupted })}`);
+    expect(result.mined === 0, `nothing more may be mined, got ${result.mined}`);
+    const after = rig.body.history.slice(cancelledAt);
+    const sideEffects = after.filter((h) => ['dig', 'place', 'pillar', 'moveTo', 'tunnel'].includes(h.action));
+    expect(sideEffects.length === 0, `actions continued after cancel: ${JSON.stringify(sideEffects)}`);
+    return `stopped after 1 hop, ${after.length} bookkeeping entries, 0 side effects`;
+  });
+
+  await scenario('B8: a hop that claims success without moving is not counted as a rise', async () => {
+    const rig = makeShaftRig({ oreY: 70, cobble: 8, hopLieAt: 1 });
+    await rig.setup();
+    const result = await skills.run('mine_ore', makeCtx(rig.body), { ore: 'gold_ore', maxY: 16, maxMs: 30000, eatAt: 1 });
+    expect(rig.hopLog.length === 1, `the failed hop must not be re-sent, got ${rig.hopLog.length}`);
+    expect((result.pillar && result.pillar.rises) === 0, `a phantom rise must not be reported: ${JSON.stringify(result.pillar)}`);
+    expect(result.mined === 0, `no ore expected, got ${result.mined}`);
+    return 'lying verdict rejected after bounded re-reads; one request only';
+  });
+
+  await scenario('B10-lite: a body without pillar capability degrades honestly', async () => {
+    const rig = makeShaftRig({ oreY: 70, cobble: 8 });
+    await rig.setup();
+    rig.body.pillar = undefined; // the method lives on the prototype; an own-property shadow is the removal
+    const result = await skills.run('mine_ore', makeCtx(rig.body), { ore: 'gold_ore', maxY: 16, maxMs: 30000, eatAt: 1 });
+    expect(result.ok !== undefined && result.mined === 0, `expected an honest no-ore result, got ${JSON.stringify({ ok: result.ok, mined: result.mined })}`);
+    return 'no pillar primitive: task reported honestly, no exception';
   });
 
   // ------------------------------------------------------------------ movement

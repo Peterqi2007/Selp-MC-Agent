@@ -860,18 +860,40 @@ class ClientModBody extends Body {
     const steps = Math.max(1, Math.min(64, Math.floor(Number(count) || 1)));
     const started = Date.now();
     const timeoutMs = options.timeoutMs || Math.min(90000, 6000 * steps + 8000);
+    /**
+     * Never let a previous action's verdict stand in for this one's (plan §5.4.1): the
+     * old code read whatever `lastAction` happened to hold and, worse, reported the
+     * *requested* count as done when the client said nothing about `steps`.
+     */
+    this.lastAction = null;
     const sent = await this.command(`pillar ${steps}`);
     if (!sent || sent.ok === false) {
-      this.lastPillar = { ok: false, reason: 'pillar refused', steps: 0, cell: null, ms: Date.now() - started };
+      this.lastPillar = { ok: false, reason: 'pillar refused', steps: 0, requested: steps, cell: null, ms: Date.now() - started };
       return this.lastPillar;
     }
     const ok = await this.awaitAction('pillar', timeoutMs);
-    const verdict = this.lastAction || {};
+    const verdict = this.lastAction && this.lastAction.action === 'pillar' ? this.lastAction : null;
+    const reported = verdict && Number.isFinite(verdict.steps) ? verdict.steps : null;
     this.lastPillar = {
-      ok,
-      reason: ok ? null : verdict.reason || 'pillar-failed',
-      steps: Number.isFinite(verdict.steps) ? verdict.steps : steps,
-      cell: verdict.cell || null,
+      /**
+       * An explicit receipt is the only evidence of completion. A missing `steps` field
+       * (old Mod, truncated progress payload) is reported as 0 performed - never padded
+       * up to the requested count; the caller re-reads the world to decide what happened.
+       */
+      ok: !!ok && !!verdict && reported !== null,
+      reason: ok
+        ? verdict
+          ? reported === null
+            ? 'the client reported no pillar steps'
+            : null
+          : 'no pillar verdict from the client'
+        : (verdict && verdict.reason) || 'pillar-failed',
+      steps: reported === null ? 0 : Math.max(0, reported),
+      requested: steps,
+      cell: (verdict && verdict.cell) || null,
+      start: (verdict && verdict.start) || null,
+      end: (verdict && verdict.end) || null,
+      placedCells: (verdict && verdict.placedCells) || [],
       ms: Date.now() - started
     };
     this.trace({ kind: 'pillar', ...this.lastPillar });
@@ -910,6 +932,10 @@ class ClientModBody extends Body {
               block: progress.block || null,
               /** Steps completed, for the pillar controller. */
               steps: Number.isFinite(progress.steps) ? progress.steps : null,
+              /** Per-hop location evidence the pillar controller reports (plan §5.4.1). */
+              start: progress.start || null,
+              end: progress.end || null,
+              placedCells: Array.isArray(progress.placedCells) ? progress.placedCells : [],
               /** Actual cells the client dug, for the mining ledger. */
               dugCells: Array.isArray(progress.dugCells) ? progress.dugCells : []
             }

@@ -24,6 +24,7 @@
 
 const { fold } = require('./failure');
 const { normalizeMiningRequest, resolverFromCtx } = require('./miningRequest');
+const { ctxWithSignal } = require('./taskHub');
 
 /**
  * Normalize + dispatch a mining request.
@@ -80,7 +81,7 @@ async function submitOre(ctx, normalized, options = {}) {
     name: 'mine_ore',
     description,
     source: options.source || 'unknown',
-    run: () => require('../skills').run('mine_ore', ctx, params)
+    run: (signal) => require('../skills').run('mine_ore', ctxWithSignal(ctx, signal), params)
   });
   return { ...receipt, kind: 'ore', skill: 'mine_ore', blocks: normalized.blocks, count: normalized.count };
 }

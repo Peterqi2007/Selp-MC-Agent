@@ -16,6 +16,7 @@ const { bare } = require('../../world/safety');
 const skills = require('../../skills');
 const { fold } = require('../../core/failure');
 const { dispatchMining } = require('../../core/miningDispatch');
+const { ctxWithSignal } = require('../../core/taskHub');
 
 /** Task names the model may request, matching the intent enum in src/llm/intent.js. */
 const TASK_NAMES = ['chop', 'mine', 'collect'];
@@ -151,7 +152,11 @@ async function doSkill(ctx, args, options = {}) {
       name,
       description: `skill ${name}`,
       source: options.source || 'llm',
-      run: () => skills.run(name, ctx, params)
+      /**
+       * The task's cancellation token travels into the skill as `ctx.taskSignal`; the
+       * scoped wrapper leaves the shared context untouched for other callers.
+       */
+      run: (signal) => skills.run(name, ctxWithSignal(ctx, signal), params)
     });
     return { ...receipt, skill: name };
   }

@@ -1329,6 +1329,15 @@ public final class ClientActions {
         private boolean failed;
         private String reason = "";
         private BlockPos failCell;
+        /**
+         * Per-hop evidence (plan §5.4.1): the cell the hop started from, the cell it landed
+         * in and every block actually placed. Without these, Node can only trust `steps`,
+         * and the live retry bug hid behind exactly that.
+         */
+        private BlockPos actionStart;
+        private BlockPos actionEnd;
+        private BlockPos hopStart;
+        private final List<BlockPos> placedCells = new ArrayList<>();
 
         Pillar(int targetSteps) {
             this.targetSteps = targetSteps;
@@ -1360,6 +1369,14 @@ public final class ClientActions {
                     int landedY = (int) Math.floor(player.getY());
                     if (landedY == baseY + 1) {
                         steps += 1; // the placed block held: on to the next hop
+                        if (hopStart != null) {
+                            placedCells.add(hopStart);
+                            actionEnd = new BlockPos(
+                                (int) Math.floor(player.getX()),
+                                landedY,
+                                (int) Math.floor(player.getZ())
+                            );
+                        }
                         jumping = false;
                         attempts = 0;
                     } else if (now - stepStartedAt < JUMP_GRACE_MS) {
@@ -1407,6 +1424,8 @@ public final class ClientActions {
                     baseX = fx;
                     baseY = fy;
                     baseZ = fz;
+                    if (actionStart == null) actionStart = new BlockPos(fx, fy, fz);
+                    hopStart = new BlockPos(fx, fy, fz);
                     setKeyInClient("jump", true);
                     jumping = true;
                     stepStartedAt = now;
@@ -1459,6 +1478,19 @@ public final class ClientActions {
             map.put("reason", Json.str(reason));
             map.put("steps", Json.num(steps));
             map.put("target", Json.num(targetSteps));
+            if (actionStart != null) {
+                map.put("start", Json.point(actionStart.getX(), actionStart.getY(), actionStart.getZ()));
+            }
+            if (actionEnd != null) {
+                map.put("end", Json.point(actionEnd.getX(), actionEnd.getY(), actionEnd.getZ()));
+            }
+            if (!placedCells.isEmpty()) {
+                List<String> placed = new ArrayList<>();
+                for (BlockPos cell : placedCells) {
+                    placed.add(Json.point(cell.getX(), cell.getY(), cell.getZ()));
+                }
+                map.put("placedCells", Json.arr(placed));
+            }
             if (failCell != null) {
                 map.put("cell", Json.point(failCell.getX(), failCell.getY(), failCell.getZ()));
             }

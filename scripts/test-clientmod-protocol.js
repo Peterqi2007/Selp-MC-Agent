@@ -63,6 +63,11 @@ const world = {
 
 /** Continuous-action state, mirroring the mod's /progress contract. */
 let busy = null;
+/**
+ * Extra fields merged into the next completed `pillar` progress payload. Scenarios set
+ * this to prove how `ClientModBody.pillar` treats receipts (missing steps, wrong action).
+ */
+let pillarFinal = null;
 let chatLog = [];
 /** Slot clicks the mock received, in order. */
 const clicks = [];
@@ -317,6 +322,22 @@ const server = http.createServer((req, res) => {
             busy = { busy: false, action: 'dig', done: true, failed: false };
           }
         }, 120);
+        return send({ command, ok: true, note: 'continuous' });
+      }
+      if (verb === 'pillar') {
+        let ticks = 0;
+        busy = { busy: true, action: 'pillar', done: false, failed: false };
+        const timer = setInterval(() => {
+          ticks += 1;
+          if (ticks >= 2) {
+            clearInterval(timer);
+            /**
+             * Default: one completed hop with the full new receipt. Scenarios override
+             * `pillarFinal` to drop `steps` or to answer with a different action.
+             */
+            busy = { busy: false, action: 'pillar', done: true, failed: false, steps: 1, ...(pillarFinal || {}) };
+          }
+        }, 60);
         return send({ command, ok: true, note: 'continuous' });
       }
       if (verb === 'tunnel') {
@@ -817,6 +838,43 @@ function check(name, ok, detail) {
       body.snapshot().position.x === 7 && body.snapshot().position.z === 0,
       JSON.stringify(body.snapshot().position)
     );
+
+    // ---- pillar receipts (P4 / plan §5.4.1; B8 protocol side) -------------
+    /**
+     * The old `pillar()` padded a missing `steps` field with the requested count, which is
+     * how "only rose one block" reported success for three. These checks pin the receipt
+     * discipline: explicit fields pass through, a missing `steps` is a failure with 0
+     * performed, and a verdict for another action never counts.
+     */
+    pillarFinal = {
+      steps: 1,
+      start: { x: 7, y: 64, z: 0 },
+      end: { x: 7, y: 65, z: 0 },
+      placedCells: [{ x: 7, y: 64, z: 0 }]
+    };
+    const hop = await body.pillar(1, { timeoutMs: 3000 });
+    check(
+      'pillar() passes the per-hop receipt through (start/end/placedCells)',
+      hop.ok === true && hop.steps === 1 && !!hop.start && !!hop.end && hop.placedCells.length === 1,
+      JSON.stringify(hop)
+    );
+
+    pillarFinal = { steps: undefined };
+    const noSteps = await body.pillar(1, { timeoutMs: 3000 });
+    check(
+      'pillar(): a missing steps field is not padded with the requested count',
+      noSteps.ok === false && noSteps.steps === 0 && /no pillar steps/i.test(String(noSteps.reason)),
+      JSON.stringify(noSteps)
+    );
+
+    pillarFinal = { action: 'dig', steps: 1 };
+    const wrongAction = await body.pillar(1, { timeoutMs: 3000 });
+    check(
+      'pillar(): a verdict for a different action is rejected',
+      wrongAction.ok === false && wrongAction.steps === 0,
+      JSON.stringify(wrongAction)
+    );
+    pillarFinal = null;
 
     // ---- aimed vision: crosshair raycast + look sweep ---------------------
     world.target = { name: 'minecraft:dirt', position: { x: 1, y: 63, z: 0 }, face: 'up', distance: 1.2 };
