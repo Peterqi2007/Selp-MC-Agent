@@ -28,6 +28,7 @@ const {
   prepareAcquisition,
   sealBaseline,
   recordMineResult,
+  reconcilePendingGoals,
   describeAcquisition
 } = require('./miningAcquisition');
 const { attemptCollection } = require('./miningCollection');
@@ -858,7 +859,11 @@ register({
         const hop = await body
           .pillar(1, { timeoutMs: (options && options.timeoutMs) || 8000 })
           .catch((err) => ({ ok: false, steps: 0, reason: err.message }));
-        return { ok: !!(hop && hop.ok), steps: Number(hop && hop.steps) || 0, reason: (hop && hop.reason) || null };
+        return {
+          ok: !!(hop && hop.ok),
+          steps: Number(hop && hop.steps) || 0,
+          reason: hop && hop.reason ? `${hop.reason}${hop.detail ? ` (${hop.detail})` : ''}` : null
+        };
       },
       moveLocal: async (stand, options) => {
         const ok = await body
@@ -1387,6 +1392,8 @@ register({
               interrupted: true
             };
           }
+          // Keep the uncollected reason on the record so the panel/pending list can say why.
+          goal.reason = collection.reason || 'the product is not confirmed in the inventory yet';
           return {
             ok: true,
             dug: true,
@@ -1408,6 +1415,13 @@ register({
           if (already.ok) return already;
         }
         let outcome = { ok: false, reason: 'gave up' };
+      /**
+       * Oscillation guard (live 2026-10-10): in the tight shaft the stair walked A -> B -> A
+       * more than twenty times before the pillar rung got its turn. Within one attempt a cell
+       * visited three times with no arrival is a cycle, not progress; bail out immediately so
+       * the next rung (pillar-up) takes over.
+       */
+      const visits = new Map();
         for (let step = 0; step < MAX_STEPS_PER_ORE; step += 1) {
         if (cancelled()) {
           return { ok: false, reason: taskSignal.reason || 'task cancelled', failure: 'interrupted', interrupted: true };
@@ -1436,6 +1450,24 @@ register({
           if (step % 4 === 3) await collectDrops(3);
           const afterStep = await refresh(ctx);
           const feetAfter = feetOf(afterStep);
+          if (feetAfter) {
+            const key = posKey(feetAfter);
+            const seen = (visits.get(key) || 0) + 1;
+            visits.set(key, seen);
+            if (seen >= 3) {
+              await recordProgress({
+                phase: 'approach',
+                action: 'step',
+                ok: false,
+                progress: false,
+                failure: 'no_path',
+                reason: `oscillating around ${key} without progress`,
+                arrived: false,
+                moved: 0
+              });
+              return { ok: false, reason: `oscillating around ${key} without progress`, failure: 'no_path', oscillating: true };
+            }
+          }
           if (feetAfter && openness(afterStep, feetAfter) >= 0.45) {
             stats.cavern = true;
             if (ctx.log && ctx.log.warn) {
@@ -1777,7 +1809,9 @@ register({
                     return {
                       ok: !!(res && res.ok),
                       steps: Number(res && res.steps) || 0,
-                      reason: (res && res.reason) || null,
+                      reason: res && res.reason
+                        ? `${res.reason}${res.detail ? ` (${res.detail})` : ''}`
+                        : null,
                       cell: (res && res.cell) || null
                     };
                   }
@@ -1919,6 +1953,7 @@ register({
           } else if (recovery && (recovery.outcome === 'failed' || recovery.outcome === 'blocked')) {
             return stopByRecovery(recovery, 'recovery');
           } else {
+            unpaid.reason = retry.reason || unpaid.reason;
             stats.partial = true;
             if (ctx.log && ctx.log.warn) {
               ctx.log.warn(
@@ -2029,10 +2064,25 @@ register({
       });
       if (collection.outcome === 'verified') stats.verifiedGoals += 1;
       else if (collection.outcome === 'interrupted') break;
-      else stats.partial = true;
+      else {
+        goal.reason = collection.reason || goal.reason;
+        stats.partial = true;
+      }
     }
-    // Incidental sweep before reporting: corridor stone, never a goal-completion path.
+    /**
+     * Incidental sweep before reporting: corridor stone. It may also pick up a product the
+     * collector could not reach - and the entity-vanish counter alone must not decide the
+     * goal (live 2026-10-10: the diamond was in the bag while the goal still said pending),
+     * so every unverified goal is re-observed against its sealed baseline afterwards.
+     */
     await collectDrops(12);
+    const reconcileSnap = await refresh(ctx);
+    for (const goal of reconcilePendingGoals(goals, reconcileSnap)) {
+      stats.verifiedGoals += 1;
+      if (ctx.log && ctx.log.info) {
+        ctx.log.info(`acquisition reconciled after the sweep: ${describeAcquisition(goal)}`);
+      }
+    }
     const end = await refresh(ctx);
     const pendingAfter = goals.filter((g) => g.status !== 'verified' && g.status !== 'lost' && g.status !== 'blocked');
     const partial = stats.partial || pendingAfter.length > 0;

@@ -73,7 +73,12 @@ function selectPickupStands(snapshot, goal, io, limits = {}) {
           const key = cellKey(stand);
           if (seen.has(key)) continue;
           seen.add(key);
-          if (sameCell(stand, goal.target.position)) continue; // never stand in the ore's own cell
+          /**
+           * The mined ore's own cell is allowed (live 2026-10-10): after the dig it is air,
+           * and standing exactly there is the most reliable pickup spot in a tight shaft.
+           * While the ore is still there the cell reads solid, so the passability checks
+           * below reject it naturally - no special case needed.
+           */
           const floor = { x: stand.x, y: stand.y - 1, z: stand.z };
           if (!io.solid(io.read(snapshot, floor))) continue;
           const body = io.read(snapshot, stand);

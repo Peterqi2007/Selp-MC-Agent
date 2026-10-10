@@ -264,6 +264,25 @@ function describeAcquisition(goal) {
   );
 }
 
+/**
+ * Re-observe every unfinished goal against one fresh snapshot and verify what is now
+ * banked. Used after the incidental sweep: the sweep may have picked up a product the
+ * collector could not reach (live 2026-10-10: diamond in the bag, goal still "pending"),
+ * and evidence, not the entity-vanish counter, must decide the record.
+ *
+ * @returns {Array<object>} the goals that became verified in this pass
+ */
+function reconcilePendingGoals(goals, snapshot) {
+  const reconciled = [];
+  for (const goal of goals) {
+    if (goal.status === 'verified' || goal.status === 'lost' || goal.status === 'blocked') continue;
+    const sighting = observeAcquisition(goal, snapshot);
+    const verdict = verifyAcquisition(goal, sighting);
+    if (verdict.verified) reconciled.push(goal);
+  }
+  return reconciled;
+}
+
 module.exports = {
   PRODUCTS,
   resolveMiningProducts,
@@ -274,5 +293,6 @@ module.exports = {
   recordMineResult,
   observeAcquisition,
   verifyAcquisition,
-  describeAcquisition
+  describeAcquisition,
+  reconcilePendingGoals
 };

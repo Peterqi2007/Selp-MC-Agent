@@ -903,6 +903,7 @@ class ClientModBody extends Body {
       start: (verdict && verdict.start) || null,
       end: (verdict && verdict.end) || null,
       placedCells: (verdict && verdict.placedCells) || [],
+      detail: (verdict && verdict.detail) || null,
       ms: Date.now() - started
     };
     this.trace({ kind: 'pillar', ...this.lastPillar });
@@ -945,6 +946,8 @@ class ClientModBody extends Body {
               start: progress.start || null,
               end: progress.end || null,
               placedCells: Array.isArray(progress.placedCells) ? progress.placedCells : [],
+              /** Free-form failure diagnostics (e.g. the pillar hop peak/held/floor line). */
+              detail: progress.detail || null,
               /** Actual cells the client dug, for the mining ledger. */
               dugCells: Array.isArray(progress.dugCells) ? progress.dugCells : []
             }

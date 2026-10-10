@@ -1362,6 +1362,9 @@ public final class ClientActions {
         private BlockPos actionEnd;
         private BlockPos hopStart;
         private final List<BlockPos> placedCells = new ArrayList<>();
+        /** Live diagnostics for a failed hop: how high the jump actually got, what was held, what the floor was. */
+        private double hopPeakY = 0.0D;
+        private String failDetail = "";
 
         Pillar(int targetSteps) {
             this.targetSteps = targetSteps;
@@ -1393,6 +1396,7 @@ public final class ClientActions {
                     int landedY = (int) Math.floor(player.getY());
                     if (landedY == baseY + 1) {
                         steps += 1; // the placed block held: on to the next hop
+                        hopPeakY = 0.0D;
                         if (hopStart != null) {
                             placedCells.add(hopStart);
                             actionEnd = new BlockPos(
@@ -1409,10 +1413,17 @@ public final class ClientActions {
                         attempts += 1; // placement refused / block gone: try the hop again
                         jumping = false;
                         if (attempts >= MAX_ATTEMPTS_PER_STEP) {
+                            failDetail = String.format(
+                                    java.util.Locale.ROOT,
+                                    "peak+%.2f held=%s floor=%s",
+                                    hopPeakY - baseY,
+                                    itemNameOf(player.getMainHandItem()),
+                                    blockName(level, new BlockPos(baseX, baseY - 1, baseZ)));
                             fail("place-failed", new BlockPos(baseX, baseY, baseZ));
                             release();
                             return true;
                         }
+                        hopPeakY = 0.0D;
                     } else {
                         fail("moved", new BlockPos(baseX, baseY, baseZ));
                         release();
@@ -1459,6 +1470,7 @@ public final class ClientActions {
 
             // Airborne: one hop per step, so let the jump key go immediately.
             setKeyInClient("jump", false);
+            hopPeakY = Math.max(hopPeakY, player.getY());
             if (now - stepStartedAt > STEP_TIMEOUT_MS) {
                 fail("step-timeout", new BlockPos(baseX, baseY, baseZ));
                 release();
@@ -1479,6 +1491,13 @@ public final class ClientActions {
             failed = true;
             reason = why;
             failCell = cell;
+        }
+
+        private String itemNameOf(net.minecraft.world.item.ItemStack stack) {
+            if (stack == null || stack.isEmpty()) return "empty";
+            return net.minecraft.core.registries.BuiltInRegistries.ITEM
+                    .getKey(stack.getItem())
+                    .toString();
         }
 
         private void release() {
@@ -1517,6 +1536,9 @@ public final class ClientActions {
             }
             if (failCell != null) {
                 map.put("cell", Json.point(failCell.getX(), failCell.getY(), failCell.getZ()));
+            }
+            if (!failDetail.isEmpty()) {
+                map.put("detail", Json.str(failDetail));
             }
             return Json.obj(map);
         }
