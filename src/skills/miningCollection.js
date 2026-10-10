@@ -17,7 +17,6 @@
  *     the caller's `climbTo` callback - one shared physical implementation.
  */
 
-const { bare } = require('../world/items');
 const { observeAcquisition, verifyAcquisition } = require('./miningAcquisition');
 
 const DEFAULTS = {
@@ -40,6 +39,96 @@ function cellKey(cell) {
 
 function sameCell(a, b) {
   return !!a && !!b && a.x === b.x && a.y === b.y && a.z === b.z;
+}
+
+/**
+ * One bounded access step toward the first pending drop (plan §5.2 tier 3: "有限清障阶梯").
+ *
+ * Live 2026-10-10: the macro mined an ore through a corner and the drop landed in a sealed
+ * pocket - no stand candidate existed anywhere, so the collector gave up without ever
+ * touching the rock between the bot and the item. This step opens exactly the two cells a
+ * player would (the foot and head of one walk cell toward the drop), re-checks hazards and
+ * the protected-ore boundary, then walks in. It is macro-only; recovery mode never hides
+ * digging inside `collect_target`.
+ *
+ * @returns {{ok:boolean, spent:number, dug:Array, reached?:boolean, hazard?:boolean,
+ *            failure?:string, reason?:string}}
+ */
+async function carveAccessStep(goal, io, limits, spentSoFar) {
+  const snapshot = await io.refresh();
+  if (!snapshot) return { ok: false, reason: 'no valid world state while carving', failure: 'internal', spent: 0, dug: [] };
+  const feet = io.feetOf(snapshot);
+  if (!feet) return { ok: false, reason: 'no player position while carving', failure: 'internal', spent: 0, dug: [] };
+  const drop = goal.pendingDrops[0];
+  if (!drop) return { ok: false, reached: true, reason: 'no pending drop left', spent: 0, dug: [] };
+  const dropCell = {
+    x: Math.floor(drop.position.x),
+    y: Math.floor(drop.position.y),
+    z: Math.floor(drop.position.z)
+  };
+  const dx = dropCell.x - feet.x;
+  const dz = dropCell.z - feet.z;
+  if (dx === 0 && dz === 0) {
+    if (dropCell.y === feet.y) return { ok: false, reached: true, reason: 'standing in the drop cell', spent: 0, dug: [] };
+    return { ok: false, reason: 'the drop is straight up/down; the climb tier owns that case', failure: 'no_path', spent: 0, dug: [] };
+  }
+  const useX = Math.abs(dx) >= Math.abs(dz);
+  const step = {
+    x: feet.x + (useX ? Math.sign(dx) : 0),
+    y: feet.y,
+    z: feet.z + (useX ? 0 : Math.sign(dz))
+  };
+  const dug = [];
+  for (const cell of [step, { x: step.x, y: step.y + 1, z: step.z }]) {
+    const name = io.read(snapshot, cell);
+    if (io.passable(name)) continue;
+    if (typeof io.protectedName === 'function' && io.protectedName(name)) {
+      return {
+        ok: false,
+        reason: `${name} at ${cell.x},${cell.y},${cell.z} blocks the access and is protected`,
+        failure: 'protected_ore',
+        spent: dug.length,
+        dug
+      };
+    }
+    if (spentSoFar + dug.length >= limits.maxLocalEdits) {
+      return {
+        ok: false,
+        reason: 'local edit budget exhausted while carving access',
+        failure: 'pickup_budget_exhausted',
+        spent: dug.length,
+        dug
+      };
+    }
+    if (typeof io.dangerAt === 'function') {
+      const danger = io.dangerAt(snapshot, cell);
+      if (danger) {
+        return { ok: false, reason: danger.reason, failure: 'hazard', hazard: true, spent: dug.length, dug };
+      }
+    }
+    const opened = await io.digCell(cell);
+    if (!opened || !opened.ok) {
+      return {
+        ok: false,
+        reason: (opened && opened.reason) || `could not open ${cell.x},${cell.y},${cell.z}`,
+        failure: (opened && opened.failure) || 'refused',
+        spent: dug.length,
+        dug
+      };
+    }
+    dug.push({ ...cell });
+  }
+  const moved = await io.moveTo(step, { within: 1 });
+  if (!moved || !moved.ok) {
+    return {
+      ok: false,
+      reason: (moved && moved.reason) || 'could not walk into the opened cell',
+      failure: (moved && moved.failure) || 'no_path',
+      spent: dug.length,
+      dug
+    };
+  }
+  return { ok: true, spent: dug.length, dug };
 }
 
 /**
@@ -252,39 +341,54 @@ async function attemptCollection(options) {
     goal.triedStands.push({ ...candidate.position });
   }
 
-  // ---- 3. optional short clearing pass (macro only) ------------------------
-  if (mode === 'macro' && options.allowTerrainEdits && editsUsed < limits.maxLocalEdits && !outOfTime()) {
-    /**
-     * A stand may be reachable only after one or two blocking cells go; still bounded, and
-     * never the target ore (the caller's digCell enforces that through the ledger).
-     */
-    const fresh = (await io.refresh()) || null;
-    if (fresh) stands = selectPickupStands(fresh, goal, io, { ...limits, standRadiusXZ: limits.standRadiusXZ + 1 });
-    for (const candidate of stands.slice(0, limits.maxLocalStands)) {
-      if (editsUsed >= limits.maxLocalEdits || outOfTime()) break;
-      const feet = io.feetOf(await io.refresh());
-      if (!feet) break;
-      const step = {
-        x: Math.sign(candidate.position.x - feet.x),
-        y: candidate.position.y - feet.y,
-        z: Math.sign(candidate.position.z - feet.z)
-      };
-      if (step.x === 0 && step.z === 0 && step.y === 0) continue;
-      const target = {
-        x: feet.x + step.x,
-        y: feet.y + Math.min(1, Math.max(0, step.y)),
-        z: feet.z + step.z
-      };
-      const name = io.read(fresh, target);
-      if (io.passable(name)) continue;
-      if (bare(name) === goal.target.blockId) continue; // never the target as clearing debris
-      const dug = await io.digCell(target);
-      result.attemptedActions.push({ action: 'dig', cell: target, ok: !!(dug && dug.ok) });
-      if (dug && dug.ok) editsUsed += 1;
+  // ---- 3. bounded access carving toward the drop (macro only) --------------
+  if (mode === 'macro' && options.allowTerrainEdits && !outOfTime()) {
+    let carveNote = null;
+    for (let i = 0; i < 12 && editsUsed < limits.maxLocalEdits; i += 1) {
       if (cancelled()) return finish({ outcome: 'interrupted', failure: 'interrupted', reason: signal.reason || 'cancelled' });
+      if (outOfTime()) break;
+      const carve = await carveAccessStep(goal, io, limits, editsUsed);
+      editsUsed += carve.spent || 0;
+      if (carve.dug && carve.dug.length) {
+        result.attemptedActions.push({ action: 'carve', cells: carve.dug, ok: true });
+      }
+      const seen = await observe();
+      if (seen && seen.verdict.verified) return finish({ outcome: 'verified', reason: 'picked up after carving access' });
+      if (!carve.ok) {
+        carveNote = carve;
+        break;
+      }
+      if (carve.reached) break;
     }
-    const seen = await observe();
-    if (seen && seen.verdict.verified) return finish({ outcome: 'verified' });
+    if (carveNote && carveNote.hazard) {
+      return finish({ outcome: 'blocked', failure: carveNote.failure || 'hazard', reason: carveNote.reason });
+    }
+    if (editsUsed > 0) result.lastDropPositions = goal.pendingDrops.map((d) => ({ ...d.position }));
+    /**
+     * Carving may have opened a fresh stand cell; one more stand pass with the updated
+     * world, still inside the same budgets.
+     */
+    if (!outOfTime()) {
+      const fresh = (await io.refresh()) || null;
+      if (fresh) {
+        for (const candidate of selectPickupStands(fresh, goal, io, limits)) {
+          if (tried.length >= limits.maxLocalStands) break;
+          if (goal.triedStands.some((s) => sameCell(s, candidate.position))) continue;
+          const moved = await io.moveTo(candidate.position, { within: 1 });
+          tried.push(candidate.position);
+          goal.triedStands.push({ ...candidate.position });
+          result.attemptedActions.push({ action: 'move', to: { ...candidate.position }, ok: !!(moved && moved.ok) });
+          if (cancelled()) return finish({ outcome: 'interrupted', failure: 'interrupted', reason: signal.reason || 'cancelled' });
+          const seen = await observe();
+          if (seen && seen.verdict.verified) return finish({ outcome: 'verified', stand: { ...candidate.position } });
+        }
+      }
+    }
+    const reason = carveNote && carveNote.reason ? carveNote.reason : `tried ${tried.length} stand(s) without verified pickup`;
+    const failure = carveNote && carveNote.failure ? carveNote.failure : 'pickup_not_confirmed';
+    if (carveNote && (carveNote.failure === 'protected_ore' || carveNote.failure === 'pickup_budget_exhausted')) {
+      return finish({ outcome: 'needs_recovery', failure, reason });
+    }
   }
 
   return finish({

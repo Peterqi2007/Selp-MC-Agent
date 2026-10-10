@@ -20,8 +20,8 @@
     "maxSessionTokens": 32000,
     "maxPrimitiveActions": 32,
     "maxPlacedBlocks": 8,
-    "modelTimeoutMs": 15000,
-    "maxOutputTokens": 2000,
+    "modelTimeoutMs": 30000,
+    "maxOutputTokens": 4096,
     "maxInvalidRepairs": 1,
     "maxRepeatedProposals": 2
   },
@@ -45,7 +45,7 @@
     "tickTimeoutMs": 2500,
     "allowSwim": true,
     "allowDig": false,
-    "waypointRange": 1.0,
+    "waypointRange": 1,
     "stuckThreshold": 2,
     "jumpStreakLimit": 2,
     "maxSidesteps": 2,
@@ -66,10 +66,25 @@
     "enabled": true,
     "intervalMs": 1000,
     "triggers": {
-      "taskDone": { "enabled": true, "cooldownMs": 30000, "alsoOnFailure": true },
-      "hungry": { "enabled": true, "cooldownMs": 60000, "foodThreshold": 6 },
-      "lowHealth": { "enabled": true, "cooldownMs": 45000, "healthThreshold": 6 },
-      "fireOnRespawn": { "enabled": true, "cooldownMs": 15000 }
+      "taskDone": {
+        "enabled": true,
+        "cooldownMs": 30000,
+        "alsoOnFailure": true
+      },
+      "hungry": {
+        "enabled": true,
+        "cooldownMs": 60000,
+        "foodThreshold": 6
+      },
+      "lowHealth": {
+        "enabled": true,
+        "cooldownMs": 45000,
+        "healthThreshold": 6
+      },
+      "fireOnRespawn": {
+        "enabled": true,
+        "cooldownMs": 15000
+      }
     }
   },
   "_comment_death": "Death aborts every task and alerts outside the game (console + panel + state file). Recovery is ALWAYS manual - the panel's resume button or POST /command {\"command\":\"resume\"} - so there is no autoResume key: a respawn must never restart work on its own.",

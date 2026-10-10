@@ -33,8 +33,19 @@ const DEFAULT_CFG = {
   maxSessionTokens: 32000,
   maxPrimitiveActions: 32,
   maxPlacedBlocks: 8,
-  modelTimeoutMs: 15000,
-  maxOutputTokens: 2000,
+  /**
+   * 15s was too tight for a thinking provider on a full recovery report (live
+   * 2026-10-10: one call timed out with maxTokens=4096). 30s still sits inside the
+   * session wall clock.
+   */
+  modelTimeoutMs: 30000,
+  /**
+   * Thinking providers (deepseek-flash) spend output budget on reasoning first: 2000
+   * tokens produced empty content with finish=length (live 2026-10-10). 4096 leaves room
+   * for thinking plus the short-batch JSON; total session spend stays capped by
+   * maxSessionTokens.
+   */
+  maxOutputTokens: 4096,
   maxInvalidRepairs: 1,
   maxRepeatedProposals: 2,
   maxLocalMoveMs: 8000
@@ -248,24 +259,48 @@ class MiningRecoverySession {
       return { ok: false, reason: 'session token budget exhausted' };
     }
     const user = renderReport(report);
-    this.callsUsed += 1;
-    const reply = await this.llm.complete({
-      system: SYSTEM,
-      messages: [{ role: 'user', content: user }],
-      maxTokens: this.cfg.maxOutputTokens,
-      timeoutMs: this.cfg.modelTimeoutMs,
-      temperature: 0.1,
-      signal: this.controller.signal
-    });
-    this.trace({ kind: 'recovery-model', recoveryId: this.recoveryId, call: this.callsUsed, ok: reply.ok !== false, reason: reply.reason || null });
-    if (!reply.ok) return reply;
     /**
-     * Token accounting: use reported usage; when a provider omits it, estimate
-     * conservatively (chars/4) instead of booking zero (plan §5.8).
+     * One accounted model request. Book every request against the session budget: reported
+     * usage when present, otherwise a conservative estimate - never zero (plan §5.8).
      */
-    const usage = reply.usage || {};
-    const counted = Number(usage.total_tokens) || Math.ceil((SYSTEM.length + user.length + String(reply.text || '').length) / 4);
-    this.tokensUsed += counted;
+    const request = async (maxTokens) => {
+      this.callsUsed += 1;
+      const reply = await this.llm.complete({
+        system: SYSTEM,
+        messages: [{ role: 'user', content: user }],
+        maxTokens,
+        timeoutMs: this.cfg.modelTimeoutMs,
+        temperature: 0.1,
+        signal: this.controller.signal
+      });
+      this.trace({
+        kind: 'recovery-model',
+        recoveryId: this.recoveryId,
+        call: this.callsUsed,
+        maxTokens,
+        ok: reply.ok !== false,
+        reason: reply.reason || null
+      });
+      if (reply.ok) {
+        const usage = reply.usage || {};
+        this.tokensUsed +=
+          Number(usage.total_tokens) ||
+          Math.ceil((SYSTEM.length + user.length + String(reply.text || '').length) / 4);
+      } else {
+        this.tokensUsed += Math.ceil((SYSTEM.length + user.length) / 4);
+      }
+      return reply;
+    };
+
+    let reply = await request(this.cfg.maxOutputTokens);
+    /**
+     * Thinking providers can burn the whole output budget on reasoning and return empty
+     * content (finish=length). LlmCore already uses a one-shot doubled-budget retry for
+     * exactly this failure; recovery does the same, and both requests are accounted.
+     */
+    if (reply.ok && !String(reply.text || '').trim() && this.tokensUsed < this.cfg.maxSessionTokens) {
+      reply = await request(Math.min(8192, this.cfg.maxOutputTokens * 2));
+    }
     return reply;
   }
 

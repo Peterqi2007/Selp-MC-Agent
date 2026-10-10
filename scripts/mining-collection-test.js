@@ -114,6 +114,70 @@ function fakeIo({ snaps, danger = null, moveOk = true } = {}) {
 
 const FAST_LIMITS = { dropSpawnWaitMs: 40, pickupConfirmMs: 60, maxLocalStands: 2, maxLocalPillarSteps: 0 };
 
+/**
+ * A sealed rock pocket around the drop (live 2026-10-10): walking is only legal to an
+ * adjacent open cell, so the collector must actually open the wall to reach the item.
+ */
+function pocketIo({ drop, feet = { x: 0, y: 64, z: 0 } }) {
+  const key = (c) => `${c.x},${c.y},${c.z}`;
+  const state = {
+    feet: { ...feet },
+    inv: {},
+    picked: false,
+    digs: [],
+    cells: new Map([
+      ['0,63,0', 'minecraft:stone'], ['1,63,0', 'minecraft:stone'],
+      ['2,63,0', 'minecraft:stone'], ['3,63,0', 'minecraft:stone'],
+      ['1,64,0', 'minecraft:stone'], ['1,65,0', 'minecraft:stone'],
+      ['2,64,0', 'minecraft:stone'], ['2,65,0', 'minecraft:stone']
+    ])
+  };
+  const snapshot = () => {
+    const distance = Math.hypot(state.feet.x + 0.5 - drop.position.x, state.feet.y - drop.position.y, state.feet.z + 0.5 - drop.position.z);
+    return {
+      ready: true,
+      position: { ...state.feet },
+      onGround: true,
+      inventory: { ...state.inv },
+      nearbyItems: state.picked ? [] : [{ id: 'd1', name: drop.name, count: drop.count, position: { ...drop.position }, distance }],
+      blocks: { cells: Object.fromEntries(state.cells) }
+    };
+  };
+  const tryPickup = () => {
+    if (state.picked) return;
+    const distance = Math.hypot(state.feet.x + 0.5 - drop.position.x, state.feet.y - drop.position.y, state.feet.z + 0.5 - drop.position.z);
+    if (distance <= 1.5) {
+      state.picked = true;
+      state.inv[drop.name] = (state.inv[drop.name] || 0) + (drop.count || 1);
+    }
+  };
+  const io = {
+    log: silent,
+    refresh: async () => snapshot(),
+    feetOf: () => ({ ...state.feet }),
+    read: (s, cell) => state.cells.get(key(cell)) || 'minecraft:air',
+    passable: (n) => /air$/.test(n),
+    solid: (n) => !/air$/.test(n),
+    protectedName: (n) => /_ore$/.test(n),
+    dangerAt: () => null,
+    digCell: async (cell) => {
+      state.digs.push({ ...cell });
+      state.cells.delete(key(cell));
+      return { ok: true };
+    },
+    moveTo: async (pos) => {
+      const cheb = Math.max(Math.abs(pos.x - state.feet.x), Math.abs(pos.y - state.feet.y), Math.abs(pos.z - state.feet.z));
+      const name = state.cells.get(key(pos)) || 'minecraft:air';
+      if (cheb > 1 || !/air$/.test(name)) return { ok: false, reason: 'a wall is in the way' };
+      state.feet = { ...pos };
+      tryPickup();
+      return { ok: true };
+    },
+    climbTo: async () => ({ ok: false, risen: 0, reason: 'no climb in fixture' })
+  };
+  return { io, state };
+}
+
 async function main() {
   process.stdout.write('minecraft-survival-agent - mining collection test (offline, C-series)\n\n');
 
@@ -279,6 +343,33 @@ async function main() {
     assert.notStrictEqual(result.outcome, 'verified');
     assert.strictEqual(state.moveCalls.length, 0);
     return `outcome=${result.outcome}, no dangerous move`;
+  });
+  await check('live fix 10-10: a sealed pocket is carved open until the drop is picked', async () => {
+    const drop = { name: 'diamond', count: 1, position: { x: 3, y: 64, z: 0 } };
+    const { io, state } = pocketIo({ drop });
+    const goal = goalFor(snap({}), { target: { blockId: 'diamond_ore', position: { x: 8, y: 64, z: 8 } } });
+    recordMineResult(goal, { receipt: { ok: true, dug: true } });
+    goal.pendingDrops = [{ ...drop }];
+    const result = await attemptCollection({ goal, io, mode: 'macro', allowTerrainEdits: true, limits: FAST_LIMITS });
+    assert.strictEqual(result.outcome, 'verified', `outcome=${result.outcome} reason=${result.reason}`);
+    assert(state.digs.length >= 4, `expected the wall opened, dug ${state.digs.length}`);
+    assert(state.picked === true, 'the drop must end up in the bag');
+    assert(
+      result.attemptedActions.some((a) => a.action === 'carve' && a.cells.length >= 2),
+      `carve actions missing: ${JSON.stringify(result.attemptedActions)}`
+    );
+    return `carved ${state.digs.length} cell(s), collected via proximity`;
+  });
+  await check('live fix 10-10: recovery mode never carves on its own', async () => {
+    const drop = { name: 'diamond', count: 1, position: { x: 3, y: 64, z: 0 } };
+    const { io, state } = pocketIo({ drop });
+    const goal = goalFor(snap({}), { target: { blockId: 'diamond_ore', position: { x: 8, y: 64, z: 8 } } });
+    recordMineResult(goal, { receipt: { ok: true, dug: true } });
+    goal.pendingDrops = [{ ...drop }];
+    const result = await attemptCollection({ goal, io, mode: 'recovery', allowTerrainEdits: false, limits: FAST_LIMITS });
+    assert.notStrictEqual(result.outcome, 'verified');
+    assert.strictEqual(state.digs.length, 0, 'collect_target must not dig');
+    return `outcome=${result.outcome}, zero edits`;
   });
 
   process.stdout.write('\n4. end-to-end with the skill (C04/C10/C15)\n');

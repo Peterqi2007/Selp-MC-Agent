@@ -36,6 +36,8 @@ function parseArgs(argv) {
       case '--tunnel-probe': out.mode = 'tunnel'; break;
       case '--command': out.mode = 'command'; out.line = value(); break;
       case '--stop-after': out.stopAfter = Number(value()); break;
+      case '--collect-drops': out.mode = 'collect'; break;
+      case '--item': out.item = String(value()); break;
       case '--find': out.mode = 'find'; out.find.push(value()); break;
       case '--count': out.count = Number(value()); break;
       case '--max-ms': out.maxMs = Number(value()); break;
@@ -43,6 +45,7 @@ function parseArgs(argv) {
       case '--label': out.label = String(value()); break;
       case '--body': out.body = String(value()); break;
       case '--no-login': out.noLogin = true; break;
+      case '--recovery': out.recovery = true; break;
       case '--confirm-world-change': out.confirm = true; break;
       default:
         if (a.startsWith('--find ')) out.find.push(a.split(/\s+/).slice(1).join(' '));
@@ -142,6 +145,57 @@ async function main() {
   await body.refresh(true);
   const before = body.snapshot() || {};
   const ctx = { cfg, body, world: new BodyWorldView(body, cfg, { log: captureLog }), log: captureLog, trace: () => {} };
+  /**
+   * L-series only: enable the recovery session for THIS run in memory (the repository
+   * default stays enabled:false). The runner is wired exactly like src/index.js - same
+   * session, same budgets, real LlmClient from config/llm.json.
+   */
+  if (args.recovery && args.body !== 'mock') {
+    const { LlmClient } = require('../src/llm/client');
+    const { runMiningRecovery, MiningRecoverySession } = require('../src/skills/miningRecovery');
+    ctx.cfg = {
+      ...cfg,
+      agent: { ...cfg.agent, miningRecovery: { ...(cfg.agent.miningRecovery || {}), enabled: true } }
+    };
+    const llm = new LlmClient({ ...(cfg.llm || {}), log: captureLog });
+    ctx.recoveryRunner = async ({ goal, io, monitor, trigger, triggerReason, signal, cfg: recoveryCfg }) => {
+      const session = new MiningRecoverySession({
+        ctx,
+        io,
+        goal,
+        signal,
+        cfg: { ...(recoveryCfg || {}), enabled: true },
+        llm,
+        monitor,
+        trigger,
+        triggerReason,
+        trace: (entry) => log.push(`TRACE ${JSON.stringify(entry)}`)
+      });
+      const summary = await runMiningRecovery(session);
+      evidence.recovery = evidence.recovery || [];
+      evidence.recovery.push({
+        outcome: summary.outcome,
+        trigger: summary.trigger,
+        triggerReason: summary.triggerReason,
+        calls: summary.calls,
+        tokens: summary.tokens,
+        reason: summary.reason,
+        failure: summary.failure,
+        acquisition: summary.acquisition
+      });
+      console.log(
+        'recovery:',
+        JSON.stringify({
+          outcome: summary.outcome,
+          trigger: summary.trigger,
+          calls: summary.calls,
+          tokens: summary.tokens,
+          reason: summary.reason
+        })
+      );
+      return summary;
+    };
+  }
   const auth = await ensureLoggedIn(body, cfg, captureLog, !args.noLogin && args.body !== 'mock');
   const evidence = {
     at: new Date().toISOString(),
@@ -151,6 +205,7 @@ async function main() {
     params: { ore: args.ore || null, count: args.count, maxMs: args.maxMs, label: args.label },
     before: summarizeSnapshot(before)
   };
+  if (args.recovery && args.body !== 'mock') evidence.recoveryEnabled = true;
   let exitCode = 0;
 
   if (args.mode === 'precheck') {
@@ -368,6 +423,114 @@ async function main() {
         console.log(stopped && survived ? 'TUNNEL PROTECT PASS' : 'TUNNEL PROTECT FAIL');
         if (!(stopped && survived)) exitCode = 1;
       }
+    }
+  }
+
+  if (args.mode === 'collect') {
+    /**
+     * Operator-directed collection probe: point the shared collector at the nearest dropped
+     * item and let it walk / carve access / climb to it. This is the tool for the live
+     * complaint "the ore dropped behind rock and the collector gave up" - the carve tier
+     * now opens the pocket instead of failing.
+     */
+    const { prepareAcquisition } = require('../src/skills/miningAcquisition');
+    const { attemptCollection } = require('../src/skills/miningCollection');
+    const { findScaffold } = require('../src/world/items');
+    const bareName = (name) => String(name || '').replace(/^[a-z0-9_]+:/, '');
+    const drops = (before.nearbyItems || [])
+      .filter((d) => d && d.position && (!args.item || String(d.name || '').includes(args.item)))
+      .sort((a, b) => (a.distance || 0) - (b.distance || 0));
+    if (!drops.length) {
+      console.log('no visible dropped items nearby');
+      exitCode = 2;
+    } else {
+      const drop = drops[0];
+      const goal = prepareAcquisition({
+        taskId: 'probe',
+        target: { blockId: bareName(drop.name), position: drop.position },
+        products: [bareName(drop.name)],
+        snapshot: before
+      });
+      goal.mined = { confirmed: true, actionId: 'probe', at: Date.now(), before: null, after: null };
+      goal.status = 'pending';
+      goal.phase = 'collect';
+      goal.pendingDrops = [{ id: drop.id, name: bareName(drop.name), count: drop.count || 1, position: { ...drop.position } }];
+      const pickaxe = Object.keys(before.inventory || {}).find((n) => /_pickaxe$/.test(n));
+      if (pickaxe) await body.equip(pickaxe).catch(() => false);
+      const scaffold = findScaffold(before.inventory || {});
+      const io = {
+        log: captureLog,
+        refresh: async () => {
+          await body.refresh(true);
+          const s = body.snapshot();
+          return s && s.ready !== false ? s : null;
+        },
+        feetOf: (s) => (s && s.position ? { x: Math.floor(s.position.x), y: Math.floor(s.position.y), z: Math.floor(s.position.z) } : null),
+        read: (s, cell) => {
+          const block = body.blockAt(cell);
+          return block && block.name ? bareName(block.name) : 'unknown';
+        },
+        passable: (name) => /air$/.test(name),
+        solid: (name) => !/air$/.test(name) && name !== 'unknown',
+        protectedName: () => false, // operator-directed: nothing is "the task ore" here
+        dangerAt: (s, cell) => {
+          for (const [dx, dz] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
+            const block = body.blockAt({ x: cell.x + dx, y: cell.y, z: cell.z + dz });
+            if (block && /lava/.test(block.name)) return { reason: 'lava beside the access', hostile: false };
+          }
+          return null;
+        },
+        digCell: async (cell) => {
+          const name = io.read(null, cell);
+          if (io.passable(name)) return { ok: true };
+          const feet = io.feetOf(body.snapshot());
+          const reach = feet ? Math.hypot(feet.x - cell.x, feet.y - (cell.y + 0.5), feet.z - cell.z) : 99;
+          if (reach > 4.5) return { ok: false, failure: 'out_of_reach', reason: `${reach.toFixed(2)} blocks away` };
+          const dug = await body.dig({ name, position: { ...cell } }, { timeoutMs: 20000 }).catch(() => false);
+          if (!dug) return { ok: false, failure: 'refused', reason: 'the dig was refused' };
+          await body.refresh(true);
+          const after = io.read(null, cell);
+          return io.passable(after) ? { ok: true } : { ok: false, failure: 'occluded', reason: `${after} is still there` };
+        },
+        moveTo: async (position) => {
+          const ok = await body.moveTo(position, { range: 1.0, timeoutMs: 12000, raw: true }).catch(() => false);
+          return { ok: !!ok };
+        },
+        climbTo: async (stand, opts = {}) => {
+          let risen = 0;
+          if (scaffold) await body.equip(scaffold).catch(() => false);
+          for (let i = 0; i < (opts.maxSteps || 2); i += 1) {
+            const feet = io.feetOf(body.snapshot());
+            if (!feet || feet.y >= stand.y) break;
+            const hop = await body.pillar(1, { timeoutMs: 8000 }).catch(() => ({ ok: false }));
+            if (!hop || !hop.ok) break;
+            risen += 1;
+          }
+          return { ok: risen > 0, risen };
+        }
+      };
+      const collected = await attemptCollection({
+        goal,
+        io,
+        mode: 'macro',
+        allowTerrainEdits: true,
+        deadline: Date.now() + 90000
+      });
+      await body.refresh(true);
+      const after = body.snapshot() || {};
+      evidence.collect = {
+        targetItem: goal.target.blockId,
+        targetPosition: goal.target.position,
+        result: collected,
+        inventoryDelta: inventoryDelta(before.inventory, after.inventory)
+      };
+      console.log('collect:', JSON.stringify({
+        outcome: collected.outcome,
+        collectedDelta: collected.collectedDelta,
+        reason: collected.reason,
+        actions: collected.attemptedActions
+      }));
+      if (collected.outcome !== 'verified') exitCode = 1;
     }
   }
 

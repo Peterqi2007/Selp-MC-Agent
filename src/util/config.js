@@ -64,8 +64,8 @@ const DEFAULTS = {
       maxSessionTokens: 32000,
       maxPrimitiveActions: 32,
       maxPlacedBlocks: 8,
-      modelTimeoutMs: 15000,
-      maxOutputTokens: 2000,
+      modelTimeoutMs: 30000,
+      maxOutputTokens: 4096,
       maxInvalidRepairs: 1,
       maxRepeatedProposals: 2
     },

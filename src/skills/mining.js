@@ -588,6 +588,13 @@ register({
      * LLM recovery path will use, so there is one evidence chain, not two.
      */
     const goals = [];
+    /**
+     * The ore the main loop is currently working on. Outer-scope helpers (fingerprint,
+     * provisional goal, recovery IO) run after the loop's block-scoped `ore` is out of
+     * reach, so the current target is mirrored here (live 2026-10-10: referencing the
+     * loop variable from such a helper threw "ore is not defined" mid-recovery).
+     */
+    let currentOre = null;
 
     /**
      * P3: the progress monitor and the P2 hand-over (plan §5.2/§5.3). The macro records
@@ -626,7 +633,7 @@ register({
         scaffold: scaffoldBlock(snap),
         target: {
           mined: !!(latest && latest.mined.confirmed),
-          visible: !AIR.test(bare(cellAt(snap, ore.position))),
+          visible: !!(currentOre && !AIR.test(bare(cellAt(snap, currentOre.position)))),
           pending: latest ? latest.pendingDrops.length : 0
         }
       });
@@ -648,6 +655,8 @@ register({
       read: (s, cell) => bare(cellAt(s, cell)),
       passable: (name) => AIR.test(name),
       solid: (name) => !AIR.test(name) && !HAZARD.test(name) && !/torch|rail|sapling|flower/.test(name),
+      /** Another ore of the task set must never be carved away as "access". */
+      protectedName: (name) => matchesOre(name),
       dangerAt: (s, cell) => {
         const d = dangerAt(s, cell);
         return d ? { reason: d.reason, hostile: !!d.hostile } : null;
@@ -739,11 +748,12 @@ register({
     };
     const ensureProvisionalGoal = (snapshot) => {
       if (provisionalGoal) return provisionalGoal;
-      const resolved = resolveMiningProducts(ore.name, { item: pickaxe }, { modKnowledge: ctx.modKnowledge });
+      if (!currentOre) return null;
+      const resolved = resolveMiningProducts(currentOre.name, { item: pickaxe }, { modKnowledge: ctx.modKnowledge });
       if (!resolved.ok) return null;
       provisionalGoal = prepareAcquisition({
         taskId: ctx.taskId || null,
-        target: { blockId: ore.name, position: ore.position },
+        target: { blockId: currentOre.name, position: currentOre.position },
         tool: { item: pickaxe },
         products: resolved.products,
         snapshot
@@ -854,7 +864,7 @@ register({
         const ok = await digAt(cell);
         return ok ? { ok: true } : { ok: false, reason: `could not clear ${posKey(cell)}`, failure: 'refused' };
       },
-      takeTarget: async () => takeOre(ore),
+      takeTarget: async () => (currentOre ? takeOre(currentOre) : { ok: false, failure: 'internal', reason: 'no current ore' }),
       pillarOne: async (options) => {
         const hop = await body
           .pillar(1, { timeoutMs: (options && options.timeoutMs) || 8000 })
@@ -931,7 +941,7 @@ register({
           seen.add(key);
           cells.push({ ...cell, name: recoveryIoRead(snapshot, cell) });
         };
-        push(ore.position);
+        if (currentOre) push(currentOre.position);
         if (feet) for (let dy = 1; dy <= 4; dy += 1) push({ x: feet.x, y: feet.y + dy, z: feet.z });
         const g = activeRecoveryGoal();
         if (g) for (const drop of g.pendingDrops) {
@@ -1220,6 +1230,7 @@ register({
 
       const ore = await findOre();
       if (!ore) break;
+      currentOre = ore;
 
       /**
        * The plan is a commitment (numen: 计划即承诺). The chosen ore brings the quoted

@@ -336,6 +336,21 @@ async function main() {
    */
   const { runMiningRecovery, MiningRecoverySession } = require('./skills/miningRecovery');
   ctx.recoveryRunner = async ({ goal, io, monitor, trigger, triggerReason, signal, cfg: recoveryCfg }) => {
+    /**
+     * Shared model ledger (plan §5.8): a spent daily budget refuses the session up front,
+     * and the session's usage is added to the same counter the chat path maintains.
+     */
+    if (ctx.llm && ctx.llm.budgetExceeded) {
+      return {
+        ok: false,
+        outcome: 'failed',
+        reason: 'daily token budget exhausted',
+        failure: 'recovery_unavailable',
+        goalId: goal && goal.goalId,
+        calls: 0,
+        tokens: 0
+      };
+    }
     const session = new MiningRecoverySession({
       ctx,
       io,
@@ -348,7 +363,9 @@ async function main() {
       triggerReason,
       trace: (entry) => ctx.trace && ctx.trace(entry)
     });
-    return runMiningRecovery(session);
+    const summary = await runMiningRecovery(session);
+    if (ctx.llm && Number.isFinite(summary.tokens)) ctx.llm.tokensToday += summary.tokens;
+    return summary;
   };
   llm.attachTo(brain);
 
