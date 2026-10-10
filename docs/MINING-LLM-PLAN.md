@@ -863,6 +863,8 @@ P4 补单格 pillar 的放置权限；既有 tunnel 的连续挖掘权限缺口�
    （taskId/name/kind/skill/blocks），任务结算 5.8s，`acquisition 1/1 verified`。
 8. 中途 stop（`mine gold_ore 3` + TaskHub cancel @3s）：任务按 `live-test stop` 中断（ok=false），
    Mod `/progress` 回到 `busy:false`，无后续动作。
+9. tunnel 目标保护（CP7）真机命中：以相邻 deepslate 为保护目标发起 1 格隧道，控制器破坏前停手
+   （`reason=target_requires_acquisition`、坐标精确、`dugCells=[]`），保护方块原样保留。
 
 尚未执行的真机项：tunnel 目标保护的真实命中场景、采集中途 stop、同型竖井 3 次重复试验，
 以及 §6.6 的 L 系列（`miningRecovery.enabled` 保持 false，离线矩阵已通过）。

@@ -33,6 +33,7 @@ function parseArgs(argv) {
       case '--precheck': out.mode = 'precheck'; break;
       case '--mine': out.mode = 'mine'; out.ore = value(); break;
       case '--pillar-probe': out.mode = 'pillar'; break;
+      case '--tunnel-probe': out.mode = 'tunnel'; break;
       case '--command': out.mode = 'command'; out.line = value(); break;
       case '--stop-after': out.stopAfter = Number(value()); break;
       case '--find': out.mode = 'find'; out.find.push(value()); break;
@@ -303,6 +304,70 @@ async function main() {
       const rose = before.position && after.position && Math.floor(after.position.y) === Math.floor(before.position.y) + 1;
       console.log(rose ? 'PILLAR PASS' : 'PILLAR FAIL');
       if (!rose) exitCode = 1;
+    }
+  }
+
+  if (args.mode === 'tunnel') {
+    /**
+     * C21/CP7 live probe: pick an adjacent solid block, protect its type, and walk the
+     * corridor one cell into it. The Mod must stop BEFORE destroying the protected block
+     * and report `target_requires_acquisition` with the exact cell.
+     */
+    if (!args.confirm) {
+      console.log('tunnel probe refused: pass --confirm-world-change (it may clear the headroom cell)');
+      exitCode = 2;
+    } else if (!before.position) {
+      console.log('no player position');
+      exitCode = 1;
+    } else {
+      const bareName = (name) => String(name || '').replace(/^[a-z0-9_]+:/, '');
+      const feet = {
+        x: Math.floor(before.position.x),
+        y: Math.floor(before.position.y),
+        z: Math.floor(before.position.z)
+      };
+      const candidates = [
+        { x: feet.x + 1, y: feet.y, z: feet.z },
+        { x: feet.x - 1, y: feet.y, z: feet.z },
+        { x: feet.x, y: feet.y, z: feet.z + 1 },
+        { x: feet.x, y: feet.y, z: feet.z - 1 },
+        { x: feet.x + 1, y: feet.y + 1, z: feet.z },
+        { x: feet.x, y: feet.y, z: feet.z - 1 }
+      ];
+      let chosen = null;
+      for (const cell of candidates) {
+        const block = body.blockAt(cell);
+        if (block && block.name && !/air$/.test(block.name)) {
+          chosen = { cell, name: block.name };
+          break;
+        }
+      }
+      if (!chosen) {
+        console.log('no adjacent solid block to protect - probe needs a wall');
+        exitCode = 2;
+      } else {
+        const protectName = bareName(chosen.name);
+        console.log('target :', JSON.stringify(chosen.cell), protectName);
+        const receipt = await body.tunnel([chosen.cell], {
+          protect: { blocks: [protectName] },
+          timeoutMs: 10000
+        });
+        await body.refresh(true);
+        const afterBlock = body.blockAt(chosen.cell);
+        evidence.probe = { chosen, receipt, after: afterBlock ? afterBlock.name : 'air' };
+        console.log('receipt:', JSON.stringify(receipt));
+        console.log('after  :', afterBlock ? afterBlock.name : 'air');
+        const stopped =
+          receipt.ok === false &&
+          receipt.reason === 'target_requires_acquisition' &&
+          receipt.cell &&
+          receipt.cell.x === chosen.cell.x &&
+          receipt.cell.y === chosen.cell.y &&
+          receipt.cell.z === chosen.cell.z;
+        const survived = !!afterBlock && bareName(afterBlock.name) === protectName;
+        console.log(stopped && survived ? 'TUNNEL PROTECT PASS' : 'TUNNEL PROTECT FAIL');
+        if (!(stopped && survived)) exitCode = 1;
+      }
     }
   }
 
