@@ -308,9 +308,16 @@ class MockBody extends Body {
    * mock is a teleport, but the *accounting shape* is identical, which is what the skill's
    * tunnel rung depends on.
    */
-  async tunnel(waypoints = []) {
+  async tunnel(waypoints = [], options = {}) {
     await this._delay();
     const dugCells = [];
+    /**
+     * Target protection (collection plan §6.2): a protected block in the corridor's way
+     * stops the run *before* it is destroyed, exactly like the real controller.
+     */
+    const protect = new Set(
+      ((options.protect && options.protect.blocks) || []).map((name) => bare(String(name)))
+    );
     for (const wp of waypoints) {
       const cell = { x: Math.floor(wp.x), y: Math.floor(wp.y), z: Math.floor(wp.z) };
       for (const c of [cell, { x: cell.x, y: cell.y + 1, z: cell.z }]) {
@@ -319,6 +326,15 @@ class MockBody extends Body {
         // Carved corridor cells are stored as explicit `air` entries; the real controller
         // only digs solid blocks, so the mock must not report an air cell as dug either.
         if (/(^|:)air$/.test(String(entry.name))) continue;
+        if (protect.size && protect.has(bare(entry.name))) {
+          return {
+            ok: false,
+            reason: 'target_requires_acquisition',
+            cell: { ...c },
+            block: entry.name,
+            dugCells
+          };
+        }
         this.world.delete(key(c));
         this.stats.dug += 1;
         this.history.push({ action: 'dig', name: entry.name, position: { ...c } });

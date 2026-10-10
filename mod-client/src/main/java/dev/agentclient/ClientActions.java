@@ -373,6 +373,16 @@ public final class ClientActions {
      * @param waypoints feet cells in order ({x, y, z} triples)
      */
     public boolean tunnel(List<int[]> waypoints) {
+        return tunnel(waypoints, java.util.Collections.emptyList());
+    }
+
+    /**
+     * Dig-while-walking with a protection list: any block whose bare name is in
+     * `protectBlocks` stops the controller before it is destroyed and reports
+     * `target_requires_acquisition` with the exact cell, so Node can run the real
+     * take/collection flow instead of losing a vein to a corridor dig (collection plan §6.2).
+     */
+    public boolean tunnel(List<int[]> waypoints, List<String> protectBlocks) {
         return onClient(() -> {
             if (mc.player == null || mc.level == null || mc.gameMode == null) {
                 return false;
@@ -384,8 +394,14 @@ public final class ClientActions {
             for (int[] wp : waypoints) {
                 cells.add(new BlockPos(wp[0], wp[1], wp[2]));
             }
+            java.util.Set<String> protect = new java.util.HashSet<>();
+            if (protectBlocks != null) {
+                for (String name : protectBlocks) {
+                    if (name != null && !name.isBlank()) protect.add(bareName(name));
+                }
+            }
             this.lastProgress = null;
-            this.continuous = new Tunnel(cells);
+            this.continuous = new Tunnel(cells, protect);
             return true;
         });
     }
@@ -990,6 +1006,8 @@ public final class ClientActions {
         private static final int MAX_DIGS = 256;
 
         private final List<BlockPos> waypoints;
+        /** Bare block names the tunnel must never destroy (target ores). */
+        private final java.util.Set<String> protect;
         private final long started = System.currentTimeMillis();
         /** Resolved on the first tick from the body's actual position (retries skip ahead). */
         private int index = -1;
@@ -1007,8 +1025,9 @@ public final class ClientActions {
         private int digs;
         private final List<BlockPos> dug = new ArrayList<>();
 
-        Tunnel(List<BlockPos> waypoints) {
+        Tunnel(List<BlockPos> waypoints, java.util.Set<String> protect) {
             this.waypoints = waypoints;
+            this.protect = protect;
         }
 
         @Override
@@ -1141,6 +1160,11 @@ public final class ClientActions {
             }
 
             if (toDig != null) {
+                if (!protect.isEmpty() && protect.contains(bareName(blockName(level, toDig)))) {
+                    fail("target_requires_acquisition", toDig, blockName(level, toDig));
+                    release();
+                    return true;
+                }
                 if (isLiquid(level, toDig)) {
                     fail("hazard", toDig, blockName(level, toDig));
                     release();
@@ -1516,6 +1540,13 @@ public final class ClientActions {
         return net.minecraft.core.registries.BuiltInRegistries.BLOCK
                 .getKey(level.getBlockState(pos).getBlock())
                 .toString();
+    }
+
+    /** "minecraft:diamond_ore" -> "diamond_ore"; other namespaces keep their name part. */
+    private static String bareName(String name) {
+        if (name == null) return "";
+        int i = name.indexOf(':');
+        return i < 0 ? name : name.substring(i + 1);
     }
 
     // ------------------------------------------------------------------ helpers

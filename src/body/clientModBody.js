@@ -825,7 +825,16 @@ class ClientModBody extends Body {
     }
     const started = Date.now();
     const timeoutMs = options.timeoutMs || Math.min(240000, 20000 * list.length);
-    const args = list.map((w) => `${w.x} ${w.y} ${w.z}`).join(' ');
+    const cells = list.map((w) => `${w.x} ${w.y} ${w.z}`).join(' ');
+    /**
+     * Optional target protection: the controller stops before destroying a named block
+     * (bare names) and reports `target_requires_acquisition` with the cell, so an
+     * approach tunnel can never quietly eat the ore it is walking toward (C21).
+     */
+    const protect = options.protect && Array.isArray(options.protect.blocks)
+      ? options.protect.blocks.map((name) => String(name || '').trim()).filter((n) => /^[A-Za-z0-9_:.-]+$/.test(n))
+      : [];
+    const args = protect.length ? `${cells} protect ${protect.join(',')}` : cells;
     const sent = await this.command(`tunnel ${args}`);
     if (!sent || sent.ok === false) {
       this.lastTunnel = { ok: false, reason: 'tunnel refused', cell: null, block: null, dugCells: [], target: list[list.length - 1], ms: Date.now() - started };

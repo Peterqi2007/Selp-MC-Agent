@@ -68,6 +68,8 @@ let busy = null;
  * this to prove how `ClientModBody.pillar` treats receipts (missing steps, wrong action).
  */
 let pillarFinal = null;
+/** Last tunnel command the mock received, for the protect-list wire assertions. */
+let lastTunnelCommand = null;
 let chatLog = [];
 /** Slot clicks the mock received, in order. */
 const clicks = [];
@@ -343,7 +345,14 @@ const server = http.createServer((req, res) => {
       if (verb === 'tunnel') {
         // Walk-and-dig as one continuous action: clear every solid cell on the waypoint
         // line, then report the cells that were actually dug (the mining ledger uses them).
-        const nums = tokensOf(args).map(Number);
+        const tunnelTokens = tokensOf(args);
+        const protectAt = tunnelTokens.findIndex((t) => t.toLowerCase() === 'protect');
+        const cellTokens = protectAt === -1 ? tunnelTokens : tunnelTokens.slice(0, protectAt);
+        const protect = protectAt === -1
+          ? []
+          : tunnelTokens.slice(protectAt + 1).join(',').split(',').map((n) => n.trim()).filter(Boolean);
+        lastTunnelCommand = command;
+        const nums = cellTokens.map(Number);
         if (nums.length < 3 || nums.length % 3 !== 0 || nums.some((n) => !Number.isFinite(n))) {
           return send({ command, ok: false, error: 'usage: tunnel x y z [x y z ...]' });
         }
@@ -361,6 +370,14 @@ const server = http.createServer((req, res) => {
               const k = `${cell.x},${cell.y},${cell.z}`;
               const name = world.blocks.cells[k];
               if (!name || /air$/.test(name)) continue;
+              /**
+               * Protection mirrors the mod: stop BEFORE destroying a named block and
+               * report the structured reason plus the exact cell.
+               */
+              if (protect.length && protect.some((p) => name === p || name.endsWith(`:${p}`))) {
+                busy = { busy: false, action: 'tunnel', done: false, failed: true, reason: 'target_requires_acquisition', cell: { ...cell }, block: name, dugCells };
+                return;
+              }
               delete world.blocks.cells[k];
               dugCells.push({ ...cell });
               world.inventory['minecraft:cobblestone'] = (world.inventory['minecraft:cobblestone'] || 0) + 1;
@@ -837,6 +854,31 @@ function check(name, ok, detail) {
       'tunnel() ends standing on the last waypoint',
       body.snapshot().position.x === 7 && body.snapshot().position.z === 0,
       JSON.stringify(body.snapshot().position)
+    );
+
+    // ---- corridor target protection (C21 / CP7) ---------------------------
+    world.blocks.cells['8,64,0'] = 'minecraft:diamond_ore';
+    const protectedRun = await body.tunnel([{ x: 8, y: 64, z: 0 }], { protect: { blocks: ['diamond_ore'] } });
+    check(
+      'tunnel(): a protected ore stops the run with the structured reason and cell',
+      protectedRun.ok === false &&
+        protectedRun.reason === 'target_requires_acquisition' &&
+        protectedRun.cell &&
+        protectedRun.cell.x === 8 &&
+        /diamond_ore/.test(String(protectedRun.block)),
+      JSON.stringify(protectedRun)
+    );
+    check(
+      'tunnel(): the protect list travelled the wire in the documented form',
+      /protect diamond_ore/.test(String(lastTunnelCommand)),
+      String(lastTunnelCommand)
+    );
+    check('tunnel(): the protected block survived the stop', !!world.blocks.cells['8,64,0']);
+    const unprotected = await body.tunnel([{ x: 8, y: 64, z: 0 }]);
+    check(
+      'tunnel(): without the protect list the same ore is dug (legacy behaviour)',
+      unprotected.ok === true && !world.blocks.cells['8,64,0'],
+      JSON.stringify(unprotected)
     );
 
     // ---- pillar receipts (P4 / plan §5.4.1; B8 protocol side) -------------

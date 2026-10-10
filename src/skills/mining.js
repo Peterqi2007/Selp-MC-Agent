@@ -23,6 +23,14 @@ const { RecoveryLadder } = require('../core/recoveryLadder');
 const { quoteApproach, stepVector, stepCells, DigLedger } = require('./miningPlan');
 const { normalizeOreParams, resolverFromCtx, targetMatches } = require('../core/miningRequest');
 const { pillarUpRounds } = require('./pillarUp');
+const {
+  resolveMiningProducts,
+  prepareAcquisition,
+  sealBaseline,
+  recordMineResult,
+  describeAcquisition
+} = require('./miningAcquisition');
+const { attemptCollection } = require('./miningCollection');
 
 const AIR = /^(air|cave_air|void_air)$/;
 const HAZARD = /water|lava/;
@@ -131,6 +139,8 @@ register({
       torches: 0,
       ate: 0,
       collected: 0,
+      verifiedGoals: 0,
+      partial: false,
       skipped: 0,
       refusedCells: 0,
       rejectedTargets: 0,
@@ -567,6 +577,100 @@ register({
       return findScaffold((snap && snap.inventory) || {});
     };
 
+    /**
+     * The acquired-goal ledger (C1): one record per mined ore, from the sealed pre-dig
+     * baseline to the verified pickup. The collector reads and writes the same records the
+     * LLM recovery path will use, so there is one evidence chain, not two.
+     */
+    const goals = [];
+
+    /** IO the shared collector drives; every world touch goes through the skill's admission. */
+    const collectionIo = () => ({
+      log: ctx.log,
+      refresh: async () => {
+        const s = await refresh(ctx);
+        return s && s.ready !== false ? s : null;
+      },
+      feetOf,
+      read: (s, cell) => bare(cellAt(s, cell)),
+      passable: (name) => AIR.test(name),
+      solid: (name) => !AIR.test(name) && !HAZARD.test(name) && !/torch|rail|sapling|flower/.test(name),
+      dangerAt: (s, cell) => {
+        const d = dangerAt(s, cell);
+        return d ? { reason: d.reason, hostile: !!d.hostile } : null;
+      },
+      moveTo: async (position) => {
+        const ok = await body
+          .moveTo(position, { range: 1.0, timeoutMs: 12000, raw: true })
+          .catch(() => false);
+        return { ok: !!ok };
+      },
+      digCell: async (cell) => {
+        const ok = await digAt(cell);
+        return ok ? { ok: true } : { ok: false, reason: `could not clear ${posKey(cell)}`, failure: 'refused' };
+      },
+      climbTo: (stand, opts) => climbToStand(stand, opts)
+    });
+
+    /**
+     * Climb toward a pickup stand with the P4 executor: one shared physical implementation
+     * for "jump and place under yourself", budgeted by the collection plan (§5.3).
+     */
+    const climbToStand = async (stand, opts = {}) => {
+      const startSnap = await refresh(ctx);
+      const feet = feetOf(startSnap);
+      if (!feet || !stand || stand.y <= feet.y) return { ok: false, risen: 0, reason: 'no climb needed' };
+      const maxSteps = Math.max(1, opts.maxSteps || 2);
+      const res = await pillarUpRounds({
+        deadline: Math.min(opts.deadline || deadline, deadline),
+        signal: opts.signal || taskSignal,
+        goalFeetY: Math.min(stand.y, feet.y + maxSteps),
+        maxRise: maxSteps,
+        log: ctx.log,
+        io: {
+          refresh: async () => {
+            const s = await refresh(ctx);
+            return s && s.ready !== false ? s : null;
+          },
+          feetOf,
+          scanCell: (s, cell) => bare(cellAt(s, cell)),
+          isAir: (name) => AIR.test(name),
+          sameColumn: (s, start) => {
+            const f = feetOf(s);
+            return !!f && f.x === start.x && f.z === start.z;
+          },
+          dangerAt: (s, cell) => {
+            const d = dangerAt(s, cell);
+            return d ? { reason: d.reason, hostile: !!d.hostile } : null;
+          },
+          isTargetCell: () => false,
+          /**
+           * Every task ore is protected from clearing, not just the locked one: the
+           * collector may not delete a different vein to make room for a pickup.
+           */
+          protectedCell: (name) => matchesOre(name),
+          digCell: async (cell) => {
+            const ok = await digAt(cell);
+            return ok ? { ok: true } : { ok: false, reason: `could not clear ${posKey(cell)}`, failure: 'refused' };
+          },
+          takePossible: () => false,
+          takeTarget: async () => ({ ok: false, reason: 'no target during a pickup climb' }),
+          pickScaffold: (s) => scaffoldBlock(s),
+          equip: async (item) => {
+            await body.equip(item).catch(() => false);
+          },
+          pillarHop: async (timeoutMs) => {
+            const hop = await body.pillar(1, { timeoutMs }).catch((err) => ({ ok: false, reason: err.message, steps: 0 }));
+            return { ok: !!(hop && hop.ok), steps: Number(hop && hop.steps) || 0, reason: (hop && hop.reason) || null };
+          }
+        }
+      });
+      stats.pillarCleared += res.clearedCells ? res.clearedCells.length : 0;
+      stats.pillarPlaced += res.placedCells ? res.placedCells.length : 0;
+      stats.pillarRises += res.risen || 0;
+      return { ok: !!(res.ok || res.risen > 0), risen: res.risen || 0, reason: res.reason || null };
+    };
+
     /** The quote for the ore the loop is currently working on (set by findOre). */
     let lastQuote = null;
 
@@ -903,11 +1007,16 @@ register({
        * Hazard/cavern stops are not recoverable: no rung handles them, so the ore is skipped
        * (danger) or the task ends (cavern) exactly as before.
        */
-      const takeOre = async () => {
+      /**
+       * @param {object} [target] the block to take; defaults to the locked ore. The tunnel
+       * controller can hand back a *different* protected ore it stopped in front of (C21) -
+       * that block goes through exactly the same count/collect flow.
+       */
+      const takeOre = async (target = ore) => {
         const snapNow = await refresh(ctx);
         const here = feetOf(snapNow);
         const dist = here
-          ? Math.hypot(ore.position.x - here.x, ore.position.y - here.y, ore.position.z - here.z)
+          ? Math.hypot(target.position.x - here.x, target.position.y - here.y, target.position.z - here.z)
           : 99;
         if (dist > 4.0) return { ok: false, reason: 'the ore is out of reach', failure: 'out_of_reach' };
         /**
@@ -916,29 +1025,90 @@ register({
          * mined ore - numen kicks this back as TARGET_LOST. This was a real offline loop:
          * without it the skill "mined" one ore a million times.
          */
-        if (AIR.test(bare(cellAt(snapNow, ore.position)))) {
+        if (AIR.test(bare(cellAt(snapNow, target.position)))) {
           return { ok: false, reason: 'the ore is already gone (stale scan)', failure: 'target_lost' };
         }
+        /**
+         * C1: resolve the real product and create the acquisition record *before* the dig,
+         * with the inventory/entity baseline sealed now. Without this step, a diamond that
+         * auto-banks before any entity shows up can never be verified - the live complaint
+         * behind "挖到了但不知道收没收到".
+         */
+        const toolName = (() => {
+          const plan = minePlan(snapNow, target.name);
+          return plan && plan.tool ? plan.tool.name : pickaxe;
+        })();
+        const resolved = resolveMiningProducts(target.name, { item: toolName }, { modKnowledge: ctx.modKnowledge });
+        if (!resolved.ok) {
+          return { ok: false, reason: `${resolved.reason} (refusing to mine without a verified product)`, failure: 'product_unknown' };
+        }
+        const goal = prepareAcquisition({
+          taskId: ctx.taskId || null,
+          target: { blockId: target.name, position: target.position },
+          tool: { item: toolName },
+          products: resolved.products,
+          snapshot: snapNow
+        });
+        sealBaseline(goal, snapNow);
         /**
          * The ore itself goes through the same dig admission as every tunnel cell, so the
          * ledger sees it, the falling-sand/water checks apply, and the tool is chosen in one
          * place instead of three.
          */
-        if (await digAt(ore.position)) {
+        if (await digAt(target.position)) {
           const after = await refresh(ctx);
-          if (!AIR.test(bare(cellAt(after, ore.position)))) {
+          if (!AIR.test(bare(cellAt(after, target.position)))) {
+            recordMineResult(goal, {
+              receipt: { ok: false, failure: 'internal', reason: 'the dig reported success but the ore is still there' },
+              before: snapNow,
+              after
+            });
             return { ok: false, reason: 'the dig reported success but the ore is still there', failure: 'internal' };
           }
           stats.ores += 1;
-          stats.minedAt.push({ name: bare(ore.name), position: { ...ore.position } });
+          stats.minedAt.push({ name: bare(target.name), position: { ...target.position } });
           if (ctx.log && ctx.log.info) {
-            ctx.log.info(`mined ${bare(ore.name)} at ${posKey(ore.position)}`);
+            ctx.log.info(`mined ${bare(target.name)} at ${posKey(target.position)}`);
           }
-          // Do not walk away from the vein before taking its drops with us - the first live
-          // run left iron on the floor and moved on to the next ore.
-          await collectDrops();
-          return { ok: true, dug: true };
+          recordMineResult(goal, { receipt: { ok: true, dug: true }, before: snapNow, after });
+          goals.push(goal);
+          /**
+           * Do not walk away from the vein before trying to take its products with us (the
+           * first live run left iron on the floor). The shared collector is bounded here;
+           * whatever stays pending is retried by the drain phase or reported as partial -
+           * never silently treated as collected.
+           */
+          const collection = await attemptCollection({
+            goal,
+            mode: 'macro',
+            deadline,
+            signal: taskSignal,
+            allowTerrainEdits: true,
+            io: collectionIo()
+          });
+          stats.collected += collection.collectedDelta;
+          if (collection.outcome === 'verified') {
+            stats.verifiedGoals += 1;
+            return { ok: true, dug: true, acquisition: describeAcquisition(goal), collection };
+          }
+          if (collection.outcome === 'interrupted') {
+            return {
+              ok: false,
+              reason: collection.reason || 'task cancelled during collection',
+              failure: 'interrupted',
+              interrupted: true
+            };
+          }
+          return {
+            ok: true,
+            dug: true,
+            collected: false,
+            acquisition: describeAcquisition(goal),
+            collection,
+            reason: collection.reason || 'the product is not confirmed in the inventory yet'
+          };
         }
+        recordMineResult(goal, { receipt: { ok: false, failure: 'refused', reason: 'the ore dig was refused' }, before: snapNow, after: snapNow });
         return { ok: false, reason: 'the ore dig was refused', failure: 'refused' };
       };
 
@@ -1073,9 +1243,33 @@ register({
         const result = await body
           .tunnel(
             steps.map((s) => s.waypoint),
-            { timeoutMs: Math.min(240000, 20000 * steps.length) }
+            {
+              timeoutMs: Math.min(240000, 20000 * steps.length),
+              /**
+               * C21: every task ore is protected from the corridor dig. The controller
+               * stops before the block and names it; Node then runs the real take flow.
+               */
+              protect: { blocks: oreNames }
+            }
           )
           .catch((err) => ({ ok: false, reason: `tunnel threw: ${err.message}`, cell: null, block: null, dugCells: [] }));
+        if (!result.ok && /target_requires_acquisition/i.test(String(result.reason || '')) && result.cell && result.block) {
+          if (matchesOre(result.block)) {
+            if (ctx.log && ctx.log.info) {
+              ctx.log.info(
+                `tunnel stopped before a protected ore ${bare(result.block)} at ${posKey(result.cell)} - taking it properly`
+              );
+            }
+            return takeOre({ name: bare(result.block), position: { ...result.cell } });
+          }
+          return {
+            ok: false,
+            reason: `the tunnel is blocked by protected ${result.block} at ${posKey(result.cell)}`,
+            failure: 'target_requires_acquisition',
+            cell: result.cell,
+            block: result.block
+          };
+        }
         if (!result.ok) {
           lastTunnelCell = result.cell ? { ...result.cell } : null;
           lastTunnelBlock = result.block || null;
@@ -1340,6 +1534,40 @@ register({
           detail: `cancelled after ${stats.ores} ore(s)`
         };
       }
+      /**
+       * C15: a mined-but-unpaid goal blocks the next ore. The product may be lying on a
+       * ledge; digging the second ore first is how the first diamond got lost. Resolve the
+       * pickup inside this task's budget, or stop with an honest partial.
+       */
+      const unpaid = goals.find((g) => g.mined.confirmed && g.status === 'pending');
+      if (unpaid && outcome.ok && outcome.dug) {
+        if (Date.now() > deadline) {
+          stats.outOfTime = true;
+          stats.partial = true;
+          break;
+        }
+        const retry = await attemptCollection({
+          goal: unpaid,
+          mode: 'macro',
+          deadline,
+          signal: taskSignal,
+          allowTerrainEdits: true,
+          io: collectionIo()
+        });
+        stats.collected += retry.collectedDelta;
+        if (retry.outcome === 'verified') {
+          stats.verifiedGoals += 1;
+        } else {
+          stats.partial = true;
+          if (ctx.log && ctx.log.warn) {
+            ctx.log.warn(
+              `stopping: ${unpaid.target.blockId} was mined at ${posKey(unpaid.target.position)} ` +
+                `but its product is not in the bag (${retry.reason || retry.outcome})`
+            );
+          }
+          break;
+        }
+      }
       if (outcome.danger) {
         // Lava/fall: sweep the drops on the way out. A monster: leave them, walk nothing.
         if (!outcome.hostile) await collectDrops();
@@ -1390,9 +1618,36 @@ register({
       }
     }
 
-    // Final sweep before reporting: the last vein's drops are usually still on the floor.
+    /**
+     * Drain phase (C2): the count bounds mined blocks, not collected items. Finish the
+     * pickup queue for mined-but-unpaid goals inside the remaining budget, or report
+     * partial - "数量达到、部分未收取" must never read as a full success.
+     */
+    const drainGoals = goals.filter((g) => g.status === 'pending' || (g.status === 'prepared' && g.mined.confirmed));
+    for (const goal of drainGoals) {
+      if (cancelled()) break;
+      if (Date.now() > deadline) {
+        stats.outOfTime = true;
+        break;
+      }
+      const collection = await attemptCollection({
+        goal,
+        mode: 'macro',
+        deadline,
+        signal: taskSignal,
+        allowTerrainEdits: true,
+        io: collectionIo()
+      });
+      stats.collected += collection.collectedDelta;
+      if (collection.outcome === 'verified') stats.verifiedGoals += 1;
+      else if (collection.outcome === 'interrupted') break;
+      else stats.partial = true;
+    }
+    // Incidental sweep before reporting: corridor stone, never a goal-completion path.
     await collectDrops(12);
     const end = await refresh(ctx);
+    const pendingAfter = goals.filter((g) => g.status !== 'verified' && g.status !== 'lost' && g.status !== 'blocked');
+    const partial = stats.partial || pendingAfter.length > 0;
     const ledgerSummary = {
       planned: stats.ledger.planned,
       dug: stats.ledger.dug,
@@ -1408,6 +1663,16 @@ register({
       ate: stats.ate,
       collected: stats.collected,
       skipped: stats.skipped,
+      partial,
+      acquisition: goals.map(describeAcquisition),
+      pending: pendingAfter.map((g) => ({
+        goalId: g.goalId,
+        block: g.target.blockId,
+        position: { ...g.target.position },
+        collected: g.collectedItems,
+        pendingDrops: g.pendingDrops.length,
+        reason: g.reason || g.failure || null
+      })),
       refusedCells: stats.refusedCells,
       rejectedTargets: stats.rejectedTargets,
       tunnel: { runs: stats.tunnelRuns, cells: stats.tunnelCells },
@@ -1422,6 +1687,8 @@ register({
         `${stats.torches} torch(es), collected ${stats.collected} drop(s), ate ${stats.ate}, ` +
         `skipped ${stats.skipped})` +
         `; ledger planned ${ledgerSummary.planned} / dug ${ledgerSummary.dug} / extra ${ledgerSummary.extra}` +
+        `; acquisition ${stats.verifiedGoals}/${goals.length} verified` +
+        (partial ? ` - partial: ${pendingAfter.length} goal(s) still pending pickup` : '') +
         (stats.planExceeded ? ' - plan exceeded, stopped' : stats.outOfTime ? ' - time budget reached' : '')
     };
   }

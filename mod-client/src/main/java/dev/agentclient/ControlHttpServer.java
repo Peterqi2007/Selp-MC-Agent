@@ -438,9 +438,27 @@ public final class ControlHttpServer {
                  */
                 case "tunnel" -> {
                     String[] tokens = rest.isEmpty() ? new String[0] : rest.split("\\s+");
-                    boolean ok = tokens.length >= 3 && tokens.length % 3 == 0;
+                    /**
+                     * "tunnel x y z [x y z ...] [protect block[,block...]]": the optional
+                     * protect list names the blocks the corridor must never destroy; the
+                     * controller reports `target_requires_acquisition` instead.
+                     */
+                    java.util.List<String> protect = new java.util.ArrayList<>();
+                    int cellTokens = tokens.length;
+                    for (int i = 0; i < tokens.length; i++) {
+                        if (tokens[i].equalsIgnoreCase("protect")) {
+                            cellTokens = i;
+                            for (int j = i + 1; j < tokens.length; j++) {
+                                for (String name : tokens[j].split(",")) {
+                                    if (!name.isBlank()) protect.add(name);
+                                }
+                            }
+                            break;
+                        }
+                    }
+                    boolean ok = cellTokens >= 3 && cellTokens % 3 == 0;
                     java.util.List<int[]> points = new java.util.ArrayList<>();
-                    for (int i = 0; ok && i < tokens.length; i += 3) {
+                    for (int i = 0; ok && i < cellTokens; i += 3) {
                         try {
                             points.add(new int[] {
                                     (int) Math.floor(Double.parseDouble(tokens[i])),
@@ -453,9 +471,9 @@ public final class ControlHttpServer {
                     }
                     if (!ok) {
                         out.put("ok", Json.bool(false));
-                        out.put("error", Json.str("usage: tunnel x y z [x y z ...]"));
+                        out.put("error", Json.str("usage: tunnel x y z [x y z ...] [protect block[,block...]]"));
                     } else {
-                        out.put("ok", Json.bool(actions.tunnel(points)));
+                        out.put("ok", Json.bool(actions.tunnel(points, protect)));
                         out.put("note", Json.str("continuous - poll /progress"));
                     }
                 }
