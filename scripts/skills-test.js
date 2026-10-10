@@ -476,6 +476,127 @@ class MenuBody extends Body {
     return result.detail;
   });
 
+  await scenario('mine_ore: re-equips the pickaxe for the tunnel after eating', async () => {
+    /**
+     * Eating puts the food in the main hand (MockBody now models that), and the tunnel rung
+     * digs client-side with whatever is held for the whole run. The skill must put the
+     * pickaxe back before handing the plan over - the live run carved a stone stair holding
+     * bread (2026-10-08).
+     */
+    const blocks = mineWorld({
+      minX: -4,
+      maxX: 6,
+      corridor: [{ x: 0, y: 64, z: 0 }, { x: 0, y: 65, z: 0 }],
+      extras: [{ name: 'gold_ore', position: { x: 3, y: 64, z: 0 } }]
+    });
+    const body = new MockBody(cfg, {
+      start: { x: 0, y: 64, z: 0 },
+      blocks,
+      food: 10,
+      inventory: { 'minecraft:iron_pickaxe': 1, 'minecraft:bread': 2 }
+    });
+    await body.connect();
+    const heldAtTunnel = [];
+    const realTunnel = body.tunnel.bind(body);
+    body.tunnel = async (waypoints, options) => {
+      heldAtTunnel.push(body.held);
+      return realTunnel(waypoints, options);
+    };
+    await skills.run('mine_ore', makeCtx(body), {
+      ore: 'gold_ore',
+      maxMs: 30000,
+      eatAt: 18,
+      food: 'bread'
+    });
+    expect(body.stats.ate >= 1, 'the fixture never actually ate');
+    expect(heldAtTunnel.length > 0, 'the tunnel rung never ran');
+    expect(
+      heldAtTunnel.every((held) => /pickaxe/.test(String(held))),
+      `the tunnel ran holding ${JSON.stringify(heldAtTunnel)}`
+    );
+    return `ate ${body.stats.ate}, tunnel held ${heldAtTunnel.join(',')}`;
+  });
+
+  await scenario("mine_ore: accepts the LLM's block/count phrasing and honours the cap", async () => {
+    /**
+     * The model naturally says `{block: 'diamond_ore', count: 32}`; the skill used to reject
+     * that with "unknown parameter" and the request fell through to the walk-only task, which
+     * cannot reach embedded ores (live 2026-10-10 diamond run). `block` is now an alias for
+     * `ore` (comma list allowed) and `count` caps how many ores are taken.
+     */
+    const blocks = mineWorld({
+      minX: -8,
+      maxX: 8,
+      corridor: [{ x: 0, y: 64, z: 0 }, { x: 0, y: 65, z: 0 }],
+      extras: [
+        { name: 'gold_ore', position: { x: 3, y: 64, z: 0 } },
+        { name: 'deepslate_gold_ore', position: { x: -3, y: 64, z: 0 } }
+      ]
+    });
+    const body = new MockBody(cfg, {
+      start: { x: 0, y: 64, z: 0 },
+      blocks,
+      inventory: { 'minecraft:iron_pickaxe': 1 }
+    });
+    await body.connect();
+    const result = await skills.run('mine_ore', makeCtx(body), {
+      block: 'gold_ore,deepslate_gold_ore',
+      count: 1,
+      maxMs: 30000,
+      eatAt: 1
+    });
+    expect(result.ok, `the alias run failed: ${JSON.stringify(result)}`);
+    expect(result.mined === 1, `the count cap must stop at one ore, got ${result.mined}`);
+    expect(result.stopped === 'count', `expected stopped:"count", got ${JSON.stringify(result.stopped)}`);
+    return `block/count alias accepted; mined ${result.mined}, stopped ${result.stopped}`;
+  });
+
+  await scenario('mine_ore: pillars up a 1-wide shaft when the stair cannot climb', async () => {
+    /**
+     * A 1-wide shaft has no horizontal room for the sloped stair, and the client walker
+     * cannot jump onto a block it is pressed against (live 2026-10-10: the bot oscillated at
+     * one step and abandoned the ore). The ore sits directly overhead behind a stone cap, so
+     * it can neither be reached nor dug from below; the pillar-up rung must clear the hop
+     * corridor, rise with a scaffold block and finish the take.
+     */
+    const blocks = mineWorld({
+      minX: -6,
+      maxX: 6,
+      corridor: [{ x: 0, y: 64, z: 0 }, { x: 0, y: 65, z: 0 }],
+      extras: [{ name: 'gold_ore', position: { x: 0, y: 67, z: 0 } }]
+    });
+    const body = new MockBody(cfg, {
+      start: { x: 0, y: 64, z: 0 },
+      blocks,
+      inventory: { 'minecraft:iron_pickaxe': 1, 'minecraft:cobblestone': 8 }
+    });
+    await body.connect();
+    // The tunnel controller cannot help in a walled shaft, and every upward walk fails:
+    // this is exactly the physical situation the mock cannot model on its own.
+    body.tunnel = async () => ({ ok: false, reason: 'stuck', cell: null, block: null, dugCells: [] });
+    const realMoveTo = body.moveTo.bind(body);
+    body.moveTo = async (position, options) => {
+      if (Math.floor(position.y) > Math.floor(body.position.y)) return false;
+      return realMoveTo(position, options);
+    };
+    // The ore is occluded by the stone at y=66: digging it only becomes possible once the
+    // bot is within two blocks vertically (the mock cannot model the raycast itself).
+    const orePos = { x: 0, y: 67, z: 0 };
+    const realDig = body.dig.bind(body);
+    body.dig = async (block) => {
+      const p = block && block.position;
+      if (p && p.x === orePos.x && p.y === orePos.y && p.z === orePos.z && Math.floor(body.position.y) < orePos.y - 2) {
+        return false;
+      }
+      return realDig(block);
+    };
+    const result = await skills.run('mine_ore', makeCtx(body), { ore: 'gold_ore', maxMs: 30000, eatAt: 1 });
+    expect(result.ok && result.mined === 1, `expected the ore after pillaring, got ${JSON.stringify(result)}`);
+    const pillar = body.history.find((h) => h.action === 'pillar');
+    expect(pillar && pillar.steps >= 1, `expected a pillar step, got ${JSON.stringify(body.history.filter((h) => h.action === 'pillar'))}`);
+    return `pillared ${pillar.steps} block(s), mined ${result.mined}`;
+  });
+
   // ------------------------------------------------------------------ movement
   process.stdout.write('\n5. movement - explore / come\n');
 

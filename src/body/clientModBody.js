@@ -846,6 +846,38 @@ class ClientModBody extends Body {
     return this.lastTunnel;
   }
 
+  /**
+   * Pillar up: jump and place the held block under the feet, one block per hop. The caller
+   * equips a scaffold block first. This is the move a 1-wide shaft needs - the stair climber
+   * has no horizontal room and the walker cannot jump onto a block it is pressed against
+   * (live 2026-10-10: the bot oscillated at one step until the run died).
+   *
+   * @param {number} count how many blocks to rise (1..64)
+   * @param {object} [options] { timeoutMs }
+   * @returns {Promise<{ok:boolean, reason:string|null, steps:number, cell:object|null, ms:number}>}
+   */
+  async pillar(count, options = {}) {
+    const steps = Math.max(1, Math.min(64, Math.floor(Number(count) || 1)));
+    const started = Date.now();
+    const timeoutMs = options.timeoutMs || Math.min(90000, 6000 * steps + 8000);
+    const sent = await this.command(`pillar ${steps}`);
+    if (!sent || sent.ok === false) {
+      this.lastPillar = { ok: false, reason: 'pillar refused', steps: 0, cell: null, ms: Date.now() - started };
+      return this.lastPillar;
+    }
+    const ok = await this.awaitAction('pillar', timeoutMs);
+    const verdict = this.lastAction || {};
+    this.lastPillar = {
+      ok,
+      reason: ok ? null : verdict.reason || 'pillar-failed',
+      steps: Number.isFinite(verdict.steps) ? verdict.steps : steps,
+      cell: verdict.cell || null,
+      ms: Date.now() - started
+    };
+    this.trace({ kind: 'pillar', ...this.lastPillar });
+    return this.lastPillar;
+  }
+
   /** Poll /progress until the named action finishes. */
   async awaitAction(actionName, timeoutMs) {
     const deadline = Date.now() + timeoutMs;
@@ -876,6 +908,8 @@ class ClientModBody extends Body {
               /** Structured failure location/block from the client controller (tunnel). */
               cell: progress.cell || null,
               block: progress.block || null,
+              /** Steps completed, for the pillar controller. */
+              steps: Number.isFinite(progress.steps) ? progress.steps : null,
               /** Actual cells the client dug, for the mining ledger. */
               dugCells: Array.isArray(progress.dugCells) ? progress.dugCells : []
             }

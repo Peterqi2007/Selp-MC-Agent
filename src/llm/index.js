@@ -711,8 +711,46 @@ class LlmCore {
     else if (action.task === 'chop') line = `chop ${action.args.count || 8}`;
     else if (action.task === 'collect') line = `collect ${action.args.count || 1}`;
     else if (action.task === 'mine') {
-      const block = (action.args.block || ['stone'])[0];
-      line = `mine ${String(block).replace(/^minecraft:/, '')} ${action.args.count || 8}`;
+      const names = (Array.isArray(action.args.block) ? action.args.block : [action.args.block])
+        .map((n) => String(n || '').replace(/^minecraft:/, '').trim())
+        .filter(Boolean);
+      const ores = names.filter((n) => /_ore$/.test(n));
+      /**
+       * Ores are routed to `mine_ore`, not the legacy walk-only task.
+       *
+       * The task harvests only ores exposed along a walkable path - embedded veins come back
+       * `noPath` even though the scan lists them (live 2026-10-10: the model asked for
+       * diamonds and the task reported "no diamond_ore available nearby" while six deepslate
+       * ores were in view). The skill digs the sloped tunnel instead, and it now accepts the
+       * `block`/`count` argument names the model naturally emits.
+       */
+      if (ores.length) {
+        const actuators = require('./tools/actuators');
+        this.trace({
+          kind: 'dispatch',
+          id: context.id || null,
+          line: 'skill mine_ore (ore redirect from task mine)',
+          level,
+          via: 'llm',
+          channel: context.source || 'llm'
+        });
+        const result = await actuators.doSkill(
+          this.ctx,
+          { name: 'mine_ore', params: { block: ores.join(','), count: action.args.count } },
+          { source: context.source || 'llm', speaker: context.speaker }
+        );
+        return {
+          ok: result.ok !== false,
+          line: 'skill mine_ore',
+          accepted: result.ok !== false,
+          async: result.async === true,
+          taskId: result.taskId || null,
+          detail: result,
+          reason: result.reason || result.error || null
+        };
+      }
+      const block = names[0] || 'stone';
+      line = `mine ${block} ${action.args.count || 8}`;
     } else {
       return { ok: false, reason: `no handler for task "${action.task}"` };
     }

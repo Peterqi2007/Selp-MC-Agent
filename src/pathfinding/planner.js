@@ -35,6 +35,28 @@ const STATUS = {
 };
 
 /**
+ * The one arrival test: is `position` inside `range` blocks of `target`?
+ *
+ * Cell-based and horizontal, with the ±1 vertical tolerance the movement model uses. Both
+ * the planner's goal (`WeightedGoalNear.isEnd`) and the navigator's final acceptance call
+ * this, because they used to disagree: the planner measured integer cells horizontally while
+ * the navigator measured the float position against the target's block corner. The bot could
+ * end in a spot the plan called "already within range" but the navigator refused, producing
+ * 40 identical replans deadlocked just outside the radius (live 2026-10-10: 3.06 vs range 3).
+ *
+ * @param {number} px @param {number} py @param {number} pz position (float or cell)
+ * @param {number} tx @param {number} ty @param {number} tz target block coordinates
+ * @param {number} range horizontal tolerance in blocks
+ * @returns {boolean}
+ */
+function withinGoalRange(px, py, pz, tx, ty, tz, range) {
+  const dx = Math.floor(px) - Math.floor(tx);
+  const dy = Math.floor(py) - Math.floor(ty);
+  const dz = Math.floor(pz) - Math.floor(tz);
+  return Math.abs(dy) <= 1 && Math.sqrt(dx * dx + dz * dz) <= range;
+}
+
+/**
  * A goal expressed against our movement model.
  *
  * `GoalNear` from the plugin would work for `isEnd`, but its `heuristic` uses plain
@@ -62,12 +84,8 @@ class WeightedGoalNear {
   }
 
   isEnd(node) {
-    const dx = node.x - this.x;
-    const dy = node.y - this.y;
-    const dz = node.z - this.z;
-    // Vertical tolerance of 1 keeps "stand next to it" achievable on uneven ground; the
-    // range itself is the horizontal tolerance.
-    return Math.abs(dy) <= 1 && Math.sqrt(dx * dx + dz * dz) <= this.range;
+    // Shared with the navigator's final check - see `withinGoalRange`.
+    return withinGoalRange(node.x, node.y, node.z, this.x, this.y, this.z, this.range);
   }
 }
 
@@ -164,9 +182,7 @@ class PathPlanner {
     const goalPos = v3(target.x, target.y, target.z);
 
     // ---- already there? ---------------------------------------------------
-    const dx = start.x - goalPos.x;
-    const dz = start.z - goalPos.z;
-    if (Math.abs(start.y - goalPos.y) <= 1 && Math.sqrt(dx * dx + dz * dz) <= range) {
+    if (withinGoalRange(start.x, start.y, start.z, goalPos.x, goalPos.y, goalPos.z, range)) {
       return this.result(STATUS.SUCCESS, [{ x: start.x, y: start.y, z: start.z }], 'already within range');
     }
 
@@ -311,4 +327,4 @@ function normalisePath(path) {
   return path.map((node) => (node.move ? { x: node.x, y: node.y, z: node.z, move: node.move } : { x: node.x, y: node.y, z: node.z }));
 }
 
-module.exports = { PathPlanner, WeightedGoalNear, STATUS };
+module.exports = { PathPlanner, WeightedGoalNear, STATUS, withinGoalRange };

@@ -390,6 +390,23 @@ public final class ClientActions {
         });
     }
 
+    /**
+     * Pillar straight up `count` blocks: jump and place the held block under the feet, the
+     * vanilla way out of a 1-wide shaft where the stair climber has no horizontal room.
+     * The caller equips a scaffold block first; this controller owns the jump/place timing.
+     */
+    public boolean pillar(int count) {
+        return onClient(() -> {
+            if (mc.player == null || mc.level == null || mc.gameMode == null) {
+                return false;
+            }
+            int steps = Math.max(1, Math.min(64, count));
+            this.lastProgress = null;
+            this.continuous = new Pillar(steps);
+            return true;
+        });
+    }
+
     /** Place the held item against a block face. */
     public boolean place(int x, int y, int z, String face, String itemName) {
         return onClient(() -> {
@@ -652,6 +669,14 @@ public final class ClientActions {
         private static final long JUMP_GIVE_UP_MS = 1200L;
         /** No progress at all (not even a jump) for this long: stuck, whatever the cause. */
         private static final long STUCK_MS = 6000L;
+        /** After this many fruitless jumps, try backing off + sidestepping instead of pogoing. */
+        private static final int JUMPS_BEFORE_REPOSITION = 2;
+        /** ...and the stall must be at least this old before the reposition triggers. */
+        private static final long NO_PROGRESS_BEFORE_REPOSITION_MS = 800L;
+        /** How long one back-off + sidestep window lasts. */
+        private static final long REPOSITION_MS = 500L;
+        /** Attempts before giving up and reporting jump-blocked. */
+        private static final int MAX_REPOSITIONS = 2;
 
         private final Vec3 target;
         private final double range;
@@ -672,6 +697,10 @@ public final class ClientActions {
         private long lastProgressAt = System.currentTimeMillis();
         private int jumpsSinceProgress;
         private boolean jumpHeld;
+        /** Un-stick manoeuvre state: the sidestep direction alternates between attempts. */
+        private int sidestep = 1;
+        private long repositionUntil;
+        private int repositionCount;
         /** Time spent with a GUI open: the human is busy, so it must not count as stall. */
         private long pausedMs;
         private long screenOpenedAt = -1L;
@@ -745,8 +774,16 @@ public final class ClientActions {
                 return true;
             }
 
-            // Getting closer counts as progress and clears the jump streak.
-            if (distance < bestDistance - 0.25D) {
+            /**
+             * Getting closer counts as progress and clears the jump streak - but only when
+             * the feet are actually on something.
+             *
+             * A failed jump at a wall still lifts the body toward a higher waypoint for a
+             * moment, and that transient rise used to count as progress: the streak reset on
+             * every hop and the bot jumped nine times at the same stone step (live
+             * 2026-10-08). In water the bot is rarely onGround, so swimming still counts.
+             */
+            if ((player.onGround() || player.isInWater()) && distance < bestDistance - 0.25D) {
                 bestDistance = distance;
                 lastProgressAt = now;
                 jumpsSinceProgress = 0;
@@ -754,6 +791,40 @@ public final class ClientActions {
 
             // Face the target, then walk. Jump when we are blocked by a 1-block step.
             lookAtOnClient(target.x, player.getY() + 1.0D, target.z);
+
+            /**
+             * Un-stick: after a couple of fruitless jumps, back off and sidestep for a
+             * moment, then approach again from a slightly different position. Pogoing in
+             * place cannot clear a half-blocked body; a short reposition can.
+             */
+            if (repositionUntil == 0L
+                    && jumpsSinceProgress >= JUMPS_BEFORE_REPOSITION
+                    && now - lastProgressAt > NO_PROGRESS_BEFORE_REPOSITION_MS
+                    && repositionCount < MAX_REPOSITIONS) {
+                repositionCount += 1;
+                sidestep = -sidestep;
+                repositionUntil = now + REPOSITION_MS;
+                jumpsSinceProgress = 0;
+                AgentClientMod.LOGGER.info(
+                        "walkTo: jump blocked at {} - backing off and sidestepping (attempt {}/{})",
+                        target, repositionCount, MAX_REPOSITIONS);
+            }
+            if (repositionUntil > now) {
+                setKeyInClient("forward", false);
+                setKeyInClient("sprint", false);
+                setKeyInClient("jump", false);
+                jumpHeld = false;
+                setKeyInClient("back", true);
+                setKeyInClient(sidestep > 0 ? "left" : "right", true);
+                return false;
+            }
+            if (repositionUntil != 0L) {
+                setKeyInClient("back", false);
+                setKeyInClient("left", false);
+                setKeyInClient("right", false);
+                repositionUntil = 0L;
+            }
+
             setKeyInClient("forward", true);
             setKeyInClient("sprint", horizontal > 3.0D);
             /**
@@ -809,6 +880,9 @@ public final class ClientActions {
             setKeyInClient("forward", false);
             setKeyInClient("sprint", false);
             setKeyInClient("jump", false);
+            setKeyInClient("back", false);
+            setKeyInClient("left", false);
+            setKeyInClient("right", false);
             jumpHeld = false;
         }
 
@@ -984,7 +1058,11 @@ public final class ClientActions {
             }
 
             double distance = player.position().distanceTo(Vec3.atCenterOf(wp));
-            if (distance < bestDistance - 0.2D) {
+            /**
+             * Same rule as WalkTo: a failed jump's transient rise must not count as progress,
+             * or the blocked-jump counter resets forever and the bot pogos at one step.
+             */
+            if ((player.onGround() || player.isInWater()) && distance < bestDistance - 0.2D) {
                 bestDistance = distance;
                 lastProgressAt = now;
                 jumpsSinceProgress = 0;
@@ -1016,7 +1094,41 @@ public final class ClientActions {
 
             BlockPos toDig = null;
             boolean stepUp = false;
-            if (footSolid && !headSolid) {
+            int wpDy = wp.getY() - fy;
+            if (wpDy > 0) {
+                /**
+                 * Climb step: the block at frontFoot is the STEP to jump onto - digging it
+                 * removes the only place to land, which is why ascents used to fall back to
+                 * the slow Node stair. Clear the same three cells the quote's stepCells use,
+                 * in the same order: our own ceiling, the cell the feet move into, then the
+                 * cell the head moves into.
+                 */
+                BlockPos newHead = frontHead.above();
+                if (ownCeiling) {
+                    toDig = new BlockPos(fx, fy + 2, fz);
+                } else if (headSolid) {
+                    toDig = frontHead;
+                } else if (isSolid(level, newHead)) {
+                    toDig = newHead;
+                } else {
+                    stepUp = true;
+                }
+            } else if (wpDy < 0) {
+                /**
+                 * Descent step: dig the next column down to the new foot level first, then
+                 * the two cells above it - the same three cells the quote names. A natural
+                 * slope already has them open, so this falls through to walking and the
+                 * anti-fall probe guards the drop.
+                 */
+                BlockPos newFoot = new BlockPos(fx + sx, fy - 1, fz + sz);
+                if (isSolid(level, newFoot)) {
+                    toDig = newFoot;
+                } else if (footSolid) {
+                    toDig = frontFoot;
+                } else if (headSolid) {
+                    toDig = frontHead;
+                }
+            } else if (footSolid && !headSolid) {
                 if (!ownCeiling) {
                     stepUp = true;
                 } else {
@@ -1179,6 +1291,177 @@ public final class ClientActions {
             }
             cells.append(']');
             map.put("dugCells", cells.toString());
+            return Json.obj(map);
+        }
+    }
+
+    /**
+     * Jump-and-place pillar: rise one block per hop by putting the held block under the feet.
+     *
+     * This is the move a 1-wide shaft needs: the stair climber has no horizontal room per
+     * step, and the walker cannot jump onto a block it is already pressed against (live
+     * 2026-10-10: the bot oscillated at (5,-59,171) -> (6,-58,171) until the run died).
+     * Each step: stand on solid ground, jump, and while airborne click the top face of the
+     * floor block so the block appears in the cell the feet just left; land on it, repeat.
+     */
+    private final class Pillar implements Continuous {
+        private static final long STEP_TIMEOUT_MS = 4_000L;
+        private static final long TOTAL_TIMEOUT_MS = 60_000L;
+        /**
+         * Feet must clear the cell before a block placed inside it is legal: the bounding box
+         * bottom has to sit above the cell's top face (1.0), not merely overlap less.
+         */
+        private static final double PLACE_CLEARANCE = 1.0D;
+        /** The game may need a tick or two before the jump actually lifts us. */
+        private static final long JUMP_GRACE_MS = 300L;
+        private static final int MAX_ATTEMPTS_PER_STEP = 3;
+
+        private final int targetSteps;
+        private final long started = System.currentTimeMillis();
+        private int steps;
+        private boolean jumping;
+        private long stepStartedAt = System.currentTimeMillis();
+        private int attempts;
+        private int baseX;
+        private int baseY;
+        private int baseZ;
+        private boolean done;
+        private boolean failed;
+        private String reason = "";
+        private BlockPos failCell;
+
+        Pillar(int targetSteps) {
+            this.targetSteps = targetSteps;
+        }
+
+        @Override
+        public boolean tick(Minecraft mc) {
+            LocalPlayer player = mc.player;
+            ClientLevel level = mc.level;
+            if (player == null || level == null || mc.gameMode == null) {
+                fail("no-body", null);
+                release();
+                return true;
+            }
+            long now = System.currentTimeMillis();
+            if (now - started > TOTAL_TIMEOUT_MS) {
+                fail("timeout", null);
+                release();
+                return true;
+            }
+            if (steps >= targetSteps) {
+                release();
+                done = true;
+                return true;
+            }
+
+            if (player.onGround()) {
+                if (jumping) {
+                    int landedY = (int) Math.floor(player.getY());
+                    if (landedY == baseY + 1) {
+                        steps += 1; // the placed block held: on to the next hop
+                        jumping = false;
+                        attempts = 0;
+                    } else if (now - stepStartedAt < JUMP_GRACE_MS) {
+                        return false; // the jump is queued but not applied yet
+                    } else if (landedY == baseY) {
+                        attempts += 1; // placement refused / block gone: try the hop again
+                        jumping = false;
+                        if (attempts >= MAX_ATTEMPTS_PER_STEP) {
+                            fail("place-failed", new BlockPos(baseX, baseY, baseZ));
+                            release();
+                            return true;
+                        }
+                    } else {
+                        fail("moved", new BlockPos(baseX, baseY, baseZ));
+                        release();
+                        return true;
+                    }
+                }
+                if (steps >= targetSteps) {
+                    release();
+                    done = true;
+                    return true;
+                }
+                if (!jumping) {
+                    int fx = (int) Math.floor(player.getX());
+                    int fy = (int) Math.floor(player.getY());
+                    int fz = (int) Math.floor(player.getZ());
+                    BlockPos floor = new BlockPos(fx, fy - 1, fz);
+                    BlockPos aboveHead = new BlockPos(fx, fy + 2, fz);
+                    if (!isSolid(level, floor)) {
+                        fail("no-floor", floor);
+                        release();
+                        return true;
+                    }
+                    if (isSolid(level, aboveHead)) {
+                        fail("no-headroom", aboveHead);
+                        release();
+                        return true;
+                    }
+                    if (!(player.getMainHandItem().getItem() instanceof net.minecraft.world.item.BlockItem)) {
+                        fail("no-block", floor);
+                        release();
+                        return true;
+                    }
+                    baseX = fx;
+                    baseY = fy;
+                    baseZ = fz;
+                    setKeyInClient("jump", true);
+                    jumping = true;
+                    stepStartedAt = now;
+                }
+                return false;
+            }
+
+            // Airborne: one hop per step, so let the jump key go immediately.
+            setKeyInClient("jump", false);
+            if (now - stepStartedAt > STEP_TIMEOUT_MS) {
+                fail("step-timeout", new BlockPos(baseX, baseY, baseZ));
+                release();
+                return true;
+            }
+            BlockPos target = new BlockPos(baseX, baseY, baseZ);
+            if (isSolid(level, target)) {
+                return false; // placed; the landing check above finishes the step
+            }
+            if (player.getY() < baseY + PLACE_CLEARANCE) {
+                return false; // still too low - a block placed now would clip our own body
+            }
+            place(baseX, baseY - 1, baseZ, "up", "");
+            return false;
+        }
+
+        private void fail(String why, BlockPos cell) {
+            failed = true;
+            reason = why;
+            failCell = cell;
+        }
+
+        private void release() {
+            setKeyInClient("jump", false);
+            setKeyInClient("forward", false);
+            setKeyInClient("sprint", false);
+        }
+
+        @Override
+        public String describe() {
+            return "pillar";
+        }
+
+        @Override
+        public String progressJson() {
+            Map<String, String> map = new LinkedHashMap<>();
+            map.put("busy", Json.bool(!done && !failed));
+            map.put("action", Json.str("pillar"));
+            map.put("done", Json.bool(done));
+            map.put("failed", Json.bool(failed));
+            map.put("reason", Json.str(reason));
+            map.put("steps", Json.num(steps));
+            map.put("target", Json.num(targetSteps));
+            if (failCell != null) {
+                map.put("cell", Json.point(failCell.getX(), failCell.getY(), failCell.getZ()));
+            }
             return Json.obj(map);
         }
     }

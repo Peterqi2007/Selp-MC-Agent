@@ -595,6 +595,31 @@ async function main() {
     return `hash("${a.hash}") is block-granular`;
   });
 
+  await checkAsync('pathfinding: negative coordinates floor to the real block', () => {
+    /**
+     * Regression for the 2026-10-10 diamond run: `x | 0` truncates toward zero, so a bot at
+     * x=-0.31 was read as cell 0 instead of block -1 and the planner never saw it inside the
+     * goal radius.
+     */
+    const a = v3(-0.31, -59, 170.46);
+    if (a.x !== -1 || a.z !== 170) throw new Error(`expected (-1,-59,170), got (${a.x},${a.y},${a.z})`);
+    return `v3(-0.31,-59,170.46) -> (${a.x},${a.y},${a.z})`;
+  });
+
+  await check('pathfinding: planner and navigator share one goal test', () => {
+    /**
+     * The exact deadlock position: 3.06 blocks (float) from the target corner, but inside the
+     * goal cell for the planner. Both layers must agree it counts as arrived; divergence here
+     * produced 40 identical replans at range 3.
+     */
+    const { withinGoalRange } = require(path.join(ROOT, 'src/pathfinding/planner'));
+    const inside = withinGoalRange(-0.31, -59, 170.46, -3, -59, 169, 3);
+    if (!inside) throw new Error('a position inside the goal cell must count as arrived');
+    const outside = withinGoalRange(0.4, -59, 171.6, -3, -59, 169, 3);
+    if (outside) throw new Error('a position beyond the cell radius must not count as arrived');
+    return 'cell-based arrival accepts the 3.06/3 deadlock spot and rejects the next cell out';
+  });
+
   await check('pathfinding: block classification handles modded namespaces', () => {
     if (describeBlock('minecraft:air').solid) throw new Error('air must not be solid');
     if (!describeBlock('minecraft:grass_block').solid) throw new Error('grass must be solid');

@@ -512,7 +512,7 @@ Places        ──► runtime/places.json；LLM 轨迹 ──► runtime/llm-t
 
 ---
 
-## 九、已知缺口与技术债（2026-10-07）
+## 九、已知缺口与技术债（2026-10-08）
 
 | # | 事项 | 说明 / 证据 |
 | --- | --- | --- |
@@ -522,7 +522,7 @@ Places        ──► runtime/places.json；LLM 轨迹 ──► runtime/llm-t
 | 4 | **断开/离开世界检测缺失** | 客户端退回主菜单后，Node 仍会按过期快照规划（修复方向：检测 `ready=false`/维度变化 → 挂起 + 周期刷新） |
 | 5 | **自主采矿目标的失败退避** | 自主循环对不可达目标会按 30s 左右反复重试；待加宽退避或配置开关 |
 | 6 | **通用 WalkTo 无落差保护** | 防坠落已覆盖 `tunnel` 与采矿阶梯；通用走路（mod `WalkTo`）仍只有"撞墙跳一格"，落差保护未做 |
-| 7 | **采矿新批次仅离线验证** | numen 采矿重构 / tunnel / 防坠落补丁离线全绿，真机验收未做（当前无测试条件） |
+| 7 | **采矿批次真机已通过** | 2026-10-08 在 mc.example.com 验收通过（金矿 26+15 块、tunnel 全程 `jumps=0`、`ledge` 防坠落实测、1–2 格台阶零误报），细节见 REWRITE-PLAN §12.6；遗留"吃饭→tunnel"自然饥饿复测与镐子耐久管理 |
 | 8 | **mod-bridge 未接线** | Fabric-only，且未安装、无代码消费；当前服务器是 Forge ⇒ 只能另建 Fabric 服启用 |
 | 9 | **旧路径残留** | `npm start`（run-all）与默认 `body=clientmod` 不匹配；`scripts/gen-srg-names.js` 是失败尝试的化石；`servers.dat` 会导致客户端断线自动重连旧服务器，无人值守前需清理 |
 
@@ -534,7 +534,7 @@ Places        ──► runtime/places.json；LLM 轨迹 ──► runtime/llm-t
 | --- | --- | --- |
 | `npm run selftest` | 模块图 / 插件 / 寻路 / 三原语 / 意图 Schema / 工具白名单 / 死亡处理 | 169/169 |
 | `npm run p0:verify` | 一次跑 8 个套件（path/tasks/llm:dry/control/roleplay/clientmod/selftest/plan:audit） | 8/8 |
-| `npm run skills:test` | 18 技能（含采矿报价/台账/防坠落） | 32/32 |
+| `npm run skills:test` | 18 技能（含采矿报价/台账/防坠落） | 33/33 |
 | `npm run client:test` | 假 Mod 协议（含 tunnel、verdict） | 59/59 |
 | `npm run clientmod:test` | clientmod 躯体角色扮演端到端 | 11/11 |
 | `npm run path:test` / `tasks:test` / `control:test` / `llm:dry` / `plan:audit` | 寻路 22 / 三原语 52 / 双通道+面板 35 / 路由 55+工具 39 / 计划符合性 29 | 全绿 |

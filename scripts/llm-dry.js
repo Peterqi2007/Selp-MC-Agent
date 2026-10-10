@@ -56,12 +56,15 @@ const UTTERANCES = [
   // ---- mine -------------------------------------------------------------
   { text: '挖点石头', expect: { type: 'task', task: 'mine', block: 'stone' } },
   { text: '帮我挖 16 个圆石', expect: { type: 'task', task: 'mine', block: 'cobblestone', count: 16 } },
-  { text: '去挖铁矿', expect: { type: 'task', task: 'mine', block: 'iron_ore' } },
-  { text: '挖3个钻石', expect: { type: 'task', task: 'mine', block: 'diamond_ore', count: 3 } },
-  { text: '采点煤', expect: { type: 'task', task: 'mine', block: 'coal_ore' } },
+  // Ores go to the dig-while-walking skill now: the legacy walk-only task cannot reach
+  // veins embedded in rock (live 2026-10-10 diamond run).
+  { text: '去挖铁矿', expect: { type: 'skill', skill: 'mine_ore', block: 'iron_ore' } },
+  { text: '挖3个钻石', expect: { type: 'skill', skill: 'mine_ore', block: 'diamond_ore', count: 3 } },
+  { text: '挖点钻石', expect: { type: 'skill', skill: 'mine_ore', block: 'deepslate_diamond_ore' } },
+  { text: '采点煤', expect: { type: 'skill', skill: 'mine_ore', block: 'coal_ore' } },
   { text: 'mine some stone', expect: { type: 'task', task: 'mine', block: 'stone' } },
   { text: '挖沙子', expect: { type: 'task', task: 'mine', block: 'sand' } },
-  { text: '我需要金矿', expect: { type: 'task', task: 'mine', block: 'gold_ore' } },
+  { text: '我需要金矿', expect: { type: 'skill', skill: 'mine_ore', block: 'gold_ore' } },
   // ---- collect ----------------------------------------------------------
   { text: '捡一下掉落物', expect: { type: 'task', task: 'collect' } },
   { text: '把地上的东西捡起来', expect: { type: 'task', task: 'collect' } },
@@ -120,7 +123,15 @@ function matches(action, expect) {
   if (!expect) return action === null;
   if (!action) return false;
   if (action.type !== expect.type) return false;
-  if (expect.type === 'skill') return action.skill === expect.skill;
+  if (expect.type === 'skill') {
+    if (action.skill !== expect.skill) return false;
+    if (expect.block !== undefined) {
+      const blocks = String((action.args && action.args.block) || '').split(',');
+      if (!blocks.some((b) => b.includes(expect.block))) return false;
+    }
+    if (expect.count !== undefined && (!action.args || action.args.count !== expect.count)) return false;
+    return true;
+  }
   if (expect.type !== 'task') return true;
   if (action.task !== expect.task) return false;
 

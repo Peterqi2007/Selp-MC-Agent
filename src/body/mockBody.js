@@ -330,6 +330,31 @@ class MockBody extends Body {
     return { ok: true, reason: null, cell: null, block: null, dugCells };
   }
 
+  /**
+   * Mock pillar: rise `count` blocks the way the client controller does (jump + place under
+   * the feet). The mock has no physics, so it just moves the position and records the action;
+   * the decision layer only needs the {ok, steps, reason} shape and the history entry.
+   */
+  async pillar(count = 1) {
+    await this._delay();
+    const steps = Math.max(1, Math.min(64, Math.floor(Number(count) || 1)));
+    let done = 0;
+    for (let i = 0; i < steps; i += 1) {
+      const here = {
+        x: Math.floor(this.position.x),
+        y: Math.floor(this.position.y),
+        z: Math.floor(this.position.z)
+      };
+      const aboveHead = this.world.get(key({ x: here.x, y: here.y + 2, z: here.z }));
+      if (aboveHead && !/air$/.test(String(aboveHead.name))) break;
+      this.position = { ...this.position, y: this.position.y + 1 };
+      done += 1;
+    }
+    this.stats.pillared = (this.stats.pillared || 0) + done;
+    this.history.push({ action: 'pillar', steps: done });
+    return { ok: done === steps, reason: done === steps ? null : 'no-headroom', steps: done };
+  }
+
   async place(itemName, referenceBlock) {
     await this._delay();
     const name = normalize(itemName);
@@ -428,6 +453,9 @@ class MockBody extends Body {
     if (!food || !this.inventory[food]) return false;
     this.inventory[food] -= 1;
     if (this.inventory[food] <= 0) delete this.inventory[food];
+    // Eating holds the food in the main hand, exactly like the real client. Skills that
+    // dig after a meal must put their tool back first (live bug 2026-10-08).
+    this.held = food;
     this.state.food = Math.min(20, this.state.food + 6);
     this.stats.ate += 1;
     this.history.push({ action: 'eat', name: food });

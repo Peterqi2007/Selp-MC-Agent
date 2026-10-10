@@ -193,10 +193,21 @@ class ChatController {
       mine: (args) => {
         const block = args[0] || 'stone';
         const count = Number(args[1]) || 8;
+        /**
+         * A comma list arrives from the LLM dispatch, which now passes the whole target list
+         * instead of only its first name; each entry expands into its variants (see
+         * expandBlockNames). Dropping all but one name is how a diamond job at y=-59 searched
+         * for `diamond_ore` while every block down there is `deepslate_diamond_ore`.
+         */
+        const blocks = String(block)
+          .split(',')
+          .map((n) => n.trim())
+          .filter(Boolean)
+          .flatMap((n) => expandBlockNames(n));
         // Ask for a couple extra: the last block often drops nothing useful, and the task
         // counts *items collected*, so overshooting slightly beats falling short.
         this.say(`去挖 ${count} 个 ${block}`);
-        return this.enqueue(new MineBlockTask(ctx, { block: expandBlockNames(block), count: count + 2 }));
+        return this.enqueue(new MineBlockTask(ctx, { block: blocks, count: count + 2 }));
       },
       chop: (args) => {
         const count = Number(args[0]) || 8;
@@ -708,6 +719,7 @@ class ChatController {
 }
 
 function expandBlockNames(name) {
+  const clean = String(name).replace(/^minecraft:/, '').trim();
   const aliases = {
     stone: ['stone', 'cobblestone', 'deepslate'],
     cobble: ['cobblestone'],
@@ -723,7 +735,16 @@ function expandBlockNames(name) {
     dirt: ['dirt', 'grass_block', 'coarse_dirt', 'rooted_dirt', 'podzol', 'mycelium', 'moss_block', 'mud'],
     wood: ['oak_log', 'spruce_log', 'birch_log', 'jungle_log', 'acacia_log', 'dark_oak_log']
   };
-  return aliases[name] || [name];
+  if (aliases[clean]) return aliases[clean];
+  /**
+   * Deepslate twins: below y=0 every `<x>_ore` generates as `deepslate_<x>_ore`. The model
+   * says "diamond_ore"; passing that through unchanged made a deep-mine job search for
+   * blocks that cannot exist there (live 2026-10-10).
+   */
+  if (/_ore$/.test(clean) && !clean.startsWith('deepslate_')) {
+    return [clean, `deepslate_${clean}`];
+  }
+  return [clean];
 }
 
 module.exports = { ChatController, HELP, expandBlockNames };

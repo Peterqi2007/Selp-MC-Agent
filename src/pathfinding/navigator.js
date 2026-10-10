@@ -22,7 +22,7 @@
  * lists it as the thing to replace).
  */
 
-const { PathPlanner, STATUS } = require('./planner');
+const { PathPlanner, STATUS, withinGoalRange } = require('./planner');
 const { WaypointWalker, WALK_REASON } = require('./walker');
 const { distanceBetween, v3 } = require('./vec3util');
 
@@ -37,7 +37,9 @@ const NAV_REASON = {
   /** No block scan at all: the caller may degrade rather than give up. */
   UNKNOWN_BLOCK: 'unknown-block',
   /** Repeated jumps got nowhere: reported when changing direction did not help either. */
-  JUMP_BLOCKED: 'jump-blocked'
+  JUMP_BLOCKED: 'jump-blocked',
+  /** Plan/walk cycles stopped making ground: stop early instead of burning the iteration cap. */
+  STALLED: 'stalled'
 };
 
 class PathNavigator {
@@ -96,6 +98,15 @@ class PathNavigator {
     const sidestepTried = new Set();
     let sidestepsLeft = this.maxSidesteps;
     let avoidRelaxed = false;
+    /**
+     * Cycles that ended with the walker reporting success but the body not moving.
+     *
+     * That combination is the signature of the arrival deadlock (live 2026-10-10): the walker
+     * accepts a leg the bot is already standing at, the goal check still fails, and every
+     * replan derives the identical answer. Three of those in a row is not progress; report a
+     * distinct reason instead of spinning until `maxIterations` (40).
+     */
+    let stalledCycles = 0;
     this.walker.resetJumpStreak();
     this.planner.movements.clearAvoid();
 
@@ -117,7 +128,15 @@ class PathNavigator {
       }
 
       const distance = distanceBetween(snap.position, target);
-      if (distance <= range) {
+      /**
+       * Arrival = the planner's own goal test (shared helper), with the historical float
+       * check kept as an extra accept. Using two different rules here is what deadlocked
+       * the trip just outside the radius; see `withinGoalRange`.
+       */
+      if (
+        withinGoalRange(snap.position.x, snap.position.y, snap.position.z, target.x, target.y, target.z, range) ||
+        distance <= range
+      ) {
         this.stats.arrived += 1;
         return this.done(true, NAV_REASON.ARRIVED, iterations);
       }
@@ -198,7 +217,20 @@ class PathNavigator {
       const slice = plan.path.slice(0, Math.min(this.replanEvery, plan.path.length));
       const walked = await this.walker.walk(slice, { range, timeoutMs: Math.min(60000, deadline - Date.now()) });
 
-      if (walked.ok) continue; // replan from the new position
+      if (walked.ok) {
+        const nowPos = this.body.snapshot() && this.body.snapshot().position;
+        const moved = nowPos ? distanceBetween(nowPos, snap.position) : 0;
+        if (moved < 0.1) {
+          stalledCycles += 1;
+          if (stalledCycles >= 3) {
+            this.stats.failed += 1;
+            return this.done(false, NAV_REASON.STALLED, iterations);
+          }
+        } else {
+          stalledCycles = 0;
+        }
+        continue; // replan from the new position
+      }
 
       /**
        * Blocked, or jumping got us nowhere: try going a different way.

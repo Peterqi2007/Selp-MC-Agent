@@ -122,7 +122,19 @@ const RULES = [
   {
     name: 'mine',
     pattern: /(挖矿|挖|采矿|矿石|石头|圆石|铁|煤|钻石|金|沙|\bmine\b|\bdig\b|\bmining\b|\bstone\b|\bcobble(stone)?\b|\biron\b|\bcoal\b|\bdiamond\b|\bgold\b|\bsand\b)/i,
-    build: (count, text) => ({ type: 'task', task: 'mine', args: { block: blocksFor(text), count: count || 8 } }),
+    build: (count, text) => {
+      const names = blocksFor(text);
+      const target = count || 8;
+      /**
+       * Ores go to the dig-while-walking skill; the legacy `mine` task is walk-only and
+       * reports "no X available nearby" for veins embedded in rock (live 2026-10-10).
+       * Stone/sand keep the proven harvest task.
+       */
+      if (names.some((n) => /_ore$/.test(n))) {
+        return { type: 'skill', skill: 'mine_ore', args: { block: names.join(','), count: target } };
+      }
+      return { type: 'task', task: 'mine', args: { block: names, count: target } };
+    },
     say: (count) => `去挖 ${count || 8} 个`
   },
   {

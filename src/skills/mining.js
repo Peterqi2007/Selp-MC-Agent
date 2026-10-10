@@ -80,7 +80,21 @@ register({
     'drop sand on the bot or open into water, lights the tunnel with torches, and pauses when it runs ' +
     'out of torches in the dark.',
   params: {
-    ore: { type: 'string', default: 'iron_ore' },
+    /**
+     * No schema default: `block` is an alias for the same field, and a default here would
+     * always win over an explicitly passed `block` (validate fills defaults first). The
+     * fallback to iron_ore lives in run() where the two spellings are resolved together.
+     */
+    ore: { type: 'string' },
+    /**
+     * The LLM's natural phrasing for the same thing, including a comma list
+     * ("diamond_ore,deepslate_diamond_ore"). Kept as an alias rather than renamed, because
+     * the live diamond run was rejected with `unknown parameter "block"` and fell back to
+     * the walk-only mining task, which cannot reach embedded ores (2026-10-10).
+     */
+    block: { type: 'string' },
+    /** Optional cap: stop after this many ores are mined (absent = until no targets/budget). */
+    count: { type: 'number', min: 1, max: 256 },
     maxXZ: { type: 'number', default: 30, min: 4, max: 48 },
     maxY: { type: 'number', default: 5, min: 1, max: 16 },
     maxMs: { type: 'number', default: 600000, min: 10000, max: 3600000 },
@@ -118,23 +132,40 @@ register({
       ledger: { planned: 0, dug: 0, extra: 0, extraCells: [] },
       minedAt: [],
       outOfTime: false,
+      countReached: false,
       paused: false,
       cavern: false
     };
 
+    /**
+     * Resolve the target block names from `ore` or its `block` alias. A comma list may carry
+     * both the plain and the deepslate variant; the pattern matches any of them, so the same
+     * job works above y=0 (diamond_ore) and below it (deepslate_diamond_ore).
+     */
+    const oreNames = (() => {
+      const spec = [params.ore, params.block].find((v) => typeof v === 'string' && v.trim()) || 'iron_ore';
+      const names = String(spec)
+        .split(',')
+        .map((n) => bare(n.trim()))
+        .filter(Boolean);
+      return names.length ? [...new Set(names)] : ['iron_ore'];
+    })();
+    const oreLabel = oreNames.join('/');
+    const escapeRe = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+
     let snapshot = await refresh(ctx);
     if (!snapshot) return { ok: false, reason: 'no state from the client' };
     const pickaxe = (() => {
-      const plan = minePlan(snapshot, params.ore);
+      const plan = minePlan(snapshot, oreNames[0]);
       return plan && plan.tool ? plan.tool.name : null;
     })();
-    if (!pickaxe) return { ok: false, reason: `no pickaxe that can mine ${bare(params.ore)}` };
+    if (!pickaxe) return { ok: false, reason: `no pickaxe that can mine ${oreLabel}` };
     await body.equip(pickaxe).catch(() => false);
     if (ctx.log && ctx.log.info) {
-      ctx.log.info(`mine_ore: ${bare(params.ore)} with ${bare(pickaxe)} at y=${feetOf(snapshot).y}`);
+      ctx.log.info(`mine_ore: ${oreLabel} with ${bare(pickaxe)} at y=${feetOf(snapshot).y}`);
     }
 
-    const orePattern = new RegExp(`${bare(params.ore).replace(/^iron_ore$/, '(deepslate_)?iron_ore')}$`);
+    const orePattern = new RegExp(`(?:${oreNames.map(escapeRe).join('|')})$`);
     const blocked = new Set();
 
     // ---- helpers -----------------------------------------------------------
@@ -447,7 +478,7 @@ register({
           if (ctx.log && ctx.log.info) ctx.log.info(`placed a torch at ${spot.x},${spot.y},${spot.z} (light was ${light})`);
           // Switch straight back to the pickaxe: the tunnel work must not continue with a
           // torch in hand (the operator sees exactly that, and dirt/stone would be slow).
-          const pick = minePlan(after, params.ore).tool;
+          const pick = minePlan(after, oreNames[0]).tool;
           if (pick) await body.equip(pick.name).catch(() => false);
           return { ok: true };
         }
@@ -468,7 +499,33 @@ register({
       if (await eater.call(body, chosen).catch(() => false)) {
         stats.ate += 1;
         if (ctx.log && ctx.log.info) ctx.log.info(`ate ${bare(chosen)} (food was ${snap.food})`);
+        /**
+         * Eating leaves the food in the main hand, and the tunnel rung digs client-side
+         * with whatever is held for the whole run. Put the pickaxe back immediately - the
+         * live run carved a stone stair holding bread (2026-10-08).
+         */
+        await body.equip(pickaxe).catch(() => false);
       }
+    };
+
+    /**
+     * A block to pillar with, preferring common scaffold materials.
+     *
+     * The player answer to "walled in, need to go up" is "jump and place under yourself";
+     * cobblestone/dirt/planks/logs are what survives the trip (live 2026-10-10).
+     */
+    const scaffoldBlock = (snap) => {
+      const prefs = [
+        'cobblestone', 'cobbled_deepslate', 'dirt', 'oak_planks', 'spruce_planks', 'birch_planks',
+        'oak_log', 'spruce_log', 'birch_log', 'stone', 'deepslate', 'granite', 'diorite',
+        'andesite', 'tuff', 'netherrack'
+      ];
+      const inv = (snap && snap.inventory) || {};
+      for (const want of prefs) {
+        const found = Object.keys(inv).find((name) => bare(name) === want && inv[name] > 0);
+        if (found) return found;
+      }
+      return null;
     };
 
     /** The quote for the ore the loop is currently working on (set by findOre). */
@@ -681,6 +738,12 @@ register({
         stats.outOfTime = true;
         break;
       }
+      // Optional cap from the `count` alias/parameter: the LLM's "挖 32 颗钻石" is a budget,
+      // not a promise to burn the whole time budget once that many are in the bag.
+      if (params.count && stats.ores >= params.count) {
+        stats.countReached = true;
+        break;
+      }
       await eatIfHungry();
 
       /**
@@ -854,6 +917,7 @@ register({
           }
         }
         if (outcome.danger) {
+          lastDanger = { reason: outcome.reason, hostile: !!outcome.hostile };
           return { ok: false, reason: outcome.reason, failure: 'hazard', danger: true, hostile: outcome.hostile };
         }
         if (!outcome.reached) {
@@ -906,17 +970,34 @@ register({
         lastQuote && lastQuote.block === ore && Array.isArray(lastQuote.quote.plan) ? lastQuote.quote.plan : [];
       let lastTunnelCell = null;
       let lastTunnelBlock = null;
+      /**
+       * The last danger refusal (drop below / lava / hostile) seen by the tunnel pre-check or
+       * the direct stair. The pillar rung reads it: a drop below an ascending waypoint is the
+       * shaft-climb case the pillar exists for, while lava and monsters still stop the task.
+       */
+      let lastDanger = null;
       const runTunnel = async (steps) => {
         if (!steps.length) return { ok: false, reason: 'no quoted steps for this ore', failure: 'no_path' };
         const pre = await refresh(ctx);
         if (pre) {
+          const feetNow = feetOf(pre);
           for (const step of steps) {
             const danger = dangerAt(pre, step.waypoint);
             if (!danger) continue;
+            /**
+             * A drop *below* an ascending waypoint is not a fall risk: the route climbs up to
+             * that cell, and the shaft case is the pillar rung's business. Refusing here used
+             * to stop the whole task just above a hole (live 2026-10-10), while genuine
+             * descents and lava keep the refusal below.
+             */
+            if (feetNow && /drop below/i.test(String(danger.reason)) && step.waypoint.y > feetNow.y) {
+              continue;
+            }
             const where = posKey(step.waypoint);
             if (ctx.log && ctx.log.warn) {
               ctx.log.warn(`unsafe tunnel waypoint ${where}: ${danger.reason} - stopping`);
             }
+            lastDanger = { reason: danger.reason, hostile: !!danger.hostile };
             return {
               ok: false,
               reason: `unsafe tunnel waypoint ${where}: ${danger.reason}`,
@@ -927,6 +1008,11 @@ register({
           }
         }
         stats.tunnelRuns += 1;
+        /**
+         * The client digs with the held item for the entire continuous run; make sure that
+         * is the tool this skill chose, not the last eaten food / torch.
+         */
+        await body.equip(pickaxe).catch(() => false);
         const result = await body
           .tunnel(
             steps.map((s) => s.waypoint),
@@ -1005,24 +1091,110 @@ register({
           }
         });
       }
-      rungs.push(
-        {
-          name: 'direct',
-          handles: ['no_path', 'out_of_reach', 'occluded', 'unknown', 'target_lost', 'refused'],
-          maxAttempts: 1,
-          run: () => attempt(ore.position)
-        },
-        {
-          name: 'flank',
-          handles: ['no_path', 'out_of_reach', 'occluded'],
-          maxAttempts: 1,
-          run: async () => {
-            const waypoint = await flankWaypoint();
-            if (!waypoint) return { ok: false, reason: 'no flank waypoint', failure: 'no_path' };
-            return attempt(waypoint);
-          }
+      rungs.push({
+        name: 'direct',
+        handles: ['no_path', 'out_of_reach', 'occluded', 'unknown', 'target_lost', 'refused'],
+        maxAttempts: 1,
+        run: () => attempt(ore.position)
+      });
+      /**
+       * Climb out of a shaft the stair cannot.
+       *
+       * A 1-wide shaft has no horizontal room for the sloped stair, and the client walker
+       * cannot jump onto a block it is already pressed against: the live run oscillated at
+       * (5,-59,171) -> (6,-58,171) until the ore was abandoned (2026-10-10). Every player
+       * answer is "jump and place a block under yourself", so when the ore sits above the
+       * bot, pillar up to its level with a scaffold block and retry the approach.
+       */
+      if (typeof body.pillar === 'function') {
+        const before = feetOf(await refresh(ctx));
+        const sameColAtStart = before && before.x === ore.position.x && before.z === ore.position.z;
+        const riseAtStart = before ? ore.position.y - before.y : 0;
+        /**
+         * Two blocks above is already a shaft problem unless we are straight under the ore
+         * (then the take itself can reach it, and pillaring into the ore's own head cell
+         * would suffocate - so that case keeps the stricter threshold).
+         */
+        if (before && (riseAtStart >= 3 || (riseAtStart >= 2 && !sameColAtStart))) {
+          rungs.push({
+            name: 'pillar-up',
+            handles: ['no_path', 'out_of_reach', 'occluded', 'unknown', 'refused', 'hazard'],
+            maxAttempts: 1,
+            run: async () => {
+              /**
+               * Only a drop below an ascending waypoint is the pillar's business: that is
+               * the walled-shaft case. Lava and monsters keep their stop-the-task semantics.
+               */
+              if (lastDanger && !/drop below/i.test(String(lastDanger.reason))) {
+                return {
+                  ok: false,
+                  reason: lastDanger.reason,
+                  failure: 'hazard',
+                  danger: true,
+                  hostile: !!lastDanger.hostile
+                };
+              }
+              const snap = await refresh(ctx);
+              const block = scaffoldBlock(snap);
+              const here = feetOf(snap);
+              if (!block || !here) {
+                return { ok: false, reason: 'no scaffold block to pillar with', failure: 'refused' };
+              }
+              /**
+               * How high to pillar: straight under the ore the last hop would need the ore's
+               * own cell as headroom, so stop two short there; from a neighbouring column one
+               * short is better - the ore stays visible so the dig can start immediately.
+               * Either way it stays inside the skill's 4-block reach.
+               */
+              const sameColumn = here.x === ore.position.x && here.z === ore.position.z;
+              let need = Math.max(1, Math.min(16, ore.position.y - here.y - (sameColumn ? 2 : 1)));
+              /**
+               * Clear the headroom every hop needs, exactly like climbOut does for the
+               * mineflayer body: the jump apex is ~3 blocks and a solid cap stopped every
+               * placement dead at the player's own feet (live 2026-10-10: a deepslate cap at
+               * y-56 under the diamond). Never dig the target ore - it stays in reach.
+               */
+              for (let j = 2; j <= need + 2; j += 1) {
+                const cell = { x: here.x, y: here.y + j, z: here.z };
+                if (cell.x === ore.position.x && cell.y === ore.position.y && cell.z === ore.position.z) continue;
+                const name = bare(cellAt(snap, cell));
+                if (AIR.test(name)) continue;
+                await digAt(cell);
+              }
+              if (ctx.log && ctx.log.info) {
+                ctx.log.info(`pillar-up: rising ${need} block(s) with ${bare(block)} toward ${posKey(ore.position)}`);
+              }
+              const climb = async (n) => {
+                await body.equip(block).catch(() => false);
+                return body.pillar(n, { timeoutMs: 8000 * n + 8000 }).catch((err) => ({ ok: false, reason: err.message }));
+              };
+              let res = await climb(need);
+              if (!res.ok && need > 1) {
+                // A tighter cap may still allow fewer hops; being two-to-three short is fine,
+                // the ore stays within the skill's 4-block reach.
+                need -= 1;
+                res = await climb(need);
+              }
+              const rose = Math.max(0, Number(res.steps) || 0);
+              if (!res.ok && rose === 0) {
+                return { ok: false, reason: `pillar up failed: ${res.reason}`, failure: 'no_path' };
+              }
+              // A partial rise can still put the ore in reach and line of sight from below.
+              return attempt(ore.position);
+            }
+          });
         }
-      );
+      }
+      rungs.push({
+        name: 'flank',
+        handles: ['no_path', 'out_of_reach', 'occluded'],
+        maxAttempts: 1,
+        run: async () => {
+          const waypoint = await flankWaypoint();
+          if (!waypoint) return { ok: false, reason: 'no flank waypoint', failure: 'no_path' };
+          return attempt(waypoint);
+        }
+      });
       const ladder = new RecoveryLadder('mine_ore', rungs);
       const outcome = await ladder.run();
 
@@ -1089,7 +1261,7 @@ register({
     };
     return {
       ok: !stats.planExceeded,
-      stopped: stats.planExceeded ? 'plan-exceeded' : null,
+      stopped: stats.planExceeded ? 'plan-exceeded' : stats.countReached ? 'count' : null,
       mined: stats.ores,
       blocks: stats.blocks,
       torches: stats.torches,
@@ -1105,7 +1277,7 @@ register({
       ledger: ledgerSummary,
       position: end ? end.position : null,
       detail:
-        `mined ${stats.ores} ${bare(params.ore)} (dug ${stats.blocks} blocks, ` +
+        `mined ${stats.ores} ${oreLabel} (dug ${stats.blocks} blocks, ` +
         `${stats.torches} torch(es), collected ${stats.collected} drop(s), ate ${stats.ate}, ` +
         `skipped ${stats.skipped})` +
         `; ledger planned ${ledgerSummary.planned} / dug ${ledgerSummary.dug} / extra ${ledgerSummary.extra}` +

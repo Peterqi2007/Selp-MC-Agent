@@ -131,18 +131,18 @@ LLM 层（`src/llm/`，生产配置已开启 `toolCalling`）：8 个工具 —�
 | 10-02/03 | Phase 2/3 | craft / smelt / farm / sleep / fish、LLM 工具接线 | ✅ 真机（含跨河、钓鱼夜间睡觉闭环） |
 | 10-04 | 第一批执行优化 | 失败语义与统一回执、停牌表、空间感知网格、能力表单源 | ✅ 真机 |
 | 10-04 | 第二批结构升级 | 任务槽、恢复阶梯、area/route、权限规则与征询 | ✅ 真机（复测修掉两处） |
-| 10-05 | 采矿按 numen 重构 | 报价选目标（挖×4 + 步数 + 矿脉加成）、DigLedger 台账、落沙/贴水准入 | ⏳ 仅离线 |
-| 10-05 | 走挖一体 `tunnel` | Mod 连续控制器：中心转向、边走边挖、下坡不跳、结构化失败；Node 清障重试 | ⏳ 仅离线 |
-| 10-05 | 防坠落补丁 | Mod tick 探底（落差 >2 或先见液体 → `ledge`）+ Node waypoint 预检 + 洞窟后检 | ⏳ 仅离线 |
+| 10-05 | 采矿按 numen 重构 | 报价选目标（挖×4 + 步数 + 矿脉加成）、DigLedger 台账、落沙/贴水准入 | ✅ 真机（2026-10-08，见 REWRITE-PLAN §12.6） |
+| 10-05 | 走挖一体 `tunnel` | Mod 连续控制器：中心转向、边走边挖、下坡不跳、结构化失败；Node 清障重试 | ✅ 真机（2026-10-08：金矿 26+15 块、tunnel 全程 `jumps=0`；当轮修掉换镐/卡跳/爬升三处缺陷） |
+| 10-05 | 防坠落补丁 | Mod tick 探底（落差 >2 或先见液体 → `ledge`）+ Node waypoint 预检 + 洞窟后检 | ✅ 真机（2026-10-08：3 格深坑前 `ledge` 停住，1–2 格台阶零误报） |
 
-当前状态（2026-10-07）：
+当前状态（2026-10-08）：
 
-* 离线全绿：`selftest 169/169`、`skills:test 32/32`、`client:test 59/59`、`p0:verify 8/8` 套件（明细见 §8）。
-* 控制 Mod 已编译安装：`agent-client-1.0.0.jar` **54969 字节**，与 PCL 配置里 153 个 Mod 共存
+* 离线全绿：`selftest 169/169`、`skills:test 33/33`、`client:test 59/59`、`p0:verify 8/8` 套件（明细见 §8）。
+* 控制 Mod 已编译安装：`agent-client-1.0.0.jar` **55710 字节**（含 10-08 修复），与 PCL 配置里 155 个 Mod 共存
   （改 Mod 后必须重启客户端才会生效）。
-* **待办**：`tunnel` + 防坠落批次只有离线证据，还没有真机数据；当前暂无测试条件。恢复测试后按
-  [`docs/REWRITE-PLAN.md`](docs/REWRITE-PLAN.md) §12 的清单验收：斜上/斜下各 3 次、`jumpsBlocked=0`、
-  深洞/岩浆前停住、正常 1–2 格台阶不误报。
+* **真机验收通过（2026-10-08）**：斜下连续 20+ 格、`tunnel` 全程 `jumpsBlocked=0`、防坠落 3 格深坑前停住、
+  1–2 格台阶零误报、台账 extra 0；当轮还修掉"吃完不换镐 / 卡跳不换位 / 爬升挖错台阶"三处缺陷
+  （详见 [`docs/REWRITE-PLAN.md`](docs/REWRITE-PLAN.md) §12.6）。遗留：吃饭→tunnel 的真机序列待自然饥饿复测。
 * 后续候选：断开/离开世界检测（客户端回主菜单后大脑仍会按旧快照规划）、自主采矿目标的退避加宽、
   通用 `WalkTo` 的落差保护。
 
@@ -260,7 +260,7 @@ Invoke-RestMethod -Uri http://127.0.0.1:8766/ui/state
 | `npm run client:build` / `client:install` | 构建 / 安装控制 Mod | 主线 |
 | `npm run client:test` | 假 Mod 协议测试 | 59/59 |
 | `npm run clientmod:test` | clientmod 躯体角色扮演路径 | 11/11 |
-| `npm run skills:test` | 技能库（含采矿报价/台账/防坠落） | 32/32 |
+| `npm run skills:test` | 技能库（含采矿报价/台账/防坠落） | 33/33 |
 | `npm run selftest` | 全量离线自检 | 169/169 |
 | `npm run p0:verify` | P0 全量验收（一次跑 8 个套件） | 8/8 |
 | `npm run path:test` | 寻路场景 | 22/22 |
@@ -282,8 +282,8 @@ P0 的完整实施状态与验收证据见 [`docs/P0-STATUS.md`](docs/P0-STATUS.
 
 * **服务器兼容**：需要客户端 Mod 的 Forge/NeoForge 服必须走"真实客户端 + Mod"路径（已支持）；
   mineflayer 备选躯体只适用于原版 / Paper / Spigot / 纯服务端 Fabric。各服的登录与反作弊规则自行确认。
-* **未真机验证**：numen 采矿重构、走挖一体 tunnel、防坠落补丁目前只有离线证据（见 §3），
-  真机验收等测试条件恢复后进行。
+* **采矿批次已真机验证**（2026-10-08，见 REWRITE-PLAN §12.6）：numen 采矿重构、tunnel、防坠落补丁全部通过；
+  遗留一项"吃饭 → tunnel"序列待自然饥饿时补测（逻辑已有离线用例覆盖）。
 * **AuthMe**：只 `/login`，永不 `/register`（在 simpfun 类服务器上 `/register` 会重置角色数据）。
 * **尚未实现**：交易、附魔、下界/末地、区块级地图记忆（长距离探索会重新找路）。
 * **操作注意**：客户端窗口未聚焦或开着 GUI 时游戏忽略输入；控制 Mod 改动必须重启客户端才生效

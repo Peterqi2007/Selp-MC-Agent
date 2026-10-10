@@ -40,9 +40,17 @@
  * @returns {PathVec}
  */
 function v3(x, y, z) {
-  const fx = x | 0;
-  const fy = y | 0;
-  const fz = z | 0;
+  /**
+   * Math.floor, NOT `x | 0`.
+   *
+   * `|0` truncates toward zero, so a negative float inside block -1 (x = -0.31) became
+   * cell 0. The planner then read every negative coordinate one block off; in the live
+   * diamond run that kept the "already within range" fast path from ever firing and the
+   * trip spun until `max-iterations` (2026-10-10).
+   */
+  const fx = Math.floor(x);
+  const fy = Math.floor(y);
+  const fz = Math.floor(z);
   return {
     x: fx,
     y: fy,
@@ -71,7 +79,7 @@ function toPathVec(position) {
 
 /** Stable key for block coordinates, usable without constructing a vector. */
 function blockKey(x, y, z) {
-  return `${x | 0},${y | 0},${z | 0}`;
+  return `${Math.floor(x)},${Math.floor(y)},${Math.floor(z)}`;
 }
 
 /** Euclidean distance between two positions. */

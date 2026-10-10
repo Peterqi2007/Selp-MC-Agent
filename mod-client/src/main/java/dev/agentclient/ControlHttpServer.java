@@ -459,6 +459,13 @@ public final class ControlHttpServer {
                         out.put("note", Json.str("continuous - poll /progress"));
                     }
                 }
+                case "pillar", "pillarup", "tower" -> {
+                    // "pillar [count]": jump-and-place straight up, one block per hop. The
+                    // caller equips a scaffold block first. Poll /progress for steps/reason.
+                    Integer count = tryInt(rest.split("\\s+")[0]);
+                    out.put("ok", Json.bool(actions.pillar(count == null ? 1 : count)));
+                    out.put("note", Json.str("continuous - poll /progress"));
+                }
                 case "place" -> {
                     int[] xyz = ints(rest, 3);
                     // "place x y z [face] [item]" - tokens 3 and 4, not 4 and 5.
