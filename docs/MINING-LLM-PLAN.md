@@ -859,6 +859,10 @@ P4 补单格 pillar 的放置权限；既有 tunnel 的连续挖掘权限缺口�
 5. 第 5-6 轮（深板岩铁×2）：完整成功，零额外挖掘（extra 0）。
 6. 第 7 轮（金矿）：目标报价选中 23 格外的矿（cost 205，dig 47/steps 23），连续隧道 24 格到达、
    零额外挖掘、产物验证入包。
+7. 第 8 轮（命令入口 `mine gold_ore 1`，面板/`!` 同源）：受理回执形状完整
+   （taskId/name/kind/skill/blocks），任务结算 5.8s，`acquisition 1/1 verified`。
+8. 中途 stop（`mine gold_ore 3` + TaskHub cancel @3s）：任务按 `live-test stop` 中断（ok=false），
+   Mod `/progress` 回到 `busy:false`，无后续动作。
 
 尚未执行的真机项：tunnel 目标保护的真实命中场景、采集中途 stop、同型竖井 3 次重复试验，
 以及 §6.6 的 L 系列（`miningRecovery.enabled` 保持 false，离线矩阵已通过）。

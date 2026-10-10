@@ -33,6 +33,8 @@ function parseArgs(argv) {
       case '--precheck': out.mode = 'precheck'; break;
       case '--mine': out.mode = 'mine'; out.ore = value(); break;
       case '--pillar-probe': out.mode = 'pillar'; break;
+      case '--command': out.mode = 'command'; out.line = value(); break;
+      case '--stop-after': out.stopAfter = Number(value()); break;
       case '--find': out.mode = 'find'; out.find.push(value()); break;
       case '--count': out.count = Number(value()); break;
       case '--max-ms': out.maxMs = Number(value()); break;
@@ -202,6 +204,69 @@ async function main() {
       exitCode = 1;
     }
     if (result.ok === false && result.interrupted !== true) exitCode = 1;
+  }
+
+  if (args.mode === 'command') {
+    /**
+     * Drive the REAL command table the panel and `!` channel use: `mine <block> <count>`
+     * goes through the shared dispatcher into the TaskHub and the skill runs with the
+     * task's cancellation token. This is the live A-entry/TaskHub path without starting
+     * the autonomous brain.
+     */
+    if (!args.line) throw new Error('--command needs a command line, e.g. "mine iron_ore 1"');
+    const { TaskHub } = require('../src/core/taskHub');
+    const { ChatController } = require('../src/chat/commands');
+    const said = [];
+    ctx.reply = (text) => {
+      said.push(String(text));
+      captureLog.info(`say: ${text}`);
+      return true;
+    };
+    ctx.hub = new TaskHub(ctx, { log: captureLog, trace: () => {} });
+    ctx.chat = new ChatController(ctx, { prefix: '!' });
+    /**
+     * Optional mid-run stop: `--stop-after N` cancels the live task through the same
+     * TaskHub the operator's `!stop` uses, so the interruption semantics (no further side
+     * effects, partial result preserved) are exercised for real.
+     */
+    if (args.stopAfter) {
+      setTimeout(() => {
+        ctx.hub.cancel('live-test stop').catch(() => {});
+      }, args.stopAfter);
+    }
+    const handle = ctx.chat.handle(args.line, 'live-test', { source: 'panel' });
+    const receipt = await handle;
+    evidence.receipt = receipt && receipt.result ? receipt.result : receipt;
+    console.log('receipt:', JSON.stringify(evidence.receipt));
+    const task = ctx.hub.current;
+    if (task && typeof task.settle?.then === 'function') {
+      const info = await task.settle;
+      evidence.task = info;
+      console.log('task   :', JSON.stringify({
+        ok: info.ok,
+        ms: info.ms,
+        partial: info.partial,
+        pending: info.pending,
+        recoveryRuns: info.recoveryRuns,
+        interrupted: info.interrupted,
+        reason: info.reason
+      }));
+      if (args.stopAfter) {
+        // A stop test passes when the task really stopped (not when it finished normally).
+        if (!info.interrupted) {
+          console.log('STOP TEST FAIL: the task was not interrupted');
+          exitCode = 1;
+        }
+        const progress = await body.request('/progress').catch(() => null);
+        evidence.progressAfterStop = progress;
+        console.log('progress:', JSON.stringify(progress));
+      } else if (info.ok === false && info.interrupted !== 'replaced') {
+        exitCode = 1;
+      }
+    } else if (receipt && receipt.result && Array.isArray(receipt.result.pending)) {
+      // Material path: the task went to the brain queue instead of the hub.
+      console.log('note   : material request queued (no hub task to settle here)');
+    }
   }
 
   if (args.mode === 'pillar') {

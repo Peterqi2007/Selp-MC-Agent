@@ -147,10 +147,11 @@ LLM 层（`src/llm/`，生产配置已开启 `toolCalling`）：8 个工具 —�
 * 控制 Mod 已编译：`agent-client-1.0.0.jar` **60936 字节**（含 P4 回执字段、tunnel 目标保护、Pillar 失败诊断），
   改 Mod 后必须重装（`npm run client:install`）并重启客户端。
 * **真机验收（2026-10-10 夜，mc.example.com，角色 `agent`，jar 60936）**：
-  `npm run mining:live` 驱动完成 7 轮采矿 + 1 次垫柱探针——**连续 5 轮完整成功**
-  （深板岩钻石 ×2、深板岩铁 ×2、金矿长隧道 ×1；均为 `[verified] collected=1 pending=0`，
+  `npm run mining:live` 驱动完成 8 轮采矿 + 垫柱探针 + 命令入口 + 中途 stop——**连续 6 轮完整成功**
+  （深板岩钻石 ×2、深板岩铁 ×2、金矿 ×2〔含长隧道与命令入口各一〕；均为 `[verified] collected=1 pending=0`，
   垫柱 1–2 跳且 `start/end/placedCells` 回执齐全）；首轮暴露并当场修复两处
   （收尾清扫后的入包对账、挖后矿格作为拾取站位）；1 轮在竖井 3 格落差前按 `danger` 诚实停止。
+  命令入口（面板同源）回执与 `acquisition 1/1 verified` 结算落地；中途 stop 后 Mod 空闲、无后续动作。
   振荡早退护栏真机生效（A/B 往返 20+ 步 → 3 步内交垫柱）。证据：`runtime/mining-live/*.json`。
   遗留真机项：tunnel 目标保护场景、采集中途 stop、同型地形 3 次重复、LLM 接管 L 系列
   （`miningRecovery.enabled` 仍为 false，验收后显式开启）。
