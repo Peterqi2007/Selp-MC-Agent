@@ -28,9 +28,13 @@ const { DepositTask } = require('../tasks/deposit');
 const { LightTask } = require('../tasks/light');
 const { ChopWoodTask } = require('../tasks/chopWood');
 const { MineBlockTask } = require('../tasks/mineBlock');
+const { MineOreTask } = require('../tasks/mineOre');
 const { GoToTask } = require('../tasks/goto');
 const { inventorySummary } = require('../world/items');
 const { Logger } = require('../util/logger');
+const { dispatchMining, classifyMining } = require('../core/miningDispatch');
+const { expandBlockNames: expandTargetAliases } = require('../core/miningRequest');
+const { routeGoal } = require('../core/goalRouter');
 
 const HELP = [
   '!status - health, food, position, current goal',
@@ -190,24 +194,39 @@ class ChatController {
         ctx.brain.resume();
         this.say('继续干活');
       },
-      mine: (args) => {
-        const block = args[0] || 'stone';
-        const count = Number(args[1]) || 8;
+      /**
+       * One mining entry for the whole command channel (plan §5.6).
+       *
+       * Ore targets submit a single `mine_ore` job into the TaskHub and answer with an
+       * acceptance receipt - the old path enqueued the walk-only `MineBlockTask`, which
+       * reports "no diamond_ore nearby" for veins embedded in rock (live 2026-10-10).
+       * Planner materials (stone/dirt/sand/...) keep their proven task, including its
+       * count+2 overshoot: it counts *collected items*, so overshooting slightly beats
+       * falling short.
+       */
+      mine: async (args) => {
+        const block = args[0];
+        if (!block) throw new Error('usage: !mine <block> [n]');
         /**
-         * A comma list arrives from the LLM dispatch, which now passes the whole target list
-         * instead of only its first name; each entry expands into its variants (see
-         * expandBlockNames). Dropping all but one name is how a diamond job at y=-59 searched
-         * for `diamond_ore` while every block down there is `deepslate_diamond_ore`.
+         * Capture the source now: a long dispatch must not read a mutable field that a
+         * second message could overwrite while this one is still in flight (§5.6.3).
          */
-        const blocks = String(block)
-          .split(',')
-          .map((n) => n.trim())
-          .filter(Boolean)
-          .flatMap((n) => expandBlockNames(n));
-        // Ask for a couple extra: the last block often drops nothing useful, and the task
-        // counts *items collected*, so overshooting slightly beats falling short.
-        this.say(`去挖 ${count} 个 ${block}`);
-        return this.enqueue(new MineBlockTask(ctx, { block: blocks, count: count + 2 }));
+        const source = this.dispatchSource || 'chat';
+        const dispatched = await dispatchMining(
+          ctx,
+          { blocks: block, count: args[1] },
+          { source, defaultCount: 8 }
+        );
+        if (!dispatched.ok) {
+          this.say(`不行：${dispatched.reason}`);
+          return dispatched;
+        }
+        if (dispatched.kind === 'ore') {
+          this.say(`去挖 ${dispatched.count} 个 ${block}（${dispatched.blocks.join('/')}）`);
+          return dispatched;
+        }
+        this.say(`去挖 ${dispatched.count} 个 ${block}`);
+        return this.enqueue(new MineBlockTask(ctx, { block: dispatched.blocks, count: dispatched.count + 2 }));
       },
       chop: (args) => {
         const count = Number(args[0]) || 8;
@@ -302,7 +321,12 @@ class ChatController {
       shelter: () => this.enqueue(new ShelterTask(ctx)),
       light: (args) => this.enqueue(new LightTask(ctx, { count: Number(args[0]) || 4 })),
       store: () => this.enqueue(new DepositTask(ctx)),
-      goal: (args) => ctx.onGoal(args.join('')),
+      /**
+       * `ctx.onGoal` never existed - this called undefined in production and every
+       * `!goal ...` answered with "ctx.onGoal is not a function" (found by the A-series
+       * entry test). The controller owns the method.
+       */
+      goal: (args) => this.onGoal(args.join(' ')),
       goto: async (args) => {
         const [x, y, z] = args.map(Number);
         if ([x, y, z].some((n) => Number.isNaN(n))) throw new Error('usage: !goto <x> <y> <z>');
@@ -613,42 +637,16 @@ class ChatController {
    * five P0 actions; anything else throws so the caller can answer honestly.
    */
   async onGoal(text) {
-    const t = String(text).toLowerCase();
-    const count = (t.match(/(\d+)/) || [])[1];
-    const direct = (task, note) => {
-      if (note) this.say(note);
-      return this.enqueue(task);
-    };
-    if (/wood|log|tree|木头|原木|砍树|砍点|砍些/.test(t)) {
-      return direct(new ChopWoodTask(this.ctx, { count: Number(count) || 16 }), `去砍 ${Number(count) || 16} 根木头`);
-    }
-    if (/iron|铁/.test(t)) {
-      return direct(
-        new MineBlockTask(this.ctx, {
-          block: ['iron_ore', 'deepslate_iron_ore'],
-          count: Number(count) || 3,
-          timeoutMs: 240000
-        }),
-        '去挖铁'
-      );
-    }
-    if (/stone|cobble|石头|圆石|挖矿|挖点/.test(t)) {
-      return direct(
-        new MineBlockTask(this.ctx, { block: ['stone', 'cobblestone', 'deepslate'], count: Number(count) || 16 }),
-        '去挖石头'
-      );
-    }
-    if (/food|hunt|meat|食物|打猎|吃肉/.test(t)) {
-      return direct(new HuntTask(this.ctx, { count: Number(count) || 3 }), '去打猎');
-    }
-    if (/shelter|house|庇护|房子|基地/.test(t)) return direct(new ShelterTask(this.ctx), '去造庇护所');
-    if (/light|torch|火把|照明/.test(t)) return direct(new LightTask(this.ctx, { count: Number(count) || 4 }), '去插火把');
-    if (/store|chest|存|箱子/.test(t)) return direct(new DepositTask(this.ctx), '去存东西');
-    if (/craft|合成/.test(t)) {
-      const item = t.replace(/craft|合成|\d+|个/g, '').trim().replace(/\s+/g, '_');
-      return direct(new CraftTask(this.ctx, { item, count: Number(count) || 1 }), `去合成 ${item}`);
-    }
-    throw new Error(`goal not understood: "${text}"`);
+    /**
+     * One goal router for `!goal` and `--goal` (plan §5.6.1): the two copies drifted on
+     * ordering, so "挖铁" mined stone in one of them. The router keeps the note/ack here
+     * and the task construction there, so the answer the player hears still names the
+     * right job.
+     */
+    const routed = routeGoal(this.ctx, text);
+    if (!routed) throw new Error(`goal not understood: "${text}"`);
+    this.say(routed.note);
+    return this.enqueue(routed.task);
   }
 
   startFollowLoop() {
@@ -719,32 +717,13 @@ class ChatController {
 }
 
 function expandBlockNames(name) {
-  const clean = String(name).replace(/^minecraft:/, '').trim();
-  const aliases = {
-    stone: ['stone', 'cobblestone', 'deepslate'],
-    cobble: ['cobblestone'],
-    cobblestone: ['cobblestone'],
-    iron: ['iron_ore', 'deepslate_iron_ore'],
-    coal: ['coal_ore', 'deepslate_coal_ore'],
-    diamond: ['diamond_ore', 'deepslate_diamond_ore'],
-    gold: ['gold_ore', 'deepslate_gold_ore'],
-    sand: ['sand', 'red_sand'],
-    gravel: ['gravel'],
-    // The whole vanilla soil family: the live server's ground is often a biome-mod variant,
-    // and `MineBlockTask` additionally matches modded `*_dirt` / `*_grass_block` names.
-    dirt: ['dirt', 'grass_block', 'coarse_dirt', 'rooted_dirt', 'podzol', 'mycelium', 'moss_block', 'mud'],
-    wood: ['oak_log', 'spruce_log', 'birch_log', 'jungle_log', 'acacia_log', 'dark_oak_log']
-  };
-  if (aliases[clean]) return aliases[clean];
   /**
-   * Deepslate twins: below y=0 every `<x>_ore` generates as `deepslate_<x>_ore`. The model
-   * says "diamond_ore"; passing that through unchanged made a deep-mine job search for
-   * blocks that cannot exist there (live 2026-10-10).
+   * Compatibility wrapper: the alias table lives in `src/core/miningRequest.js` now, so
+   * the command layer, the LLM dispatch and the skill boundary expand names identically
+   * (plan §5.6.3: "别名规则只维护一份"; unknown `_ore` names no longer get an invented
+   * deepslate twin such as `deepslate_nether_quartz_ore`).
    */
-  if (/_ore$/.test(clean) && !clean.startsWith('deepslate_')) {
-    return [clean, `deepslate_${clean}`];
-  }
-  return [clean];
+  return expandTargetAliases(name);
 }
 
 module.exports = { ChatController, HELP, expandBlockNames };

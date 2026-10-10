@@ -36,7 +36,8 @@ const { reply } = require('./chat/reply');
 const { DeathWatch } = require('./core/deathWatch');
 const { AuthMeLogin } = require('./core/authme');
 const { ChopWoodTask } = require('./tasks/chopWood');
-const { MineBlockTask } = require('./tasks/mineBlock');
+const { runMiningInline } = require('./core/miningDispatch');
+const { applyGoal } = require('./core/goalRouter');
 const { HuntTask } = require('./tasks/hunt');
 const { ShelterTask } = require('./tasks/shelter');
 const { CraftTask } = require('./tasks/craft');
@@ -238,7 +239,14 @@ async function main() {
     world = ctx.world;
   }
   ctx.craft = (options) => new CraftTask(ctx, options).execute();
-  ctx.mine = (options) => new MineBlockTask(ctx, options).execute();
+  /**
+   * `ctx.mine` - the internal direct-executor contract ("the caller already owns the
+   * task slot", plan §5.6.3). It keeps the old signature but routes through the shared
+   * request normalization, so an ore request from an owning task reaches `mine_ore`
+   * instead of the walk-only task, without submitting a second TaskHub job.
+   */
+  ctx.mine = (options = {}) =>
+    runMiningInline(ctx, { blocks: options.block || options.ore, count: options.count, params: options });
   ctx.chop = (options) => new ChopWoodTask(ctx, options).execute();
   ctx.hunt = (options) => new HuntTask(ctx, options).execute();
   ctx.shelter = (options) => new ShelterTask(ctx, options).execute();
@@ -610,29 +618,6 @@ async function main() {
     log.info('--once set: exiting after 60s sanity run');
     setTimeout(() => shutdown('once'), 60000);
   }
-}
-
-/** Map a free-text goal onto a task (minimal NL layer, extended by chat commands). */
-async function applyGoal(ctx, goal) {
-  const text = String(goal).toLowerCase();
-  const numMatch = text.match(/(\d+)/);
-  const count = numMatch ? Number(numMatch[1]) : undefined;
-  if (/wood|log|tree|木头|原木|砍/.test(text)) return ctx.brain.push(new ChopWoodTask(ctx, { count: count || 16 }));
-  // Dirt before stone: "挖泥土" also matches the stone branch below via 挖, and answering a
-  // request for dirt with a stone task looks like the agent ignoring what was asked.
-  if (/dirt|泥土|土块|挖土/.test(text)) {
-    return ctx.brain.push(new MineBlockTask(ctx, { block: ['dirt', 'grass_block'], count: count || 16, probeShaft: false }));
-  }
-  if (/stone|cobble|石头|圆石|挖/.test(text)) return ctx.brain.push(new MineBlockTask(ctx, { block: ['stone', 'cobblestone', 'deepslate'], count: count || 16 }));
-  if (/iron|铁/.test(text)) return ctx.brain.push(new MineBlockTask(ctx, { block: ['iron_ore', 'deepslate_iron_ore'], count: count || 3, timeoutMs: 240000 }));
-  if (/food|hunt|meat|食物|打猎|肉/.test(text)) return ctx.brain.push(new HuntTask(ctx, { count: count || 3 }));
-  if (/shelter|house|base|庇护|房子|基地/.test(text)) return ctx.brain.push(new ShelterTask(ctx));
-  if (/craft|合成/.test(text)) {
-    const item = text.replace(/craft|合成|\d+/g, '').trim().replace(/\s+/g, '_');
-    return ctx.brain.push(new CraftTask(ctx, { item, count: count || 1 }));
-  }
-  ctx.log.warn(`goal not understood: "${goal}"`);
-  return null;
 }
 
 main().catch((err) => {

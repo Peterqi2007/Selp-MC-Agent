@@ -21,6 +21,7 @@ const { bare } = require('../world/items');
 const { toolPlan } = require('../world/toolPolicy');
 const { RecoveryLadder } = require('../core/recoveryLadder');
 const { quoteApproach, stepVector, stepCells, DigLedger } = require('./miningPlan');
+const { normalizeOreParams, resolverFromCtx, targetMatches } = require('../core/miningRequest');
 
 const AIR = /^(air|cave_air|void_air)$/;
 const HAZARD = /water|lava/;
@@ -142,22 +143,38 @@ register({
      * both the plain and the deepslate variant; the pattern matches any of them, so the same
      * job works above y=0 (diamond_ore) and below it (deepslate_diamond_ore).
      */
-    const oreNames = (() => {
-      const spec = [params.ore, params.block].find((v) => typeof v === 'string' && v.trim()) || 'iron_ore';
-      const names = String(spec)
-        .split(',')
-        .map((n) => bare(n.trim()))
-        .filter(Boolean);
-      return names.length ? [...new Set(names)] : ['iron_ore'];
-    })();
+    /**
+     * The skill boundary normalizes through the same pure module as every entry point
+     * (plan §5.6.1: "在技能边界也调用同一个纯归一函数，防止直调绕过"). A direct
+     * `do_skill("mine_ore")` therefore gets the same alias expansion and the same
+     * deepslate pairs as `!mine`, and a plain material target is refused as
+     * `bad_argument` instead of silently scanning for a block that is not an ore.
+     */
+    const normalizedTargets = normalizeOreParams(
+      { ore: params.ore, block: params.block },
+      { resolver: resolverFromCtx(ctx) }
+    );
+    if (!normalizedTargets.ok) {
+      return { ok: false, reason: normalizedTargets.reason, failure: 'bad_argument' };
+    }
+    const oreNames = normalizedTargets.blocks;
     const oreLabel = oreNames.join('/');
-    const escapeRe = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    /**
+     * Exact set membership, never an end-anchored regex: `diamond_ore$` would also match
+     * a modded `foo:diamond_ore`, and a bare `gold_ore` would match `nether_gold_ore`
+     * nowhere (good) but `deepslate_gold_ore` only by luck of the suffix (bad).
+     */
+    const oreSet = new Set(oreNames);
+    const matchesOre = (name) => targetMatches(name, oreSet);
 
     let snapshot = await refresh(ctx);
     if (!snapshot) return { ok: false, reason: 'no state from the client' };
     const pickaxe = (() => {
-      const plan = minePlan(snapshot, oreNames[0]);
-      return plan && plan.tool ? plan.tool.name : null;
+      for (const name of oreNames) {
+        const plan = minePlan(snapshot, name);
+        if (plan && plan.ok && plan.tool) return plan.tool.name;
+      }
+      return null;
     })();
     if (!pickaxe) return { ok: false, reason: `no pickaxe that can mine ${oreLabel}` };
     await body.equip(pickaxe).catch(() => false);
@@ -165,7 +182,6 @@ register({
       ctx.log.info(`mine_ore: ${oreLabel} with ${bare(pickaxe)} at y=${feetOf(snapshot).y}`);
     }
 
-    const orePattern = new RegExp(`(?:${oreNames.map(escapeRe).join('|')})$`);
     const blocked = new Set();
 
     // ---- helpers -----------------------------------------------------------
@@ -543,7 +559,7 @@ register({
       const here = feetOf(snap);
       if (!here) return null;
       const found = ctx.world && typeof ctx.world.findBlocksMatching === 'function'
-        ? ctx.world.findBlocksMatching((name) => orePattern.test(bare(name)), {
+        ? ctx.world.findBlocksMatching((name) => matchesOre(name), {
             maxDistance: params.maxXZ + params.maxY,
             count: 96
           })

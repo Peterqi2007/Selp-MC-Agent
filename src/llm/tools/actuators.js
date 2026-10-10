@@ -15,6 +15,7 @@
 const { bare } = require('../../world/safety');
 const skills = require('../../skills');
 const { fold } = require('../../core/failure');
+const { dispatchMining } = require('../../core/miningDispatch');
 
 /** Task names the model may request, matching the intent enum in src/llm/intent.js. */
 const TASK_NAMES = ['chop', 'mine', 'collect'];
@@ -69,11 +70,18 @@ async function doTask(ctx, args, options = {}) {
   } else if (task === 'collect') {
     line = 'collect';
   } else {
+    /**
+     * Mining goes through the shared dispatcher, with the full target array preserved
+     * (plan §5.6.1: the old code took `blocks[0]` and silently dropped the rest). Ores
+     * submit `mine_ore` once; materials come back as a normalized descriptor and keep
+     * the command-table path.
+     */
     const blocks = (inner.block || []).map((b) => bare(b)).filter(Boolean);
     if (!blocks.length) return fold({ ok: false, error: 'mine needs at least one block name', failure: 'bad_argument' });
-    // One block name per call: the command table takes a single target plus a count, and
-    // silently mining only the first of a list would be a lie about what was requested.
-    line = `mine ${blocks[0]} ${count || 8}`;
+    const dispatched = await dispatchMining(ctx, { blocks, count }, { source: options.source || 'llm', speaker: options.speaker, defaultCount: 8 });
+    if (!dispatched.ok) return fold({ ok: false, error: dispatched.reason || dispatched.error || 'mine refused', failure: 'bad_argument' });
+    if (dispatched.kind === 'ore') return { ...dispatched, task };
+    line = `mine ${dispatched.blocks.join(',')} ${dispatched.count}`;
   }
 
   return dispatch(ctx, line, options, { task });

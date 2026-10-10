@@ -18,6 +18,7 @@
 const { ChopWoodTask } = require('./tasks/chopWood');
 const { CraftTask } = require('./tasks/craft');
 const { MineBlockTask } = require('./tasks/mineBlock');
+const { MineOreTask } = require('./tasks/mineOre');
 const { ShelterTask } = require('./tasks/shelter');
 const { HuntTask } = require('./tasks/hunt');
 const { LightTask } = require('./tasks/light');
@@ -355,7 +356,12 @@ class Brain {
       {
         name: 'mine',
         when: () => hasPick && pickRank >= stoneRank && !has('iron_ingot', 3),
-        make: () => new MineBlockTask(ctx, { block: ['iron_ore', 'deepslate_iron_ore'], count: 3, priority: 56, timeoutMs: 240000 })
+        /**
+         * The autonomous iron run uses the ore executor through the MineOreTask adapter:
+         * it runs inside the planner's own ownership (no second TaskHub submission) and
+         * shares the alias/variant normalization with every explicit entry (plan §5.6.1).
+         */
+        make: () => new MineOreTask(ctx, { block: ['iron_ore'], count: 3, priority: 56, timeoutMs: 240000 })
       },
       { name: 'gather-wood', when: () => mayChop && wood < 16, make: () => new ChopWoodTask(ctx, { count: 16, priority: 60 }) },
       { name: 'light', when: () => has('coal') || has('charcoal'), make: () => new LightTask(ctx, { count: 6, priority: 62 }) },

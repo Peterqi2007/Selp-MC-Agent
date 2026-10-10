@@ -201,7 +201,18 @@ function normalizeResult(res) {
   if (res === undefined || res === null) return { ok: true, reason: 'completed' };
   if (typeof res === 'string') return { ok: true, reason: res };
   if (typeof res === 'boolean') return { ok: res, reason: res ? 'completed' : 'returned false' };
-  if (typeof res === 'object') return { ok: res.ok !== false, reason: res.reason || res.message || 'completed' };
+  /**
+   * Objects keep their fields.
+   *
+   * The old shape kept only ok/reason, which threw away `mined`/`ledger`/`minedAt` from
+   * the mine_ore adapter and made the planner unable to report what a mining task
+   * actually produced (plan §5.6.3: "修正 Task.normalizeResult 当前只保留 ok/reason
+   * 的行为"). `ok` and `reason` are still normalised here so every caller keeps the
+   * same contract.
+   */
+  if (typeof res === 'object') {
+    return { ...res, ok: res.ok !== false, reason: res.reason || res.message || 'completed' };
+  }
   return { ok: true, reason: String(res) };
 }
 

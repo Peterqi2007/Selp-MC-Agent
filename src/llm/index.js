@@ -714,43 +714,43 @@ class LlmCore {
       const names = (Array.isArray(action.args.block) ? action.args.block : [action.args.block])
         .map((n) => String(n || '').replace(/^minecraft:/, '').trim())
         .filter(Boolean);
-      const ores = names.filter((n) => /_ore$/.test(n));
       /**
-       * Ores are routed to `mine_ore`, not the legacy walk-only task.
+       * One dispatcher decides the executor (plan §5.6.2).
        *
-       * The task harvests only ores exposed along a walkable path - embedded veins come back
-       * `noPath` even though the scan lists them (live 2026-10-10: the model asked for
-       * diamonds and the task reported "no diamond_ore available nearby" while six deepslate
-       * ores were in view). The skill digs the sloped tunnel instead, and it now accepts the
-       * `block`/`count` argument names the model naturally emits.
+       * The old code re-implemented the ore/material split right here with `_ore$`; that
+       * duplicate drifted from the command path (mixed lists silently kept only ores) and
+       * is deleted. Ores submit `mine_ore` through the TaskHub; materials build the same
+       * command line the `!` channel uses.
        */
-      if (ores.length) {
-        const actuators = require('./tools/actuators');
+      const { dispatchMining } = require('../core/miningDispatch');
+      const dispatched = await dispatchMining(
+        this.ctx,
+        { blocks: names, count: action.args.count },
+        { source: context.source || 'llm', speaker: context.speaker, defaultCount: 8 }
+      );
+      if (!dispatched.ok) {
+        return { ok: false, reason: dispatched.reason || dispatched.error || 'mining request refused' };
+      }
+      if (dispatched.kind === 'ore') {
         this.trace({
           kind: 'dispatch',
           id: context.id || null,
-          line: 'skill mine_ore (ore redirect from task mine)',
+          line: 'skill mine_ore (dispatched from task mine)',
           level,
           via: 'llm',
           channel: context.source || 'llm'
         });
-        const result = await actuators.doSkill(
-          this.ctx,
-          { name: 'mine_ore', params: { block: ores.join(','), count: action.args.count } },
-          { source: context.source || 'llm', speaker: context.speaker }
-        );
         return {
-          ok: result.ok !== false,
+          ok: dispatched.ok !== false,
           line: 'skill mine_ore',
-          accepted: result.ok !== false,
-          async: result.async === true,
-          taskId: result.taskId || null,
-          detail: result,
-          reason: result.reason || result.error || null
+          accepted: dispatched.accepted !== false,
+          async: dispatched.async === true,
+          taskId: dispatched.taskId || null,
+          detail: dispatched,
+          reason: dispatched.reason || dispatched.error || null
         };
       }
-      const block = names[0] || 'stone';
-      line = `mine ${block} ${action.args.count || 8}`;
+      line = `mine ${dispatched.blocks.join(',')} ${dispatched.count}`;
     } else {
       return { ok: false, reason: `no handler for task "${action.task}"` };
     }

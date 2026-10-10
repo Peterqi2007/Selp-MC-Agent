@@ -18,6 +18,7 @@
  */
 
 const { normalizeIntent } = require('./intent');
+const miningRequest = require('../core/miningRequest');
 
 /** Keyword groups per action. Order matters: the first match wins. */
 const RULES = [
@@ -126,12 +127,15 @@ const RULES = [
       const names = blocksFor(text);
       const target = count || 8;
       /**
-       * Ores go to the dig-while-walking skill; the legacy `mine` task is walk-only and
-       * reports "no X available nearby" for veins embedded in rock (live 2026-10-10).
-       * Stone/sand keep the proven harvest task.
+       * The router only extracts the intent and the count; which executor runs is the
+       * shared classifier's decision (plan §5.6.1: "目标分类共用同一规则"). Ores go to
+       * the dig-while-walking skill - the legacy `mine` task is walk-only and reports
+       * "no X available nearby" for veins embedded in rock (live 2026-10-10) - while
+       * stone/sand keep the proven harvest task.
        */
-      if (names.some((n) => /_ore$/.test(n))) {
-        return { type: 'skill', skill: 'mine_ore', args: { block: names.join(','), count: target } };
+      const classified = miningRequest.normalizeMiningRequest({ blocks: names });
+      if (classified.ok && classified.kind === 'ore') {
+        return { type: 'skill', skill: 'mine_ore', args: { block: classified.blocks.join(','), count: target } };
       }
       return { type: 'task', task: 'mine', args: { block: names, count: target } };
     },
