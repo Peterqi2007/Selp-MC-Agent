@@ -438,23 +438,33 @@ async function main() {
     const { findScaffold } = require('../src/world/items');
     const bareName = (name) => String(name || '').replace(/^[a-z0-9_]+:/, '');
     const drops = (before.nearbyItems || [])
-      .filter((d) => d && d.position && (!args.item || String(d.name || '').includes(args.item)))
+      .filter((d) => d && d.position && (!args.item || String(d.name || d.item || '').includes(args.item)))
       .sort((a, b) => (a.distance || 0) - (b.distance || 0));
     if (!drops.length) {
       console.log('no visible dropped items nearby');
       exitCode = 2;
     } else {
       const drop = drops[0];
+      /**
+       * The Mod's item entities use `item`; the body method maps it to `name` (plan CP1).
+       * Accept both so the probe cannot silently miss a real drop.
+       */
+      const dropName = bareName(drop.name || drop.item || '');
       const goal = prepareAcquisition({
         taskId: 'probe',
-        target: { blockId: bareName(drop.name), position: drop.position },
-        products: [bareName(drop.name)],
+        target: { blockId: dropName, position: drop.position },
+        products: [dropName],
         snapshot: before
       });
       goal.mined = { confirmed: true, actionId: 'probe', at: Date.now(), before: null, after: null };
       goal.status = 'pending';
       goal.phase = 'collect';
-      goal.pendingDrops = [{ id: drop.id, name: bareName(drop.name), count: drop.count || 1, position: { ...drop.position } }];
+      goal.pendingDrops = [{ id: drop.id, name: dropName, count: drop.count || 1, position: { ...drop.position } }];
+      /**
+       * The probe explicitly owns this pre-existing entity: clear the "old drops" baseline,
+       * or the fresh-drop filter would treat the target as someone else's leftover.
+       */
+      goal.dropsBefore = [];
       const pickaxe = Object.keys(before.inventory || {}).find((n) => /_pickaxe$/.test(n));
       if (pickaxe) await body.equip(pickaxe).catch(() => false);
       const scaffold = findScaffold(before.inventory || {});

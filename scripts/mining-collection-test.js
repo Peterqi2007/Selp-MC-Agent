@@ -248,6 +248,28 @@ async function main() {
     assert.strictEqual(goal.evidenceLevel, 'ambiguous');
     return 'old drop -> ambiguous, not correlated';
   });
+  await check('live fix 10-10b: a delta from another source never verifies while the target drop is intact', () => {
+    const goal = goalFor(snap({}));
+    recordMineResult(goal, { receipt: { ok: true, dug: true } });
+    goal.pendingDrops = [{ id: 'orig', name: 'diamond', count: 2, position: { x: 1, y: 64, z: 0 } }];
+    const seen = observeAcquisition(
+      goal,
+      snap({
+        inventory: { 'minecraft:diamond': 1 },
+        drops: [{ id: 'orig', name: 'minecraft:diamond', count: 2, position: { x: 1, y: 64, z: 0 } }]
+      })
+    );
+    const verdict = verifyAcquisition(goal, seen);
+    assert.strictEqual(verdict.verified, false, 'an intact tracked drop must block attribution');
+    assert.strictEqual(goal.collectedItems, 0);
+    assert.strictEqual(goal.evidenceLevel, 'ambiguous');
+    // Then the real stack is picked: the entity disappears and the same delta verifies.
+    const later = observeAcquisition(goal, snap({ inventory: { 'minecraft:diamond': 1 }, drops: [] }));
+    const verdict2 = verifyAcquisition(goal, later);
+    assert.strictEqual(verdict2.verified, true);
+    assert.strictEqual(goal.collectedItems, 1);
+    return 'intact target blocks the attribution; disappearance unlocks it';
+  });
   await check('C20: claimable caps one delta to one goal', () => {
     const goal = goalFor(snap({}));
     recordMineResult(goal, { receipt: { ok: true, dug: true } });

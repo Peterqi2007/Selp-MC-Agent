@@ -215,7 +215,11 @@ function observeAcquisition(goal, snapshot) {
   let evidenceLevel = 'correlated';
   if (goal.dropsBefore.length > 0) evidenceLevel = 'ambiguous';
 
-  goal.pendingDrops = fresh.map((d) => ({ ...d }));
+  /**
+   * NOTE: pendingDrops is NOT updated here - verifyAcquisition owns the transition and
+   * needs the *previous* tracked list to tell "the target is still intact" (delta from
+   * another source) from "the target itself shrank/disappeared" (real pickup).
+   */
   return { goal, delta: Math.max(0, delta), drops: fresh, evidenceLevel };
 }
 
@@ -232,7 +236,31 @@ function verifyAcquisition(goal, observation, options = {}) {
   const claimable = options.claimable === undefined
     ? observation.delta
     : Math.max(0, Math.min(observation.delta, options.claimable));
-  const collected = Math.max(0, Math.floor(claimable));
+  let collected = Math.max(0, Math.floor(claimable));
+  /**
+   * Live 2026-10-10: a probe walked over an old same-type drop while the real target drop
+   * was still sealed in rock; the inventory delta verified a goal whose product was
+   * demonstrably still on the ground. When every tracked pending entity is still present
+   * with at least its previous count, a positive delta cannot be attributed to this goal
+   * (plan C12/R25: one delta belongs to one source; ambiguous evidence never verifies).
+   */
+  const trackedIntact =
+    goal.pendingDrops.length > 0 &&
+    goal.pendingDrops.every((prev) => {
+      if (prev.id === null || prev.id === undefined) return false; // unknown id: cannot prove intact
+      const now = observation.drops.find((d) => String(d.id) === String(prev.id));
+      return !!now && now.count >= prev.count;
+    });
+  if (collected > 0 && trackedIntact) {
+    goal.evidenceLevel = 'ambiguous';
+    goal.evidence.push({
+      at: Date.now(),
+      kind: 'delta-rejected',
+      items: collected,
+      reason: 'the tracked drop is still on the ground - the delta came from another source'
+    });
+    collected = 0;
+  }
   if (collected > 0) {
     goal.collectedItems += collected;
     goal.evidenceLevel = observation.evidenceLevel;

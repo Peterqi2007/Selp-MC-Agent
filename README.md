@@ -153,6 +153,9 @@ LLM 层（`src/llm/`，生产配置已开启 `toolCalling`）：8 个工具 —�
   （收尾清扫后的入包对账、挖后矿格作为拾取站位）；1 轮在竖井 3 格落差前按 `danger` 诚实停止。
   命令入口（面板同源）回执与 `acquisition 1/1 verified` 结算落地；中途 stop 后 Mod 空闲、无后续动作；
   tunnel 目标保护真机命中（被保护方块保留、`dugCells=0`）。
+  针对“掉落物被岩石包住拿不到”的真机问题：收集器新增有限清障开路（受控夹具实测挖开壁面并拾取），
+  并修正“目标仍在地上时路过捡到同类掉落会误判已收”的归因；`npm run mining:live -- --collect-drops`
+  可点名清理被封掉落。
   振荡早退护栏真机生效（A/B 往返 20+ 步 → 3 步内交垫柱）。证据：`runtime/mining-live/*.json`。
   遗留真机项：tunnel 目标保护场景、采集中途 stop、同型地形 3 次重复、LLM 接管 L 系列
   （`miningRecovery.enabled` 仍为 false，验收后显式开启）。
