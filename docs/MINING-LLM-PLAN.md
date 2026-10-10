@@ -841,3 +841,21 @@ P4 补单格 pillar 的放置权限；既有 tunnel 的连续挖掘权限缺口�
 > `pillar-up` 阶梯（含 hazard 交接、上升豁免、到达判定统一、`stalled` 护栏），已提交于 `f08c525`。
 > 该提交中的“迭代清障”表述不表示 §5.4 已实现：基线代码仍为一次预清后多格升柱。
 > 附表行号是该提交的定位基线，实施时以函数/类名定位；新增模块为方案，当前尚不存在。
+
+---
+
+## 附二：实机记录（2026-10-10 夜，jar 60936，mc.example.com，角色 `agent`）
+
+通过 `npm run mining:live`（受控登录 → 预检 → 单矿/垫柱探针，证据落盘 `runtime/mining-live/*.json`）
+执行 A/P4/C 关键路径，共 4 轮：
+
+1. 第 1 轮（钻石×1）：挖到目标、产物入包，但 goal 仍 pending——收尾清扫捡走产物却未回写证据账；
+   已修复（`reconcilePendingGoals` 在清扫后对账），并补离线用例。
+2. 第 2 轮：竖井中 `pillar-up` 报 `place-failed`（升 0 格、未虚报），随后 direct 阶梯 A/B 往返 20+ 步，
+   最终在 3 格落差前按 `danger` 诚实停止；已加振荡早退护栏，并为 Mod Pillar 增加失败诊断
+   （跳跃峰值/手持/地板，随 jar 60936 装载）。
+3. 第 3 轮（钻石×1）：完整成功——`[verified] collected=1 pending=0`；逐格垫柱 2 跳（placedCells 回执齐全）。
+4. 第 4 轮（钻石×1，更高位）：完整成功；climb 日志由 20+ 步降到 3 步，垫柱 1 跳。
+
+尚未执行的真机项：tunnel 目标保护的真实命中场景、采集中途 stop、同型竖井 3 次重复试验，
+以及 §6.6 的 L 系列（`miningRecovery.enabled` 保持 false，离线矩阵已通过）。

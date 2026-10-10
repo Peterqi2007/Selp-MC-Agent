@@ -144,11 +144,15 @@ LLM 层（`src/llm/`，生产配置已开启 `toolCalling`）：8 个工具 —�
 
 * 离线全绿：`selftest 173/173`、`skills:test 41/41`、`client:test 66/66`、`mining:entry:test 20/20`、
   `mining:collection:test 15/15`、`mining:recovery:test 18/18`、`p0:verify 8/8`（明细见 §8）。
-* 控制 Mod 已编译：`agent-client-1.0.0.jar` **60340 字节**（含 P4 回执字段 + tunnel 目标保护），
+* 控制 Mod 已编译：`agent-client-1.0.0.jar` **60936 字节**（含 P4 回执字段、tunnel 目标保护、Pillar 失败诊断），
   改 Mod 后必须重装（`npm run client:install`）并重启客户端。
-* **本轮真机验收进行中**：A（入口矩阵）、P4（连续升格）、C1/C2（高处掉落收集、目标保护）按
-  [`docs/MINING-LLM-PLAN.md`](docs/MINING-LLM-PLAN.md) §6.3 / [`docs/MINING-COLLECTION-PLAN.md`](docs/MINING-COLLECTION-PLAN.md) §9.3
-  在受控矿点执行；LLM 接管（L 系列）需先通过离线矩阵，届时把 `miningRecovery.enabled` 显式打开。
+* **真机验收（2026-10-10 夜，mc.example.com，角色 `agent`，jar 60936）**：
+  `npm run mining:live` 驱动完成 4 轮受控用例——2 轮完整成功（深板岩钻石各 1 块，
+  `[verified] collected=1 pending=0`；逐格垫柱 1–2 跳，`start/end/placedCells` 回执齐全）；1 轮暴露并当场修复两处
+  （收尾清扫后的入包对账、挖后矿格作为拾取站位）；1 轮在竖井 3 格落差前按 `danger` 诚实停止。
+  振荡早退护栏真机生效（A/B 往返 20+ 步 → 3 步内交垫柱）。证据：`runtime/mining-live/*.json`。
+  遗留真机项：tunnel 目标保护场景、采集中途 stop、同型地形 3 次重复、LLM 接管 L 系列
+  （`miningRecovery.enabled` 仍为 false，验收后显式开启）。
 * 历史真机记录（10-08）：斜下连续 20+ 格、`tunnel` 全程 `jumpsBlocked=0`、防坠落 3 格深坑前停住、
   1–2 格台阶零误报、台账 extra 0（[`docs/REWRITE-PLAN.md`](docs/REWRITE-PLAN.md) §12.6）。
 * 后续候选：断开/离开世界检测（客户端回主菜单后大脑仍会按旧快照规划）、自主采矿目标的退避加宽、
