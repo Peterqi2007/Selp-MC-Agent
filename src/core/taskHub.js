@@ -250,7 +250,14 @@ class TaskHub {
       ms,
       at: Date.now(),
       reason: info.reason,
-      interrupted
+      interrupted,
+      /**
+       * C4 reporting contract: partial success and the uncollected queue stay visible.
+       * A task that mined two ores but banked one must not read as a clean success.
+       */
+      partial: !!(result && result.partial === true),
+      pending: result && Array.isArray(result.pending) ? result.pending.length : 0,
+      recoveryRuns: result && Number.isFinite(result.recoveryRuns) ? result.recoveryRuns : 0
     });
     if (this.history.length > 20) this.history.shift();
     handle.resolveSettle(info);

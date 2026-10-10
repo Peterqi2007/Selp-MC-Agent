@@ -257,8 +257,22 @@ function render(s) {
   text('deaths', s.death.deaths ? ('死亡次数 ' + s.death.deaths) : '');
 
   var cur = s.brain.current;
-  text('current', cur ? (cur.description + ' (' + (cur.progress === null || cur.progress === undefined ? '?' : cur.progress) + ')') : 'idle');
-  text('queue', String(s.brain.queueLength));
+  var hubCur = s.hub && s.hub.current;
+  text('current', hubCur
+    ? (hubCur.description + ' · ' + hubCur.id + ' (' + Math.round((hubCur.ms || 0) / 1000) + 's)')
+    : (cur ? (cur.description + ' (' + (cur.progress === null || cur.progress === undefined ? '?' : cur.progress) + ')') : 'idle'));
+  /**
+   * The last finished task keeps its partial/pending/recovery facts visible: "mined 2,
+   * banked 1, 1 pending" must not look like a clean success in the panel either.
+   */
+  var hubLast = s.hub && s.hub.recent && s.hub.recent.length ? s.hub.recent[s.hub.recent.length - 1] : null;
+  var hubNote = '';
+  if (hubLast) {
+    if (hubLast.partial) hubNote += ' · 部分完成: ' + (hubLast.pending || 0) + ' 待收';
+    else if (hubLast.pending) hubNote += ' · 待收 ' + hubLast.pending;
+    if (hubLast.recoveryRuns) hubNote += ' · 接管 ' + hubLast.recoveryRuns + ' 次';
+  }
+  text('queue', String(s.brain.queueLength) + hubNote);
 
   var death = el('death');
   if (s.death.dead || s.brain.stopped) {

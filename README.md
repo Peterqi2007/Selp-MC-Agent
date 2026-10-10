@@ -111,7 +111,7 @@ bot 指向外部服务器，沿用前请先检查 `config/agent.json`。
 | 战斗 | `attack` `defend` |
 | 移动 | `explore` `come` |
 | 生产 | `craft` `smelt` `farm` `sleep` |
-| 采集 | `mine_ore`（报价选矿 + 走挖一体 tunnel + 台账） `fish` |
+| 采集 | `mine_ore`（统一入口 + 报价选矿 + 走挖一体 tunnel + 逐格垫柱 + 共享收集/入包证据） `fish` |
 
 LLM 层（`src/llm/`，生产配置已开启 `toolCalling`）：8 个工具 —— 只读
 `observe` `find_blocks` `lookup_item` `scan_around`，有副作用 `do_task` `do_skill` `go_to` `stop`；
@@ -134,15 +134,23 @@ LLM 层（`src/llm/`，生产配置已开启 `toolCalling`）：8 个工具 —�
 | 10-05 | 采矿按 numen 重构 | 报价选目标（挖×4 + 步数 + 矿脉加成）、DigLedger 台账、落沙/贴水准入 | ✅ 真机（2026-10-08，见 REWRITE-PLAN §12.6） |
 | 10-05 | 走挖一体 `tunnel` | Mod 连续控制器：中心转向、边走边挖、下坡不跳、结构化失败；Node 清障重试 | ✅ 真机（2026-10-08：金矿 26+15 块、tunnel 全程 `jumps=0`；当轮修掉换镐/卡跳/爬升三处缺陷） |
 | 10-05 | 防坠落补丁 | Mod tick 探底（落差 >2 或先见液体 → `ledge`）+ Node waypoint 预检 + 洞窟后检 | ✅ 真机（2026-10-08：3 格深坑前 `ledge` 停住，1–2 格台阶零误报） |
+| 10-10 | 挖矿四修复 + 垫柱底座 | 矿石走 `mine_ore`（别名/深板岩/负坐标/到达判定/stalled）；Mod `Pillar` 跳放 | ✅ 真机（垫柱 2 格、钻石两连挖；遗留"只起 1~2 格"） |
+| 10-10 | A 统一挖矿入口 | `miningRequest`/`miningDispatch`：六入口共用归一与分流；修 `!goal` 线上 bug；`MineOreTask` 适配器 | ✅ 离线（`mining:entry:test` 20/20） |
+| 10-10 | P4 逐格清障垫柱 | `pillarUp` 执行器（只清 y+2/y+3→垫一格→核验落地）；取消信号；4.5 格 dig 距离闸；权限闸门管单格垫柱；Mod 回执 start/end/placedCells | ✅ 离线（B1–B10、`client:test` 66/66、`selftest` 173/173）；Mod 重编译（60340 字节）；真机待测 |
+| 10-10 | C1/C2 共享收集 | `AcquisitionGoal` 挖前基线/入包证据（实体消失≠入包）；候选站位+有界接近；count 达标 drain/partial；tunnel 目标保护 | ✅ 离线（`mining:collection:test` 15/15）；真机待测 |
+| 10-10 | P1–P3 LLM 异常接管 | `miningProgress` 触发阈值；`miningRecoveryTools` 六工具；`miningRecovery` 状态机（短批次/预算/重复护栏/以入包证据结束）；外部取消 | ✅ 离线（`mining:recovery:test` 18/18）；**默认关闭**，真机验收后开启 |
 
-当前状态（2026-10-08）：
+当前状态（2026-10-10）：
 
-* 离线全绿：`selftest 169/169`、`skills:test 33/33`、`client:test 59/59`、`p0:verify 8/8` 套件（明细见 §8）。
-* 控制 Mod 已编译安装：`agent-client-1.0.0.jar` **55710 字节**（含 10-08 修复），与 PCL 配置里 155 个 Mod 共存
-  （改 Mod 后必须重启客户端才会生效）。
-* **真机验收通过（2026-10-08）**：斜下连续 20+ 格、`tunnel` 全程 `jumpsBlocked=0`、防坠落 3 格深坑前停住、
-  1–2 格台阶零误报、台账 extra 0；当轮还修掉"吃完不换镐 / 卡跳不换位 / 爬升挖错台阶"三处缺陷
-  （详见 [`docs/REWRITE-PLAN.md`](docs/REWRITE-PLAN.md) §12.6）。遗留：吃饭→tunnel 的真机序列待自然饥饿复测。
+* 离线全绿：`selftest 173/173`、`skills:test 41/41`、`client:test 66/66`、`mining:entry:test 20/20`、
+  `mining:collection:test 15/15`、`mining:recovery:test 18/18`、`p0:verify 8/8`（明细见 §8）。
+* 控制 Mod 已编译：`agent-client-1.0.0.jar` **60340 字节**（含 P4 回执字段 + tunnel 目标保护），
+  改 Mod 后必须重装（`npm run client:install`）并重启客户端。
+* **本轮真机验收进行中**：A（入口矩阵）、P4（连续升格）、C1/C2（高处掉落收集、目标保护）按
+  [`docs/MINING-LLM-PLAN.md`](docs/MINING-LLM-PLAN.md) §6.3 / [`docs/MINING-COLLECTION-PLAN.md`](docs/MINING-COLLECTION-PLAN.md) §9.3
+  在受控矿点执行；LLM 接管（L 系列）需先通过离线矩阵，届时把 `miningRecovery.enabled` 显式打开。
+* 历史真机记录（10-08）：斜下连续 20+ 格、`tunnel` 全程 `jumpsBlocked=0`、防坠落 3 格深坑前停住、
+  1–2 格台阶零误报、台账 extra 0（[`docs/REWRITE-PLAN.md`](docs/REWRITE-PLAN.md) §12.6）。
 * 后续候选：断开/离开世界检测（客户端回主菜单后大脑仍会按旧快照规划）、自主采矿目标的退避加宽、
   通用 `WalkTo` 的落差保护。
 
@@ -258,14 +266,17 @@ Invoke-RestMethod -Uri http://127.0.0.1:8766/ui/state
 | `npm run client:launch` | 无头拉起 Forge 客户端（`--server` / `--singleplayer` / `--username`） | 主线 |
 | `npm run client:check` | 检查 Mod 与"是否在世界里" | 主线 |
 | `npm run client:build` / `client:install` | 构建 / 安装控制 Mod | 主线 |
-| `npm run client:test` | 假 Mod 协议测试 | 59/59 |
+| `npm run client:test` | 假 Mod 协议测试（含 pillar 回执/隧道保护） | 66/66 |
 | `npm run clientmod:test` | clientmod 躯体角色扮演路径 | 11/11 |
-| `npm run skills:test` | 技能库（含采矿报价/台账/防坠落） | 33/33 |
-| `npm run selftest` | 全量离线自检 | 169/169 |
+| `npm run skills:test` | 技能库（含采矿报价/台账/防坠落/逐格垫柱 B1–B10） | 41/41 |
+| `npm run mining:entry:test` | 统一挖矿入口 A 系列 | 20/20 |
+| `npm run mining:collection:test` | 掉落物收集 C 系列 | 15/15 |
+| `npm run mining:recovery:test` | LLM 异常接管 R 系列（脚本化模型） | 18/18 |
+| `npm run selftest` | 全量离线自检 | 173/173 |
 | `npm run p0:verify` | P0 全量验收（一次跑 8 个套件） | 8/8 |
 | `npm run path:test` | 寻路场景 | 22/22 |
 | `npm run tasks:test` | 三原语（走 / 挖 / 捡） | 52/52 |
-| `npm run llm:dry` | 意图路由 / Schema / 工具白名单 | 路由 55/55 · 工具 39/39 |
+| `npm run llm:dry` | 意图路由 / Schema / 工具白名单 | 路由 56/56 · 工具 39/39 |
 | `npm run control:test` | 双通道 + 面板 + 死亡处理 | 35/35 |
 | `npm run plan:audit` | 计划书 §11 符合性 | 29/29 |
 | `npm run inspect:server` / `mods:report` | 连服前体检 / Mod 知识报告 | 辅助 |
@@ -285,6 +296,8 @@ P0 的完整实施状态与验收证据见 [`docs/P0-STATUS.md`](docs/P0-STATUS.
 * **采矿批次已真机验证**（2026-10-08，见 REWRITE-PLAN §12.6）：numen 采矿重构、tunnel、防坠落补丁全部通过；
   遗留一项"吃饭 → tunnel"序列待自然饥饿时补测（逻辑已有离线用例覆盖）。
 * **AuthMe**：只 `/login`，永不 `/register`（在 simpfun 类服务器上 `/register` 会重置角色数据）。
+* **LLM 挖矿接管默认关闭**（`miningRecovery.enabled=false`）：异常仍会被记录，确定性宏耗尽后诚实失败/报告 partial；
+  真机 L 系列验收通过后再显式开启。开启后接管与聊天共用模型并发/token 账本，且不解除危险/权限/死亡停牌。
 * **尚未实现**：交易、附魔、下界/末地、区块级地图记忆（长距离探索会重新找路）。
 * **操作注意**：客户端窗口未聚焦或开着 GUI 时游戏忽略输入；控制 Mod 改动必须重启客户端才生效
   （Node 改动只需重启 Agent）。
@@ -296,7 +309,10 @@ P0 的完整实施状态与验收证据见 [`docs/P0-STATUS.md`](docs/P0-STATUS.
 
 ```powershell
 npm run p0:verify      # 离线全量（约 1 分钟，8 个套件）
-npm run selftest       # 169/169：模块图 / 插件 / 寻路 / 三原语 / 意图 Schema / 工具白名单 / 死亡处理
+npm run selftest       # 173/173：模块图 / 插件 / 寻路 / 三原语 / 意图 Schema / 工具白名单 / 死亡处理
+npm run mining:entry:test      # 20/20：统一挖矿入口
+npm run mining:collection:test # 15/15：共享收集
+npm run mining:recovery:test   # 18/18：LLM 接管（脚本化模型）
 ```
 
 最近一次真机启动日志（节选）：
