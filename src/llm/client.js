@@ -72,6 +72,20 @@ class LlmClient {
 
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), request.timeoutMs || this.timeoutMs);
+    /**
+     * External cancellation (plan §5.8): the recovery session hands its task signal in
+     * here, so a stop during a model wait aborts the request instead of waiting out the
+     * timeout. The internal timeout and the external signal are merged into one abort.
+     */
+    const external = request.signal;
+    let onExternalAbort = null;
+    if (external) {
+      if (external.aborted) controller.abort();
+      else if (typeof external.addEventListener === 'function') {
+        onExternalAbort = () => controller.abort();
+        external.addEventListener('abort', onExternalAbort, { once: true });
+      }
+    }
     this.stats.calls += 1;
 
     try {
@@ -163,11 +177,18 @@ class LlmClient {
     } catch (err) {
       this.stats.failures += 1;
       const aborted = err && (err.name === 'AbortError' || /abort/i.test(err.message || ''));
-      const reason = aborted ? `timeout after ${request.timeoutMs || this.timeoutMs}ms` : err.message;
+      const reason = aborted
+        ? external && external.aborted
+          ? 'cancelled'
+          : `timeout after ${request.timeoutMs || this.timeoutMs}ms`
+        : err.message;
       this.stats.lastError = reason;
       return { ok: false, reason };
     } finally {
       clearTimeout(timer);
+      if (external && onExternalAbort && typeof external.removeEventListener === 'function') {
+        external.removeEventListener('abort', onExternalAbort);
+      }
     }
   }
 

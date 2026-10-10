@@ -31,6 +31,7 @@ const {
   describeAcquisition
 } = require('./miningAcquisition');
 const { attemptCollection } = require('./miningCollection');
+const { MiningProgressMonitor, fingerprintOf } = require('../core/miningProgress');
 
 const AIR = /^(air|cave_air|void_air)$/;
 const HAZARD = /water|lava/;
@@ -141,6 +142,9 @@ register({
       collected: 0,
       verifiedGoals: 0,
       partial: false,
+      recoveryRuns: 0,
+      recoveryTrigger: null,
+      recovery: [],
       skipped: 0,
       refusedCells: 0,
       rejectedTargets: 0,
@@ -584,6 +588,54 @@ register({
      */
     const goals = [];
 
+    /**
+     * P3: the progress monitor and the P2 hand-over (plan §5.2/§5.3). The macro records
+     * a semantic entry at every action boundary; when the monitor names a trigger, control
+     * moves to the recovery session *inside this same task* and comes back if it recovers.
+     */
+    const recoveryCfg = (ctx.cfg && ctx.cfg.agent && ctx.cfg.agent.miningRecovery) || {};
+    const progress = new MiningProgressMonitor({ config: { miningRecovery: recoveryCfg } });
+    /** The most recent collection result, for the pickup_stalled trigger. */
+    let lastCollection = null;
+
+    const currentGoalId = () => {
+      const pending = goals.find((g) => g.mined.confirmed && g.status === 'pending');
+      const last = goals[goals.length - 1];
+      return (pending || last || { goalId: 'locked' }).goalId;
+    };
+
+    /** Situation fingerprint for the monitor: feet + the cells this phase depends on. */
+    const situationFingerprint = async (phase) => {
+      const snap = await refresh(ctx);
+      const feet = feetOf(snap);
+      const cells = [];
+      if (feet) {
+        for (const dy of [1, 2, 3]) {
+          cells.push({ x: feet.x, y: feet.y + dy, z: feet.z, name: bare(cellAt(snap, { x: feet.x, y: feet.y + dy, z: feet.z })) });
+        }
+      }
+      const latest = goals[goals.length - 1];
+      if (latest) cells.push({ ...latest.target.position, name: bare(cellAt(snap, latest.target.position)) });
+      return fingerprintOf({
+        goalId: currentGoalId(),
+        phase,
+        feet,
+        cells,
+        tool: pickaxe ? bare(pickaxe) : null,
+        scaffold: scaffoldBlock(snap),
+        target: {
+          mined: !!(latest && latest.mined.confirmed),
+          visible: !AIR.test(bare(cellAt(snap, ore.position))),
+          pending: latest ? latest.pendingDrops.length : 0
+        }
+      });
+    };
+
+    const recordProgress = async (entry) => {
+      const fingerprint = await situationFingerprint(entry.phase).catch(() => null);
+      return progress.record({ goalId: currentGoalId(), fingerprint, ...entry });
+    };
+
     /** IO the shared collector drives; every world touch goes through the skill's admission. */
     const collectionIo = () => ({
       log: ctx.log,
@@ -670,6 +722,233 @@ register({
       stats.pillarRises += res.risen || 0;
       return { ok: !!(res.ok || res.risen > 0), risen: res.risen || 0, reason: res.reason || null };
     };
+
+    /**
+     * The goal a recovery session works on: the mined-but-unpaid record first, then the
+     * last verified one, else a provisional record created *before* any dig (its baseline
+     * must predate the target dig or evidence attribution breaks - plan §3.1).
+     */
+    let provisionalGoal = null;
+    const activeRecoveryGoal = () => {
+      const pending = goals.find((g) => g.mined.confirmed && g.status === 'pending');
+      if (pending) return pending;
+      const verified = [...goals].reverse().find((g) => g.status === 'verified');
+      if (verified) return verified;
+      return provisionalGoal;
+    };
+    const ensureProvisionalGoal = (snapshot) => {
+      if (provisionalGoal) return provisionalGoal;
+      const resolved = resolveMiningProducts(ore.name, { item: pickaxe }, { modKnowledge: ctx.modKnowledge });
+      if (!resolved.ok) return null;
+      provisionalGoal = prepareAcquisition({
+        taskId: ctx.taskId || null,
+        target: { blockId: ore.name, position: ore.position },
+        tool: { item: pickaxe },
+        products: resolved.products,
+        snapshot
+      });
+      sealBaseline(provisionalGoal, snapshot);
+      goals.push(provisionalGoal);
+      return provisionalGoal;
+    };
+
+    /** Raw scan only: a cell outside the scan is unknown, never "air". */
+    const recoveryIoRead = (snapshot, cell) => {
+      const cells = snapshot && snapshot.blocks && snapshot.blocks.cells;
+      const name = cells && cells[`${cell.x},${cell.y},${cell.z}`];
+      return name ? bare(name) : 'unknown';
+    };
+
+    /**
+     * Hand over to the LLM recovery session when the monitor names a trigger.
+     *
+     * @returns {Promise<object|null>} the session summary, or a {outcome:'disabled'|
+     *   'unavailable'} marker when the model must not be called.
+     */
+    const runRecoveryIfTriggered = async (trigger) => {
+      if (!trigger) return null;
+      stats.recoveryTrigger = trigger;
+      if (!recoveryCfg.enabled) {
+        if (ctx.log && ctx.log.warn) {
+          ctx.log.warn(
+            `recovery trigger ${trigger.trigger}: ${trigger.reason} - miningRecovery.enabled=false, not calling the model`
+          );
+        }
+        return { outcome: 'disabled', reason: trigger.reason, trigger: trigger.trigger };
+      }
+      if (typeof ctx.recoveryRunner !== 'function') {
+        if (ctx.log && ctx.log.warn) ctx.log.warn(`recovery trigger ${trigger.trigger} but no recovery runner is wired`);
+        return { outcome: 'unavailable', reason: 'no recovery runner wired', trigger: trigger.trigger };
+      }
+      const snapshot = await refresh(ctx);
+      const goal = activeRecoveryGoal() || ensureProvisionalGoal(snapshot);
+      if (!goal) return { outcome: 'unavailable', reason: 'no goal record to recover', trigger: trigger.trigger };
+      const summary = await ctx.recoveryRunner({
+        goal,
+        io: recoveryIo(),
+        monitor: progress,
+        trigger: trigger.trigger,
+        triggerReason: trigger.reason,
+        signal: taskSignal,
+        cfg: recoveryCfg
+      });
+      stats.recoveryRuns += 1;
+      stats.recovery.push({
+        outcome: summary && summary.outcome,
+        reason: summary && summary.reason,
+        trigger: (summary && summary.trigger) || trigger.trigger,
+        calls: summary && summary.calls,
+        tokens: summary && summary.tokens
+      });
+      return summary || { outcome: 'failed', reason: 'the recovery runner returned nothing' };
+    };
+
+    /** Stop the task with the recovery session's partial result (plan §5.3.1). */
+    const stopByRecovery = async (recovery, stoppedCode = 'recovery') => {
+      const stop = await refresh(ctx);
+      const leftover = goals.filter((g) => g.status !== 'verified' && g.status !== 'lost' && g.status !== 'blocked');
+      return {
+        ok: false,
+        stopped: stoppedCode,
+        failure: recovery.failure || 'recovery_failed',
+        reason: recovery.reason || 'the recovery session did not finish',
+        mined: stats.ores,
+        blocks: stats.blocks,
+        torches: stats.torches,
+        ate: stats.ate,
+        collected: stats.collected,
+        minedAt: stats.minedAt,
+        position: stop ? stop.position : null,
+        recovery: stats.recovery,
+        acquisition: goals.map(describeAcquisition),
+        pending: leftover.map((g) => ({
+          goalId: g.goalId,
+          block: g.target.blockId,
+          position: { ...g.target.position },
+          collected: g.collectedItems,
+          pendingDrops: g.pendingDrops.length,
+          reason: g.reason || g.failure || null
+        })),
+        detail: `stopped by recovery (${recovery.outcome}): ${recovery.reason || ''}`
+      };
+    };
+
+    /** IO the recovery session drives: the same primitives, the same admission. */
+    const recoveryIo = () => ({
+      refresh: async () => {
+        const s = await refresh(ctx);
+        return s && s.ready !== false ? s : null;
+      },
+      feetOf,
+      read: (s, cell) => bare(cellAt(s, cell)),
+      /** Raw scan only: a cell outside the scan is unknown, never "air". */
+      rawRead: (s, cell) => {
+        const cells = s && s.blocks && s.blocks.cells;
+        const name = cells && cells[`${cell.x},${cell.y},${cell.z}`];
+        return name ? bare(name) : 'unknown';
+      },
+      passable: (name) => AIR.test(name),
+      protectedName: (name) => matchesOre(name),
+      digCell: async (cell) => {
+        const ok = await digAt(cell);
+        return ok ? { ok: true } : { ok: false, reason: `could not clear ${posKey(cell)}`, failure: 'refused' };
+      },
+      takeTarget: async () => takeOre(ore),
+      pillarOne: async (options) => {
+        const hop = await body
+          .pillar(1, { timeoutMs: (options && options.timeoutMs) || 8000 })
+          .catch((err) => ({ ok: false, steps: 0, reason: err.message }));
+        return { ok: !!(hop && hop.ok), steps: Number(hop && hop.steps) || 0, reason: (hop && hop.reason) || null };
+      },
+      moveLocal: async (stand, options) => {
+        const ok = await body
+          .moveTo(stand, { range: 1.0, timeoutMs: (options && options.timeoutMs) || 8000, raw: true })
+          .catch(() => false);
+        return { ok: !!ok };
+      },
+      placeBlock: async (item, reference, face) => {
+        const ok = await body.place(item, reference, face).catch(() => false);
+        return { ok: !!ok };
+      },
+      pickScaffold: (s) => scaffoldBlock(s),
+      canAccept: (s) => (s && Number.isFinite(s.emptySlots) ? s.emptySlots > 0 : true),
+      acquisitionState: () => {
+        const g = activeRecoveryGoal();
+        return {
+          mined: !!(g && g.mined.confirmed),
+          verified: !!(g && g.status === 'verified'),
+          collectedItems: (g && g.collectedItems) || 0,
+          pendingDrops: (g && g.pendingDrops.length) || 0,
+          pendingDropsList: (g && g.pendingDrops) || []
+        };
+      },
+      collectOnce: async () => {
+        const g = activeRecoveryGoal();
+        if (!g) return { outcome: 'unknown', failure: 'internal', reason: 'no goal record to collect for' };
+        const r = await attemptCollection({
+          goal: g,
+          mode: 'recovery',
+          deadline,
+          signal: taskSignal,
+          allowTerrainEdits: false,
+          io: collectionIo(),
+          limits: { maxLocalStands: 1, maxLocalPillarSteps: 0, dropSpawnWaitMs: 500, pickupConfirmMs: 1200 }
+        });
+        lastCollection = r;
+        stats.collected += r.collectedDelta;
+        if (r.outcome === 'verified') stats.verifiedGoals += 1;
+        return r;
+      },
+      inspectSlice: async (slice) => {
+        const snapshot = await refresh(ctx);
+        if (!snapshot) return [];
+        const out = [];
+        const radius = Math.min(4, Math.max(1, Number(slice.radiusXZ) || 2));
+        for (let x = slice.center.x - radius; x <= slice.center.x + radius; x += 1) {
+          for (let z = slice.center.z - radius; z <= slice.center.z + radius; z += 1) {
+            for (let y = slice.yMin; y <= slice.yMax; y += 1) {
+              const cell = { x, y, z };
+              out.push({ ...cell, name: recoveryIoRead(snapshot, cell) });
+            }
+          }
+        }
+        return out;
+      },
+      relevantCells: async ({ inspected }) => {
+        const snapshot = await refresh(ctx);
+        if (!snapshot) return [];
+        const feet = feetOf(snapshot);
+        const cells = [];
+        const seen = new Set();
+        const push = (cell) => {
+          const key = posKey(cell);
+          if (seen.has(key)) return;
+          seen.add(key);
+          cells.push({ ...cell, name: recoveryIoRead(snapshot, cell) });
+        };
+        push(ore.position);
+        if (feet) for (let dy = 1; dy <= 4; dy += 1) push({ x: feet.x, y: feet.y + dy, z: feet.z });
+        const g = activeRecoveryGoal();
+        if (g) for (const drop of g.pendingDrops) {
+          push({ x: Math.floor(drop.position.x), y: Math.floor(drop.position.y), z: Math.floor(drop.position.z) });
+        }
+        if (inspected && feet) {
+          for (const [key, name] of inspected) {
+            const [x, y, z] = key.split(',').map(Number);
+            if (Math.hypot(x - feet.x, z - feet.z) <= 8) {
+              cells.push({ x, y, z, name: name || 'unknown' });
+            }
+          }
+        }
+        return cells.slice(0, 80);
+      },
+      stable: async () => {
+        const s = await refresh(ctx);
+        return !!(s && s.onGround !== false);
+      },
+      /** The ladder result is awaited before a hand-over, so the body is quiet. */
+      quiesced: async () => true
+    });
 
     /** The quote for the ore the loop is currently working on (set by findOre). */
     let lastQuote = null;
@@ -1072,6 +1351,7 @@ register({
           }
           recordMineResult(goal, { receipt: { ok: true, dug: true }, before: snapNow, after });
           goals.push(goal);
+          await recordProgress({ phase: 'mine', action: 'dig', ok: true, progress: true, failure: null, reason: null });
           /**
            * Do not walk away from the vein before trying to take its products with us (the
            * first live run left iron on the floor). The shared collector is bounded here;
@@ -1087,6 +1367,14 @@ register({
             io: collectionIo()
           });
           stats.collected += collection.collectedDelta;
+          await recordProgress({
+            phase: 'collect',
+            action: 'collect',
+            ok: collection.outcome === 'verified',
+            progress: collection.outcome === 'verified',
+            failure: collection.failure || null,
+            reason: collection.reason || null
+          });
           if (collection.outcome === 'verified') {
             stats.verifiedGoals += 1;
             return { ok: true, dug: true, acquisition: describeAcquisition(goal), collection };
@@ -1109,6 +1397,7 @@ register({
           };
         }
         recordMineResult(goal, { receipt: { ok: false, failure: 'refused', reason: 'the ore dig was refused' }, before: snapNow, after: snapNow });
+        await recordProgress({ phase: 'mine', action: 'dig', ok: false, progress: false, failure: 'refused', reason: 'the ore dig was refused' });
         return { ok: false, reason: 'the ore dig was refused', failure: 'refused' };
       };
 
@@ -1129,7 +1418,19 @@ register({
           }
           outcome = await stepToward({ position: waypoint });
           if (outcome.reached) break;
-          if (!outcome.ok) break;
+          if (!outcome.ok) {
+            await recordProgress({
+              phase: 'approach',
+              action: 'step',
+              ok: false,
+              progress: false,
+              failure: outcome.failure || null,
+              reason: outcome.reason || null,
+              arrived: !!outcome.reached,
+              moved: 0
+            });
+            break;
+          }
           // Sweep the stone drops the tunnel leaves behind every few steps, so the floor does
           // not silt up with items we then have to walk back for.
           if (step % 4 === 3) await collectDrops(3);
@@ -1148,8 +1449,28 @@ register({
           return { ok: false, reason: outcome.reason, failure: 'hazard', danger: true, hostile: outcome.hostile };
         }
         if (!outcome.reached) {
+          await recordProgress({
+            phase: 'approach',
+            action: 'step',
+            ok: false,
+            progress: false,
+            failure: 'no_path',
+            reason: outcome.reason || 'did not reach the waypoint',
+            arrived: !!outcome.reached,
+            moved: 0
+          });
           return { ok: false, reason: outcome.reason || 'did not reach the waypoint', failure: 'no_path' };
         }
+        await recordProgress({
+          phase: 'approach',
+          action: 'step',
+          ok: true,
+          progress: true,
+          failure: null,
+          reason: null,
+          arrived: true,
+          moved: 1
+        });
         return takeOre();
       };
 
@@ -1273,6 +1594,14 @@ register({
         if (!result.ok) {
           lastTunnelCell = result.cell ? { ...result.cell } : null;
           lastTunnelBlock = result.block || null;
+          await recordProgress({
+            phase: 'approach',
+            action: 'tunnel',
+            ok: false,
+            progress: false,
+            failure: classifyTunnelFailure(result.reason),
+            reason: result.reason || 'the tunnel walk failed'
+          });
           return {
             ok: false,
             reason: result.reason || 'the tunnel walk failed',
@@ -1457,6 +1786,14 @@ register({
               stats.pillarCleared += result.clearedCells ? result.clearedCells.length : 0;
               stats.pillarPlaced += result.placedCells ? result.placedCells.length : 0;
               stats.pillarRises += result.risen || 0;
+              await recordProgress({
+                phase: 'raise',
+                action: 'pillar',
+                ok: !!result.ok,
+                progress: (result.risen || 0) > 0,
+                failure: result.failure || null,
+                reason: result.reason || null
+              });
               if (ctx.log && ctx.log.info) {
                 ctx.log.info(
                   `pillar-up: risen ${result.risen}, cleared ${stats.pillarCleared}, placed ${stats.pillarPlaced}` +
@@ -1555,17 +1892,60 @@ register({
           io: collectionIo()
         });
         stats.collected += retry.collectedDelta;
+        await recordProgress({
+          phase: 'collect',
+          action: 'collect',
+          ok: retry.outcome === 'verified',
+          progress: retry.outcome === 'verified',
+          failure: retry.failure || null,
+          reason: retry.reason || null
+        });
         if (retry.outcome === 'verified') {
           stats.verifiedGoals += 1;
         } else {
-          stats.partial = true;
-          if (ctx.log && ctx.log.warn) {
-            ctx.log.warn(
-              `stopping: ${unpaid.target.blockId} was mined at ${posKey(unpaid.target.position)} ` +
-                `but its product is not in the bag (${retry.reason || retry.outcome})`
-            );
+          /**
+           * L03/L11: exactly the situation the LLM recovery exists for - the product is
+           * real but the local stands could not bank it. Hand over once; if the session
+           * fails, stop with the unpaid record preserved.
+           */
+          const trigger =
+            progress.evaluate({ pickupStalled: true }) ||
+            { trigger: 'pickup_stalled', reason: retry.reason || 'pickup not confirmed' };
+          const recovery = await runRecoveryIfTriggered(trigger);
+          if (recovery && recovery.outcome === 'recovered') {
+            // Back to the macro with the goal verified; the loop continues on its own.
+          } else if (recovery && recovery.outcome === 'cancelled') {
+            return { ok: false, interrupted: true, failure: 'interrupted', reason: recovery.reason || 'cancelled', mined: stats.ores, collected: stats.collected, minedAt: stats.minedAt };
+          } else if (recovery && (recovery.outcome === 'failed' || recovery.outcome === 'blocked')) {
+            return stopByRecovery(recovery, 'recovery');
+          } else {
+            stats.partial = true;
+            if (ctx.log && ctx.log.warn) {
+              ctx.log.warn(
+                `stopping: ${unpaid.target.blockId} was mined at ${posKey(unpaid.target.position)} ` +
+                  `but its product is not in the bag (${retry.reason || retry.outcome})`
+              );
+            }
+            break;
           }
-          break;
+        }
+      }
+      /**
+       * Ore-level anomaly: the ladder could not reach/mine this target. Only structural
+       * failures go to the model - lava/monster results keep their stop-the-task meaning
+       * (plan §5.2.3 / R08).
+       */
+      if (!(outcome.ok && outcome.dug) && !outcome.danger) {
+        const trigger = progress.evaluate({ ladderExhausted: true });
+        if (trigger) {
+          const recovery = await runRecoveryIfTriggered(trigger);
+          if (recovery && recovery.outcome === 'recovered') continue;
+          if (recovery && recovery.outcome === 'cancelled') {
+            return { ok: false, interrupted: true, failure: 'interrupted', reason: recovery.reason || 'cancelled', mined: stats.ores, collected: stats.collected, minedAt: stats.minedAt };
+          }
+          if (recovery && (recovery.outcome === 'failed' || recovery.outcome === 'blocked')) {
+            return stopByRecovery(recovery, 'recovery');
+          }
         }
       }
       if (outcome.danger) {
@@ -1639,6 +2019,14 @@ register({
         io: collectionIo()
       });
       stats.collected += collection.collectedDelta;
+      await recordProgress({
+        phase: 'collect',
+        action: 'collect',
+        ok: collection.outcome === 'verified',
+        progress: collection.outcome === 'verified',
+        failure: collection.failure || null,
+        reason: collection.reason || null
+      });
       if (collection.outcome === 'verified') stats.verifiedGoals += 1;
       else if (collection.outcome === 'interrupted') break;
       else stats.partial = true;
@@ -1665,6 +2053,8 @@ register({
       skipped: stats.skipped,
       partial,
       acquisition: goals.map(describeAcquisition),
+      recoveryRuns: stats.recoveryRuns,
+      recovery: stats.recovery,
       pending: pendingAfter.map((g) => ({
         goalId: g.goalId,
         block: g.target.blockId,

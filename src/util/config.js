@@ -46,6 +46,41 @@ const DEFAULTS = {
       respondToChat: true,
       maxChatPerMinute: 6
     },
+    /**
+     * LLM mining recovery (docs/MINING-LLM-PLAN.md §5.8). Disabled until the operator
+     * explicitly turns it on after the acceptance run; while disabled the triggers are
+     * still recorded and the macro fails honestly.
+     */
+    miningRecovery: {
+      enabled: false,
+      historySize: 12,
+      sameFailureLimit: 2,
+      falseArrivalLimit: 3,
+      noProgressActiveMs: 30000,
+      maxActionsPerBatch: 3,
+      maxCellsPerDig: 3,
+      maxCallsPerSession: 12,
+      maxSessionMs: 180000,
+      maxSessionTokens: 32000,
+      maxPrimitiveActions: 32,
+      maxPlacedBlocks: 8,
+      modelTimeoutMs: 15000,
+      maxOutputTokens: 2000,
+      maxInvalidRepairs: 1,
+      maxRepeatedProposals: 2
+    },
+    /** Shared pickup loop (docs/MINING-COLLECTION-PLAN.md §七). */
+    miningCollection: {
+      dropSpawnWaitMs: 2000,
+      pickupConfirmMs: 2500,
+      maxGoalCollectionMs: 45000,
+      maxLocalStands: 3,
+      maxLocalEdits: 6,
+      maxLocalPillarSteps: 2,
+      standRadiusXZ: 2,
+      standRangeY: 3,
+      unresolvedPolicy: 'stop'
+    },
     survival: {
       targetWood: 16,
       shelterAtNight: true,

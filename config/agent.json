@@ -10,6 +10,33 @@
     "timeoutMs": 5000,
     "directRange": 3
   },
+  "_comment_miningRecovery": "LLM exception recovery for mining (docs/MINING-LLM-PLAN.md §5.8). Stays OFF until the offline matrix and the controlled live run pass; while off, the triggers are logged and the macro fails honestly instead of calling a model. Budgets here are ceilings - the parent task deadline always wins.",
+  "miningRecovery": {
+    "enabled": false,
+    "maxActionsPerBatch": 3,
+    "maxCellsPerDig": 3,
+    "maxCallsPerSession": 12,
+    "maxSessionMs": 180000,
+    "maxSessionTokens": 32000,
+    "maxPrimitiveActions": 32,
+    "maxPlacedBlocks": 8,
+    "modelTimeoutMs": 15000,
+    "maxOutputTokens": 2000,
+    "maxInvalidRepairs": 1,
+    "maxRepeatedProposals": 2
+  },
+  "_comment_miningCollection": "Shared pickup loop (docs/MINING-COLLECTION-PLAN.md §七). 'unresolvedPolicy: stop' means an uncollected product stops the task honestly instead of being silently written off.",
+  "miningCollection": {
+    "dropSpawnWaitMs": 2000,
+    "pickupConfirmMs": 2500,
+    "maxGoalCollectionMs": 45000,
+    "maxLocalStands": 3,
+    "maxLocalEdits": 6,
+    "maxLocalPillarSteps": 2,
+    "standRadiusXZ": 2,
+    "standRangeY": 3,
+    "unresolvedPolicy": "stop"
+  },
   "_comment_pathfinding": "Deliverable A. A* runs over the mod's own block scan (49x49x17 cells). allowDig stays false in P0: a conservative noPath beats a route the bot cannot actually walk. jumpStreakLimit: after this many failed jump/step-up legs the walker stops jumping and reports jump-blocked instead. maxSidesteps: how many times a blocked route may be answered with a short step in a different direction before giving up. trace is the JSONL file the panel counts.",
   "pathfinding": {
     "maxPathLength": 200,

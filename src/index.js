@@ -328,6 +328,28 @@ async function main() {
   const { LlmCore } = require('./llm');
   const llm = new LlmCore(ctx, cfg.llm || {}, { log: new Logger('llm') });
   ctx.llm = llm;
+
+  /**
+   * LLM mining recovery runner (P2, docs/MINING-LLM-PLAN.md §5.3). The mining skill calls
+   * this from inside its own TaskHub task when the progress monitor fires a trigger; the
+   * session shares that task's owner and budgets and never submits a second job.
+   */
+  const { runMiningRecovery, MiningRecoverySession } = require('./skills/miningRecovery');
+  ctx.recoveryRunner = async ({ goal, io, monitor, trigger, triggerReason, signal, cfg: recoveryCfg }) => {
+    const session = new MiningRecoverySession({
+      ctx,
+      io,
+      goal,
+      signal,
+      cfg: recoveryCfg || (cfg.agent && cfg.agent.miningRecovery) || {},
+      llm: (ctx.llm && ctx.llm.client) || null,
+      monitor,
+      trigger,
+      triggerReason,
+      trace: (entry) => ctx.trace && ctx.trace(entry)
+    });
+    return runMiningRecovery(session);
+  };
   llm.attachTo(brain);
 
   /**

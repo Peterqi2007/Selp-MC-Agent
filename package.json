@@ -40,6 +40,7 @@
     "skills:test": "node scripts/skills-test.js",
     "mining:entry:test": "node scripts/mining-entry-test.js",
     "mining:collection:test": "node scripts/mining-collection-test.js",
+    "mining:recovery:test": "node scripts/mining-recovery-test.js",
     "control:test": "node scripts/control-test.js",
     "llm:dry": "node scripts/llm-dry.js",
     "p0:verify": "node scripts/p0-verify.js",

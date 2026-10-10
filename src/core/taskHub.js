@@ -99,7 +99,29 @@ class TaskHub {
        * global flag: `owner-stop` allows the operator to start a new explicit task, so a
        * global "stopped" bit would kill the replacement too.
        */
-      signal: { cancelled: false, reason: null, at: null }
+      signal: {
+        cancelled: false,
+        reason: null,
+        at: null,
+        _subscribers: [],
+        /**
+         * Subscribe to cancellation. The recovery session bridges this into a real
+         * AbortSignal so a stop during a model wait aborts the request instead of
+         * waiting out the provider timeout (plan §5.8).
+         */
+        subscribe(fn) {
+          if (typeof fn !== 'function') return () => {};
+          if (this.cancelled) {
+            fn(this.reason);
+            return () => {};
+          }
+          this._subscribers.push(fn);
+          return () => {
+            const i = this._subscribers.indexOf(fn);
+            if (i >= 0) this._subscribers.splice(i, 1);
+          };
+        }
+      }
     };
     handle.settle = new Promise((resolve) => {
       handle.resolveSettle = resolve;
@@ -175,6 +197,11 @@ class TaskHub {
     handle.signal.cancelled = true;
     handle.signal.reason = reason;
     handle.signal.at = Date.now();
+    for (const fn of handle.signal._subscribers.splice(0)) {
+      try {
+        fn(reason);
+      } catch {}
+    }
     try {
       if (this.ctx.nav && typeof this.ctx.nav.interrupt === 'function') {
         this.ctx.nav.interrupt(`task ${handle.id} ${reason}`);
