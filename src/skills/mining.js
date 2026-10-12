@@ -661,9 +661,11 @@ register({
         const d = dangerAt(s, cell);
         return d ? { reason: d.reason, hostile: !!d.hostile } : null;
       },
-      moveTo: async (position) => {
+      moveTo: async (position, opts) => {
+        /** Respect the caller's tolerance: a carve step needs a real cell landing. */
+        const range = Math.min(1, Math.max(0.3, (opts && opts.within) || 1));
         const ok = await body
-          .moveTo(position, { range: 1.0, timeoutMs: 12000, raw: true })
+          .moveTo(position, { range, timeoutMs: 12000, raw: true })
           .catch(() => false);
         return { ok: !!ok };
       },
@@ -671,7 +673,13 @@ register({
         const ok = await digAt(cell);
         return ok ? { ok: true } : { ok: false, reason: `could not clear ${posKey(cell)}`, failure: 'refused' };
       },
-      climbTo: (stand, opts) => climbToStand(stand, opts)
+      climbTo: (stand, opts) => climbToStand(stand, opts),
+      /** Support block for the "fill the pit" descent fallback (permission-gated place). */
+      pickScaffold: (s) => scaffoldBlock(s),
+      placeBlock: async (item, reference, face) => {
+        const ok = await body.place(item, reference, face).catch(() => false);
+        return { ok: !!ok };
+      }
     });
 
     /**

@@ -72,14 +72,28 @@ async function carveAccessStep(goal, io, limits, spentSoFar) {
     if (dropCell.y === feet.y) return { ok: false, reached: true, reason: 'standing in the drop cell', spent: 0, dug: [] };
     return { ok: false, reason: 'the drop is straight up/down; the climb tier owns that case', failure: 'no_path', spent: 0, dug: [] };
   }
+  /**
+   * Live 2026-10-10: the drop sat one level below a sealed ceiling. Digging the ceiling was
+   * not enough - the walker refused to enter a cell whose floor was the open pit. The step
+   * must target the drop's own level; the cell above it (our current level) is what gets
+   * dug so the bot can step/fall down there.
+   */
+  const dy = dropCell.y - feet.y;
+  if (dy < -1 || dy > 1) {
+    return { ok: false, reason: 'the drop is more than one level away', failure: 'no_path', spent: 0, dug: [] };
+  }
+  const stepY = dy === -1 ? feet.y - 1 : dy === 1 ? feet.y + 1 : feet.y;
   const useX = Math.abs(dx) >= Math.abs(dz);
   const step = {
     x: feet.x + (useX ? Math.sign(dx) : 0),
-    y: feet.y,
+    y: stepY,
     z: feet.z + (useX ? 0 : Math.sign(dz))
   };
   const dug = [];
+  const log = io.log || null;
   for (const cell of [step, { x: step.x, y: step.y + 1, z: step.z }]) {
+    /** Never dig the drop's own cell - it is the prize, and it must stay walkable. */
+    if (cell.x === dropCell.x && cell.y === dropCell.y && cell.z === dropCell.z) continue;
     const name = io.read(snapshot, cell);
     if (io.passable(name)) continue;
     if (typeof io.protectedName === 'function' && io.protectedName(name)) {
@@ -118,17 +132,89 @@ async function carveAccessStep(goal, io, limits, spentSoFar) {
     }
     dug.push({ ...cell });
   }
-  const moved = await io.moveTo(step, { within: 1 });
-  if (!moved || !moved.ok) {
+  const moved = await io.moveTo(step, { within: 0.5 });
+  /**
+   * Walkers report "arrived" within their own tolerance; live 2026-10-10 a range-1.0
+   * arrival left the feet cell unchanged and the carve loop span on one cell forever.
+   * Verify the landing against the real position, not the walker's word.
+   */
+  const after = (await io.refresh()) || null;
+  const posAfter = after ? after.position : null;
+  const landed =
+    !!posAfter &&
+    Math.hypot(posAfter.x - (step.x + 0.5), posAfter.y - step.y, posAfter.z - (step.z + 0.5)) <= 0.6;
+  if (log && typeof log.info === 'function') {
+    log.info(
+      `carve: feet ${feet.x},${feet.y},${feet.z} -> ${step.x},${step.y},${step.z}; dug ${dug.length}; ` +
+        `move=${moved && moved.ok ? 'ok' : 'failed'}; landed=${landed}` +
+        (posAfter ? ` at ${posAfter.x.toFixed(2)},${posAfter.y.toFixed(2)},${posAfter.z.toFixed(2)}` : '')
+    );
+  }
+  if (!moved || !moved.ok || !landed) {
+    /**
+     * Descent the walker refuses: it stops at the pit edge (its strict-cell arrival ignored
+     * y, live 2026-10-10). A player's answer is to fill the pit and walk in on the level -
+     * place a support block into the pit cell (the item on top pops up with the block) and
+     * stand on it. Placement still goes through the caller's permission gate.
+     */
+    if (step.y < feet.y && typeof io.placeBlock === 'function' && typeof io.pickScaffold === 'function') {
+      const scaffold = io.pickScaffold(after || snapshot);
+      if (scaffold) {
+        let placed = await io.placeBlock(scaffold, { x: step.x, y: step.y - 1, z: step.z }, { x: 0, y: 1, z: 0 });
+        if (!placed || !placed.ok) {
+          for (const [dx, dz] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
+            const reference = { x: step.x + dx, y: step.y, z: step.z + dz };
+            placed = await io.placeBlock(scaffold, reference, { x: -dx, y: 0, z: -dz });
+            if (placed && placed.ok) break;
+          }
+        }
+        if (placed && placed.ok) {
+          const upper = { x: step.x, y: step.y + 1, z: step.z };
+          const walked = await io.moveTo(upper, { within: 0.5 });
+          const afterFill = (await io.refresh()) || null;
+          const posFill = afterFill ? afterFill.position : null;
+          const landedFill =
+            !!posFill &&
+            Math.hypot(posFill.x - (upper.x + 0.5), posFill.y - upper.y, posFill.z - (upper.z + 0.5)) <= 0.6;
+          if (log && typeof log.info === 'function') {
+            log.info(
+              `carve-fill: placed ${scaffold} into ${step.x},${step.y},${step.z}; walk=${walked && walked.ok ? 'ok' : 'failed'}; landed=${landedFill}`
+            );
+          }
+          if (walked && walked.ok && landedFill) {
+            return { ok: true, spent: dug.length, dug, moved: upper, moveOk: true, filled: { ...step } };
+          }
+          return {
+            ok: false,
+            failure: (walked && walked.failure) || 'no_path',
+            reason:
+              (walked && walked.reason) ||
+              `filled ${step.x},${step.y},${step.z} but could not stand on it`,
+            spent: dug.length,
+            dug,
+            moved: upper,
+            moveOk: !!(walked && walked.ok),
+            filled: { ...step }
+          };
+        }
+      }
+    }
     return {
       ok: false,
-      reason: (moved && moved.reason) || 'could not walk into the opened cell',
+      reason:
+        (moved && moved.reason) ||
+        (!landed
+          ? `the walker did not enter the opened cell ${step.x},${step.y},${step.z}` +
+            (posAfter ? ` (at ${posAfter.x.toFixed(2)},${posAfter.y.toFixed(2)},${posAfter.z.toFixed(2)})` : '')
+          : 'could not walk into the opened cell'),
       failure: (moved && moved.failure) || 'no_path',
       spent: dug.length,
-      dug
+      dug,
+      moved: step,
+      moveOk: !!(moved && moved.ok)
     };
   }
-  return { ok: true, spent: dug.length, dug };
+  return { ok: true, spent: dug.length, dug, moved: step, moveOk: true };
 }
 
 /**
@@ -352,6 +438,12 @@ async function attemptCollection(options) {
       if (carve.dug && carve.dug.length) {
         result.attemptedActions.push({ action: 'carve', cells: carve.dug, ok: true });
       }
+      if (carve.moved) {
+        result.attemptedActions.push({ action: 'carve-step', to: { ...carve.moved }, ok: carve.moveOk !== false });
+      }
+      if (carve.filled) {
+        result.attemptedActions.push({ action: 'fill', cell: { ...carve.filled }, ok: carve.moveOk !== false });
+      }
       const seen = await observe();
       if (seen && seen.verdict.verified) return finish({ outcome: 'verified', reason: 'picked up after carving access' });
       if (!carve.ok) {
@@ -384,10 +476,16 @@ async function attemptCollection(options) {
         }
       }
     }
-    const reason = carveNote && carveNote.reason ? carveNote.reason : `tried ${tried.length} stand(s) without verified pickup`;
-    const failure = carveNote && carveNote.failure ? carveNote.failure : 'pickup_not_confirmed';
-    if (carveNote && (carveNote.failure === 'protected_ore' || carveNote.failure === 'pickup_budget_exhausted')) {
-      return finish({ outcome: 'needs_recovery', failure, reason });
+    /**
+     * Any carve failure keeps its structured reason: "tried 3 stands" hid whether the
+     * access was refused, unreachable or out of budget (live 2026-10-10 debugging).
+     */
+    if (carveNote && carveNote.reason) {
+      return finish({
+        outcome: carveNote.hazard ? 'blocked' : 'needs_recovery',
+        failure: carveNote.failure || 'pickup_not_confirmed',
+        reason: carveNote.reason
+      });
     }
   }
 

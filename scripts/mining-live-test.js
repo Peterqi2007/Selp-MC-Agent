@@ -502,8 +502,9 @@ async function main() {
           const after = io.read(null, cell);
           return io.passable(after) ? { ok: true } : { ok: false, failure: 'occluded', reason: `${after} is still there` };
         },
-        moveTo: async (position) => {
-          const ok = await body.moveTo(position, { range: 1.0, timeoutMs: 12000, raw: true }).catch(() => false);
+        moveTo: async (position, opts) => {
+          const range = Math.min(1, Math.max(0.3, (opts && opts.within) || 1));
+          const ok = await body.moveTo(position, { range, timeoutMs: 12000, raw: true }).catch(() => false);
           return { ok: !!ok };
         },
         climbTo: async (stand, opts = {}) => {
@@ -517,6 +518,15 @@ async function main() {
             risen += 1;
           }
           return { ok: risen > 0, risen };
+        },
+        /** Support block + permission-gated placement for the fill-the-pit fallback. */
+        pickScaffold: () => {
+          const snap = body.snapshot();
+          return snap && snap.inventory ? findScaffold(snap.inventory) : null;
+        },
+        placeBlock: async (item, reference, face) => {
+          const ok = await body.place(item, reference, face).catch(() => false);
+          return { ok: !!ok };
         }
       };
       const collected = await attemptCollection({

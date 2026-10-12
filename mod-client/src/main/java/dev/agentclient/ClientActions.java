@@ -756,9 +756,15 @@ public final class ClientActions {
              * same cell forever - and aiming past the corner walks it into the un-dug wall.
              * The block test fires the moment the feet cross into the target cell.
              */
+            /**
+             * Strict "stand in that block" moves need a strict height: the old 2.0-wide y
+             * tolerance fired while the bot stood at a pit edge one level above the target
+             * cell (live 2026-10-10), ending the walk before it ever descended. Ordinary
+             * waypoint moves keep the loose tolerance for step-up transients.
+             */
             boolean inTargetBlock = (int) Math.floor(player.getX()) == (int) Math.floor(target.x)
                     && (int) Math.floor(player.getZ()) == (int) Math.floor(target.z)
-                    && Math.abs(player.getY() - target.y) < 2.0D;
+                    && Math.abs(player.getY() - target.y) < (strictBlock ? 0.75D : 2.0D);
             if (inTargetBlock || (!strictBlock && horizontal <= range)) {
                 arrived = true;
                 release();

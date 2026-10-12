@@ -121,7 +121,8 @@ const FAST_LIMITS = { dropSpawnWaitMs: 40, pickupConfirmMs: 60, maxLocalStands: 
 function pocketIo({ drop, feet = { x: 0, y: 64, z: 0 } }) {
   const key = (c) => `${c.x},${c.y},${c.z}`;
   const state = {
-    feet: { ...feet },
+    /** Raw player position: cell centres (the walker's view), floored for cell math. */
+    feet: { x: feet.x + 0.5, y: feet.y, z: feet.z + 0.5 },
     inv: {},
     picked: false,
     digs: [],
@@ -133,7 +134,7 @@ function pocketIo({ drop, feet = { x: 0, y: 64, z: 0 } }) {
     ])
   };
   const snapshot = () => {
-    const distance = Math.hypot(state.feet.x + 0.5 - drop.position.x, state.feet.y - drop.position.y, state.feet.z + 0.5 - drop.position.z);
+    const distance = Math.hypot(state.feet.x - drop.position.x, state.feet.y - drop.position.y, state.feet.z - drop.position.z);
     return {
       ready: true,
       position: { ...state.feet },
@@ -145,7 +146,7 @@ function pocketIo({ drop, feet = { x: 0, y: 64, z: 0 } }) {
   };
   const tryPickup = () => {
     if (state.picked) return;
-    const distance = Math.hypot(state.feet.x + 0.5 - drop.position.x, state.feet.y - drop.position.y, state.feet.z + 0.5 - drop.position.z);
+    const distance = Math.hypot(state.feet.x - drop.position.x, state.feet.y - drop.position.y, state.feet.z - drop.position.z);
     if (distance <= 1.5) {
       state.picked = true;
       state.inv[drop.name] = (state.inv[drop.name] || 0) + (drop.count || 1);
@@ -154,7 +155,7 @@ function pocketIo({ drop, feet = { x: 0, y: 64, z: 0 } }) {
   const io = {
     log: silent,
     refresh: async () => snapshot(),
-    feetOf: () => ({ ...state.feet }),
+    feetOf: () => ({ x: Math.floor(state.feet.x), y: Math.floor(state.feet.y), z: Math.floor(state.feet.z) }),
     read: (s, cell) => state.cells.get(key(cell)) || 'minecraft:air',
     passable: (n) => /air$/.test(n),
     solid: (n) => !/air$/.test(n),
@@ -169,7 +170,7 @@ function pocketIo({ drop, feet = { x: 0, y: 64, z: 0 } }) {
       const cheb = Math.max(Math.abs(pos.x - state.feet.x), Math.abs(pos.y - state.feet.y), Math.abs(pos.z - state.feet.z));
       const name = state.cells.get(key(pos)) || 'minecraft:air';
       if (cheb > 1 || !/air$/.test(name)) return { ok: false, reason: 'a wall is in the way' };
-      state.feet = { ...pos };
+      state.feet = { x: pos.x + 0.5, y: pos.y, z: pos.z + 0.5 };
       tryPickup();
       return { ok: true };
     },
@@ -373,8 +374,15 @@ async function main() {
     recordMineResult(goal, { receipt: { ok: true, dug: true } });
     goal.pendingDrops = [{ ...drop }];
     const result = await attemptCollection({ goal, io, mode: 'macro', allowTerrainEdits: true, limits: FAST_LIMITS });
-    assert.strictEqual(result.outcome, 'verified', `outcome=${result.outcome} reason=${result.reason}`);
-    assert(state.digs.length >= 4, `expected the wall opened, dug ${state.digs.length}`);
+    assert.strictEqual(
+      result.outcome,
+      'verified',
+      `outcome=${result.outcome} reason=${result.reason} pending=${JSON.stringify(result.pendingDrops)} actions=${JSON.stringify(result.attemptedActions)}`
+    );
+    assert(
+      state.digs.length >= 4,
+      `expected the wall opened; dug=${state.digs.length} ${JSON.stringify(state.digs)} actions=${JSON.stringify(result.attemptedActions)} reason=${result.reason}`
+    );
     assert(state.picked === true, 'the drop must end up in the bag');
     assert(
       result.attemptedActions.some((a) => a.action === 'carve' && a.cells.length >= 2),
@@ -392,6 +400,105 @@ async function main() {
     assert.notStrictEqual(result.outcome, 'verified');
     assert.strictEqual(state.digs.length, 0, 'collect_target must not dig');
     return `outcome=${result.outcome}, zero edits`;
+  });
+  await check('live fix 10-10c: a drop one level below a sealed ceiling is reached by stepping down', async () => {
+    const drop = { name: 'raw_iron', count: 1, position: { x: 1.5, y: 63, z: 0.5 } };
+    const key = (c) => `${c.x},${c.y},${c.z}`;
+    /**
+     * Deterministic geometry: a solid rock box with exactly four air cells - the start
+     * column (0,64/65,0), the pocket (1,63,0) holding the drop, and the sealed ceiling
+     * (1,64,0) which is the only way in. No accidental stand exists anywhere else.
+     */
+    const cells = new Map();
+    for (let x = -1; x <= 3; x += 1) {
+      for (let y = 62; y <= 66; y += 1) {
+        for (let z = -2; z <= 2; z += 1) cells.set(`${x},${y},${z}`, 'minecraft:stone');
+      }
+    }
+    cells.set('0,64,0', 'minecraft:air');
+    cells.set('0,65,0', 'minecraft:air');
+    cells.set('1,63,0', 'minecraft:air');
+    cells.set('1,64,0', 'minecraft:cobblestone'); // the sealed ceiling over the pocket
+    const state = { feet: { x: 0.5, y: 64, z: 0.5 }, inv: {}, picked: false, digs: [] };
+    const snapshot = () => ({
+      ready: true,
+      position: { ...state.feet },
+      onGround: true,
+      inventory: { ...state.inv },
+      nearbyItems: state.picked
+        ? []
+        : [{ id: 'iron1', name: drop.name, count: 1, position: { ...drop.position }, distance: 0 }],
+      blocks: { cells: Object.fromEntries(cells) }
+    });
+    const tryPickup = () => {
+      if (state.picked) return;
+      if (Math.hypot(state.feet.x - drop.position.x, state.feet.y - drop.position.y, state.feet.z - drop.position.z) <= 1.5) {
+        state.picked = true;
+        state.inv[drop.name] = 1;
+      }
+    };
+    const io = {
+      log: silent,
+      refresh: async () => snapshot(),
+      feetOf: () => ({ x: Math.floor(state.feet.x), y: Math.floor(state.feet.y), z: Math.floor(state.feet.z) }),
+      read: (s, cell) => cells.get(key(cell)) || 'minecraft:air',
+      passable: (n) => /air$/.test(n),
+      solid: (n) => !/air$/.test(n),
+      protectedName: () => false,
+      dangerAt: () => null,
+      digCell: async (cell) => {
+        state.digs.push({ ...cell });
+        cells.delete(key(cell));
+        return { ok: true };
+      },
+      moveTo: async (pos) => {
+        // The live walker refuses to step down into a pit (its strict-cell arrival ignored
+        // y and it stopped at the edge); the fixture reproduces that refusal.
+        if (pos.y < state.feet.y - 0.01) return { ok: false, reason: 'ledge (walker refuses the pit)' };
+        const cheb = Math.max(Math.abs(pos.x - state.feet.x), Math.abs(pos.y - state.feet.y), Math.abs(pos.z - state.feet.z));
+        if (cheb > 1 || !/air$/.test(cells.get(key(pos)) || 'minecraft:air')) return { ok: false, reason: 'blocked' };
+        state.feet = { x: pos.x + 0.5, y: pos.y, z: pos.z + 0.5 };
+        tryPickup();
+        return { ok: true };
+      },
+      climbTo: async () => ({ ok: false, risen: 0 }),
+      pickScaffold: () => 'minecraft:cobblestone',
+      placeBlock: async (item, reference, face) => {
+        const cell = { x: reference.x + face.x, y: reference.y + face.y, z: reference.z + face.z };
+        cells.set(key(cell), item);
+        state.fills = state.fills || [];
+        state.fills.push({ ...cell });
+        // Placing into the cell an item entity occupies pushes the entity on top of the block.
+        if (Math.floor(drop.position.x) === cell.x && Math.floor(drop.position.y) === cell.y && Math.floor(drop.position.z) === cell.z) {
+          drop.position = { ...drop.position, y: drop.position.y + 1 };
+        }
+        return { ok: true };
+      }
+    };
+    const goal = goalFor(snap({}), {
+      target: { blockId: 'iron_ore', position: { x: 9, y: 64, z: 9 } },
+      acceptedProducts: ['raw_iron']
+    });
+    recordMineResult(goal, { receipt: { ok: true, dug: true } });
+    goal.pendingDrops = [{ id: 'iron1', name: 'raw_iron', count: 1, position: { ...drop.position } }];
+    goal.dropsBefore = [];
+    const result = await attemptCollection({ goal, io, mode: 'macro', allowTerrainEdits: true, limits: FAST_LIMITS });
+    assert.strictEqual(result.outcome, 'verified', `outcome=${result.outcome} reason=${result.reason}`);
+    assert(state.digs.some((c) => c.x === 1 && c.y === 64 && c.z === 0), 'the sealed ceiling must be dug');
+    assert(
+      state.digs.every((c) => !(c.x === 1 && c.y === 63 && c.z === 0)),
+      'the drop cell itself must never be dug'
+    );
+    assert(
+      (state.fills || []).some((c) => c.x === 1 && c.y === 63 && c.z === 0),
+      `the pit must be filled to walk in: ${JSON.stringify(state.fills)}`
+    );
+    assert(
+      result.attemptedActions.some((a) => a.action === 'fill' && a.cell.x === 1 && a.cell.y === 63),
+      `a fill action must be reported: ${JSON.stringify(result.attemptedActions)}`
+    );
+    assert(state.picked === true, 'the drop must be picked after stepping down');
+    return 'dug the ceiling, filled the pit, walked in and picked the drop';
   });
 
   process.stdout.write('\n4. end-to-end with the skill (C04/C10/C15)\n');
