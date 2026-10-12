@@ -663,9 +663,34 @@ register({
       },
       moveTo: async (position, opts) => {
         /** Respect the caller's tolerance: a carve step needs a real cell landing. */
-        const range = Math.min(1, Math.max(0.3, (opts && opts.within) || 1));
+        const within = (opts && opts.within) || 1;
+        const range = Math.min(1, Math.max(0.3, within));
+        /**
+         * Strict entry (within <= 0.5) means "stand in that block". Aim the client walker
+         * at the precise cell CENTRE instead of the floored corner: a corner aim converges
+         * the steer line onto the corner and wedges the body against the neighbouring row
+         * (live 2026-10-12, diagonal-sealed pocket - the bot stopped half a body width
+         * short and both attempts "arrived" without entering). The centre aim keeps a
+         * lateral component on the approach, so the collision slide carries it past the
+         * corner. The range stays <= 0.5 so the client requires the feet cell itself, not
+         * "close by" (a 0.8 range "arrives" from outside and turned the fallback into a
+         * silent no-op).
+         */
+        const strict = within <= 0.5;
+        const target = strict ? { x: position.x + 0.5, y: position.y, z: position.z + 0.5 } : position;
+        if (opts && opts.plan) {
+          // Planner route (A*): orthogonal legs around a corner the slide-walker cannot take.
+          const ok = await body
+            .moveTo(target, {
+              range: strict ? 0.5 : Math.max(range, 0.8),
+              timeoutMs: 18000,
+              ...(strict ? { precise: true } : {})
+            })
+            .catch(() => false);
+          return { ok: !!ok };
+        }
         const ok = await body
-          .moveTo(position, { range, timeoutMs: 12000, raw: true })
+          .moveTo(target, { range, timeoutMs: 12000, raw: true, ...(strict ? { precise: true } : {}) })
           .catch(() => false);
         return { ok: !!ok };
       },

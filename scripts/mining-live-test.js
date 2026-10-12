@@ -503,8 +503,29 @@ async function main() {
           return io.passable(after) ? { ok: true } : { ok: false, failure: 'occluded', reason: `${after} is still there` };
         },
         moveTo: async (position, opts) => {
-          const range = Math.min(1, Math.max(0.3, (opts && opts.within) || 1));
-          const ok = await body.moveTo(position, { range, timeoutMs: 12000, raw: true }).catch(() => false);
+          const within = (opts && opts.within) || 1;
+          const range = Math.min(1, Math.max(0.3, within));
+          /**
+           * Strict entry aims at the precise cell centre (mirrors the skill's collectionIo;
+           * live 2026-10-12: corner aims wedge the slide-walker half a body width short of
+           * the opened cell, and a >= 0.8 range "arrives" from outside, which made the
+           * planned fallback a silent no-op).
+           */
+          const strict = within <= 0.5;
+          const target = strict ? { x: position.x + 0.5, y: position.y, z: position.z + 0.5 } : position;
+          if (opts && opts.plan) {
+            const ok = await body
+              .moveTo(target, {
+                range: strict ? 0.5 : Math.max(range, 0.8),
+                timeoutMs: 18000,
+                ...(strict ? { precise: true } : {})
+              })
+              .catch(() => false);
+            return { ok: !!ok };
+          }
+          const ok = await body
+            .moveTo(target, { range, timeoutMs: 12000, raw: true, ...(strict ? { precise: true } : {}) })
+            .catch(() => false);
           return { ok: !!ok };
         },
         climbTo: async (stand, opts = {}) => {

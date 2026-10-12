@@ -106,6 +106,26 @@ async function carveAccessStep(goal, io, limits, spentSoFar) {
       };
     }
     if (spentSoFar + dug.length >= limits.maxLocalEdits) {
+      /**
+       * The press: when the step cell is the drop's own cell (nothing to dig before the
+       * walk) and only the head cell is unaffordable, refuse the dig but not the step.
+       *
+       * Live 2026-10-12: the item sat in a sealed 1x1 pocket whose head cell was solid -
+       * the body can never stand in there, but the walk toward the pocket still presses
+       * it to the far edge of the neighbouring cell, which is inside the vanilla pickup
+       * inflation (1.0 horizontal). Digging one more block is not required to reach it,
+       * so a spent budget must not abort the approach. The caller's observe() remains
+       * the referee: no edit, no pickup, no progress.
+       */
+      const stepIsDropCell = step.x === dropCell.x && step.y === dropCell.y && step.z === dropCell.z;
+      if (stepIsDropCell && cell.y === step.y + 1) {
+        if (log && typeof log.info === 'function') {
+          log.info(
+            `carve: head ${cell.x},${cell.y},${cell.z} left in place (edit budget spent); pressing toward the drop`
+          );
+        }
+        continue;
+      }
       return {
         ok: false,
         reason: 'local edit budget exhausted while carving access',
@@ -132,17 +152,45 @@ async function carveAccessStep(goal, io, limits, spentSoFar) {
     }
     dug.push({ ...cell });
   }
-  const moved = await io.moveTo(step, { within: 0.5 });
   /**
    * Walkers report "arrived" within their own tolerance; live 2026-10-10 a range-1.0
    * arrival left the feet cell unchanged and the carve loop span on one cell forever.
    * Verify the landing against the real position, not the walker's word.
+   *
+   * Dig-then-drop needs a bounded settle: live 2026-10-12 the dug floor sent the bot
+   * falling exactly as intended, but the immediate re-read (mid-fall, still one level up)
+   * looked like a failed step and the loop gave up one cell short of the drop.
    */
-  const after = (await io.refresh()) || null;
-  const posAfter = after ? after.position : null;
-  const landed =
-    !!posAfter &&
-    Math.hypot(posAfter.x - (step.x + 0.5), posAfter.y - step.y, posAfter.z - (step.z + 0.5)) <= 0.6;
+  const landedAt = (position) =>
+    !!position && Math.hypot(position.x - (step.x + 0.5), position.y - step.y, position.z - (step.z + 0.5)) <= 0.6;
+  const settle = async () => {
+    for (let i = 0; i < 4; i += 1) {
+      const snapshotAfter = (await io.refresh()) || null;
+      const positionAfter = snapshotAfter ? snapshotAfter.position : null;
+      if (landedAt(positionAfter)) return { snapshot: snapshotAfter, position: positionAfter, ok: true };
+      await new Promise((resolve) => setTimeout(resolve, 180));
+    }
+    const snapshotAfter = (await io.refresh()) || null;
+    return { snapshot: snapshotAfter, position: snapshotAfter ? snapshotAfter.position : null, ok: false };
+  };
+  let moved = await io.moveTo(step, { within: 0.5 });
+  let settled = await settle();
+  if ((!moved || !moved.ok) || !settled.ok) {
+    /**
+     * Straight-line walker stuck on a corner: the diagonal enclosure leaves it pressed
+     * against the corner. Let the caller's planner route an orthogonal path when the io
+     * offers one - the same target, a walkable polyline instead of a slide.
+     */
+    const planned = await io.moveTo(step, { within: 0.5, plan: true });
+    const plannedSettle = await settle();
+    if (plannedSettle.ok) {
+      moved = planned && planned.ok ? planned : moved;
+      settled = plannedSettle;
+    }
+  }
+  const after = settled.snapshot;
+  const posAfter = settled.position;
+  const landed = settled.ok;
   if (log && typeof log.info === 'function') {
     log.info(
       `carve: feet ${feet.x},${feet.y},${feet.z} -> ${step.x},${step.y},${step.z}; dug ${dug.length}; ` +
@@ -157,7 +205,8 @@ async function carveAccessStep(goal, io, limits, spentSoFar) {
      * place a support block into the pit cell (the item on top pops up with the block) and
      * stand on it. Placement still goes through the caller's permission gate.
      */
-    if (step.y < feet.y && typeof io.placeBlock === 'function' && typeof io.pickScaffold === 'function') {
+    const sameAsDropCell = step.x === dropCell.x && step.y === dropCell.y && step.z === dropCell.z;
+    if (sameAsDropCell && step.y < feet.y && typeof io.placeBlock === 'function' && typeof io.pickScaffold === 'function') {
       const scaffold = io.pickScaffold(after || snapshot);
       if (scaffold) {
         let placed = await io.placeBlock(scaffold, { x: step.x, y: step.y - 1, z: step.z }, { x: 0, y: 1, z: 0 });
@@ -197,6 +246,59 @@ async function carveAccessStep(goal, io, limits, spentSoFar) {
             filled: { ...step }
           };
         }
+      }
+    }
+    /**
+     * Rim-wedged descent: in a 1x1 pit the player can stand on the corner its AABB still
+     * leans over (live 2026-10-12: feet one level up, hole directly below, no fall), and
+     * the walker cannot step deeper. Clear the supporting rim cells at the pit's level -
+     * the cells the current AABB overlaps - and let gravity finish the descent.
+     */
+    if (step.y < feet.y) {
+      const raw =
+        posAfter || (after && after.position ? after.position : null) || { x: feet.x + 0.5, y: feet.y, z: feet.z + 0.5 };
+      const rimCells = [];
+      for (let x = Math.floor(raw.x - 0.31); x <= Math.floor(raw.x + 0.31); x += 1) {
+        for (let z = Math.floor(raw.z - 0.31); z <= Math.floor(raw.z + 0.31); z += 1) {
+          const cell = { x, y: step.y, z };
+          if (cell.x === step.x && cell.z === step.z) continue;
+          const name = io.read(after, cell);
+          if (io.passable(name)) continue;
+          if (typeof io.protectedName === 'function' && io.protectedName(name)) continue;
+          if (typeof io.dangerAt === 'function' && io.dangerAt(after, cell)) continue;
+          rimCells.push(cell);
+        }
+      }
+      let clearedRim = 0;
+      for (const cell of rimCells) {
+        if (spentSoFar + dug.length >= limits.maxLocalEdits) break;
+        const opened = await io.digCell(cell);
+        if (opened && opened.ok) {
+          dug.push({ ...cell, rim: true });
+          clearedRim += 1;
+        }
+      }
+      if (clearedRim > 0) {
+        let retrySettle = await settle();
+        if (!retrySettle.ok) {
+          await io.moveTo(step, { within: 0.5 });
+          retrySettle = await settle();
+        }
+        if (log && typeof log.info === 'function') {
+          log.info(`carve-rim: cleared ${clearedRim} rim cell(s) at y=${step.y}; landed=${retrySettle.ok}`);
+        }
+        if (retrySettle.ok) {
+          return { ok: true, spent: dug.length, dug, moved: step, moveOk: true };
+        }
+        return {
+          ok: false,
+          failure: 'no_path',
+          reason: `cleared the rim but still could not stand at ${step.x},${step.y},${step.z}`,
+          spent: dug.length,
+          dug,
+          moved: step,
+          moveOk: false
+        };
       }
     }
     return {
@@ -430,7 +532,13 @@ async function attemptCollection(options) {
   // ---- 3. bounded access carving toward the drop (macro only) --------------
   if (mode === 'macro' && options.allowTerrainEdits && !outOfTime()) {
     let carveNote = null;
-    for (let i = 0; i < 12 && editsUsed < limits.maxLocalEdits; i += 1) {
+    /**
+     * `<=` so a zero-cost step still runs at an exactly-spent edit budget: the final
+     * "press toward the drop" walk digs nothing and is the step that reaches an item the
+     * body cannot stand next to (live 2026-10-12). A step that does need a dig fails
+     * inside carveAccessStep on the same budget and stops the loop as before.
+     */
+    for (let i = 0; i < 12 && editsUsed <= limits.maxLocalEdits; i += 1) {
       if (cancelled()) return finish({ outcome: 'interrupted', failure: 'interrupted', reason: signal.reason || 'cancelled' });
       if (outOfTime()) break;
       const carve = await carveAccessStep(goal, io, limits, editsUsed);

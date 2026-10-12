@@ -139,12 +139,13 @@ LLM 层（`src/llm/`，生产配置已开启 `toolCalling`）：8 个工具 —�
 | 10-10 | P4 逐格清障垫柱 | `pillarUp` 执行器（只清 y+2/y+3→垫一格→核验落地）；取消信号；4.5 格 dig 距离闸；权限闸门管单格垫柱；Mod 回执 start/end/placedCells | ✅ 离线（B1–B10、`client:test` 66/66、`selftest` 173/173）；Mod 重编译（60340 字节）；真机待测 |
 | 10-10 | C1/C2 共享收集 | `AcquisitionGoal` 挖前基线/入包证据（实体消失≠入包）；候选站位+有界接近；count 达标 drain/partial；tunnel 目标保护 | ✅ 离线（`mining:collection:test` 15/15）；真机待测 |
 | 10-10 | P1–P3 LLM 异常接管 | `miningProgress` 触发阈值；`miningRecoveryTools` 六工具；`miningRecovery` 状态机（短批次/预算/重复护栏/以入包证据结束）；外部取消 | ✅ 离线（`mining:recovery:test` 18/18）；**默认关闭**，真机验收后开启 |
+| 10-12 | 收集走位三修 | 严格进入改“精确格中心”（`moveto` 支持小数坐标）；plan 回退严格化（修 0.8 假到达）；预算耗尽允许“零开挖压向掉落物” | ✅ 真机（对角密闭红石 ×2 / ×1 两轮 `verified`；`mining:collection:test` 24/24） |
 
 当前状态（2026-10-10）：
 
 * 离线全绿：`selftest 173/173`、`skills:test 41/41`、`client:test 66/66`、`mining:entry:test 20/20`、
-  `mining:collection:test 15/15`、`mining:recovery:test 18/18`、`p0:verify 8/8`（明细见 §8）。
-* 控制 Mod 已编译：`agent-client-1.0.0.jar` **60936 字节**（含 P4 回执字段、tunnel 目标保护、Pillar 失败诊断），
+  `mining:collection:test 24/24`、`mining:recovery:test 18/18`、`tasks:test 52/52`、`p0:verify 8/8`（明细见 §8）。
+* 控制 Mod：当前在线 `agent-client-1.0.0.jar` **60961 字节**（在 60936 基础上含 WalkTo 严格到达 y 容差修复），
   改 Mod 后必须重装（`npm run client:install`）并重启客户端。
 * **真机验收（2026-10-10 夜，mc.example.com，角色 `agent`，jar 60936）**：
   `npm run mining:live` 驱动完成 8 轮采矿 + 垫柱探针 + 命令入口 + 中途 stop——**连续 6 轮完整成功**
@@ -158,6 +159,10 @@ LLM 层（`src/llm/`，生产配置已开启 `toolCalling`）：8 个工具 —�
   可点名清理被封掉落。
   10-12 续测：清障支持“掉落物低一层”（挖开上方封块走下/落入，或填坑垫平后平层拾取）；
   Mod `WalkTo` 严格到达收紧 y 容差（此前站在坑沿会误报到达）——真机确定性验证下坑/回爬均正常（jar 60961）。
+  10-12 深夜：对角密闭口袋真机复现“贴角楔死 + plan 假到达”并修复（严格进入改精确格中心、plan 回退严格化、
+  预算耗尽允许“零开挖压向掉落物”）——两轮真机均 `verified`（红石 ×2 与 ×1 入包；证据
+  `runtime/mining-live/2026-10-12T15-02-06-788Z-live-diag-redstone-6.json`、
+  `runtime/mining-live/2026-10-12T15-03-32-249Z-live-diag-redstone-7.json`）。
   振荡早退护栏真机生效（A/B 往返 20+ 步 → 3 步内交垫柱）。证据：`runtime/mining-live/*.json`。
   遗留真机项：tunnel 目标保护场景、采集中途 stop、同型地形 3 次重复、LLM 接管 L 系列
   （`miningRecovery.enabled` 仍为 false，验收后显式开启）。
@@ -282,7 +287,7 @@ Invoke-RestMethod -Uri http://127.0.0.1:8766/ui/state
 | `npm run clientmod:test` | clientmod 躯体角色扮演路径 | 11/11 |
 | `npm run skills:test` | 技能库（含采矿报价/台账/防坠落/逐格垫柱 B1–B10） | 41/41 |
 | `npm run mining:entry:test` | 统一挖矿入口 A 系列 | 20/20 |
-| `npm run mining:collection:test` | 掉落物收集 C 系列 | 15/15 |
+| `npm run mining:collection:test` | 掉落物收集 C 系列 | 24/24 |
 | `npm run mining:recovery:test` | LLM 异常接管 R 系列（脚本化模型） | 18/18 |
 | `npm run selftest` | 全量离线自检 | 173/173 |
 | `npm run p0:verify` | P0 全量验收（一次跑 8 个套件） | 8/8 |
@@ -323,7 +328,7 @@ P0 的完整实施状态与验收证据见 [`docs/P0-STATUS.md`](docs/P0-STATUS.
 npm run p0:verify      # 离线全量（约 1 分钟，8 个套件）
 npm run selftest       # 173/173：模块图 / 插件 / 寻路 / 三原语 / 意图 Schema / 工具白名单 / 死亡处理
 npm run mining:entry:test      # 20/20：统一挖矿入口
-npm run mining:collection:test # 15/15：共享收集
+npm run mining:collection:test # 24/24：共享收集
 npm run mining:recovery:test   # 18/18：LLM 接管（脚本化模型）
 ```
 

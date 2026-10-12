@@ -500,6 +500,297 @@ async function main() {
     assert(state.picked === true, 'the drop must be picked after stepping down');
     return 'dug the ceiling, filled the pit, walked in and picked the drop';
   });
+  await check('live fix 10-12: a diagonal corner enclosure is entered via the planner route', async () => {
+    const drop = { name: 'redstone', count: 1, position: { x: 1.5, y: 63, z: 1.5 } };
+    const key = (c) => `${c.x},${c.y},${c.z}`;
+    const cells = new Map();
+    for (let x = -1; x <= 3; x += 1) {
+      for (let y = 61; y <= 66; y += 1) {
+        for (let z = -1; z <= 3; z += 1) cells.set(`${x},${y},${z}`, 'minecraft:stone');
+      }
+    }
+    cells.set('0,64,0', 'minecraft:air');
+    cells.set('0,65,0', 'minecraft:air');
+    cells.set('1,63,1', 'minecraft:air'); // the drop pocket, sealed on every side
+    const state = { feet: { x: 0.5, y: 64, z: 0.5 }, inv: {}, picked: false, digs: [], fills: [] };
+    const snapshot = () => ({
+      ready: true,
+      position: { ...state.feet },
+      onGround: true,
+      inventory: { ...state.inv },
+      nearbyItems: state.picked
+        ? []
+        : [{ id: 'rs1', name: drop.name, count: 1, position: { ...drop.position }, distance: 0 }],
+      blocks: { cells: Object.fromEntries(cells) }
+    });
+    const tryPickup = () => {
+      if (state.picked) return;
+      if (Math.hypot(state.feet.x - drop.position.x, state.feet.y - drop.position.y, state.feet.z - drop.position.z) <= 1.5) {
+        state.picked = true;
+        state.inv[drop.name] = 1;
+      }
+    };
+    const passable = (c) => /air$/.test(cells.get(key(c)) || 'minecraft:air');
+    const io = {
+      log: silent,
+      refresh: async () => snapshot(),
+      feetOf: () => ({ x: Math.floor(state.feet.x), y: Math.floor(state.feet.y), z: Math.floor(state.feet.z) }),
+      read: (s, cell) => cells.get(key(cell)) || 'minecraft:air',
+      passable: (n) => /air$/.test(n),
+      solid: (n) => !/air$/.test(n),
+      protectedName: () => false,
+      dangerAt: () => null,
+      digCell: async (cell) => {
+        state.digs.push({ ...cell });
+        cells.delete(key(cell));
+        return { ok: true };
+      },
+      moveTo: async (pos, opts = {}) => {
+        const fy = Math.floor(state.feet.y);
+        if (opts.plan) {
+          // Planner: an orthogonal polyline around the corner, then one descent.
+          const mid = { x: pos.x, y: fy, z: pos.z };
+          if (!passable(mid)) return { ok: false, reason: 'planner blocked (mid)' };
+          state.feet = { x: mid.x + 0.5, y: mid.y, z: mid.z + 0.5 };
+          tryPickup();
+          if (!passable(pos)) return { ok: false, reason: 'planner blocked (landing)' };
+          if (!/stone|cobble/.test(cells.get(`${pos.x},${pos.y - 1},${pos.z}`) || '')) {
+            return { ok: false, reason: 'planner blocked (no floor)' };
+          }
+          state.feet = { x: pos.x + 0.5, y: pos.y, z: pos.z + 0.5 };
+          tryPickup();
+          return { ok: true };
+        }
+        // Raw slide walker: cannot cut a corner into a lower diagonal cell.
+        if (pos.y < fy && (pos.x !== Math.floor(state.feet.x) || pos.z !== Math.floor(state.feet.z))) {
+          return { ok: false, reason: 'corner (raw walker stuck)' };
+        }
+        const cheb = Math.max(Math.abs(pos.x - state.feet.x), Math.abs(pos.y - state.feet.y), Math.abs(pos.z - state.feet.z));
+        if (cheb > 1 || !passable(pos)) return { ok: false, reason: 'blocked' };
+        state.feet = { x: pos.x + 0.5, y: pos.y, z: pos.z + 0.5 };
+        tryPickup();
+        return { ok: true };
+      },
+      climbTo: async () => ({ ok: false, risen: 0 }),
+      pickScaffold: () => 'minecraft:cobblestone',
+      placeBlock: async (item, reference, face) => {
+        state.fills.push({ reference, face });
+        return { ok: true };
+      }
+    };
+    const goal = goalFor(snap({}), {
+      target: { blockId: 'redstone_ore', position: { x: 9, y: 64, z: 9 } },
+      acceptedProducts: ['redstone']
+    });
+    recordMineResult(goal, { receipt: { ok: true, dug: true } });
+    goal.pendingDrops = [{ id: 'rs1', name: 'redstone', count: 1, position: { ...drop.position } }];
+    goal.dropsBefore = [];
+    const result = await attemptCollection({ goal, io, mode: 'macro', allowTerrainEdits: true, limits: FAST_LIMITS });
+    assert.strictEqual(result.outcome, 'verified', `outcome=${result.outcome} reason=${result.reason}`);
+    assert(
+      state.digs.some((c) => c.x === 1 && c.y === 63 && c.z === 0) && state.digs.some((c) => c.x === 1 && c.y === 64 && c.z === 0),
+      `the corner cells must be dug: ${JSON.stringify(state.digs)}`
+    );
+    assert(state.fills.length === 0, `filling must not trigger for a diagonal neighbour: ${JSON.stringify(state.fills)}`);
+    assert(state.picked === true, 'the drop must be picked after the planner route');
+    return 'corner dug, planner route entered, picked without filling';
+  });
+  await check('live fix 10-12b: a rim-wedged 1x1 pit is widened so gravity lands the bot', async () => {
+    const drop = { name: 'cobblestone', count: 1, position: { x: 1.5, y: 63, z: 2.5 } };
+    const key = (c) => `${c.x},${c.y},${c.z}`;
+    const cells = new Map();
+    for (let x = -1; x <= 3; x += 1) {
+      for (let y = 61; y <= 66; y += 1) {
+        for (let z = -1; z <= 3; z += 1) cells.set(`${x},${y},${z}`, 'minecraft:stone');
+      }
+    }
+    cells.set('0,64,0', 'minecraft:air');
+    cells.set('0,65,0', 'minecraft:air');
+    cells.set('1,63,2', 'minecraft:air'); // the sealed pocket with the drop
+    const state = { feet: { x: 0.5, y: 64, z: 0.5 }, inv: {}, picked: false, digs: [], fills: [] };
+    const snake = (p) => {
+      const fx = Math.floor(p.x);
+      const fz = Math.floor(p.z);
+      const fx0 = Math.floor(p.x - 0.31);
+      const fx1 = Math.floor(p.x + 0.31);
+      const fz0 = Math.floor(p.z - 0.31);
+      const fz1 = Math.floor(p.z + 0.31);
+      return { fx, fz, fx0, fx1, fz0, fz1 };
+    };
+    const supported = () => {
+      const y = Math.floor(state.feet.y);
+      const box = snake(state.feet);
+      for (let x = box.fx0; x <= box.fx1; x += 1) {
+        for (let z = box.fz0; z <= box.fz1; z += 1) {
+          if (!/air$/.test(cells.get(`${x},${y - 1},${z}`) || 'minecraft:air')) return true;
+        }
+      }
+      return false;
+    };
+    const settleGravity = () => {
+      while (!supported()) state.feet = { ...state.feet, y: state.feet.y - 1 };
+    };
+    const snapshot = () => ({
+      ready: true,
+      position: { ...state.feet },
+      onGround: true,
+      inventory: { ...state.inv },
+      nearbyItems: state.picked
+        ? []
+        : [{ id: 'cb1', name: drop.name, count: 1, position: { ...drop.position }, distance: 0 }],
+      blocks: { cells: Object.fromEntries(cells) }
+    });
+    const tryPickup = () => {
+      if (state.picked) return;
+      if (Math.hypot(state.feet.x - drop.position.x, state.feet.y - drop.position.y, state.feet.z - drop.position.z) <= 1.5) {
+        state.picked = true;
+        state.inv[drop.name] = 1;
+      }
+    };
+    const passable = (c) => /air$/.test(cells.get(key(c)) || 'minecraft:air');
+    const io = {
+      log: silent,
+      refresh: async () => snapshot(),
+      feetOf: () => ({ x: Math.floor(state.feet.x), y: Math.floor(state.feet.y), z: Math.floor(state.feet.z) }),
+      read: (s, cell) => cells.get(key(cell)) || 'minecraft:air',
+      passable: (n) => /air$/.test(n),
+      solid: (n) => !/air$/.test(n),
+      protectedName: () => false,
+      dangerAt: () => null,
+      digCell: async (cell) => {
+        state.digs.push({ ...cell });
+        cells.delete(key(cell));
+        settleGravity();
+        tryPickup();
+        return { ok: true };
+      },
+      moveTo: async (pos, opts = {}) => {
+        const fy = Math.floor(state.feet.y);
+        if (pos.y < fy) {
+          // The walker wedges on the pit rim: it leans half into the target column but the
+          // corner block still supports it (exactly the live 2026-10-12 position).
+          state.feet = { x: pos.x + 0.5, y: fy, z: pos.z + 0.1 };
+          return { ok: false, reason: opts.plan ? 'planner: no down-step rule' : 'wedge at the rim' };
+        }
+        const cheb = Math.max(Math.abs(pos.x - state.feet.x), Math.abs(pos.y - state.feet.y), Math.abs(pos.z - state.feet.z));
+        if (cheb > 1 || !passable(pos)) return { ok: false, reason: 'blocked' };
+        state.feet = { x: pos.x + 0.5, y: pos.y, z: pos.z + 0.5 };
+        settleGravity();
+        tryPickup();
+        return { ok: true };
+      },
+      climbTo: async () => ({ ok: false, risen: 0 }),
+      pickScaffold: () => 'minecraft:cobblestone',
+      placeBlock: async (item, reference, face) => {
+        state.fills.push({ reference, face });
+        return { ok: true };
+      }
+    };
+    const goal = goalFor(snap({}), {
+      target: { blockId: 'stone', position: { x: 9, y: 64, z: 9 } },
+      acceptedProducts: ['cobblestone']
+    });
+    recordMineResult(goal, { receipt: { ok: true, dug: true } });
+    goal.pendingDrops = [{ id: 'cb1', name: 'cobblestone', count: 1, position: { ...drop.position } }];
+    goal.dropsBefore = [];
+    const result = await attemptCollection({ goal, io, mode: 'macro', allowTerrainEdits: true, limits: FAST_LIMITS });
+    assert.strictEqual(result.outcome, 'verified', `outcome=${result.outcome} reason=${result.reason}`);
+    assert(
+      state.digs.some((c) => c.rim === undefined && c.x === 0 && c.y === 63 && c.z === 1),
+      `the step cell must be dug: ${JSON.stringify(state.digs)}`
+    );
+    assert(
+      result.attemptedActions.some((a) => a.action === 'carve' && a.cells.some((c) => c.rim === true && c.y === 63)),
+      `the rim cell must be reported: ${JSON.stringify(result.attemptedActions)}`
+    );
+    assert(state.picked === true, 'the drop must be picked after the rim fall');
+    return 'rim cleared, gravity landed the bot, drop picked';
+  });
+
+  await check('live fix 10-12c: a spent edit budget still presses toward a sealed drop it cannot enter', async () => {
+    const drop = { name: 'redstone', count: 1, position: { x: 0.5, y: 64, z: 1.98 } };
+    const key = (c) => `${c.x},${c.y},${c.z}`;
+    const cells = new Map();
+    for (let x = -2; x <= 2; x += 1) {
+      for (let y = 62; y <= 66; y += 1) {
+        for (let z = -2; z <= 3; z += 1) cells.set(`${x},${y},${z}`, 'minecraft:deepslate');
+      }
+    }
+    cells.set('0,64,0', 'minecraft:air');
+    cells.set('0,65,0', 'minecraft:air');
+    cells.set('0,64,1', 'minecraft:air'); // the 1-tall pocket holding the drop; its ceiling stays sealed
+    const state = { feet: { x: 0.5, y: 64, z: 0.5 }, inv: {}, picked: false, digs: [], moves: [], pressed: false };
+    const snapshot = () => ({
+      ready: true,
+      position: { ...state.feet },
+      onGround: true,
+      inventory: { ...state.inv },
+      nearbyItems: state.picked
+        ? []
+        : [{ id: 'rs1', name: drop.name, count: 1, position: { ...drop.position }, distance: 0 }],
+      blocks: { cells: Object.fromEntries(cells) }
+    });
+    /** Vanilla reach: 1.0 horizontal inflation + body half-width + item half-size. */
+    const reach = drop.position.z - 1.425;
+    const tryPickup = () => {
+      if (state.picked) return;
+      if (state.feet.z >= reach) {
+        state.picked = true;
+        state.inv[drop.name] = 1;
+      }
+    };
+    const io = {
+      log: silent,
+      refresh: async () => snapshot(),
+      feetOf: () => ({ x: Math.floor(state.feet.x), y: Math.floor(state.feet.y), z: Math.floor(state.feet.z) }),
+      read: (s, cell) => cells.get(key(cell)) || 'minecraft:air',
+      passable: (n) => /air$/.test(n),
+      solid: (n) => !/air$/.test(n),
+      protectedName: () => false,
+      dangerAt: () => null,
+      digCell: async (cell) => {
+        state.digs.push({ ...cell });
+        cells.delete(key(cell));
+        return { ok: true };
+      },
+      moveTo: async (pos, opts = {}) => {
+        state.moves.push({ x: pos.x, y: pos.y, z: pos.z, plan: !!(opts && opts.plan) });
+        if (pos.x === 0 && pos.y === 64 && pos.z === 1) {
+          /**
+           * The press: the pocket cannot be entered (ceiling solid), but the walk pins the
+           * body flush against it at z = 0.7 - inside the pickup reach (needs >= 0.555),
+           * exactly the live 2026-10-12 geometry. The walker never "arrives" inside, so it
+           * reports an honest failure; the pickup during the walk is the progress.
+           */
+          state.pressed = true;
+          state.feet = { x: pos.x + 0.5, y: pos.y, z: pos.z - 0.3 };
+          tryPickup();
+          return { ok: false, reason: 'jump-blocked against the pocket' };
+        }
+        return { ok: false, reason: 'blocked' };
+      },
+      climbTo: async () => ({ ok: false, risen: 0 })
+    };
+    const goal = goalFor(snap({}), {
+      target: { blockId: 'redstone_ore', position: { x: 9, y: 64, z: 9 } },
+      acceptedProducts: ['redstone']
+    });
+    recordMineResult(goal, { receipt: { ok: true, dug: true } });
+    goal.pendingDrops = [{ id: 'rs1', name: drop.name, count: 1, position: { ...drop.position } }];
+    goal.dropsBefore = [];
+    const result = await attemptCollection({
+      goal,
+      io,
+      mode: 'macro',
+      allowTerrainEdits: true,
+      limits: { ...FAST_LIMITS, maxLocalEdits: 0 }
+    });
+    assert.strictEqual(result.outcome, 'verified', `outcome=${result.outcome} reason=${result.reason}`);
+    assert(state.pressed === true, `the press walk must run: ${JSON.stringify(state.moves)}`);
+    assert(state.digs.length === 0, `no dig may be attempted at a spent budget: ${JSON.stringify(state.digs)}`);
+    assert(state.picked === true, 'the drop must be picked during the press');
+    return 'budget spent, press reached the drop, no extra block dug';
+  });
 
   process.stdout.write('\n4. end-to-end with the skill (C04/C10/C15)\n');
   /**

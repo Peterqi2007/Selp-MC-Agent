@@ -629,9 +629,25 @@ class ClientModBody extends Body {
     const started = Date.now();
     const started_at = this.snapshot();
     this.lastAction = null; // stale reasons from a previous action must not leak into this one
-    const sent = await this.command(
-      `moveto ${Math.floor(position.x)} ${Math.floor(position.y)} ${Math.floor(position.z)} ${range}`
-    );
+    /**
+     * `precise: true` keeps the coordinates untouched (the client parses doubles).
+     *
+     * Default callers think in cells, and the verb floors to the block corner, which the
+     * client-side walker then uses as its aim point. A corner aim is a trap when the
+     * approach starts laterally offset inside the source cell: the steer line converges
+     * onto the corner and wedges the body against the neighbouring block row (live
+     * 2026-10-12, the diagonal-sealed pocket: the bot stopped exactly half a body width
+     * short, and both the raw and the planned attempt "arrived" without entering the
+     * opened cell). A strict step can instead aim at the precise cell centre, giving the
+     * approach a lateral component so the collision slide carries the body past the
+     * corner instead of pressing into it.
+     */
+    const coord = (value) => {
+      if (options.precise !== true) return String(Math.floor(value));
+      const n = Number(value);
+      return String(Number.isFinite(n) ? Number(n.toFixed(3)) : 0);
+    };
+    const sent = await this.command(`moveto ${coord(position.x)} ${coord(position.y)} ${coord(position.z)} ${range}`);
     if (!sent || sent.ok === false) {
       throw new BodyUnavailableError(`moveto rejected at ${fmt(position)}`);
     }
