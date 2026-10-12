@@ -222,6 +222,16 @@ class Brain {
 
   async slowLoop() {
     if (this.paused || this.stopped || !this.attached) return;
+    /**
+     * A TaskHub job owns the body right now.
+     *
+     * The 'task' hold was only checked in enqueue, so the planner kept deciding while a
+     * background task ran - live 2026-10-12 a `!mine diamond` hub task and the planner's
+     * own iron job issued commands to the same body at the same time (the tunnel controller
+     * was stopped and restarted by two skills, the plan-exceeded ledger tripped, and the
+     * diamond run finished with zero diamonds).
+     */
+    if (this.holds.has('task')) return;
     if (this.safeMode) return; // reflexes only until the coast is clear
     if (this.activeTask) return;
     if (this.queue.length) {
