@@ -1003,6 +1003,94 @@ async function buildAgent(options = {}) {
     return `dead @ ${Math.round(state.death.lastDeath.position.x)},${Math.round(state.death.lastDeath.position.z)}`;
   });
 
+  await scenario('a botless world view must not kill the fast-loop reflexes', async () => {
+    /**
+     * Live 2026-10-13: a skeleton mauled the bot point-blank with no reaction at all.
+     * Root cause: `needsRescue(view)` dereferenced a mineflayer `bot`; the clientmod
+     * world view (BodyWorldView) has none, so the call threw a TypeError on EVERY
+     * fast-loop tick - swallowed at debug level by the interval catch - and the whole
+     * reflex chain (auto-eat, danger retreat, auto-fight) never ran. The reflex must
+     * additionally route through the skill layer on such a body: AutoEat / Combat /
+     * ToolManager read `controller.bot` (null here) and are safety no-ops at best.
+     */
+    const hostile = { entity: { id: 7, name: 'minecraft:zombie', position: { x: 2, y: 64, z: 0 } }, distance: 2 };
+    const skillsMod = require('../src/skills');
+    const realRun = skillsMod.run;
+    const skillCalls = [];
+    skillsMod.run = async (name) => {
+      skillCalls.push(name);
+      return { ok: true, detail: 'stub' };
+    };
+    try {
+      // ---- clientmod: botless view, reflexes must go through the skill layer ----
+      let refreshed = 0;
+      let defended = 0;
+      const snap = { position: { x: 0, y: 64, z: 0 }, health: 20, food: 12 };
+      const ctx = {
+        cfg: loadConfig({ profile: null }),
+        log: silent,
+        bodyKind: 'clientmod',
+        body: {
+          isReady: true,
+          refresh: async () => {
+            refreshed += 1;
+            return null;
+          }
+        },
+        controller: { bot: null },
+        nav: { looksStuck: false, stuckCount: 0 },
+        memory: { landmark: () => null, bump() {} },
+        world: {
+          ready: true,
+          // Deliberately no `bot`: that absence is exactly what broke the reflex.
+          hostiles: () => [hostile],
+          nearestHostile: () => hostile,
+          snapshot: () => ({ ...snap }),
+          isInDanger: () => false
+        },
+        eat: { tick: async () => false },
+        combat: {
+          defend: async () => {
+            defended += 1;
+            return true;
+          },
+          retreat: async () => true
+        },
+        tools: { equipArmor: async () => {} }
+      };
+      const brain = new Brain(ctx);
+      await brain.fastLoop();
+      expect(refreshed >= 1, 'the fast loop did not refresh the body before judging danger');
+      expect(skillCalls.includes('eat'), `a hungry botless body must eat via the skill layer: ${skillCalls}`);
+      expect(skillCalls.includes('attack'), `a botless body must fight via the skill layer: ${skillCalls}`);
+      expect(defended === 0, 'the mineflayer combat controller must not be used on a botless body');
+      await new Promise((r) => setTimeout(r, 0));
+
+      // ---- mineflayer: the servo path stays (same world stub, bot present) ----
+      const before = skillCalls.length;
+      let defendedServo = 0;
+      const ctxServo = {
+        ...ctx,
+        bodyKind: 'mineflayer',
+        controller: { bot: { health: 20 } },
+        combat: {
+          defend: async () => {
+            defendedServo += 1;
+            return true;
+          },
+          retreat: async () => true
+        }
+      };
+      const brainServo = new Brain(ctxServo);
+      await brainServo.fastLoop();
+      expect(defendedServo === 1, 'the mineflayer branch must keep the servo fight');
+      expect(skillCalls.length === before, `mineflayer must not route reflexes through skills: ${skillCalls}`);
+    } finally {
+      skillsMod.run = realRun;
+    }
+    return 'reflex reached; clientmod routed via skills, mineflayer via the servo';
+  });
+
   /**
    * Shut the server down without hanging.
    *

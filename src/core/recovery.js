@@ -36,8 +36,18 @@ function isSolidGround(block) {
  */
 function needsRescue(view, options = {}) {
   if (!view.ready) return false;
+  /**
+   * The heuristic is written against the mineflayer `bot`; a client-mod world view
+   * (BodyWorldView) has none. Live 2026-10-13: the missing bot made this throw a
+   * TypeError on EVERY fast-loop tick - swallowed at debug level by the interval
+   * catch - so auto-eat, danger retreat and the auto-fight reflex were all dead for
+   * the clientmod body while a skeleton mauled the bot point-blank with no reaction.
+   * A view without a mineflayer instance cannot be judged by this heuristic: report
+   * "not trapped" instead of throwing.
+   */
   const bot = view.bot;
-  const feet = bot.entity ? bot.entity.position : null;
+  if (!bot || !bot.entity) return false;
+  const feet = bot.entity.position;
   if (!feet) return false;
   const floored = feet.floored();
   const feetBlock = bot.blockAt(floored);

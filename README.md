@@ -142,7 +142,7 @@ LLM 层（`src/llm/`，生产配置已开启 `toolCalling`）：8 个工具 —�
 | 10-10 | C1/C2 共享收集 | `AcquisitionGoal` 挖前基线/入包证据（实体消失≠入包）；候选站位+有界接近；count 达标 drain/partial；tunnel 目标保护 | ✅ 离线（`mining:collection:test` 15/15）；真机待测 |
 | 10-10 | P1–P3 LLM 异常接管 | `miningProgress` 触发阈值；`miningRecoveryTools` 六工具；`miningRecovery` 状态机（短批次/预算/重复护栏/以入包证据结束）；外部取消 | ✅ 离线（`mining:recovery:test` 18/18）；**默认关闭**，真机验收后开启 |
 | 10-12 | 收集走位三修 | 严格进入改“精确格中心”（`moveto` 支持小数坐标）；plan 回退严格化（修 0.8 假到达）；预算耗尽允许“零开挖压向掉落物” | ✅ 真机（对角密闭红石 ×2 / ×1 两轮 `verified`；`mining:collection:test` 24/24） |
-| 10-13 | 贴脸僵尸不可见修复 | clientmod 快照只在动作里刷新——空闲时世界视图整体冻结（反射/`observe`/面板读旧数据，面板位置曾停在 58 格之外）；`ClientModBody` 后台 500ms 状态轮询（`statePollMs` 可配）+ 反射循环每 tick 兜底刷新 | ✅ 离线（`client:test` 67/67、`selftest` 175/175）；真机待重启验证 |
+| 10-13 | 贴脸僵尸不可见修复 + 反射层复活 | ① clientmod 快照只在动作里刷新——空闲时世界视图整体冻结（面板位置曾停在 58 格之外）；`ClientModBody` 后台 500ms 轮询（`statePollMs` 可配）+ 反射每 tick 兜底刷新。② `needsRescue` 对无 mineflayer 的视图每 tick 抛 TypeError（debug 级被吞）——反射链（吃/自卫/穿甲）从未执行；循环异常改限频 WARN。③ 非 mineflayer 躯体的反射改走技能层（eat/attack/armor），servo 空转不再挡路 | ✅ 离线（`control:test` 36/36、`client:test` 67/67、`selftest` 175/175、9 套件全绿）；真机待重启验证 |
 
 当前状态（2026-10-10）：
 
@@ -169,7 +169,11 @@ LLM 层（`src/llm/`，生产配置已开启 `toolCalling`）：8 个工具 —�
   10-13：“贴脸僵尸无法识别”根因修复——clientmod 快照只在动作代码里 `refresh()`，空闲时世界视图
   整体冻结（反射循环、LLM `observe`、面板全部读旧数据；面板里 agent 的位置停在 58 格之外）；
   `ClientModBody` 现后台 500ms 轮询 `/state`（`statePollMs` 可配、0 可关），反射循环每 tick 再兜底
-  刷新一次。真机验证需重启 agent。
+  刷新一次。同日真机续测又挖出第二层根因：`needsRescue` 对无 mineflayer `bot` 的 world view
+  每 tick 抛 TypeError（setInterval 的 debug 级 catch 静默吞掉）——反射链（自动吃/危险撤退/自卫/
+  穿甲）从未执行过；已修（无 bot 视图返回 false）+ 循环异常改限频 WARN。并且非 mineflayer 躯体的
+  反射改走技能层（`eat`/`attack`/`armor` 技能，与 `!` 命令/LLM 同一条路径），Combat/AutoEat/
+  ToolManager 的 servo 空转不再挡路。真机验证需重启 agent。
   振荡早退护栏真机生效（A/B 往返 20+ 步 → 3 步内交垫柱）。证据：`runtime/mining-live/*.json`。
   遗留真机项：tunnel 目标保护场景、采集中途 stop、同型地形 3 次重复、LLM 接管 L 系列
   （`miningRecovery.enabled` 仍为 false，验收后显式开启）。
@@ -301,7 +305,7 @@ Invoke-RestMethod -Uri http://127.0.0.1:8766/ui/state
 | `npm run path:test` | 寻路场景 | 22/22 |
 | `npm run tasks:test` | 三原语（走 / 挖 / 捡） | 52/52 |
 | `npm run llm:dry` | 意图路由 / Schema / 工具白名单 | 路由 56/56 · 工具 39/39 |
-| `npm run control:test` | 双通道 + 面板 + 死亡处理 | 35/35 |
+| `npm run control:test` | 双通道 + 面板 + 死亡处理 + 反射路由 | 36/36 |
 | `npm run plan:audit` | 计划书 §11 符合性 | 29/29 |
 | `npm run inspect:server` / `mods:report` | 连服前体检 / Mod 知识报告 | 辅助 |
 | `npm run body:info` | 查看可用 body 与当前选择 | 辅助 |

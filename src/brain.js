@@ -29,6 +29,16 @@ const { SnapshotInventory } = require('./world/snapshotInventory');
 const { sleep } = require('./core/movement');
 const { Holds } = require('./core/holds');
 const { needsRescue, escapeToGround, hideUnderground, isDaytime } = require('./core/recovery');
+/**
+ * The skill layer, for reflex work on bodies without a mineflayer instance.
+ *
+ * AutoEat / Combat / ToolManager all read `controller.bot`, which is null on the
+ * client-mod body - they no-op (or throw: `needsRescue` used to kill the whole fast
+ * loop every tick). The skills drive `ctx.body` and are the same code path the `!`
+ * commands and the LLM already use, so for those bodies the fast reflexes route
+ * through here (see `skillDriven` in fastLoop).
+ */
+const skills = require('./skills');
 
 /** Priority levels for `enqueue` (P0-PLAN §5.7). Lower number wins. */
 const LEVELS = { urgent: 0, directive: 1, autonomous: 2 };
@@ -90,6 +100,12 @@ class Brain {
     this.nextHideAt = 0;
     /** Timestamps of recent deaths, used to trigger safe mode. */
     this.recentDeaths = [];
+    /** Reflex bookkeeping for the skill-driven (non-mineflayer) path. */
+    this._reflexFight = false;
+    this._reflexEatBusy = false;
+    this._reflexEatAt = 0;
+    this._reflexArmorBusy = false;
+    this._reflexArmorAt = 0;
   }
 
   /**
@@ -120,9 +136,29 @@ class Brain {
     if (this.running) return;
     this.running = true;
     this.log.info('brain online');
-    this.fastTimer = setInterval(() => this.fastLoop().catch((e) => this.log.debug(`fast loop: ${e.message}`)), 600);
-    this.slowTimer = setInterval(() => this.slowLoop().catch((e) => this.log.debug(`slow loop: ${e.message}`)), this.cfg.behaviour.idleThinkIntervalMs);
-    this.slowLoop().catch(() => {});
+    /**
+     * A loop that throws every tick must not hide at debug level.
+     *
+     * Live 2026-10-13: `needsRescue` threw for the clientmod body on every fast-loop
+     * tick; the debug-level catch kept the log clean while auto-eat, danger retreat
+     * and the auto-fight reflex were silently dead. First failure of each loop is now
+     * a WARN, then rate-limited to once a minute so a permanently broken loop stays
+     * visible without flooding the log.
+     */
+    this._loopErrorAt = this._loopErrorAt || new Map();
+    const reportLoopError = (loop) => (e) => {
+      const now = Date.now();
+      const last = this._loopErrorAt.get(loop) || 0;
+      if (now - last > 60000) {
+        this._loopErrorAt.set(loop, now);
+        this.log.warn(`${loop} loop error: ${e.message} - reflexes are disabled while this repeats`);
+      } else {
+        this.log.debug(`${loop} loop: ${e.message}`);
+      }
+    };
+    this.fastTimer = setInterval(() => this.fastLoop().catch(reportLoopError('fast')), 600);
+    this.slowTimer = setInterval(() => this.slowLoop().catch(reportLoopError('slow')), this.cfg.behaviour.idleThinkIntervalMs);
+    this.slowLoop().catch(reportLoopError('slow'));
   }
 
   stop() {
@@ -200,26 +236,94 @@ class Brain {
       return;
     }
 
+    /**
+     * Which executor the reflexes use.
+     *
+     * The servo classes (AutoEat / Combat / ToolManager) read `controller.bot`, which
+     * is null on a client-mod body: they no-op, or - as `needsRescue` did until
+     * 2026-10-13 - throw and take the whole loop down. For those bodies every reflex
+     * goes through the skill layer instead, the same code the `!` commands and the
+     * LLM drive (live-proven: the chat `attack` skill killed a point-blank skeleton).
+     */
+    const skillDriven = this.ctx.bodyKind !== 'mineflayer';
+
     if (world.isInDanger()) {
       this.log.warn('danger detected, retreating');
-      await combat.retreat(12);
-      await eat.tick(true);
+      if (!skillDriven) {
+        await combat.retreat(12);
+        await eat.tick(true);
+      }
       return;
     }
 
-    await eat.tick();
+    if (skillDriven) {
+      await this.reflexEat();
+    } else {
+      await eat.tick();
+    }
 
     const hostile = world.nearestHostile(8);
-    if (hostile && this.cfg.behaviour.autoFight) {
+    if (hostile && this.cfg.behaviour.autoFight && !this._reflexFight) {
       // Reflex: fight back only if it is already close, otherwise keep working.
-      if (hostile.distance <= 5 || this.bot.health < 12) {
+      const hp = skillDriven
+        ? (this.ctx.world.snapshot() || {}).health
+        : (this.bot ? this.bot.health : undefined);
+      const lowHealth = typeof hp === 'number' && hp < 12;
+      if (hostile.distance <= 5 || lowHealth) {
         this.log.info(`hostile ${hostile.entity.name} at ${hostile.distance.toFixed(1)} blocks - engaging`);
         this.preempt();
-        await combat.defend();
+        if (skillDriven) {
+          // Fire-and-forget with a guard: the fight can run for tens of seconds and
+          // must not block the other reflexes (eat/armor/refresh keep ticking).
+          this._reflexFight = true;
+          skills
+            .run('attack', this.ctx)
+            .catch((e) => this.log.debug(`reflex fight failed: ${e.message}`))
+            .finally(() => {
+              this._reflexFight = false;
+            });
+        } else {
+          await combat.defend();
+        }
       }
     }
 
-    await tools.equipArmor();
+    if (!skillDriven) {
+      await tools.equipArmor();
+    } else if (!this._reflexArmorBusy && Date.now() - this._reflexArmorAt > 30000) {
+      this._reflexArmorAt = Date.now();
+      this._reflexArmorBusy = true;
+      skills
+        .run('armor', this.ctx)
+        .catch(() => null)
+        .finally(() => {
+          this._reflexArmorBusy = false;
+        });
+    }
+  }
+
+  /**
+   * Skill-driven auto-eat for bodies whose servo layer has no mineflayer instance
+   * (see `skillDriven` in fastLoop). The threshold decision stays here; the skill
+   * layer owns the eating. Rate-limited so a hungry bag with no food cannot flood
+   * the task lane every tick.
+   */
+  async reflexEat() {
+    if (this._reflexEatBusy) return;
+    const snap = typeof this.ctx.world.snapshot === 'function' ? this.ctx.world.snapshot() : null;
+    const food = snap && typeof snap.food === 'number' ? snap.food : null;
+    const threshold = (this.cfg.behaviour && this.cfg.behaviour.eatFoodThreshold) || 16;
+    if (food === null || food > threshold) return;
+    if (Date.now() - this._reflexEatAt < 5000) return;
+    this._reflexEatAt = Date.now();
+    this._reflexEatBusy = true;
+    try {
+      await skills.run('eat', this.ctx);
+    } catch (e) {
+      this.log.debug(`reflex eat failed: ${e.message}`);
+    } finally {
+      this._reflexEatBusy = false;
+    }
   }
 
   /** Cancel the current task so a reflex can take over. */
