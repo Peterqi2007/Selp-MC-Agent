@@ -1098,6 +1098,177 @@ async function buildAgent(options = {}) {
     return 'reflex reached; clientmod routed via skills, mineflayer via the servo';
   });
 
+  await scenario('combat reflexes: retreat, charge, gun fallback, ignore, no double-fire', async () => {
+    /**
+     * COMBAT-PLAN v3 §①/§②: below the flee threshold the bot backs away (with a gun when
+     * one is loaded); it charges when wounded or when something hurt it this tick; stalled
+     * targets are skipped; an explicit fight task suppresses the reflex; and a failed gun
+     * attempt falls back to the melee charge.
+     */
+    const skillsMod = require('../src/skills');
+    const combatState = require('../src/world/combatState');
+    const realRun = skillsMod.run;
+    combatState.reset();
+    const skillCalls = [];
+    let shootFails = false;
+    skillsMod.run = async (name, _ctx, params) => {
+      skillCalls.push({ name, params: params || null });
+      if (name === 'shoot' && shootFails) return { ok: false, failure: 'tacz_unavailable' };
+      return { ok: true, detail: 'stub' };
+    };
+    try {
+      const mkBrain = ({ health = 20, hostiles = [], hub = null } = {}) => {
+        const calls = { retreat: [], stop: 0, equip: [] };
+        let held = null;
+        let danger = false;
+        let healthNow = health;
+        let hostileList = hostiles;
+        const body = {
+          isReady: true,
+          refresh: async () => null,
+          snapshot: () => ({
+            position: { x: 0, y: 64, z: 0 },
+            health: healthNow,
+            heldItem: held,
+            inventory: {},
+            guns: [{ item: 'tacz:ak47', gunId: 'tacz:ak47', type: 'rifle', magazine: 30, dummy: 0, bullets: true }]
+          }),
+          equip: async (item) => {
+            calls.equip.push(item);
+            held = item;
+            return true;
+          },
+          retreatFrom: async (entity, options) => {
+            calls.retreat.push({ id: entity.id, ms: options.ms, fire: options.fire === true });
+            return true;
+          },
+          stop: async () => {
+            calls.stop += 1;
+            return true;
+          }
+        };
+        const ctx = {
+          cfg: loadConfig({ profile: null }),
+          log: silent,
+          bodyKind: 'clientmod',
+          body,
+          controller: { bot: null },
+          hub,
+          nav: { looksStuck: false, stuckCount: 0 },
+          memory: { landmark: () => null, bump() {} },
+          world: {
+            ready: true,
+            hostiles: () => hostileList,
+            nearestHostile: () => (hostileList.length ? hostileList[0] : null),
+            snapshot: () => body.snapshot(),
+            isInDanger: () => danger
+          },
+          eat: { tick: async () => false },
+          combat: { defend: async () => true, retreat: async () => true },
+          tools: { equipArmor: async () => {} }
+        };
+        return {
+          brain: new Brain(ctx),
+          calls,
+          setDanger: (on) => {
+            danger = on;
+          },
+          setHealth: (value) => {
+            healthNow = value;
+          },
+          setHostiles: (list) => {
+            hostileList = list;
+          }
+        };
+      };
+      const hostile = (id, distance) => ({
+        entity: { id, name: 'minecraft:zombie', position: { x: distance, y: 64, z: 0 } },
+        distance
+      });
+      const tick = async (brain) => {
+        await brain.fastLoop();
+        await new Promise((resolve) => setTimeout(resolve, 0)); // let the reflex promise settle
+      };
+
+      // ---- retreat: below the flee threshold, with the preferred loaded gun ----------
+      const retreatAgent = mkBrain({ health: 6, hostiles: [hostile(1, 4)] });
+      retreatAgent.setDanger(true);
+      await tick(retreatAgent.brain);
+      expect(retreatAgent.calls.retreat.length === 1, JSON.stringify(retreatAgent.calls.retreat));
+      expect(
+        retreatAgent.calls.retreat[0].fire === true && retreatAgent.calls.equip.includes('tacz:ak47'),
+        `retreat must fire the rifle: ${JSON.stringify(retreatAgent.calls)}`
+      );
+      retreatAgent.setDanger(false);
+      await tick(retreatAgent.brain);
+      expect(retreatAgent.calls.stop >= 1, 'danger over must cancel the running retreat');
+      expect(retreatAgent.brain._retreatTargetId === null, 'the retreat marker must clear');
+
+      // ---- charge: wounded below 16 engages a 10-block target with the gun -----------
+      const wounded = mkBrain({ health: 15, hostiles: [hostile(2, 10)] });
+      await tick(wounded.brain);
+      expect(
+        skillCalls.some((call) => call.name === 'shoot' && call.params && call.params.id === 2),
+        `wounded engage must shoot #2: ${JSON.stringify(skillCalls)}`
+      );
+
+      // ---- charge: hurt this tick reaches a 15-block shooter -------------------------
+      const hit = mkBrain({ health: 20 });
+      await tick(hit.brain); // baseline health for this brain
+      hit.setHealth(18);
+      hit.setHostiles([hostile(3, 15)]);
+      const beforeHit = skillCalls.length;
+      await tick(hit.brain);
+      expect(
+        skillCalls.slice(beforeHit).some((call) => call.name === 'shoot' && call.params.id === 3),
+        `a ranged hit must charge #3: ${JSON.stringify(skillCalls.slice(beforeHit))}`
+      );
+
+      // ---- ignore list: skipped at 10 blocks, re-engaged at 3 ------------------------
+      combatState.ignore(9);
+      const ignored = mkBrain({ health: 20, hostiles: [hostile(9, 10)] });
+      const beforeIgnore = skillCalls.length;
+      await tick(ignored.brain);
+      expect(
+        !skillCalls.slice(beforeIgnore).some((call) => call.name === 'attack' || call.name === 'shoot'),
+        `the ignored target must be skipped: ${JSON.stringify(skillCalls.slice(beforeIgnore))}`
+      );
+      const override = mkBrain({ health: 20, hostiles: [hostile(9, 3)] });
+      const beforeOverride = skillCalls.length;
+      await tick(override.brain);
+      expect(
+        skillCalls.slice(beforeOverride).some((call) => call.name === 'attack'),
+        `at 3 blocks the ignored target is hittable again: ${JSON.stringify(skillCalls.slice(beforeOverride))}`
+      );
+
+      // ---- an explicit fight task suppresses the reflex (no double-fire) -------------
+      const busyHub = { status: () => ({ current: { name: 'attack' } }) };
+      const suppressed = mkBrain({ health: 20, hostiles: [hostile(4, 3)], hub: busyHub });
+      const beforeSuppressed = skillCalls.length;
+      await tick(suppressed.brain);
+      expect(
+        !skillCalls.slice(beforeSuppressed).some((call) => call.name === 'attack' || call.name === 'shoot'),
+        `a fight task must own the fight: ${JSON.stringify(skillCalls.slice(beforeSuppressed))}`
+      );
+
+      // ---- gun failure falls back to the melee charge --------------------------------
+      shootFails = true;
+      const fallback = mkBrain({ health: 15, hostiles: [hostile(5, 10)] });
+      const beforeFallback = skillCalls.length;
+      await tick(fallback.brain);
+      const fallbackCalls = skillCalls.slice(beforeFallback).map((call) => call.name);
+      expect(
+        fallbackCalls.includes('shoot') && fallbackCalls.includes('attack'),
+        `shoot failure must fall back to attack: ${JSON.stringify(fallbackCalls)}`
+      );
+      shootFails = false;
+      return 'retreat+gun, wounded charge, hit charge, ignore/override, suppression, fallback';
+    } finally {
+      skillsMod.run = realRun;
+      combatState.reset();
+    }
+  });
+
   /**
    * Shut the server down without hanging.
    *

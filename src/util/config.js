@@ -38,7 +38,10 @@ const DEFAULTS = {
       autoFight: true,
       autoArmor: true,
       autoTool: true,
-      fleeHealthThreshold: 6,
+      /** Retreat trigger: at or below this health the reflex backs away (COMBAT-PLAN §①). */
+      fleeHealthThreshold: 8,
+      /** Engage trigger: wounded below this, the reflex starts the fight (COMBAT-PLAN §②). */
+      engageHealthThreshold: 16,
       eatFoodThreshold: 16,
       idleThinkIntervalMs: 2500,
       chatPrefix: '!',

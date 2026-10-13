@@ -349,6 +349,8 @@ class ClientModBody extends Body {
       /** Torch-side light (block light); null on older mods that do not report it. */
       blockLight: Number.isFinite(state.blockLight) ? state.blockLight : null,
       hostiles: state.hostiles || [],
+      /** TACZ guns carried, for the gun picker (see the shoot skill). */
+      guns: Array.isArray(state.guns) ? state.guns : [],
       nearbyItems: state.itemDrops || [],
       /** Crops with growth stages (mod-side block-state scan), used by farming. */
       crops: Array.isArray(state.crops) ? state.crops : [],
@@ -359,7 +361,18 @@ class ClientModBody extends Body {
         state.heldDurability && Number.isFinite(state.heldDurability.max)
           ? { remaining: state.heldDurability.remaining, max: state.heldDurability.max }
           : null,
-      players: (state.players || []).map((p) => p.name),
+      /**
+       * Players as objects, not names: PvP gunfire needs the entity `id` to aim at
+       * (the shoot verb addresses entities by id). `distance` saves a recompute for
+       * every consumer that only wants "is the operator nearby".
+       */
+      players: (state.players || []).map((p) => ({
+        name: p.name,
+        id: p.id,
+        position: p.position,
+        distance: p.distance,
+        health: p.health
+      })),
       /**
        * The block scan, exposed as a reference.
        *
@@ -1015,7 +1028,15 @@ class ClientModBody extends Body {
               /** Free-form failure diagnostics (e.g. the pillar hop peak/held/floor line). */
               detail: progress.detail || null,
               /** Actual cells the client dug, for the mining ledger. */
-              dugCells: Array.isArray(progress.dugCells) ? progress.dugCells : []
+              dugCells: Array.isArray(progress.dugCells) ? progress.dugCells : [],
+              /** Rounds fired this burst (shoot/retreat controllers). */
+              shots: Number.isFinite(progress.shots) ? progress.shots : null,
+              /** True when every sight line to the target was covered (gunfire held). */
+              blocked: progress.blocked === true,
+              /** Gun diagnostics from the shoot/retreat controllers. */
+              gunType: progress.gunType || null,
+              magazine: Number.isFinite(progress.magazine) ? progress.magazine : null,
+              distance: Number.isFinite(progress.distance) ? progress.distance : null
             }
           : null;
         return done;
@@ -1295,6 +1316,58 @@ class ClientModBody extends Body {
     const timeoutMs = options.timeoutMs || 15000;
     const res = await this.command(`attack ${id} ${timeoutMs}`);
     return !!(res && res.ok);
+  }
+
+  /**
+   * Fire the held TACZ gun at an entity: ONE bounded burst of ≤maxShots rounds.
+   *
+   * The client aims until the scope is ready, re-faces the target every tick (recoil
+   * compensation), holds fire when every sight line is covered, and reloads when the
+   * magazine runs dry. The agent re-evaluates range/ammo/cover between bursts
+   * (docs/COMBAT-PLAN.md); the verdict lands on `lastAction` like the other
+   * continuous actions, with `shots`/`blocked`/`gunType`/`reason` attached.
+   */
+  async shoot(entity, options = {}) {
+    if (!entity) return false;
+    const id = entity.id !== undefined ? entity.id : entity._entity && entity._entity.id;
+    if (id === undefined) return false;
+    const ms = Math.floor(options.ms || options.maxMs || 8000);
+    const maxShots = Math.floor(options.maxShots || 6);
+    const res = await this.command(`shoot ${id} ${ms} ${maxShots}`);
+    if (!res || res.ok === false) {
+      this.lastAction = {
+        action: 'shoot',
+        ok: false,
+        reason: (res && res.error) || 'the client refused the shoot',
+        shots: null,
+        blocked: false
+      };
+      return false;
+    }
+    return this.awaitAction('shoot', ms + 3000);
+  }
+
+  /**
+   * Back away from an entity while facing it, optionally firing the held gun.
+   *
+   * Fire-and-forget on purpose: the reflex renews it every few seconds and cancels with
+   * `stop()` once the danger has passed (the client action self-expires as the last
+   * backstop). `fire` only takes effect with a TACZ gun actually in the main hand.
+   */
+  async retreatFrom(entity, options = {}) {
+    if (!entity) return false;
+    const id = entity.id !== undefined ? entity.id : entity._entity && entity._entity.id;
+    if (id === undefined) return false;
+    const ms = Math.floor(options.ms || 3000);
+    const fire = options.fire === true ? 1 : 0;
+    const res = await this.command(`retreat ${id} ${ms} ${fire}`);
+    return !!(res && res.ok);
+  }
+
+  /** Cancel any continuous client action (walk / dig / tunnel / pillar / shoot / retreat). */
+  async stop() {
+    this.stopContinuous('stop');
+    return true;
   }
 
   /**

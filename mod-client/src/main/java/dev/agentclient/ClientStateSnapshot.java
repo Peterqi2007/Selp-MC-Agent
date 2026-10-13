@@ -175,6 +175,7 @@ final class ClientStateSnapshot {
 
         // ---- inventory -----------------------------------------------------
         out.put("inventory", inventoryJson(player));
+        out.put("guns", gunsJson(player));
 
         /**
          * Crop ages, so farming can tell ripe from growing.
@@ -401,12 +402,51 @@ final class ClientStateSnapshot {
             if (other == player) {
                 continue;
             }
-            parts.add(Json.obj(new LinkedHashMap<>(Map.of(
-                    "name", Json.str(other.getGameProfile().getName()),
-                    "position", Json.point(other.getX(), other.getY(), other.getZ()),
-                    "distance", Json.num(other.distanceTo(player)),
-                    "health", Json.num(other.getHealth())
-            ))));
+            /**
+             * `id` is what lets the agent aim at a player (PvP gunfire): the shoot verb
+             * addresses entities by id, and names alone cannot be turned into a target.
+             */
+            Map<String, String> entry = new LinkedHashMap<>();
+            entry.put("id", Json.num(other.getId()));
+            entry.put("name", Json.str(other.getGameProfile().getName()));
+            entry.put("position", Json.point(other.getX(), other.getY(), other.getZ()));
+            entry.put("distance", Json.num(other.distanceTo(player)));
+            entry.put("health", Json.num(other.getHealth()));
+            parts.add(Json.obj(entry));
+        }
+        return "[" + String.join(",", parts) + "]";
+    }
+
+    /**
+     * TACZ guns carried (hotbar + main inventory + offhand), for the agent's gun picker.
+     *
+     * Type comes from the TACZ index through TaczBridge (reflection, cached); magazine and
+     * dummy are the stable NBT tags. `bullets` merges them so the agent can filter "has
+     * rounds" without re-deriving the tag semantics.
+     */
+    private static String gunsJson(LocalPlayer player) {
+        List<String> parts = new ArrayList<>();
+        List<ItemStack> stacks = new ArrayList<>();
+        var inventory = player.getInventory();
+        for (int slot = 0; slot < inventory.getContainerSize(); slot++) {
+            stacks.add(inventory.getItem(slot));
+        }
+        stacks.add(player.getOffhandItem());
+        for (ItemStack stack : stacks) {
+            String gunId = TaczBridge.gunIdOf(stack);
+            if (gunId == null) {
+                continue;
+            }
+            int magazine = TaczBridge.magazineOf(stack);
+            int dummy = TaczBridge.dummyOf(stack);
+            Map<String, String> entry = new LinkedHashMap<>();
+            entry.put("item", Json.str(itemName(stack)));
+            entry.put("gunId", Json.str(gunId));
+            entry.put("type", Json.str(TaczBridge.typeOf(gunId)));
+            entry.put("magazine", Json.num(magazine));
+            entry.put("dummy", Json.num(dummy));
+            entry.put("bullets", Json.bool(magazine > 0 || dummy > 0));
+            parts.add(Json.obj(entry));
         }
         return "[" + String.join(",", parts) + "]";
     }

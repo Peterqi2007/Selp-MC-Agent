@@ -32,6 +32,16 @@ const FAILURE = Object.freeze({
   INTERRUPTED: 'interrupted',
   TIMEOUT: 'timeout',
   INTERNAL: 'internal',
+  /** Firing-line / TACZ vocabulary (COMBAT-PLAN v3): these codes must survive fold(). */
+  STALLED: 'stalled',
+  BLOCKED: 'blocked',
+  NO_AMMO: 'no_ammo',
+  NO_GUN: 'no_gun',
+  NOT_A_GUN: 'not_a_gun',
+  TACZ_UNAVAILABLE: 'tacz_unavailable',
+  IGNORED: 'ignored',
+  OUT_OF_RANGE: 'out_of_range',
+  SHOOT_FAILED: 'shoot_failed',
   UNKNOWN: 'unknown'
 });
 
@@ -50,6 +60,15 @@ const HINTS = Object.freeze({
   [FAILURE.INTERRUPTED]: 'stopped by stop/death/pause: only continue if the operator asks',
   [FAILURE.TIMEOUT]: 'retry with a smaller job or a longer budget',
   [FAILURE.INTERNAL]: 'an agent bug: report it instead of retrying blindly',
+  [FAILURE.STALLED]: 'the fight is a stand-off (no contact for 30s): pick another target, or dig through',
+  [FAILURE.BLOCKED]: 'every sight line is covered: flank around, break through, or close in with melee',
+  [FAILURE.NO_AMMO]: 'out of rounds: reload, switch to another loaded gun, or fight with melee',
+  [FAILURE.NO_GUN]: 'no usable TACZ gun: carry one, or let the melee charge take over',
+  [FAILURE.NOT_A_GUN]: 'the held item is not a gun: select one that is',
+  [FAILURE.TACZ_UNAVAILABLE]: 'TACZ is not loaded on this client: use melee',
+  [FAILURE.IGNORED]: 'that target is on the stand-off cooldown: pick another or wait',
+  [FAILURE.OUT_OF_RANGE]: 'close the distance, or pick a longer-range gun',
+  [FAILURE.SHOOT_FAILED]: 'read the detail, then retry or switch guns',
   [FAILURE.UNKNOWN]: 'read the detail, then choose a different approach'
 });
 

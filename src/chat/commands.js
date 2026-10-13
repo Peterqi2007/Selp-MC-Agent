@@ -50,6 +50,7 @@ const HELP = [
   '!use <x> <y> <z> [face] [item] - right-click a block (hoe, plant, bucket, open)',
   '!attack [type] - attack the nearest hostile',
   '!defend [range] - fight hostiles that come close',
+  '!shoot [type|player <name>] [weapon] - shoot with a TACZ gun (16 blocks, 32 for snipers)',
   '!explore [distance] [direction] - walk somewhere new',
   '!withdraw <item> [n] - take items out of a nearby chest',
   '!deposit [item] - store items in a nearby chest',
@@ -264,6 +265,22 @@ class ChatController {
       },
       attack: (args) => this.runSkill('attack', args[0] ? { type: args[0] } : {}),
       defend: (args) => this.runSkill('defend', { range: Number(args[0]) || 6 }),
+      /**
+       * `!shoot [type] [weapon]` for monsters, `!shoot player <name> [weapon]` for PvP.
+       * The weapon token is optional and pins one gun; without it the default priority
+       * order picks (rifle > smg > mg > pistol, sniper first beyond 16 blocks).
+       */
+      shoot: (args) => {
+        const params = {};
+        if (args[0] === 'player' && args[1]) {
+          params.player = args[1];
+          if (args[2]) params.weapon = args[2];
+        } else {
+          if (args[0]) params.type = args[0];
+          if (args[1]) params.weapon = args[1];
+        }
+        return this.runSkill('shoot', params);
+      },
       explore: (args) => this.runSkill('explore', { distance: Number(args[0]) || 16, direction: args[1] }),
       withdraw: (args) => {
         if (!args[0]) throw new Error('usage: !withdraw <item> [count]');

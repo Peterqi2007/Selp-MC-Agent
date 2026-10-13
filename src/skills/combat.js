@@ -1,19 +1,41 @@
 'use strict';
 
 /**
- * Combat skills: attack the nearest hostile, or stand and fight what comes close.
+ * Combat skills: melee attack/defend and the TACZ gun routine (docs/COMBAT-PLAN.md v3).
  *
- * The P0 agent had no combat at all, which is why it was shot to death by a stray in the
- * first live run. These skills are deliberately simple: pick a target from what the body
- * actually reports (`hostiles()`), attack it, and let the body decide the swing cadence.
- * There is no pathfinding chase yet - a target that cannot be reached is reported, not
- * followed into a cave.
+ * Ground rules that came out of live testing (2026-10-13):
+ *  - the weapon must be VERIFIED in the hand before swinging (a sword in the bag and a
+ *    shovel in the hand lost a fight the bot should have won);
+ *  - a target that stays in melee reach for 30s without any contact is abandoned and
+ *    ignored for a while - the reflex re-engaged an unreachable zombie forever;
+ *  - gunfire is bounded: ≤6-round bursts, aim before the first shot, hold fire under
+ *    full cover, and ammo exhaustion switches to another loaded gun before giving up.
  */
 
 const { register } = require('./registry');
 const { bare } = require('../world/items');
+const { sleep } = require('../core/movement');
+const combatState = require('../world/combatState');
 
 const WEAPON_TIERS = ['netherite', 'diamond', 'iron', 'stone', 'golden', 'wooden'];
+
+/** Gun policy constants (docs/COMBAT-PLAN.md §④). */
+const GUN_BURST_SHOTS = 6;
+const BURST_PAUSE_MS = 500;
+/** Close-range preference order, operator policy: rifle > smg > mg > pistol. */
+const GUN_CLOSE_ORDER = ['rifle', 'smg', 'mg', 'pistol'];
+const GUN_DEFAULT_RANGE = 16;
+const GUN_SNIPER_RANGE = 32;
+const KITE_DISTANCE = 3;
+const APPROACH_MARGIN = 2;
+const SNIPER_SWITCH_DISTANCE = 8;
+const APPROACH_LEGS = 2;
+const SHOOT_BURST_MS = 8000;
+
+/** Effective range for a gun type: the sniper reaches 32, everything else 16. */
+function rangeOf(gunType) {
+  return gunType === 'sniper' ? GUN_SNIPER_RANGE : GUN_DEFAULT_RANGE;
+}
 
 /**
  * Pick the best weapon in the bag: swords by tier first, then axes.
@@ -35,37 +57,90 @@ function pickWeapon(inventory) {
 }
 
 /**
- * Equip the best weapon before a fight, then verify the hand really holds it.
+ * Equip an item, then verify the hand really holds it; one retry.
  *
- * `equip()` is a two-step story on a real client: a hotbar `select`, and - when the
- * stack sits in the bag - menu clicks that move it into the hotbar first. The final
- * select can race the server on a busy moment, the call answers false, and the old
- * version trusted that call: live 2026-10-13 the bot punched a pillager with the
- * shovel that happened to be in hand while its sword sat unused. Read the hand back
- * from a fresh snapshot and retry once; on a body that cannot report the hand, trust
- * the call as before.
+ * `equip()` is a two-step story on a real client (hotbar select, or menu clicks to move
+ * the stack from the bag first) and the final select can race the server. Live
+ * 2026-10-13 the bot punched a pillager with the shovel that happened to be in hand
+ * while its sword sat in the bag - the call had answered true and nobody looked.
  */
+async function equipVerified(ctx, itemName) {
+  const body = ctx.body;
+  if (!body || typeof body.equip !== 'function') return false;
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    await body.equip(itemName).catch(() => false);
+    if (typeof body.refresh === 'function') await body.refresh(true).catch(() => null);
+    const check = typeof body.snapshot === 'function' ? body.snapshot() : null;
+    const held = check && check.heldItem ? check.heldItem : null;
+    if (!held || bare(held) === bare(itemName)) return true;
+  }
+  return false;
+}
+
+/** Equip the best melee weapon before a fight; keep the held item when there is none. */
 async function equipWeapon(ctx) {
   const body = ctx.body;
   if (!body || typeof body.equip !== 'function') return null;
   const snap = typeof body.snapshot === 'function' ? body.snapshot() : null;
   const weapon = pickWeapon((snap && snap.inventory) || {});
   if (!weapon) return null;
-  for (let attempt = 0; attempt < 2; attempt += 1) {
-    await body.equip(weapon).catch(() => false);
-    if (typeof body.refresh === 'function') await body.refresh(true).catch(() => null);
+  const verified = await equipVerified(ctx, weapon);
+  if (!verified && ctx && ctx.log && typeof ctx.log.warn === 'function') {
     const check = typeof body.snapshot === 'function' ? body.snapshot() : null;
     const held = check && check.heldItem ? check.heldItem : null;
-    if (!held || bare(held) === bare(weapon)) return weapon;
-  }
-  const check = typeof body.snapshot === 'function' ? body.snapshot() : null;
-  const held = check && check.heldItem ? check.heldItem : null;
-  if (ctx && ctx.log && typeof ctx.log.warn === 'function') {
     ctx.log.warn(
       `could not get ${bare(weapon)} into the hand (holding ${held ? bare(held) : 'nothing'}) - fighting with what is held`
     );
   }
   return weapon;
+}
+
+/** Gun entries the client reported for its inventory ([] when none / no TACZ). */
+function gunsOf(snapshot) {
+  return snapshot && Array.isArray(snapshot.guns) ? snapshot.guns : [];
+}
+
+/** The gun currently in the main hand, matched by item id; null when the hand is not a gun. */
+function heldGun(snapshot) {
+  const held = snapshot && snapshot.heldItem ? bare(snapshot.heldItem) : null;
+  if (!held) return null;
+  return gunsOf(snapshot).find((gun) => bare(gun.item) === held) || null;
+}
+
+/**
+ * Choose a gun.
+ *
+ * `weapon` forces one (only manual `!shoot`/LLM calls ever pass it - the reflex always
+ * uses the default order). Otherwise: loaded guns only; beyond 16 blocks the sniper is
+ * the first candidate, within 16 blocks the close order rifle > smg > mg > pistol wins
+ * and the sniper is the last resort.
+ */
+function chooseGun(snapshot, { distance, weapon, excludeSniper, excludeItems = [] } = {}) {
+  const guns = gunsOf(snapshot);
+  const excluded = new Set(excludeItems.map((item) => bare(item)));
+  if (weapon) {
+    const wanted = bare(weapon);
+    const found = guns.find(
+      (gun) => bare(gun.item) === wanted || bare(gun.gunId) === wanted || bare(gun.item).endsWith(wanted)
+    );
+    if (!found) return { ok: false, reason: `weapon "${weapon}" is not a TACZ gun in the inventory` };
+    return { ok: true, gun: found, forced: true };
+  }
+  let candidates = guns.filter((gun) => gun.bullets === true && !excluded.has(bare(gun.item)));
+  if (excludeSniper) candidates = candidates.filter((gun) => gun.type !== 'sniper');
+  if (!candidates.length) {
+    return {
+      ok: false,
+      reason: excludeSniper ? 'no other loaded gun in the inventory' : 'no loaded gun in the inventory'
+    };
+  }
+  const order = (gun) => {
+    if (gun.type === 'sniper') return distance > GUN_DEFAULT_RANGE ? -1 : 100;
+    const index = GUN_CLOSE_ORDER.indexOf(gun.type);
+    return index === -1 ? 50 : index;
+  };
+  candidates = candidates.slice().sort((a, b) => order(a) - order(b));
+  return { ok: true, gun: candidates[0] };
 }
 
 function pickTarget(ctx, { type, maxDistance, vertical }) {
@@ -90,6 +165,8 @@ function pickTarget(ctx, { type, maxDistance, vertical }) {
       });
     }
   }
+  /** Stalled-and-ignored targets are skipped unless they closed into melee reach. */
+  list = list.filter((entity) => !combatState.shouldSkip(entity.id, entity.distance));
   if (!list.length) {
     return {
       ok: false,
@@ -100,6 +177,48 @@ function pickTarget(ctx, { type, maxDistance, vertical }) {
   }
   list.sort((a, b) => (a.distance || 0) - (b.distance || 0));
   return { ok: true, target: list[0] };
+}
+
+/**
+ * Run one melee engagement in 3s chunks, re-checking contact at every boundary.
+ *
+ * The operator rule (§③): while the target sits ≤5 blocks and NOTHING has hurt us for
+ * 30s - accumulated across calls; the live symptom was three 15s attack runs in a row
+ * against an unreachable zombie - the fight is a stand-off. Abort, stop the client
+ * action and ignore the target for 180s. Any health loss resets the contactless clock.
+ */
+async function fightTarget(ctx, target, timeoutMs) {
+  const body = ctx.body;
+  const started = Date.now();
+  combatState.rememberEngagement(target.id, target.distance);
+  const pre = typeof body.snapshot === 'function' ? body.snapshot() : null;
+  let lastHealth = pre && typeof pre.health === 'number' ? pre.health : null;
+  while (Date.now() - started < timeoutMs) {
+    const chunkMs = Math.max(1000, Math.min(3000, timeoutMs - (Date.now() - started)));
+    const ok = await body.attack(target, { timeoutMs: chunkMs });
+    if (ok) return { ok: true };
+    const after = typeof body.refresh === 'function' ? await body.refresh(true).catch(() => null) : null;
+    if (!after) continue;
+    if (lastHealth !== null && typeof after.health === 'number' && after.health < lastHealth - 0.01) {
+      combatState.noteHealthDrop();
+    }
+    if (typeof after.health === 'number') lastHealth = after.health;
+    const still = (after.hostiles || []).find((entity) => entity.id === target.id);
+    if (!still) return { ok: true }; // died / vanished mid-fight
+    combatState.rememberEngagement(target.id, still.distance);
+    if (still.distance <= combatState.STALL_RANGE && combatState.isStalled(target.id)) {
+      if (typeof body.stop === 'function') await body.stop().catch(() => false);
+      combatState.ignore(target.id);
+      return {
+        ok: false,
+        stalled: true,
+        reason:
+          `no contact with ${bare(target.name)} for ${Math.round(combatState.STALL_MS / 1000)}s ` +
+          `at ${Math.round(still.distance)} blocks - ignoring it`
+      };
+    }
+  }
+  return { ok: false };
 }
 
 register({
@@ -134,31 +253,20 @@ register({
     }
     if (!picked.ok) return picked;
     await equipWeapon(ctx);
-    let ok = await ctx.body.attack(picked.target, { timeoutMs: params.timeoutMs });
-    /**
-     * The mod answers "the target is still alive" by returning false - including when it
-     * just died (its loop ends on `!living.isAlive()`). Confirm against a fresh hostile
-     * list before calling a fight lost: a target that was in melee range and is gone now
-     * was killed, not missed.
-     */
-    if (!ok && typeof ctx.body.refresh === 'function') {
-      const after = await ctx.body.refresh(true).catch(() => null);
-      if (after) {
-        const stillThere = (after.hostiles || []).some((h) => h.id === picked.target.id);
-        const wasClose = (picked.target.distance || 99) <= 6;
-        if (!stillThere && wasClose) ok = true;
-      }
+    const fight = await fightTarget(ctx, picked.target, params.timeoutMs);
+    if (fight.ok) {
+      return { ok: true, detail: `killed ${bare(picked.target.name)} at ${Math.round(picked.target.distance || 0)} blocks` };
     }
-    const name = bare(picked.target.name);
+    if (fight.stalled) return { ok: false, failure: 'stalled', reason: fight.reason };
     const screenNote = snap && snap.screenOpen
       ? ` (a game screen "${snap.screen || '?'}" is open - the client ignores movement while it is)`
       : '';
-    return ok
-      ? { ok: true, detail: `killed ${name} at ${Math.round(picked.target.distance || 0)} blocks` }
-      : {
-          ok: false,
-          reason: `${name} is still alive (or out of reach) - it was ${Math.round(picked.target.distance || 0)} blocks away${screenNote}`
-        };
+    return {
+      ok: false,
+      reason: `${bare(picked.target.name)} is still alive (or out of reach) - it was ${Math.round(
+        picked.target.distance || 0
+      )} blocks away${screenNote}`
+    };
   }
 });
 
@@ -179,8 +287,8 @@ register({
     for (let round = 0; round < rounds; round += 1) {
       const picked = pickTarget(ctx, { maxDistance: range });
       if (!picked.ok) break;
-      const ok = await ctx.body.attack(picked.target, { timeoutMs: 15000 });
-      if (!ok) break;
+      const fight = await fightTarget(ctx, picked.target, 15000);
+      if (!fight.ok) break;
       kills += 1;
     }
     return kills
@@ -188,3 +296,226 @@ register({
       : { ok: true, detail: 'nothing hostile in range' };
   }
 });
+
+register({
+  name: 'shoot',
+  title: '用枪射击目标',
+  description:
+    'Shoot a target with a TACZ gun: aims first, ≤6-round bursts, reloads, keeps the effective range (16 blocks, 32 for snipers).',
+  params: {
+    type: { type: 'string' },
+    player: { type: 'string' },
+    id: { type: 'number' },
+    weapon: { type: 'string' },
+    maxDistance: { type: 'number', default: 24, min: 1, max: 48 },
+    timeoutMs: { type: 'number', default: 45000, min: 2000, max: 120000 }
+  },
+  available: (ctx) => (ctx.body && typeof ctx.body.shoot === 'function' && typeof ctx.body.snapshot === 'function'
+    ? { ok: true }
+    : { ok: false, reason: 'this body cannot shoot' }),
+  async run(ctx, params) {
+    const body = ctx.body;
+    if (!body || typeof body.shoot !== 'function') return { ok: false, reason: 'this body cannot shoot' };
+    const logInfo = (message) => {
+      if (ctx.log && typeof ctx.log.info === 'function') ctx.log.info(message);
+    };
+    if (typeof body.refresh === 'function') await body.refresh(true).catch(() => null);
+    const deadline = Date.now() + params.timeoutMs;
+    const selfName = ctx.cfg && ctx.cfg.agent && ctx.cfg.agent.bot ? ctx.cfg.agent.bot.username : null;
+
+    /**
+     * Resolve the target from the freshest snapshot.
+     *
+     * Players are never auto-targeted - PvP only happens when the operator names one
+     * (`player` or `id`). Explicit ids also honor the ignore list, so the reflex cannot
+     * sneak a stalled target back in through this path.
+     */
+    const resolve = () => {
+      const snap = typeof body.snapshot === 'function' ? body.snapshot() : null;
+      if (!snap) return { ok: false, reason: 'no world state' };
+      if (params.id !== undefined) {
+        const hostile = (snap.hostiles || []).find((entity) => entity.id === params.id);
+        if (hostile) {
+          if (combatState.shouldSkip(hostile.id, hostile.distance)) {
+            return { ok: false, failure: 'ignored', reason: `target #${params.id} is on the ignore list` };
+          }
+          return { ok: true, snap, target: { ...hostile, kind: 'hostile' } };
+        }
+        const player = (snap.players || []).find((entity) => entity.id === params.id);
+        if (player) return { ok: true, snap, target: { ...player, kind: 'player' } };
+        return { ok: false, gone: true, reason: `target #${params.id} is gone` };
+      }
+      if (params.player) {
+        if (selfName && bare(params.player) === bare(selfName)) {
+          return { ok: false, reason: 'refusing to target myself' };
+        }
+        const found = (snap.players || []).find((entity) => bare(entity.name) === bare(params.player));
+        if (!found) return { ok: false, gone: true, reason: `${params.player} is not visible right now` };
+        return { ok: true, snap, target: { ...found, kind: 'player' } };
+      }
+      const picked = pickTarget(ctx, { type: params.type, maxDistance: params.maxDistance, vertical: 6 });
+      /**
+       * The auto path has no single named target: an empty scan is "gone" for the loop's
+       * bookkeeping. Without the flag the loop reported a kill as "target_lost" right
+       * after the burst removed the last hostile (caught by the offline gun suite).
+       */
+      if (!picked.ok) return { ...picked, gone: true };
+      return { ok: true, snap, target: { ...picked.target, kind: 'hostile' } };
+    };
+
+    let targetName = null;
+    let firstResolve = true;
+    let flanksLeft = 1;
+    let approachesLeft = APPROACH_LEGS;
+    let bursts = 0;
+    let shotsTotal = 0;
+    const dryGuns = new Set(); // item ids that answered "no_ammo"; never re-select them
+
+    for (;;) {
+      if (Date.now() > deadline) {
+        return { ok: false, failure: 'timeout', reason: `shoot budget spent (${bursts} burst(s), ${shotsTotal} shots)` };
+      }
+      const resolved = resolve();
+      if (!resolved.ok) {
+        if (resolved.gone && !firstResolve) {
+          return { ok: true, detail: `shot ${bare(targetName || 'target')} down (${bursts} burst(s), ${shotsTotal} shots)` };
+        }
+        return { ok: false, failure: resolved.failure || 'target_lost', reason: resolved.reason };
+      }
+      firstResolve = false;
+      const snap = resolved.snap;
+      const target = resolved.target;
+      targetName = target.name;
+      const distance = target.distance;
+
+      /** Ensure a loaded gun is in hand; equip at most one per loop pass. */
+      let gun = heldGun(snap);
+      if (params.weapon) {
+        /**
+         * An explicit weapon meant to pin the fight - even when another gun is already
+         * in hand. Once the pinned gun itself runs dry the no_ammo handover owns the
+         * choice, so the pin is not enforced anymore (it would ping-pong forever).
+         */
+        const forced = chooseGun(snap, { weapon: params.weapon });
+        if (!forced.ok) return { ok: false, failure: 'no_gun', reason: forced.reason };
+        if (!dryGuns.has(bare(forced.gun.item))) {
+          if (!gun || bare(gun.item) !== bare(forced.gun.item)) {
+            if (!(await equipVerified(ctx, forced.gun.item))) {
+              return { ok: false, failure: 'no_gun', reason: `could not equip ${bare(forced.gun.item)}` };
+            }
+          }
+          gun = forced.gun;
+        }
+      }
+      if (!gun) {
+        const choice = chooseGun(snap, {
+          distance,
+          excludeItems: [...dryGuns]
+        });
+        if (!choice.ok) {
+          return {
+            ok: false,
+            failure: dryGuns.size ? 'no_ammo' : 'no_gun',
+            reason: choice.reason
+          };
+        }
+        if (!(await equipVerified(ctx, choice.gun.item))) {
+          return { ok: false, failure: 'no_gun', reason: `could not equip ${bare(choice.gun.item)}` };
+        }
+        gun = choice.gun;
+      }
+      const gunType = gun.type || 'unknown';
+      const effectiveRange = rangeOf(gunType);
+
+      if (distance > effectiveRange) {
+        if (approachesLeft <= 0) {
+          return {
+            ok: false,
+            failure: 'out_of_range',
+            reason: `${bare(target.name)} stayed beyond ${effectiveRange} blocks for ${bare(gun.item)}`
+          };
+        }
+        approachesLeft -= 1;
+        if (typeof body.moveTo !== 'function') {
+          return { ok: false, failure: 'no_path', reason: 'this body cannot chase into range' };
+        }
+        logInfo(`shoot: closing to ${Math.max(2, effectiveRange - APPROACH_MARGIN)} blocks for ${bare(gun.item)}`);
+        await body
+          .moveTo(target.position, { range: Math.max(2, effectiveRange - APPROACH_MARGIN), timeoutMs: 8000 })
+          .catch(() => false);
+        await sleep(BURST_PAUSE_MS);
+        continue;
+      }
+      if (distance <= KITE_DISTANCE) {
+        if (typeof body.retreatFrom === 'function') {
+          logInfo(`shoot: target inside ${KITE_DISTANCE} blocks - backing off while firing`);
+          await body.retreatFrom({ id: target.id }, { ms: 900, fire: true }).catch(() => false);
+          await sleep(900);
+        }
+        continue;
+      }
+      if (gunType === 'sniper' && distance < SNIPER_SWITCH_DISTANCE) {
+        /** A sniper inside 8 blocks is a liability: switch to any loaded closer-range gun. */
+        const swap = chooseGun(snap, { distance, excludeSniper: true, excludeItems: [...dryGuns] });
+        if (swap.ok && bare(swap.gun.item) !== bare(gun.item)) {
+          if (await equipVerified(ctx, swap.gun.item)) {
+            /**
+             * The positional rule beats the pin: the operator asked for the sniper, the
+             * operator's own "sniper inside 8 blocks" rule now wants a closer gun. Left
+             * pinned, the loop would re-equip the sniper and ping-pong forever.
+             */
+            params.weapon = null;
+            logInfo(`shoot: sniper too close (${Math.round(distance)}) - switching to ${bare(swap.gun.item)}`);
+            continue;
+          }
+        }
+        // No alternative: keep the sniper and fall through to the normal burst.
+      }
+
+      /** Normal case: re-aim (the burst does that) after a 500ms pause between bursts. */
+      if (bursts > 0) await sleep(BURST_PAUSE_MS);
+      const ok = await body
+        .shoot({ id: target.id }, { ms: SHOOT_BURST_MS, maxShots: GUN_BURST_SHOTS })
+        .catch(() => false);
+      const verdict = body.lastAction || {};
+      if (Number.isFinite(verdict.shots)) shotsTotal += verdict.shots;
+      bursts += 1;
+      if (ok) continue; // target may be gone; the next resolve() decides
+      const reason = verdict.reason || 'unknown';
+      if (reason === 'target_gone') continue; // resolve() reports the kill next pass
+      if (reason === 'no_ammo') {
+        dryGuns.add(bare(gun.item));
+        const alt = chooseGun(snap, { distance, excludeItems: [...dryGuns] });
+        if (!alt.ok) {
+          return { ok: false, failure: 'no_ammo', reason: `out of ammo: no other loaded gun (${shotsTotal} shots fired)` };
+        }
+        if (!(await equipVerified(ctx, alt.gun.item))) {
+          return { ok: false, failure: 'no_gun', reason: `could not equip ${bare(alt.gun.item)}` };
+        }
+        logInfo(`shoot: ${bare(gun.item)} dry - switching to ${bare(alt.gun.item)}`);
+        continue;
+      }
+      if (reason === 'blocked') {
+        if (flanksLeft > 0 && typeof body.moveTo === 'function') {
+          flanksLeft -= 1;
+          logInfo(`shoot: fully covered - flanking once`);
+          await body.moveTo(target.position, { range: 4, timeoutMs: 6000 }).catch(() => false);
+          await sleep(BURST_PAUSE_MS);
+          continue;
+        }
+        return { ok: false, failure: 'blocked', reason: `${bare(target.name)} is fully behind cover` };
+      }
+      if (reason === 'tacz_unavailable' || reason === 'not_a_gun') {
+        return { ok: false, failure: reason, reason: `gun path unavailable (${reason})` };
+      }
+      if (reason === 'out_of_range') {
+        approachesLeft -= 1;
+        continue;
+      }
+      if (reason === 'timeout') continue; // burst stalled; the outer deadline still bounds us
+      if (bursts > 1) return { ok: false, failure: 'shoot_failed', reason: `burst failed: ${reason}` };
+    }
+  }
+});
+
+module.exports = { chooseGun, equipVerified, rangeOf, GUN_CLOSE_ORDER };

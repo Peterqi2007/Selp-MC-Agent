@@ -14,6 +14,8 @@ import net.minecraft.world.inventory.AbstractContainerMenu;
 import net.minecraft.world.inventory.ClickType;
 import net.minecraft.world.inventory.Slot;
 import net.minecraft.world.item.ItemStack;
+import net.minecraft.world.level.ClipContext;
+import net.minecraft.world.phys.AABB;
 import net.minecraft.world.phys.BlockHitResult;
 import net.minecraft.world.phys.HitResult;
 import net.minecraft.world.phys.Vec3;
@@ -328,7 +330,7 @@ public final class ClientActions {
                 return false;
             }
             this.lastProgress = null;
-            this.continuous = new WalkTo(new Vec3(x, y, z), range);
+            beginContinuous(new WalkTo(new Vec3(x, y, z), range));
             return true;
         });
     }
@@ -354,7 +356,7 @@ public final class ClientActions {
             }
             lookAtOnClient(x + 0.5D, y + 0.5D, z + 0.5D);
             this.lastProgress = null;
-            this.continuous = new DigBlock(pos);
+            beginContinuous(new DigBlock(pos));
             return true;
         });
     }
@@ -401,7 +403,7 @@ public final class ClientActions {
                 }
             }
             this.lastProgress = null;
-            this.continuous = new Tunnel(cells, protect);
+            beginContinuous(new Tunnel(cells, protect));
             return true;
         });
     }
@@ -418,7 +420,7 @@ public final class ClientActions {
             }
             int steps = Math.max(1, Math.min(64, count));
             this.lastProgress = null;
-            this.continuous = new Pillar(steps);
+            beginContinuous(new Pillar(steps));
             return true;
         });
     }
@@ -581,17 +583,47 @@ public final class ClientActions {
         });
     }
 
+    /**
+     * Start a new continuous action, first releasing everything the old one may hold.
+     *
+     * Replacing an action used to leave its keys pressed (the new action only touches the
+     * keys it needs), so a retreat's `back` or a gun burst's `use` could stay down forever.
+     */
+    private void beginContinuous(Continuous action) {
+        releaseAllKeys();
+        this.continuous = action;
+    }
+
+    /**
+     * Release every key an action may hold, stop the aim state and end block breaking.
+     *
+     * stop() used to release only forward/jump/sprint; with the retreat (back) and gun
+     * burst (use/aim) actions that list is not enough, and the tick-crash path needed it
+     * too - a controller that throws mid-tick must not leave the bot walking by itself.
+     */
+    private void releaseAllKeys() {
+        setKeyInClient("forward", false);
+        setKeyInClient("back", false);
+        setKeyInClient("left", false);
+        setKeyInClient("right", false);
+        setKeyInClient("jump", false);
+        setKeyInClient("sprint", false);
+        setKeyInClient("use", false);
+        if (mc.gameMode != null && mc.gameMode.isDestroying()) {
+            mc.gameMode.stopDestroyBlock();
+        }
+        Object operator = TaczBridge.operator(mc.player);
+        if (operator != null) {
+            TaczBridge.aim(operator, false);
+        }
+    }
+
     /** Stop whatever continuous action is running. */
     public boolean stop() {
         return onClient(() -> {
             Continuous interrupted = this.continuous;
             this.continuous = null;
-            setKeyInClient("forward", false);
-            setKeyInClient("jump", false);
-            setKeyInClient("sprint", false);
-            if (mc.gameMode != null && mc.gameMode.isDestroying()) {
-                mc.gameMode.stopDestroyBlock();
-            }
+            releaseAllKeys();
             /**
              * Keep a verdict for whoever is waiting on /progress: an interrupted action is
              * not a success. Without this the stopped action leaves no trace and a late poll
@@ -626,6 +658,7 @@ public final class ClientActions {
             }
         } catch (Exception e) {
             AgentClientMod.LOGGER.warn("continuous action failed: {}", e.getMessage());
+            releaseAllKeys();
             this.lastProgress = Json.obj(new java.util.LinkedHashMap<>(java.util.Map.of(
                     "busy", Json.bool(false),
                     "action", Json.str(action.describe()),
@@ -667,6 +700,44 @@ public final class ClientActions {
         String describe();
 
         String progressJson();
+    }
+
+    /**
+     * Fire the held TACZ gun at an entity as one bounded burst (continuous action).
+     *
+     * The agent drives the fight loop: it calls this for ≤maxShots rounds, then decides
+     * between approach / back off / gun switch / re-aim before the next burst
+     * (docs/COMBAT-PLAN.md). The action aims (right mouse held) until the scope is
+     * ready, re-faces the target every tick (recoil compensation), refuses to fire when
+     * every sight line is covered, and reloads when the magazine runs dry.
+     */
+    public boolean shootAt(int entityId, long timeoutMs, int maxShots) {
+        return onClient(() -> {
+            if (mc.player == null || mc.level == null) {
+                return false;
+            }
+            this.lastProgress = null;
+            beginContinuous(new Shoot(entityId, timeoutMs, maxShots));
+            return true;
+        });
+    }
+
+    /**
+     * Back away from an entity while facing it, optionally firing the held gun.
+     *
+     * `fire` uses the same aim/reload/cover discipline as Shoot, in ≤6-round bursts with
+     * a 500 ms gap; with no gun in hand (or fire=false) the bot still backs away and
+     * swings at anything that closes into melee reach.
+     */
+    public boolean retreatFrom(int entityId, long timeoutMs, boolean fire) {
+        return onClient(() -> {
+            if (mc.player == null || mc.level == null) {
+                return false;
+            }
+            this.lastProgress = null;
+            beginContinuous(new Retreat(entityId, timeoutMs, fire));
+            return true;
+        });
     }
 
     /** Walk toward a point by holding forward; the game does the physics. */
@@ -923,6 +994,381 @@ public final class ClientActions {
             map.put("reason", Json.str(reason));
             map.put("target", Json.point(target.x, target.y, target.z));
             map.put("jumpsBlocked", Json.num(jumpsSinceProgress));
+            return Json.obj(map);
+        }
+    }
+
+    // -------------------------------------------------------------- tacz gunfire
+
+    /** Burst discipline: the operator policy is at most six rounds, then a 500 ms pause. */
+    private static final int BURST_SIZE = 6;
+    private static final long BURST_GAP_MS = 500L;
+    /** Guns without an ADS state never report progress; this escape hatch keeps them usable. */
+    private static final long AIM_READY_TIMEOUT_MS = 2500L;
+    /** Fully covered this long in a row -> give up the burst with reason "blocked". */
+    private static final long COVER_GIVE_UP_MS = 1500L;
+    /** Magazine still empty this long after reload() -> reason "no_ammo". */
+    private static final long RELOAD_GIVE_UP_MS = 4000L;
+    /** Absolute sanity bound; the agent enforces the real 16/32 range policy. */
+    private static final double GUN_HARD_MAX_RANGE = 32.0D;
+
+    /** Mutable firing state: aim gating, reload wait, cover clock, cadence, report cache. */
+    private static final class GunFireState {
+        boolean aimHeld;
+        long aimStartedAt;
+        long reloadStartedAt;
+        long blockedSince;
+        long nextShotAt;
+        long nextBurstAt;
+        int shotsInBurst;
+        int totalShots;
+        String lastResult;
+        /**
+         * Cached for progressJson. /progress is served on an HTTP thread, so the report
+         * must never read game state - these fields are refreshed during tick() only.
+         */
+        int magazine = -1;
+        String gunType = null;
+        double distance = -1.0D;
+    }
+
+    /**
+     * Advance one tick of TACZ gunfire toward `target`. Client thread only.
+     *
+     * @return fired / wait / aiming / blocked / reloading / no_ammo / burst_gap /
+     *         not_a_gun / tacz_unavailable / target_gone
+     */
+    private String gunTick(LocalPlayer player, LivingEntity target, GunFireState s, boolean burstDiscipline) {
+        Object operator = TaczBridge.operator(player);
+        if (operator == null) {
+            return "tacz_unavailable";
+        }
+        ItemStack held = player.getMainHandItem();
+        if (!TaczBridge.isGun(held)) {
+            return "not_a_gun";
+        }
+        s.distance = player.distanceTo(target);
+        s.magazine = TaczBridge.magazineOf(held) + TaczBridge.dummyOf(held);
+        s.gunType = TaczBridge.typeOf(TaczBridge.gunIdOf(held));
+        /**
+         * Aim first, shoot second: the scope needs time to come up and rounds fired
+         * during the ADS transition are thrown away. Stay aimed (right mouse held) for
+         * the whole visit - that is the "长按右键瞄准 ... 松开右键" contract.
+         */
+        if (!s.aimHeld) {
+            TaczBridge.aim(operator, true);
+            s.aimHeld = true;
+            s.aimStartedAt = System.currentTimeMillis();
+        }
+        boolean aimReady = TaczBridge.aimingProgress(operator) >= 0.95F
+                || System.currentTimeMillis() - s.aimStartedAt > AIM_READY_TIMEOUT_MS;
+        if (!aimReady) {
+            return "aiming";
+        }
+        /**
+         * Fully covered -> hold fire. Head, torso and feet are sampled; a single clear
+         * sight line is enough to shoot, only the "every line blocked" case refuses.
+         */
+        if (fullyBlocked(player, target)) {
+            if (s.blockedSince == 0L) {
+                s.blockedSince = System.currentTimeMillis();
+            }
+            return "blocked";
+        }
+        s.blockedSince = 0L;
+        long now = System.currentTimeMillis();
+        if (burstDiscipline) {
+            if (s.shotsInBurst >= BURST_SIZE) {
+                s.shotsInBurst = 0;
+                s.nextBurstAt = now + BURST_GAP_MS;
+            }
+            if (now < s.nextBurstAt) {
+                return "burst_gap";
+            }
+        }
+        if (s.magazine <= 0) {
+            if (s.reloadStartedAt == 0L) {
+                TaczBridge.reload(operator);
+                s.reloadStartedAt = now;
+                return "reloading";
+            }
+            if (now - s.reloadStartedAt > RELOAD_GIVE_UP_MS) {
+                return "no_ammo";
+            }
+            return "reloading";
+        }
+        s.reloadStartedAt = 0L;
+        if (now < s.nextShotAt || TaczBridge.shootCooldown(operator) > 0L) {
+            return "wait";
+        }
+        String result = TaczBridge.fire(operator, player::getXRot, player::getYRot);
+        s.lastResult = result;
+        if (result == null) {
+            return "wait";
+        }
+        switch (result) {
+            case "SUCCESS" -> {
+                s.shotsInBurst += 1;
+                s.totalShots += 1;
+                return "fired";
+            }
+            case "COOL_DOWN" -> {
+                return "wait";
+            }
+            case "NO_AMMO" -> {
+                s.reloadStartedAt = 0L;
+                return "wait";
+            }
+            case "NEED_BOLT" -> {
+                TaczBridge.bolt(operator);
+                return "wait";
+            }
+            case "NOT_DRAW" -> {
+                TaczBridge.draw(operator, player::getMainHandItem);
+                return "wait";
+            }
+            case "IS_SPRINTING" -> {
+                setKeyInClient("sprint", false);
+                return "wait";
+            }
+            case "OVERHEATED" -> {
+                s.nextShotAt = now + 500L;
+                return "wait";
+            }
+            case "IS_RELOADING", "IS_BOLTING", "IS_DRAWING", "IS_MELEE" -> {
+                return "wait";
+            }
+            case "ID_NOT_EXIST" -> {
+                return "target_gone";
+            }
+            case "NOT_GUN" -> {
+                return "not_a_gun";
+            }
+            default -> {
+                return "wait";
+            }
+        }
+    }
+
+    /** Lower the gun: release the aim state and the right-mouse key. */
+    private void gunRelease(GunFireState s) {
+        if (s.aimHeld) {
+            Object operator = TaczBridge.operator(mc.player);
+            if (operator != null) {
+                TaczBridge.aim(operator, false);
+            }
+            s.aimHeld = false;
+        }
+        setKeyInClient("use", false);
+    }
+
+    /**
+     * True when the head, torso and feet sight lines are ALL stopped by blocks.
+     *
+     * "Partially visible" must still shoot - a target showing only a shoulder is a
+     * normal hit - so one clear line wins. Block clipping only; the target entity does
+     * not block itself.
+     */
+    private boolean fullyBlocked(LocalPlayer player, LivingEntity target) {
+        AABB box = target.getBoundingBox();
+        double midX = (box.minX + box.maxX) / 2.0D;
+        double midZ = (box.minZ + box.maxZ) / 2.0D;
+        double[] ys = {box.maxY - 0.2D, box.minY + (box.maxY - box.minY) * 0.5D, box.minY + 0.2D};
+        for (double y : ys) {
+            HitResult hit = mc.level.clip(new ClipContext(
+                    player.getEyePosition(),
+                    new Vec3(midX, y, midZ),
+                    ClipContext.Block.COLLIDER,
+                    ClipContext.Fluid.NONE,
+                    player));
+            if (hit.getType() == HitResult.Type.MISS) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    /** One agent-issued burst: aim up, fire ≤maxShots rounds, then lower the gun. */
+    private final class Shoot implements Continuous {
+        private final int entityId;
+        private final long deadline;
+        private final int maxShots;
+        private final GunFireState state = new GunFireState();
+        private boolean finished;
+        private boolean failed;
+        private String reason;
+
+        Shoot(int entityId, long timeoutMs, int maxShots) {
+            this.entityId = entityId;
+            this.deadline = System.currentTimeMillis() + Math.max(1000L, Math.min(timeoutMs, 10000L));
+            this.maxShots = Math.max(1, Math.min(maxShots, 12));
+        }
+
+        @Override
+        public boolean tick(Minecraft mc) {
+            if (finished) {
+                return true;
+            }
+            LocalPlayer player = mc.player;
+            if (player == null || mc.level == null) {
+                finish(true, "no_player");
+                return true;
+            }
+            Entity entity = mc.level.getEntity(entityId);
+            if (!(entity instanceof LivingEntity target) || !target.isAlive()) {
+                finish(false, "target_gone");
+                return true;
+            }
+            faceEntity(target);
+            String step = gunTick(player, target, state, false);
+            if ("fired".equals(step) && state.totalShots >= maxShots) {
+                finish(false, null);
+                return true;
+            }
+            if ("blocked".equals(step) && System.currentTimeMillis() - state.blockedSince >= COVER_GIVE_UP_MS) {
+                finish(true, "blocked");
+                return true;
+            }
+            if ("no_ammo".equals(step) || "not_a_gun".equals(step) || "tacz_unavailable".equals(step)) {
+                finish(true, step);
+                return true;
+            }
+            if ("target_gone".equals(step)) {
+                finish(false, "target_gone");
+                return true;
+            }
+            if (state.distance > GUN_HARD_MAX_RANGE) {
+                finish(true, "out_of_range");
+                return true;
+            }
+            if (System.currentTimeMillis() > deadline) {
+                finish(true, "timeout");
+                return true;
+            }
+            return false;
+        }
+
+        private void finish(boolean asFailed, String why) {
+            finished = true;
+            failed = asFailed;
+            reason = why;
+            gunRelease(state);
+        }
+
+        @Override
+        public String describe() {
+            return "shoot";
+        }
+
+        @Override
+        public String progressJson() {
+            Map<String, String> map = new LinkedHashMap<>();
+            map.put("busy", Json.bool(!finished));
+            map.put("action", Json.str("shoot"));
+            map.put("shots", Json.num(state.totalShots));
+            map.put("done", Json.bool(finished && !failed));
+            map.put("failed", Json.bool(failed));
+            map.put("reason", Json.str(reason == null ? "" : reason));
+            map.put("blocked", Json.bool(state.blockedSince > 0L));
+            map.put("magazine", Json.num(state.magazine));
+            map.put("gunType", Json.str(state.gunType == null ? "" : state.gunType));
+            map.put("distance", Json.num(state.distance));
+            map.put("lastResult", Json.str(state.lastResult == null ? "" : state.lastResult));
+            return Json.obj(map);
+        }
+    }
+
+    /**
+     * Back away from a target while facing it; fire the held gun when asked to.
+     *
+     * The operator policy (docs/COMBAT-PLAN.md §①): below the flee threshold the bot
+     * backs off with the S key while still facing the enemy, so it can fight back -
+     * preferring a gun (the agent equips the preferred one before issuing this; with no
+     * gun in hand the melee swing covers anything that closes in). Gun fire keeps the
+     * six-round burst discipline with a 500 ms gap.
+     */
+    private final class Retreat implements Continuous {
+        private final int entityId;
+        private final long deadline;
+        private final boolean fire;
+        private final GunFireState state = new GunFireState();
+        private boolean finished;
+        private boolean failed;
+        private String reason;
+
+        Retreat(int entityId, long timeoutMs, boolean fire) {
+            this.entityId = entityId;
+            this.deadline = System.currentTimeMillis() + Math.max(500L, Math.min(timeoutMs, 5000L));
+            this.fire = fire;
+        }
+
+        @Override
+        public boolean tick(Minecraft mc) {
+            if (finished) {
+                return true;
+            }
+            LocalPlayer player = mc.player;
+            if (player == null || mc.level == null) {
+                finish(true, "no_player");
+                return true;
+            }
+            Entity entity = mc.level.getEntity(entityId);
+            if (!(entity instanceof LivingEntity target) || !target.isAlive()) {
+                finish(false, "target_gone");
+                return true;
+            }
+            faceEntity(target);
+            setKeyInClient("back", true);
+            if (fire && TaczBridge.isGun(player.getMainHandItem())) {
+                String step = gunTick(player, target, state, true);
+                if ("no_ammo".equals(step) || "tacz_unavailable".equals(step)) {
+                    finish(true, step);
+                    return true;
+                }
+                if ("target_gone".equals(step)) {
+                    finish(false, "target_gone");
+                    return true;
+                }
+                /** "blocked" simply means no fire this tick - the retreat continues. */
+            } else if (mc.gameMode != null
+                    && player.distanceTo(target) <= 2.9D
+                    && player.getAttackStrengthScale(0.5F) >= 0.92F) {
+                mc.gameMode.attack(player, target);
+                player.swing(InteractionHand.MAIN_HAND);
+            }
+            if (System.currentTimeMillis() > deadline) {
+                finish(false, "timeout");
+                return true;
+            }
+            return false;
+        }
+
+        private void finish(boolean asFailed, String why) {
+            finished = true;
+            failed = asFailed;
+            reason = why;
+            setKeyInClient("back", false);
+            gunRelease(state);
+        }
+
+        @Override
+        public String describe() {
+            return "retreat";
+        }
+
+        @Override
+        public String progressJson() {
+            Map<String, String> map = new LinkedHashMap<>();
+            map.put("busy", Json.bool(!finished));
+            map.put("action", Json.str("retreat"));
+            map.put("shots", Json.num(state.totalShots));
+            map.put("done", Json.bool(finished && !failed));
+            map.put("failed", Json.bool(failed));
+            map.put("reason", Json.str(reason == null ? "" : reason));
+            map.put("blocked", Json.bool(state.blockedSince > 0L));
+            map.put("magazine", Json.num(state.magazine));
+            map.put("gunType", Json.str(state.gunType == null ? "" : state.gunType));
+            map.put("distance", Json.num(state.distance));
             return Json.obj(map);
         }
     }

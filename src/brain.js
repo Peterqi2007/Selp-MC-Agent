@@ -39,10 +39,15 @@ const { needsRescue, escapeToGround, hideUnderground, isDaytime } = require('./c
  * through here (see `skillDriven` in fastLoop).
  */
 const skills = require('./skills');
+const combatSkills = require('./skills/combat');
+const combatState = require('./world/combatState');
+const { bare } = require('./world/items');
 
 /** Priority levels for `enqueue` (P0-PLAN §5.7). Lower number wins. */
 const LEVELS = { urgent: 0, directive: 1, autonomous: 2 };
 const LEVEL_NAMES = { 0: 'urgent', 1: 'directive', 2: 'autonomous' };
+/** Gun failures the reflex answers by falling back to the melee charge (plan §④). */
+const GUN_FALLBACK = new Set(['tacz_unavailable', 'no_gun', 'not_a_gun', 'no_ammo', 'blocked']);
 /** Sentinel for a control-only enqueue that carries no task. */
 const NO_TASK = Symbol('no-task');
 
@@ -106,6 +111,11 @@ class Brain {
     this._reflexEatAt = 0;
     this._reflexArmorBusy = false;
     this._reflexArmorAt = 0;
+    /** Retreat state (skillRetreat): the target we are backing away from, and its expiry. */
+    this._retreatTargetId = null;
+    this._retreatUntil = 0;
+    /** Last observed health, for the "hurt this tick -> charge" reflex (plan §②). */
+    this._lastHealth = null;
   }
 
   /**
@@ -249,11 +259,27 @@ class Brain {
 
     if (world.isInDanger()) {
       this.log.warn('danger detected, retreating');
-      if (!skillDriven) {
+      if (skillDriven) {
+        /**
+         * The old code only ran the mineflayer retreat - on a client-mod body the branch
+         * spammed "danger detected, retreating" and did nothing (live 2026-10-13: the
+         * bot stood in the open at 4.8 hp until it died). Now it backs away for real.
+         */
+        await this.skillRetreat();
+      } else {
         await combat.retreat(12);
         await eat.tick(true);
       }
       return;
+    }
+
+    /** Danger over: cancel a retreat that is still running so its keys are released. */
+    if (skillDriven && this._retreatTargetId !== null && Date.now() < this._retreatUntil + 1000) {
+      if (this.ctx.body && typeof this.ctx.body.stop === 'function') {
+        await this.ctx.body.stop().catch(() => false);
+      }
+      this._retreatTargetId = null;
+      this._retreatUntil = 0;
     }
 
     if (skillDriven) {
@@ -262,29 +288,56 @@ class Brain {
       await eat.tick();
     }
 
-    const hostile = world.nearestHostile(8);
-    if (hostile && this.cfg.behaviour.autoFight && !this._reflexFight) {
-      // Reflex: fight back only if it is already close, otherwise keep working.
-      const hp = skillDriven
-        ? (this.ctx.world.snapshot() || {}).health
-        : (this.bot ? this.bot.health : undefined);
-      const lowHealth = typeof hp === 'number' && hp < 12;
-      if (hostile.distance <= 5 || lowHealth) {
-        this.log.info(`hostile ${hostile.entity.name} at ${hostile.distance.toFixed(1)} blocks - engaging`);
-        this.preempt();
-        if (skillDriven) {
-          // Fire-and-forget with a guard: the fight can run for tens of seconds and
-          // must not block the other reflexes (eat/armor/refresh keep ticking).
-          this._reflexFight = true;
-          skills
-            .run('attack', this.ctx)
-            .catch((e) => this.log.debug(`reflex fight failed: ${e.message}`))
-            .finally(() => {
-              this._reflexFight = false;
-            });
-        } else {
-          await combat.defend();
-        }
+    /**
+     * Engage reflex (COMBAT-PLAN v3 §②).
+     *
+     * Fight when: something is within 5 blocks; OR we are wounded below the engage
+     * threshold (16 by config); OR we were hurt THIS tick with anything hostile in the
+     * 24-block scan - a pillager shooting from 15 blocks must be charged, not ignored.
+     * Stalled-and-ignored targets are skipped (combatState), and an explicit fight task
+     * (attack/defend/shoot through the hub) suppresses the reflex so the same target is
+     * not engaged twice.
+     */
+    const snapNow = typeof world.snapshot === 'function' ? world.snapshot() : null;
+    const hpNow = snapNow && typeof snapNow.health === 'number' ? snapNow.health : null;
+    const hurtThisTick = hpNow !== null && this._lastHealth !== null && hpNow < this._lastHealth - 0.01;
+    if (hpNow !== null) this._lastHealth = hpNow;
+    const engageHealthThreshold = (this.cfg.behaviour && this.cfg.behaviour.engageHealthThreshold) || 16;
+    const candidates = (world.hostiles(24) || [])
+      .filter((h) => !combatState.shouldSkip(h.entity.id, h.distance))
+      .sort((a, b) => (a.distance || 0) - (b.distance || 0));
+    const nearest = candidates.length ? candidates[0] : null;
+    const wantFight =
+      nearest &&
+      (nearest.distance <= 5 || (hpNow !== null && hpNow < engageHealthThreshold) || (hurtThisTick && nearest.distance <= 24));
+    if (wantFight && this.cfg.behaviour.autoFight && !this._reflexFight && !this.hostileFightTaskActive()) {
+      this.log.info(`hostile ${nearest.entity.name} at ${nearest.distance.toFixed(1)} blocks - engaging`);
+      this.preempt();
+      if (skillDriven) {
+        // Fire-and-forget with a guard: the fight can run for tens of seconds and
+        // must not block the other reflexes (eat/armor/refresh keep ticking).
+        this._reflexFight = true;
+        const useGun = nearest.distance > 4.5;
+        const run = useGun
+          ? skills.run('shoot', this.ctx, { id: nearest.entity.id })
+          : skills.run('attack', this.ctx, {});
+        Promise.resolve(run)
+          .then((result) => {
+            /**
+             * The gun path may be unavailable or the target fully covered - the melee
+             * charge is the fallback, never a refusal to fight.
+             */
+            if (useGun && result && result.ok === false && GUN_FALLBACK.has(result.failure)) {
+              return skills.run('attack', this.ctx, {});
+            }
+            return result;
+          })
+          .catch((e) => this.log.debug(`reflex fight failed: ${e.message}`))
+          .finally(() => {
+            this._reflexFight = false;
+          });
+      } else {
+        await combat.defend();
       }
     }
 
@@ -333,6 +386,52 @@ class Brain {
     } finally {
       this._reflexEatBusy = false;
     }
+  }
+
+  /**
+   * The skill-driven retreat (COMBAT-PLAN v3 §①): below the flee threshold, back away
+   * from the closest threat while facing it, and keep shooting while a loaded gun is
+   * in hand (preference rifle > smg > mg > pistol > anything else).
+   *
+   * Issued once and left running for ~3s; this tick only re-issues after the window
+   * expires. When the danger passes the main loop cancels it with stop() - and the
+   * no-gun case still backs away while swinging (the client action owns that fallback).
+   */
+  async skillRetreat() {
+    const body = this.ctx.body;
+    if (!body || typeof body.retreatFrom !== 'function') return;
+    const list = (this.ctx.world.hostiles(7) || [])
+      .filter((h) => !combatState.shouldSkip(h.entity.id, h.distance))
+      .sort((a, b) => (a.distance || 0) - (b.distance || 0));
+    if (!list.length) return; // nothing to face: this reflex cannot help
+    const threat = list[0];
+    const now = Date.now();
+    if (this._retreatTargetId === threat.entity.id && now < this._retreatUntil) return; // still running
+    const snap = typeof body.snapshot === 'function' ? body.snapshot() : null;
+    let fire = false;
+    const chosen = combatSkills.chooseGun(snap, { distance: threat.distance });
+    if (chosen.ok) {
+      const held = snap && snap.heldItem ? bare(snap.heldItem) : null;
+      if (held !== bare(chosen.gun.item)) {
+        await combatSkills.equipVerified(this.ctx, chosen.gun.item);
+      }
+      fire = true;
+    }
+    await body.retreatFrom({ id: threat.entity.id }, { ms: 3000, fire }).catch(() => false);
+    this._retreatTargetId = threat.entity.id;
+    this._retreatUntil = now + 2700;
+  }
+
+  /**
+   * True while an explicit fight task owns the fight (attack/defend/shoot submitted
+   * through the task hub) - the reflex must not double-fire on the same target
+   * (live 2026-10-13: the command attack and the reflex both engaged one pillager).
+   */
+  hostileFightTaskActive() {
+    const hub = this.ctx.hub;
+    const current = hub && typeof hub.status === 'function' ? hub.status().current : null;
+    const name = (this.currentTask && this.currentTask.name) || (current && current.name) || '';
+    return /^(attack|defend|shoot)$/.test(name);
   }
 
   /** Cancel the current task so a reflex can take over. */

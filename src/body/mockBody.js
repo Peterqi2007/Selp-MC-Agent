@@ -68,6 +68,38 @@ class MockBody extends Body {
       alive: true
     }));
 
+    /**
+     * TACZ gun fixtures (COMBAT-PLAN v3): [{item, gunId?, type, magazine, dummy?, shotsToKill?}].
+     * The snapshot exposes them in the client's `guns` shape; shoot() burns magazine and
+     * kills the target once the tally reaches `shotsToKill` (default 2) - raise it to
+     * model multi-burst fights.
+     */
+    this.guns = (options.guns || []).map((gun) => ({
+      item: normalize(gun.item),
+      gunId: gun.gunId ? normalize(gun.gunId) : normalize(gun.item),
+      type: gun.type || 'unknown',
+      magazine: Number.isFinite(gun.magazine) ? gun.magazine : 0,
+      dummy: Number.isFinite(gun.dummy) ? gun.dummy : 0,
+      shotsToKill: Number.isFinite(gun.shotsToKill) ? gun.shotsToKill : 2
+    }));
+    /** Players visible to the body: [{name, id?, position, health?}] (objects, like the client). */
+    this.players = (options.players || [{ name: 'MockPlayer', id: 99, position: { x: 3, y: 64, z: 3 } }]).map(
+      (p, i) => ({
+        name: p.name,
+        id: p.id === undefined ? 100 + i : p.id,
+        position: { ...p.position },
+        health: p.health === undefined ? 20 : p.health,
+        alive: true
+      })
+    );
+    /** Gun-fire test state: calls, damage tallies, scripted outcomes. */
+    this.shootCalls = [];
+    this.retreatCalls = [];
+    this.lastAction = null;
+    this.shootBlocked = false;
+    this.shootUnavailable = false;
+    this._shotTally = new Map();
+
     /** What the crosshair points at, for exercising aimed mining without a client. */
     this.crosshair = options.crosshair ? { ...options.crosshair, position: { ...options.crosshair.position } } : null;
     /** Crop fixtures with growth stages: [{name, position, age, maxAge}] */
@@ -142,7 +174,21 @@ class MockBody extends Body {
       lightLevel: this.state.night ? 3 : 15,
       hostiles: this.hostiles(16),
       nearbyItems: this.itemDrops(8),
-      players: ['MockPlayer'],
+      guns: this.guns.map((gun) => ({
+        item: gun.item,
+        gunId: gun.gunId,
+        type: gun.type,
+        magazine: gun.magazine,
+        dummy: gun.dummy,
+        bullets: gun.magazine > 0 || gun.dummy > 0
+      })),
+      players: this.players.filter((p) => p.alive !== false).map((p) => ({
+        name: p.name,
+        id: p.id,
+        position: { ...p.position },
+        health: p.health,
+        distance: +Math.hypot(p.position.x - here.x, p.position.y - here.y, p.position.z - here.z).toFixed(2)
+      })),
       target: this.crosshair,
       crops: this.crops,
       fishing: this.fishing.cast ? { cast: true, biting: this.fishing.biting } : null,
@@ -519,6 +565,72 @@ class MockBody extends Body {
     this.stats.attacked += 1;
     target.alive = false;
     this.history.push({ action: 'attack', name: target.name });
+    return true;
+  }
+
+  /**
+   * Mock gunfire: one bounded burst at an entity (COMBAT-PLAN v3 shape).
+   *
+   * Mirrors the client contract: returns ok/done and lands the verdict on `lastAction`
+   * ({reason, shots, blocked}). `shootBlocked`/`shootUnavailable` script the cover and
+   * no-TACZ outcomes; the magazine burns per shot and the target dies when the tally
+   * crosses `shotsToKill`.
+   */
+  async shoot(entity, options = {}) {
+    await this._delay();
+    const id = entity && (entity.id !== undefined ? entity.id : entity._entity && entity._entity.id);
+    const target =
+      (this.entities || []).find((e) => e.id === id) ||
+      (this.players || []).find((p) => p.id === id) ||
+      null;
+    const maxShots = Math.max(1, Math.floor(options.maxShots || 6));
+    this.shootCalls.push({ target: id, maxShots });
+    const finish = (ok, reason, shots = 0) => {
+      this.lastAction = { action: 'shoot', ok, reason, shots, blocked: reason === 'blocked' };
+      return ok;
+    };
+    if (this.shootUnavailable) return finish(false, 'tacz_unavailable');
+    if (this.shootBlocked) return finish(false, 'blocked');
+    if (!target || !target.alive) return finish(false, 'target_gone');
+    const gun = this.guns.find((g) => normalize(g.item) === normalize(this.held || ''));
+    if (!gun) return finish(false, 'not_a_gun');
+    const available = gun.magazine + gun.dummy;
+    if (available <= 0) return finish(false, 'no_ammo');
+    const shots = Math.min(maxShots, available);
+    const fromMagazine = Math.min(shots, gun.magazine);
+    gun.magazine -= fromMagazine;
+    gun.dummy -= shots - fromMagazine;
+    this.stats.attacked += 1;
+    const tally = (this._shotTally.get(target.id) || 0) + shots;
+    this._shotTally.set(target.id, tally);
+    if (tally >= gun.shotsToKill) target.alive = false;
+    this.history.push({ action: 'shoot', name: target.name, shots });
+    return finish(true, null, shots);
+  }
+
+  /** Mock retreat: record the call and take one step directly away from the target. */
+  async retreatFrom(entity, options = {}) {
+    await this._delay();
+    const id = entity && (entity.id !== undefined ? entity.id : entity._entity && entity._entity.id);
+    const target =
+      (this.entities || []).find((e) => e.id === id) ||
+      (this.players || []).find((p) => p.id === id) ||
+      null;
+    this.retreatCalls.push({ target: id, ms: options.ms || 3000, fire: options.fire === true });
+    if (target && target.position) {
+      const dx = this.position.x - target.position.x;
+      const dz = this.position.z - target.position.z;
+      const length = Math.hypot(dx, dz) || 1;
+      this.position = { ...this.position, x: this.position.x + dx / length, z: this.position.z + dz / length };
+    }
+    this.history.push({ action: 'retreat', target: target && target.id });
+    return true;
+  }
+
+  /** Mock stop: record that the caller cancelled a continuous action. */
+  async stop() {
+    this.stopCalls = (this.stopCalls || 0) + 1;
+    this.history.push({ action: 'stop' });
     return true;
   }
 

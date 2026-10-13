@@ -143,10 +143,11 @@ LLM 层（`src/llm/`，生产配置已开启 `toolCalling`）：8 个工具 —�
 | 10-10 | P1–P3 LLM 异常接管 | `miningProgress` 触发阈值；`miningRecoveryTools` 六工具；`miningRecovery` 状态机（短批次/预算/重复护栏/以入包证据结束）；外部取消 | ✅ 离线（`mining:recovery:test` 18/18）；**默认关闭**，真机验收后开启 |
 | 10-12 | 收集走位三修 | 严格进入改“精确格中心”（`moveto` 支持小数坐标）；plan 回退严格化（修 0.8 假到达）；预算耗尽允许“零开挖压向掉落物” | ✅ 真机（对角密闭红石 ×2 / ×1 两轮 `verified`；`mining:collection:test` 24/24） |
 | 10-13 | 贴脸僵尸不可见修复 + 反射层复活 + 战斗三修 | ① clientmod 快照只在动作里刷新——空闲时世界视图整体冻结（面板位置曾停在 58 格之外）；`ClientModBody` 后台 500ms 轮询（`statePollMs` 可配）+ 反射每 tick 兜底刷新。② `needsRescue` 对无 mineflayer 的视图每 tick 抛 TypeError（debug 级被吞）——反射链（吃/自卫/穿甲）从未执行；循环异常改限频 WARN。③ 非 mineflayer 躯体的反射改走技能层（eat/attack/armor），servo 空转不再挡路。④ 真机续测：护甲技能把穿戴槽（5-8 同为 player 槽）当“背包护甲”快速移动——每 30s 把整套甲穿/脱切换；改为只动背包格、只升级不降级、每格至多一次。⑤ 攻击技能信任 `equip()` 返回值——竞态下剑在背包却拿铲子开打；改为装备后读回持物核验、失败重试一次、仍失败则限频告警。⑥ 进食会把食物留在手上——战斗中自动进食把手从剑切成面包，15s 挥砍循环全程拿面包打僵尸（真机：连续三次满超时）；改为 eat 技能吃完恢复原持物 + 反射进食在有敌对目标时让位 | ✅ 离线（`skills:test` 44/44、`control:test` 36/36、`client:test` 67/67、`selftest` 175/175、其余 6 套件全绿）；真机待重启验证 |
+| 10-13 | 战斗 v3：撤退/冲锋/反卡死/TACZ | 真撤退（≤8 血，S 键后撤+面敌+优先用枪）；被远程打即冲锋（掉血/ <16 血/近身触发）；≤5 格 30s 无接触→终止并忽视 180s；TACZ 枪械（狙击 32/其余 16 射程、开镜后开火、≤6 发/轮、每轮后靠近/后撤/换枪/重新瞄准+500ms、弹尽换有弹枪、三点 LOS 全遮不开火+侧翼、近距序 rifle>smg>mg>pistol、反射按默认序、PvP 仅显式）；失败码表扩容；详见 `docs/COMBAT-PLAN.md` | ✅ 离线（`skills:test` 56/56、`control:test` 37/37、`client:test` 73/73、Mod 编译通过）；真机待测 |
 
 当前状态（2026-10-10）：
 
-* 离线全绿：`selftest 175/175`、`skills:test 44/44`、`client:test 67/67`、`mining:entry:test 20/20`、
+* 离线全绿：`selftest 175/175`、`skills:test 56/56`、`client:test 73/73`、`control:test 37/37`、`mining:entry:test 20/20`、
   `mining:collection:test 24/24`、`mining:recovery:test 18/18`、`tasks:test 52/52`、`p0:verify 8/8`（明细见 §8）。
 * 控制 Mod：当前在线 `agent-client-1.0.0.jar` **60961 字节**（在 60936 基础上含 WalkTo 严格到达 y 容差修复），
   改 Mod 后必须重装（`npm run client:install`）并重启客户端。
@@ -294,9 +295,9 @@ Invoke-RestMethod -Uri http://127.0.0.1:8766/ui/state
 | `npm run client:launch` | 无头拉起 Forge 客户端（`--server` / `--singleplayer` / `--username`） | 主线 |
 | `npm run client:check` | 检查 Mod 与"是否在世界里" | 主线 |
 | `npm run client:build` / `client:install` | 构建 / 安装控制 Mod | 主线 |
-| `npm run client:test` | 假 Mod 协议测试（含 pillar 回执/隧道保护/空闲状态刷新） | 67/67 |
+| `npm run client:test` | 假 Mod 协议测试（含 pillar 回执/隧道保护/空闲刷新/shoot/retreat） | 73/73 |
 | `npm run clientmod:test` | clientmod 躯体角色扮演路径 | 11/11 |
-| `npm run skills:test` | 技能库（含采矿报价/台账/防坠落/逐格垫柱 B1–B10、护甲/武器/进食核验） | 44/44 |
+| `npm run skills:test` | 技能库（含采矿/垫柱/护甲/武器/进食、枪械选枪与反卡死） | 56/56 |
 | `npm run mining:entry:test` | 统一挖矿入口 A 系列 | 20/20 |
 | `npm run mining:collection:test` | 掉落物收集 C 系列 | 24/24 |
 | `npm run mining:recovery:test` | LLM 异常接管 R 系列（脚本化模型） | 18/18 |
@@ -305,7 +306,7 @@ Invoke-RestMethod -Uri http://127.0.0.1:8766/ui/state
 | `npm run path:test` | 寻路场景 | 22/22 |
 | `npm run tasks:test` | 三原语（走 / 挖 / 捡） | 52/52 |
 | `npm run llm:dry` | 意图路由 / Schema / 工具白名单 | 路由 56/56 · 工具 39/39 |
-| `npm run control:test` | 双通道 + 面板 + 死亡处理 + 反射路由 | 36/36 |
+| `npm run control:test` | 双通道 + 面板 + 死亡处理 + 反射路由 + 战斗反射 | 37/37 |
 | `npm run plan:audit` | 计划书 §11 符合性 | 29/29 |
 | `npm run inspect:server` / `mods:report` | 连服前体检 / Mod 知识报告 | 辅助 |
 | `npm run body:info` | 查看可用 body 与当前选择 | 辅助 |

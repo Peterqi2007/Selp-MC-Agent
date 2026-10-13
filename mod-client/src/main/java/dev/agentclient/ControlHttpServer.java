@@ -557,6 +557,30 @@ public final class ControlHttpServer {
                         out.put("ok", Json.bool(actions.attack((int) all[0], timeout)));
                     }
                 }
+                case "shoot" -> {
+                    String[] shootTokens = rest.isEmpty() ? new String[0] : rest.split("\\s+");
+                    Integer id = shootTokens.length > 0 ? tryInt(shootTokens[0]) : null;
+                    if (id == null) {
+                        out.put("ok", Json.bool(false));
+                        out.put("error", Json.str("usage: shoot <entityId> [timeoutMs] [maxShots]"));
+                    } else {
+                        long timeout = shootTokens.length > 1 && tryInt(shootTokens[1]) != null ? tryInt(shootTokens[1]) : 8000L;
+                        int maxShots = shootTokens.length > 2 && tryInt(shootTokens[2]) != null ? tryInt(shootTokens[2]) : 6;
+                        out.put("ok", Json.bool(actions.shootAt(id, timeout, maxShots)));
+                    }
+                }
+                case "retreat" -> {
+                    String[] retreatTokens = rest.isEmpty() ? new String[0] : rest.split("\\s+");
+                    Integer id = retreatTokens.length > 0 ? tryInt(retreatTokens[0]) : null;
+                    if (id == null) {
+                        out.put("ok", Json.bool(false));
+                        out.put("error", Json.str("usage: retreat <entityId> [timeoutMs] [fire 0|1]"));
+                    } else {
+                        long timeout = retreatTokens.length > 1 && tryInt(retreatTokens[1]) != null ? tryInt(retreatTokens[1]) : 3000L;
+                        boolean fire = retreatTokens.length > 2 && tryInt(retreatTokens[2]) != null && tryInt(retreatTokens[2]) != 0;
+                        out.put("ok", Json.bool(actions.retreatFrom(id, timeout, fire)));
+                    }
+                }
                 case "stop" -> out.put("ok", Json.bool(actions.stop()));
                 case "resync" -> {
                     actions.resyncPosition();
@@ -567,7 +591,7 @@ public final class ControlHttpServer {
                     out.put("error", Json.str("unknown command: " + verb));
                     out.put("known", Json.str(
                             "chat login register cmd look lookat moveto dig place useon menu click close "
-                                    + "use select drop attack stop resync"));
+                                    + "use select drop attack shoot retreat stop resync"));
                 }
             }
         } catch (Exception e) {

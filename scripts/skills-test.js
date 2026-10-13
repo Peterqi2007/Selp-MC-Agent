@@ -13,6 +13,7 @@ const { MockBody } = require('../src/body/mockBody');
 const { Body } = require('../src/body/body');
 const { loadConfig } = require('../src/util/config');
 const skills = require('../src/skills');
+const combatState = require('../src/world/combatState');
 
 const cfg = loadConfig({ profile: null });
 const log = { debug() {}, info() {}, warn() {}, error() {} };
@@ -382,6 +383,266 @@ function quickMove(slots) {
     expect(result.ok, `expected defend to work, got ${result.reason}`);
     expect(body.stats.attacked === 2, `attacked ${body.stats.attacked}`);
     return result.detail;
+  });
+
+  // ---- TACZ gun routine (COMBAT-PLAN v3 §④) --------------------------------
+
+  await scenario('shoot: within 16 blocks the close order picks the rifle', async () => {
+    const body = new MockBody(cfg, {
+      entities: [{ id: 1, name: 'minecraft:zombie', kind: 'hostile', alive: true, position: { x: 10, y: 64, z: 0 } }],
+      inventory: { 'tacz:ak47': 1, 'tacz:mp5': 1, 'tacz:m700': 1 },
+      guns: [
+        { item: 'tacz:ak47', type: 'rifle', magazine: 30 },
+        { item: 'tacz:mp5', type: 'smg', magazine: 30 },
+        { item: 'tacz:m700', type: 'sniper', magazine: 5 }
+      ]
+    });
+    await body.connect();
+    const result = await skills.run('shoot', makeCtx(body), {});
+    expect(result.ok, `expected the burst to kill, got ${result.reason}`);
+    expect(body.held === 'tacz:ak47', `the rifle must win the close order, held=${body.held}`);
+    expect(body.shootCalls.length === 1 && body.shootCalls[0].maxShots === 6, JSON.stringify(body.shootCalls));
+    expect(body.guns.find((g) => g.item === 'tacz:ak47').magazine === 24, 'six rounds must leave the magazine');
+    return result.detail;
+  });
+
+  await scenario('shoot: beyond 16 blocks the sniper leads the pick', async () => {
+    const body = new MockBody(cfg, {
+      entities: [{ id: 1, name: 'minecraft:zombie', kind: 'hostile', alive: true, position: { x: 20, y: 64, z: 0 } }],
+      inventory: { 'tacz:ak47': 1, 'tacz:m700': 1 },
+      guns: [
+        { item: 'tacz:ak47', type: 'rifle', magazine: 30 },
+        { item: 'tacz:m700', type: 'sniper', magazine: 5 }
+      ]
+    });
+    await body.connect();
+    const result = await skills.run('shoot', makeCtx(body), {});
+    expect(result.ok, `expected the sniper burst to kill, got ${result.reason}`);
+    expect(body.held === 'tacz:m700', `the sniper must win beyond 16 blocks, held=${body.held}`);
+    expect(body.stats.moved === 0, '20 blocks is inside the sniper range - no approach needed');
+    return result.detail;
+  });
+
+  await scenario('shoot: the weapon parameter pins a gun, an unknown one is refused', async () => {
+    const body = new MockBody(cfg, {
+      entities: [{ id: 1, name: 'minecraft:zombie', kind: 'hostile', alive: true, position: { x: 8, y: 64, z: 0 } }],
+      inventory: { 'tacz:ak47': 1, 'tacz:mp5': 1 },
+      guns: [
+        { item: 'tacz:ak47', type: 'rifle', magazine: 30 },
+        { item: 'tacz:mp5', type: 'smg', magazine: 30 }
+      ]
+    });
+    await body.connect();
+    const pinned = await skills.run('shoot', makeCtx(body), { weapon: 'mp5' });
+    expect(pinned.ok, `expected the pinned gun to work, got ${pinned.reason}`);
+    expect(body.held === 'tacz:mp5', `held=${body.held}`);
+    body.entities[0].alive = true; // the first burst killed it; the refusal needs a target
+    const missing = await skills.run('shoot', makeCtx(body), { weapon: 'glock_17' });
+    expect(!missing.ok && /glock_17/.test(missing.reason), `got "${missing.reason}"`);
+    return 'mp5 pinned, glock_17 refused';
+  });
+
+  await scenario('shoot: bursts cap at six rounds with ~500ms between them', async () => {
+    const body = new MockBody(cfg, {
+      entities: [{ id: 1, name: 'minecraft:zombie', kind: 'hostile', alive: true, position: { x: 10, y: 64, z: 0 } }],
+      inventory: { 'tacz:ak47': 1 },
+      guns: [{ item: 'tacz:ak47', type: 'rifle', magazine: 120, shotsToKill: 1000 }]
+    });
+    await body.connect();
+    const realShoot = body.shoot.bind(body);
+    const shootTimes = [];
+    body.shoot = async (entity, options) => {
+      shootTimes.push(Date.now());
+      return realShoot(entity, options);
+    };
+    const result = await skills.run('shoot', makeCtx(body), { timeoutMs: 4000 });
+    expect(!result.ok && result.failure === 'timeout', `got ${result.failure} / ${result.reason}`);
+    expect(body.shootCalls.length >= 2, `expected repeated bursts, saw ${body.shootCalls.length}`);
+    expect(body.shootCalls.every((call) => call.maxShots === 6), JSON.stringify(body.shootCalls));
+    const gap = shootTimes[1] - shootTimes[0];
+    expect(gap >= 450, `bursts must pause ~500ms, gap was ${gap}ms`);
+    return `${body.shootCalls.length} bursts, gap ${gap}ms`;
+  });
+
+  await scenario('shoot: a target beyond the gun range is approached first', async () => {
+    const body = new MockBody(cfg, {
+      entities: [{ id: 1, name: 'minecraft:zombie', kind: 'hostile', alive: true, position: { x: 24, y: 64, z: 0 } }],
+      inventory: { 'tacz:ak47': 1 },
+      guns: [{ item: 'tacz:ak47', type: 'rifle', magazine: 30 }]
+    });
+    await body.connect();
+    let moves = 0;
+    body.moveTo = async (position, options = {}) => {
+      moves += 1;
+      const range = options.range || 2;
+      body.position = { x: position.x - range, y: position.y, z: position.z };
+      return true;
+    };
+    const result = await skills.run('shoot', makeCtx(body), {});
+    expect(result.ok, `expected kill after approach, got ${result.reason}`);
+    expect(moves >= 1, 'the 24-block target must be approached for a 16-block gun');
+    return `approached ${moves}x, then ${result.detail}`;
+  });
+
+  await scenario('shoot: a target inside 3 blocks is kited, then shot', async () => {
+    const body = new MockBody(cfg, {
+      entities: [{ id: 1, name: 'minecraft:zombie', kind: 'hostile', alive: true, position: { x: 2, y: 64, z: 0 } }],
+      inventory: { 'tacz:ak47': 1 },
+      guns: [{ item: 'tacz:ak47', type: 'rifle', magazine: 30 }]
+    });
+    await body.connect();
+    const result = await skills.run('shoot', makeCtx(body), { timeoutMs: 8000 });
+    expect(result.ok, `expected kite-then-kill, got ${result.reason}`);
+    expect(body.retreatCalls.length >= 1 && body.retreatCalls[0].fire === true, JSON.stringify(body.retreatCalls));
+    return `kited ${body.retreatCalls.length}x, then ${result.detail}`;
+  });
+
+  await scenario('shoot: a sniper inside 8 blocks switches to a closer gun', async () => {
+    const body = new MockBody(cfg, {
+      entities: [{ id: 1, name: 'minecraft:zombie', kind: 'hostile', alive: true, position: { x: 6, y: 64, z: 0 } }],
+      inventory: { 'tacz:ak47': 1, 'tacz:m700': 1 },
+      guns: [
+        { item: 'tacz:ak47', type: 'rifle', magazine: 30 },
+        { item: 'tacz:m700', type: 'sniper', magazine: 5 }
+      ]
+    });
+    await body.connect();
+    body.held = 'tacz:m700';
+    const result = await skills.run('shoot', makeCtx(body), { weapon: 'm700' });
+    expect(result.ok, `expected kill after switching, got ${result.reason}`);
+    expect(body.held === 'tacz:ak47', `the sniper inside 8 blocks must be swapped out, held=${body.held}`);
+    return result.detail;
+  });
+
+  await scenario('shoot: a dry gun switches to the next loaded one, or fails no_ammo', async () => {
+    const swapBody = new MockBody(cfg, {
+      entities: [{ id: 1, name: 'minecraft:zombie', kind: 'hostile', alive: true, position: { x: 10, y: 64, z: 0 } }],
+      inventory: { 'tacz:ak47': 1, 'tacz:mp5': 1 },
+      guns: [
+        { item: 'tacz:ak47', type: 'rifle', magazine: 4, shotsToKill: 1000 },
+        { item: 'tacz:mp5', type: 'smg', magazine: 30, shotsToKill: 1000 }
+      ]
+    });
+    await swapBody.connect();
+    const swapped = await skills.run('shoot', makeCtx(swapBody), { timeoutMs: 3000 });
+    expect(!swapped.ok && swapped.failure === 'timeout', `got ${swapped.failure} / ${swapped.reason}`);
+    expect(swapBody.held === 'tacz:mp5', `the dry rifle must hand over to the smg, held=${swapBody.held}`);
+    expect(swapBody.shootCalls.length >= 2, JSON.stringify(swapBody.shootCalls));
+
+    const dryBody = new MockBody(cfg, {
+      entities: [{ id: 1, name: 'minecraft:zombie', kind: 'hostile', alive: true, position: { x: 10, y: 64, z: 0 } }],
+      inventory: { 'tacz:ak47': 1 },
+      guns: [{ item: 'tacz:ak47', type: 'rifle', magazine: 4, shotsToKill: 1000 }]
+    });
+    await dryBody.connect();
+    const dry = await skills.run('shoot', makeCtx(dryBody), { timeoutMs: 3000 });
+    expect(!dry.ok && dry.failure === 'no_ammo', `got ${dry.failure} / ${dry.reason}`);
+    return 'smg handover, then an honest no_ammo';
+  });
+
+  await scenario('shoot: full cover blocks fire, one flank, then an honest failure', async () => {
+    const body = new MockBody(cfg, {
+      entities: [{ id: 1, name: 'minecraft:zombie', kind: 'hostile', alive: true, position: { x: 10, y: 64, z: 0 } }],
+      inventory: { 'tacz:ak47': 1 },
+      guns: [{ item: 'tacz:ak47', type: 'rifle', magazine: 30 }]
+    });
+    await body.connect();
+    body.shootBlocked = true;
+    let flanked = 0;
+    body.moveTo = async () => {
+      flanked += 1;
+      return true;
+    };
+    const result = await skills.run('shoot', makeCtx(body), { timeoutMs: 8000 });
+    expect(!result.ok && result.failure === 'blocked', `got ${result.failure} / ${result.reason}`);
+    expect(body.shootCalls.length === 2, `one flank = two blocked bursts, saw ${body.shootCalls.length}`);
+    expect(flanked === 1, `expected exactly one flank, saw ${flanked}`);
+    return result.reason;
+  });
+
+  await scenario('shoot: players are explicit-only, self and offline names refused', async () => {
+    const build = () =>
+      new MockBody(cfg, {
+        entities: [],
+        players: [{ name: 'Partner', id: 77, position: { x: 6, y: 64, z: 0 } }],
+        inventory: { 'tacz:ak47': 1 },
+        guns: [{ item: 'tacz:ak47', type: 'rifle', magazine: 30 }]
+      });
+
+    const auto = build();
+    await auto.connect();
+    const autoShot = await skills.run('shoot', makeCtx(auto), {});
+    expect(!autoShot.ok && /no hostile/.test(autoShot.reason), `got "${autoShot.reason}"`);
+    expect(auto.shootCalls.length === 0, 'a visible player must never be auto-targeted');
+
+    const pvp = build();
+    await pvp.connect();
+    const hit = await skills.run('shoot', makeCtx(pvp), { player: 'Partner' });
+    expect(hit.ok, `expected the named player to be shot, got ${hit.reason}`);
+    expect(pvp.shootCalls.length >= 1 && pvp.shootCalls[0].target === 77, JSON.stringify(pvp.shootCalls));
+
+    const self = build();
+    await self.connect();
+    const refusedSelf = await skills.run('shoot', makeCtx(self), { player: 'agent' });
+    expect(!refusedSelf.ok && /myself/.test(refusedSelf.reason), `got "${refusedSelf.reason}"`);
+
+    const ghost = build();
+    await ghost.connect();
+    const refusedGhost = await skills.run('shoot', makeCtx(ghost), { player: 'Ghost' });
+    expect(!refusedGhost.ok && /Ghost/.test(refusedGhost.reason), `got "${refusedGhost.reason}"`);
+    return 'explicit PvP only; self and offline refused';
+  });
+
+  await scenario('attack: 30s without contact abandons and ignores a stand-off', async () => {
+    combatState.reset();
+    combatState.setStallMs(250);
+    try {
+      const body = new MockBody(cfg, {
+        entities: [{ id: 7, name: 'minecraft:zombie', kind: 'hostile', alive: true, position: { x: 4, y: 64, z: 0 } }],
+        inventory: { 'minecraft:iron_sword': 1 }
+      });
+      await body.connect();
+      let attacks = 0;
+      body.attack = async () => {
+        attacks += 1;
+        await new Promise((resolve) => setTimeout(resolve, 300));
+        return false;
+      };
+      const first = await skills.run('attack', makeCtx(body), { timeoutMs: 1500 });
+      expect(!first.ok && first.failure === 'stalled', `got ${first.failure} / ${first.reason}`);
+      expect(combatState.isIgnored(7), 'the stand-off target must be ignored');
+
+      const attacksAfterFirst = attacks;
+      const second = await skills.run('attack', makeCtx(body), { timeoutMs: 500 });
+      expect(!second.ok && /no hostile/.test(second.reason), `the ignored target must be skipped, got "${second.reason}"`);
+      expect(attacks === attacksAfterFirst, 'no further attack runs against the ignored target');
+      return `stalled at ${Math.round(attacks)} attack chunk(s), ignored`;
+    } finally {
+      combatState.reset();
+    }
+  });
+
+  await scenario('attack: taking a hit resets the contactless clock', async () => {
+    combatState.reset();
+    combatState.setStallMs(250);
+    try {
+      const body = new MockBody(cfg, {
+        entities: [{ id: 8, name: 'minecraft:zombie', kind: 'hostile', alive: true, position: { x: 4, y: 64, z: 0 } }],
+        inventory: { 'minecraft:iron_sword': 1 }
+      });
+      await body.connect();
+      body.attack = async () => {
+        body.state.health -= 3; // contact happened in every chunk
+        await new Promise((resolve) => setTimeout(resolve, 300));
+        return false;
+      };
+      const result = await skills.run('attack', makeCtx(body), { timeoutMs: 1500 });
+      expect(result.failure !== 'stalled', `taking damage must keep the fight alive, got ${result.failure}`);
+      expect(!combatState.isIgnored(8), 'a hit target must not be ignored');
+      return 'health loss reset the clock';
+    } finally {
+      combatState.reset();
+    }
   });
 
   await scenario('mine_ore: a monster inside the ±3 box stops the task before digging', async () => {

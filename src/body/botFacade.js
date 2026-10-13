@@ -64,8 +64,18 @@ function createBotFacade(body, cfg, hooks = {}) {
     /** Players are only known if the body reports them; never invent any. */
     get players() {
       const snap = snapshot();
-      const names = (snap && snap.players) || [];
-      return Object.fromEntries(names.map((name) => [name, { username: name, entity: null }]));
+      const list = (snap && snap.players) || [];
+      /**
+       * The clientmod body reports players as `{name, id, position, ...}` objects (the
+       * id is what PvP gunfire aims at); older bodies report bare names. Accept both -
+       * an object used as a lookup key silently becomes "[object Object]".
+       */
+      return Object.fromEntries(
+        list.map((entry) => {
+          const name = typeof entry === 'string' ? entry : entry.name;
+          return [name, { username: name, entity: null }];
+        })
+      );
     },
 
     /**

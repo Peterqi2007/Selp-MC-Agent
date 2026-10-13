@@ -49,7 +49,9 @@ const world = {
   itemDrops: [
     { id: 7, item: 'minecraft:oak_log', count: 1, position: { x: 1, y: 64, z: 0 }, distance: 1 }
   ],
-  players: [],
+  /** One TACZ gun in the pack (shoot tests) and one other player (PvP id tests). */
+  guns: [{ item: 'tacz:ak47', gunId: 'tacz:ak47', type: 'rifle', magazine: 30, dummy: 0, bullets: true }],
+  players: [{ id: 77, name: 'Partner', position: { x: 4, y: 64, z: 0 }, distance: 4, health: 20 }],
   blocks: {
     cells: {
       '5,64,0': 'minecraft:stone',
@@ -77,6 +79,11 @@ const clicks = [];
 let closeCommands = 0;
 /** How many /state polls the mock has served (idle-refresh regression, 2026-10-13). */
 let stateHits = 0;
+/** Last shoot/retreat verbs the mock received, for the wire assertions. */
+let lastShoot = null;
+let lastRetreat = null;
+/** Scripted shoot verdict; null = a successful maxShots burst. */
+let shootOutcome = null;
 
 /**
  * Tokenising mirror of `ControlHttpServer.execute()` in the Java mod.
@@ -327,6 +334,42 @@ const server = http.createServer((req, res) => {
             busy = { busy: false, action: 'dig', done: true, failed: false };
           }
         }, 120);
+        return send({ command, ok: true, note: 'continuous' });
+      }
+      if (verb === 'shoot') {
+        const parts = args.split(/\s+/);
+        lastShoot = { command, id: Number(parts[0]), ms: Number(parts[1] || 8000), maxShots: Number(parts[2] || 6) };
+        const outcome = shootOutcome || {
+          done: true,
+          failed: false,
+          shots: lastShoot.maxShots,
+          gunType: 'rifle',
+          magazine: 24,
+          blocked: false
+        };
+        let ticks = 0;
+        busy = { busy: true, action: 'shoot', shots: 0 };
+        const timer = setInterval(() => {
+          ticks += 1;
+          if (ticks >= 2) {
+            clearInterval(timer);
+            busy = { busy: false, action: 'shoot', ...outcome };
+          }
+        }, 60);
+        return send({ command, ok: true, note: 'continuous' });
+      }
+      if (verb === 'retreat') {
+        const parts = args.split(/\s+/);
+        lastRetreat = { command, id: Number(parts[0]), ms: Number(parts[1] || 3000), fire: Number(parts[2] || 0) };
+        let ticks = 0;
+        busy = { busy: true, action: 'retreat' };
+        const timer = setInterval(() => {
+          ticks += 1;
+          if (ticks >= 2) {
+            clearInterval(timer);
+            busy = { busy: false, action: 'retreat', done: true, failed: false };
+          }
+        }, 60);
         return send({ command, ok: true, note: 'continuous' });
       }
       if (verb === 'pillar') {
@@ -680,6 +723,45 @@ function check(name, ok, detail) {
     world.hostiles = [zombieEntry];
     const drops = body.itemDrops(8);
     check('itemDrops() reports the dropped log', drops.length === 1 && drops[0].name === 'minecraft:oak_log');
+    const guns = body.snapshot().guns;
+    check(
+      'snapshot() exposes the TACZ guns array',
+      Array.isArray(guns) && guns.length === 1 && guns[0].type === 'rifle' && guns[0].bullets === true,
+      JSON.stringify(guns)
+    );
+    const seenPlayers = body.snapshot().players;
+    check(
+      'players carry their entity id (PvP aiming needs it)',
+      seenPlayers.length === 1 && seenPlayers[0].id === 77 && seenPlayers[0].name === 'Partner',
+      JSON.stringify(seenPlayers)
+    );
+
+    // ---- TACZ gunfire verbs ---------------------------------------------
+    const shot = await body.shoot({ id: 42 }, { ms: 8000, maxShots: 6 });
+    check(
+      'shoot() fires one burst and reports the shots',
+      shot === true && body.lastAction && body.lastAction.shots === 6 && body.lastAction.gunType === 'rifle',
+      JSON.stringify(body.lastAction)
+    );
+    check(
+      'the shoot verb carried ms and maxShots',
+      lastShoot && lastShoot.command === 'shoot 42 8000 6',
+      JSON.stringify(lastShoot)
+    );
+    shootOutcome = { done: false, failed: true, reason: 'no_ammo', shots: 0 };
+    const dry = await body.shoot({ id: 42 }, { ms: 8000, maxShots: 6 });
+    check(
+      'a no_ammo verdict returns false with the reason',
+      dry === false && body.lastAction.reason === 'no_ammo',
+      JSON.stringify(body.lastAction)
+    );
+    shootOutcome = null;
+    const retreated = await body.retreatFrom({ id: 42 }, { ms: 3000, fire: true });
+    check(
+      'retreatFrom() sends the fire flag',
+      retreated === true && lastRetreat && lastRetreat.command === 'retreat 42 3000 1',
+      JSON.stringify(lastRetreat)
+    );
 
     // ---- actions ---------------------------------------------------------
     const arrived = await body.moveTo({ x: 10, y: 64, z: 0 }, { range: 1.5, timeoutMs: 5000 });
