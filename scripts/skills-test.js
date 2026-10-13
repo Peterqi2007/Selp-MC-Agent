@@ -183,6 +183,25 @@ function quickMove(slots) {
     return result.detail;
   });
 
+  await scenario('a meal puts the held item back (eating must not disarm a fight)', async () => {
+    /**
+     * Live 2026-10-13: a mid-fight auto-eat left bread in the hand; the attack loop
+     * swung the bread for three full timeouts while the user watched the bot "never
+     * switch to the sword". The eat skill now restores whatever was held before the
+     * meal (when it differs from the food).
+     */
+    const body = new MockBody(cfg, {
+      inventory: { 'minecraft:cooked_beef': 1, 'minecraft:iron_sword': 1 }
+    });
+    await body.connect();
+    body.held = 'minecraft:iron_sword';
+    const result = await skills.run('eat', makeCtx(body), {});
+    expect(result.ok, `expected eating to work, got ${result.reason}`);
+    expect(body.stats.ate === 1, `stats.ate=${body.stats.ate}`);
+    expect(body.held === 'minecraft:iron_sword', `the sword must be back in hand, got ${body.held}`);
+    return `ate, hand restored to ${body.held}`;
+  });
+
   await scenario('drop removes exactly the requested count', async () => {
     const body = new MockBody(cfg, { inventory: { 'minecraft:dirt': 5 } });
     await body.connect();

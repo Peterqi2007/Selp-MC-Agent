@@ -67,8 +67,21 @@ register({
       }
       if (!chosen || best <= 0) return { ok: false, reason: 'nothing edible in the inventory' };
     }
+    /**
+     * Remember what was in the hand and put it back after the meal.
+     *
+     * Eating equips the food and the old version left it there: live 2026-10-13 a
+     * mid-fight auto-eat swapped the sword for bread, the mod's 15s swing loop kept
+     * punching with the bread, a zombie survived three full attack timeouts, and the
+     * user watched the bot "never switch to the sword" - they had to do it by hand.
+     * A meal must not disarm a fight.
+     */
+    const heldBefore = snap && snap.heldItem ? snap.heldItem : null;
     const eater = typeof ctx.body.consume === 'function' ? ctx.body.consume : ctx.body.eat;
     const ok = await eater.call(ctx.body, chosen);
+    if (ok && heldBefore && bare(heldBefore) !== bare(chosen) && typeof ctx.body.equip === 'function') {
+      await ctx.body.equip(heldBefore).catch(() => false);
+    }
     return ok ? { ok: true, detail: `ate ${bare(chosen)}` } : { ok: false, reason: `could not eat ${bare(chosen)}` };
   }
 });

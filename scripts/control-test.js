@@ -1025,6 +1025,7 @@ async function buildAgent(options = {}) {
       // ---- clientmod: botless view, reflexes must go through the skill layer ----
       let refreshed = 0;
       let defended = 0;
+      let hostileList = [hostile];
       const snap = { position: { x: 0, y: 64, z: 0 }, health: 20, food: 12 };
       const ctx = {
         cfg: loadConfig({ profile: null }),
@@ -1043,8 +1044,8 @@ async function buildAgent(options = {}) {
         world: {
           ready: true,
           // Deliberately no `bot`: that absence is exactly what broke the reflex.
-          hostiles: () => [hostile],
-          nearestHostile: () => hostile,
+          hostiles: () => hostileList,
+          nearestHostile: () => hostileList[0] || null,
           snapshot: () => ({ ...snap }),
           isInDanger: () => false
         },
@@ -1061,12 +1062,18 @@ async function buildAgent(options = {}) {
       const brain = new Brain(ctx);
       await brain.fastLoop();
       expect(refreshed >= 1, 'the fast loop did not refresh the body before judging danger');
-      expect(skillCalls.includes('eat'), `a hungry botless body must eat via the skill layer: ${skillCalls}`);
       expect(skillCalls.includes('attack'), `a botless body must fight via the skill layer: ${skillCalls}`);
+      expect(!skillCalls.includes('eat'), `hunger must wait while hostiles are near (the hand is the weapon): ${skillCalls}`);
       expect(defended === 0, 'the mineflayer combat controller must not be used on a botless body');
       await new Promise((r) => setTimeout(r, 0));
 
+      // ---- quiet neighbourhood: the meal goes through the skill layer ----
+      hostileList = [];
+      await brain.fastLoop();
+      expect(skillCalls.includes('eat'), `a hungry (12) botless body must eat once the area is quiet: ${skillCalls}`);
+
       // ---- mineflayer: the servo path stays (same world stub, bot present) ----
+      hostileList = [hostile];
       const before = skillCalls.length;
       let defendedServo = 0;
       const ctxServo = {
