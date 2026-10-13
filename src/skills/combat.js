@@ -480,6 +480,17 @@ register({
       const verdict = body.lastAction || {};
       if (Number.isFinite(verdict.shots)) shotsTotal += verdict.shots;
       bursts += 1;
+      /**
+       * One line per burst: the live zero-shot hunt needs the TACZ result code here,
+       * not a silent loop (2026-10-13: the gun was equipped and 8s bursts ended with
+       * nothing fired and no trace anywhere).
+       */
+      logInfo(
+        `shoot: burst ${bursts} ok=${ok} shots=${Number.isFinite(verdict.shots) ? verdict.shots : '?'} ` +
+          `reason=${verdict.reason || '-'} result=${verdict.lastResult || '-'} ` +
+          `gun=${bare(gun.item)} mag=${Number.isFinite(verdict.magazine) ? verdict.magazine : '?'} ` +
+          `dist=${Math.round(distance)}`
+      );
       if (ok) continue; // target may be gone; the next resolve() decides
       const reason = verdict.reason || 'unknown';
       if (reason === 'target_gone') continue; // resolve() reports the kill next pass

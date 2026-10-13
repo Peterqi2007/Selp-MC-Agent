@@ -1036,7 +1036,14 @@ class ClientModBody extends Body {
               /** Gun diagnostics from the shoot/retreat controllers. */
               gunType: progress.gunType || null,
               magazine: Number.isFinite(progress.magazine) ? progress.magazine : null,
-              distance: Number.isFinite(progress.distance) ? progress.distance : null
+              distance: Number.isFinite(progress.distance) ? progress.distance : null,
+              /**
+               * Last TACZ ShootResult name (SUCCESS / NO_AMMO / IS_DRAWING / NOT_DRAW ...).
+               * The live "gun equipped but zero rounds" hunt (2026-10-13) needs exactly
+               * this: the burst can end with reason=timeout and zero shots, and the
+               * result code is the only thing that says why.
+               */
+              lastResult: typeof progress.lastResult === 'string' && progress.lastResult ? progress.lastResult : null
             }
           : null;
         return done;
