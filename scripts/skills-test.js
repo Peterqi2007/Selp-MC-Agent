@@ -616,7 +616,13 @@ function quickMove(slots) {
 
     const self = build();
     await self.connect();
-    const refusedSelf = await skills.run('shoot', makeCtx(self), { player: 'agent' });
+    /**
+     * The name has to be the *configured* one, not a copy of it. `shoot` reads the self name
+     * from `cfg.agent.bot.username`, so a hardcoded literal here silently stops testing
+     * self-refusal the moment the account is renamed - it would fall through to "not visible"
+     * and the `myself` assertion would fail for the wrong reason (or be "fixed" by weakening it).
+     */
+    const refusedSelf = await skills.run('shoot', makeCtx(self), { player: cfg.agent.bot.username });
     expect(!refusedSelf.ok && /myself/.test(refusedSelf.reason), `got "${refusedSelf.reason}"`);
 
     const ghost = build();

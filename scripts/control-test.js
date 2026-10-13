@@ -695,6 +695,16 @@ async function buildAgent(options = {}) {
   const httpAgent = await buildAgent();
   const server = startStatusServer(httpAgent.ctx, { port: PORT });
   await new Promise((r) => setTimeout(r, 250));
+  /**
+   * The account name, taken from the same config the panel reads.
+   *
+   * These two checks used to be `html.includes('agent')`, which is a test that cannot fail for
+   * the reason it claims: the account *was* called `agent`, so the substring matched the
+   * identity pill by accident and would have kept passing on any page that merely says the
+   * word "agent" somewhere. Asserting the account name means the check breaks when the panel
+   * stops identifying the agent - which is what it is for.
+   */
+  const panelAccount = httpAgent.ctx.cfg.agent.bot.username;
 
   await scenario('GET /panel is a pure server-rendered dashboard (no JS, no iframe)', async () => {
     const res = await fetch(`${BASE}/panel`);
@@ -705,7 +715,7 @@ async function buildAgent(options = {}) {
     expect(html.includes('http-equiv="refresh"'), 'the dashboard does not self-reload');
     expect(!html.includes('<script'), 'the dashboard must not depend on scripts');
     expect(html.includes('服务器端实时状态'), 'the server-rendered state header is missing');
-    expect(html.includes('agent'), 'the dashboard does not name the agent');
+    expect(html.includes(panelAccount), `the dashboard does not name the account (${panelAccount})`);
     expect(html.includes('/panel/cmd'), 'the command page link is missing');
     expect(html.includes('/command?command='), 'the quick command links are missing');
     expect(res.headers.get('cache-control') === 'no-store', 'the dashboard must not be cached');
@@ -733,7 +743,7 @@ async function buildAgent(options = {}) {
     const html = await res.text();
     expect(res.status === 200, `expected 200, got ${res.status}`);
     expect(html.includes('http-equiv="refresh"'), 'the state page does not self-refresh');
-    expect(html.includes('agent'), 'the state page does not name the agent');
+    expect(html.includes(panelAccount), `the state page does not name the account (${panelAccount})`);
     expect(html.includes('服务器端实时状态'), 'the state page is missing its header');
     expect(!html.includes('<script'), 'the state page must not need scripts');
     return `${html.length} bytes, meta-refresh`;

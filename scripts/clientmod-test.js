@@ -99,7 +99,7 @@ function fakeMod() {
       standingOn: 'minecraft:grass_block',
       hostiles: [],
       itemDrops: [],
-      players: [{ name: 'agent' }],
+      players: [{ name: 'AgentDeepSeek' }],
       blocks: { cells: {} }
     },
     progress: { busy: false, done: true },

@@ -30,7 +30,7 @@
  *
  * FLAGS
  * -----
- *   --offline                 offline (cracked) session, default username agent
+ *   --offline                 offline (cracked) session, DEFAULT_OFFLINE_USERNAME below
  *   --username <name>         player name (implies offline when --online is absent)
  *   --server <host[:port]>    auto-join via --quickPlayMultiplayer host:port
  *   --singleplayer <world>    boot straight into a single-player world folder
@@ -61,7 +61,7 @@ const detect = require('../src/pcl/detect');
 const { spawnSync } = require('child_process');
 
 const DEFAULT_VERSION = '1.20.1-Forge_47.4.10';
-const DEFAULT_OFFLINE_USERNAME = 'agent';
+const DEFAULT_OFFLINE_USERNAME = 'AgentDeepSeek';
 
 // The java-runtime-delta shipped with the Microsoft Store Minecraft launcher: Java 21, which is
 // the right JVM for 1.20.1 Forge. Java 25 (C:\Users\<you>\.jdks\openjdk-25.0.1) will NOT boot it.

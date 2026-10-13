@@ -100,7 +100,7 @@
     "port": null
   },
   "bot": {
-    "username": "agent",
+    "username": "AgentDeepSeek",
     "password": null,
     "auth": "offline",
     "host": "mc.example.com",

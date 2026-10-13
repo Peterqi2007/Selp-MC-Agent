@@ -79,12 +79,32 @@ async function main() {
   cfg.llm = { ...cfg.llm, enabled: false };
 
   console.log('1. account name');
-  check('config default username is agent', cfg.agent.bot.username === 'agent', cfg.agent.bot.username);
-  check('config/agent.json says agent', /"username":\s*"agent"/.test(fs.readFileSync('config/agent.json', 'utf8')));
-  check('config/servers.json says agent', /"username":\s*"agent"/.test(fs.readFileSync('config/servers.json', 'utf8')));
+  /**
+   * The audit checks that the three places naming the account *agree* - not that they say a
+   * particular word.
+   *
+   * The account is renamed from time to time (the skin on a third-party skin site is keyed to
+   * the in-game name, so renaming is how a character gets a new skin), so pinning the literal
+   * here meant the audit had to be edited on every rename, and its four checks would have
+   * passed happily while the files disagreed with each other. Deriving the name from the
+   * loaded config and asserting the files carry *that* name is what the audit was always for.
+   */
+  const account = cfg.agent.bot.username;
+  check('an account name is configured', typeof account === 'string' && account.length > 0, JSON.stringify(account));
+  check(
+    'config/agent.json carries the configured account name',
+    fs.readFileSync('config/agent.json', 'utf8').includes(`"username": "${account}"`)
+  );
+  check(
+    'config/servers.json carries the configured account name',
+    fs.readFileSync('config/servers.json', 'utf8').includes(`"username": "${account}"`)
+  );
   {
     const launcher = fs.readFileSync('scripts/launch-forge-client.js', 'utf8');
-    check('the offline launcher defaults to agent', /DEFAULT_OFFLINE_USERNAME = 'agent'/.test(launcher));
+    check(
+      'the offline launcher defaults to the same account name',
+      launcher.includes(`DEFAULT_OFFLINE_USERNAME = '${account}'`)
+    );
   }
 
   console.log('\n2. the character comes from the persona file');
