@@ -21,7 +21,15 @@ const DEFAULTS = {
      */
     body: { kind: 'mineflayer' },
     bot: {
-      username: 'agent',
+      /**
+       * Only reached when `config/agent.json` is absent or omits it.
+       *
+       * Kept equal to `DEFAULT_OFFLINE_USERNAME` in scripts/launch-forge-client.js on purpose:
+       * the launcher decides the name the client logs in with, this decides the name the brain
+       * reports and connects as. Different names here means a bot whose account and identity
+       * disagree - and on a server that keys skins/whitelists to the name, that is not cosmetic.
+       */
+      username: 'AgentDeepSeek',
       auth: 'offline',
       host: '127.0.0.1',
       port: 25565,
