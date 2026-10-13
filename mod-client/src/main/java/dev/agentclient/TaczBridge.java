@@ -1,14 +1,13 @@
 package dev.agentclient;
 
+import net.minecraft.client.player.LocalPlayer;
 import net.minecraft.resources.ResourceLocation;
-import net.minecraft.world.entity.LivingEntity;
 import net.minecraft.world.item.ItemStack;
 
 import java.lang.reflect.Method;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.Optional;
-import java.util.function.Supplier;
 
 /**
  * Reflection bridge to TACZ (Timeless and Classics Zero) - no compile-time dependency.
@@ -22,14 +21,24 @@ import java.util.function.Supplier;
  * (verified against tacz-1.20.1-1.1.8 by decompiling {@code GunItemDataAccessor}):
  * {@code GunId} (tacz:ak47 ...), {@code GunCurrentAmmoCount} (rounds in the magazine),
  * {@code DummyAmmo} (rounds for guns that use dummy ammo).
+ *
+ * Firing path (live bug, 2026-10-13): the entity-generic
+ * {@code IGunOperator.shoot(Supplier, Supplier)} is the server-side routine - invoked on
+ * a client {@code LocalPlayer} it throws internally, and every 8s burst died with an
+ * empty result code while the magazine never moved. The game itself fires through
+ * {@code IClientPlayerGunOperator} (decompiled {@code ShootKey.autoShoot}:
+ * {@code chargeShoot(true)} then {@code shoot()}, which builds a
+ * {@code ClientMessagePlayerShoot} and sends it to the server). Every action verb here
+ * therefore resolves against the client-side operator API.
  */
 final class TaczBridge {
 
     private static boolean resolved = false;
     private static boolean available = false;
 
-    private static Method fromLivingEntity;
+    private static Method fromLocalPlayer;
     private static Method aim;
+    private static Method chargeShoot;
     private static Method shoot;
     private static Method reload;
     private static Method bolt;
@@ -38,6 +47,9 @@ final class TaczBridge {
     private static Method aimingProgress;
     private static Method getCommonGunIndex;
     private static Method indexGetType;
+
+    /** Last reflection failure on the fire path; surfaced via /progress for diagnostics. */
+    private static volatile String fireError = null;
 
     /** gunId -> gun type ("rifle"/"sniper"/...); "unknown" is a valid, cached answer. */
     private static final Map<String, String> TYPE_CACHE = new HashMap<>();
@@ -56,21 +68,22 @@ final class TaczBridge {
         }
         resolved = true;
         try {
-            Class<?> operator = Class.forName("com.tacz.guns.api.entity.IGunOperator");
-            fromLivingEntity = operator.getMethod("fromLivingEntity", LivingEntity.class);
+            Class<?> operator = Class.forName("com.tacz.guns.api.client.gameplay.IClientPlayerGunOperator");
+            fromLocalPlayer = operator.getMethod("fromLocalPlayer", LocalPlayer.class);
             aim = operator.getMethod("aim", boolean.class);
-            shoot = operator.getMethod("shoot", Supplier.class, Supplier.class);
+            chargeShoot = operator.getMethod("chargeShoot", boolean.class);
+            shoot = operator.getMethod("shoot");
             reload = operator.getMethod("reload");
             bolt = operator.getMethod("bolt");
-            draw = operator.getMethod("draw", Supplier.class);
-            cooldown = operator.getMethod("getSynShootCoolDown");
-            aimingProgress = operator.getMethod("getSynAimingProgress");
+            draw = operator.getMethod("draw", ItemStack.class);
+            cooldown = operator.getMethod("getClientShootCoolDown");
+            aimingProgress = operator.getMethod("getClientAimingProgress", float.class);
             Class<?> api = Class.forName("com.tacz.guns.api.TimelessAPI");
             getCommonGunIndex = api.getMethod("getCommonGunIndex", ResourceLocation.class);
             Class<?> index = Class.forName("com.tacz.guns.resource.index.CommonGunIndex");
             indexGetType = index.getMethod("getType");
             available = true;
-            AgentClientMod.LOGGER.info("tacz bridge resolved - gun verbs enabled");
+            AgentClientMod.LOGGER.info("tacz bridge resolved (client operator) - gun verbs enabled");
         } catch (Throwable e) {
             available = false;
             AgentClientMod.LOGGER.info("tacz not present - gun verbs will report tacz_unavailable");
@@ -148,13 +161,13 @@ final class TaczBridge {
     // All operator helpers MUST be called on the client thread; the callers wrap with
     // ClientActions.onClient().
 
-    static Object operator(LivingEntity player) {
+    static Object operator(LocalPlayer player) {
         resolve();
         if (!available || player == null) {
             return null;
         }
         try {
-            return fromLivingEntity.invoke(null, player);
+            return fromLocalPlayer.invoke(null, player);
         } catch (Throwable e) {
             return null;
         }
@@ -190,7 +203,7 @@ final class TaczBridge {
         }
     }
 
-    static void draw(Object op, Supplier<ItemStack> stack) {
+    static void draw(Object op, ItemStack stack) {
         if (op == null || !available) {
             return;
         }
@@ -200,7 +213,7 @@ final class TaczBridge {
         }
     }
 
-    /** Milliseconds until the gun can shoot again; Long.MAX_VALUE when unknown. */
+    /** Client-side milliseconds until the gun can shoot again; Long.MAX_VALUE when unknown. */
     static long shootCooldown(Object op) {
         if (op == null || !available) {
             return Long.MAX_VALUE;
@@ -213,29 +226,48 @@ final class TaczBridge {
         }
     }
 
-    /** Scope progress 0..1; 0 when unknown. */
+    /** Client scope progress 0..1; 0 when unknown. */
     static float aimingProgress(Object op) {
         if (op == null || !available) {
             return 0.0F;
         }
         try {
-            Object value = aimingProgress.invoke(op);
+            Object value = aimingProgress.invoke(op, 1.0F);
             return value instanceof Number n ? n.floatValue() : 0.0F;
         } catch (Throwable e) {
             return 0.0F;
         }
     }
 
-    /** Fire once along the player's current view. Returns the ShootResult name, or null. */
-    static String fire(Object op, Supplier<Float> pitch, Supplier<Float> yaw) {
+    /**
+     * Client-side trigger pull, mirroring the game's own input path
+     * ({@code ShootKey.autoShoot}): tick the charge state, then fire. The shot itself is
+     * aimed along the player's current view angles (the caller keeps facing the target).
+     *
+     * @return the ShootResult name; "CHARGING" while a charge weapon is winding up; null
+     *         when the call itself failed - see {@link #lastFireError()}.
+     */
+    static String fire(Object op) {
         if (op == null || !available) {
             return null;
         }
         try {
-            Object result = shoot.invoke(op, pitch, yaw);
+            Object ready = chargeShoot.invoke(op, Boolean.TRUE);
+            if (ready instanceof Boolean b && !b) {
+                fireError = null;
+                return "CHARGING";
+            }
+            Object result = shoot.invoke(op);
+            fireError = null;
             return result == null ? null : result.toString();
         } catch (Throwable e) {
+            fireError = e.getClass().getSimpleName() + ": " + (e.getMessage() == null ? "" : e.getMessage());
             return null;
         }
+    }
+
+    /** Human-readable reason for the last failed fire() call; null after a clean call. */
+    static String lastFireError() {
+        return fireError;
     }
 }

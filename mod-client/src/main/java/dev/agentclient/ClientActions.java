@@ -1023,6 +1023,8 @@ public final class ClientActions {
         int shotsInBurst;
         int totalShots;
         String lastResult;
+        /** Reflection failure text from the last fire attempt (diagnostics). */
+        String fireError;
         /**
          * Cached for progressJson. /progress is served on an HTTP thread, so the report
          * must never read game state - these fields are refreshed during tick() only.
@@ -1030,6 +1032,8 @@ public final class ClientActions {
         int magazine = -1;
         String gunType = null;
         double distance = -1.0D;
+        /** Last observed syn cooldown (ms); -1 when the synced value is unavailable. */
+        long cooldown = -1L;
     }
 
     /**
@@ -1098,12 +1102,26 @@ public final class ClientActions {
             return "reloading";
         }
         s.reloadStartedAt = 0L;
-        if (now < s.nextShotAt || TaczBridge.shootCooldown(operator) > 0L) {
+        if (now < s.nextShotAt) {
             return "wait";
         }
-        String result = TaczBridge.fire(operator, player::getXRot, player::getYRot);
+        /**
+         * Fire directly; the operator's result code is the authority.
+         *
+         * The old gate checked getSynShootCoolDown() > 0 first. That value is the
+         * SERVER-SYNCED cooldown, and on a client that has not fired yet it reads as
+         * "not ready" forever - live 2026-10-13 every 8s burst ended with zero shots,
+         * an untouched magazine and an empty result code, while the user watched the
+         * bot aim at a pillager and never pull the trigger. Attempting costs nothing
+         * when the gun is not ready: COOL_DOWN comes back as a result, not a failure.
+         */
+        long cooldownNow = TaczBridge.shootCooldown(operator);
+        s.cooldown = cooldownNow == Long.MAX_VALUE ? -1L : cooldownNow;
+        String result = TaczBridge.fire(operator);
         s.lastResult = result;
+        s.fireError = result == null ? TaczBridge.lastFireError() : null;
         if (result == null) {
+            s.nextShotAt = now + 250L;
             return "wait";
         }
         switch (result) {
@@ -1113,6 +1131,7 @@ public final class ClientActions {
                 return "fired";
             }
             case "COOL_DOWN" -> {
+                s.nextShotAt = now + 100L;
                 return "wait";
             }
             case "NO_AMMO" -> {
@@ -1124,7 +1143,7 @@ public final class ClientActions {
                 return "wait";
             }
             case "NOT_DRAW" -> {
-                TaczBridge.draw(operator, player::getMainHandItem);
+                TaczBridge.draw(operator, player.getMainHandItem());
                 return "wait";
             }
             case "IS_SPRINTING" -> {
@@ -1274,6 +1293,8 @@ public final class ClientActions {
             map.put("gunType", Json.str(state.gunType == null ? "" : state.gunType));
             map.put("distance", Json.num(state.distance));
             map.put("lastResult", Json.str(state.lastResult == null ? "" : state.lastResult));
+            map.put("fireError", Json.str(state.fireError == null ? "" : state.fireError));
+            map.put("cooldown", Json.num(state.cooldown));
             return Json.obj(map);
         }
     }
@@ -1369,6 +1390,8 @@ public final class ClientActions {
             map.put("magazine", Json.num(state.magazine));
             map.put("gunType", Json.str(state.gunType == null ? "" : state.gunType));
             map.put("distance", Json.num(state.distance));
+            map.put("fireError", Json.str(state.fireError == null ? "" : state.fireError));
+            map.put("cooldown", Json.num(state.cooldown));
             return Json.obj(map);
         }
     }
