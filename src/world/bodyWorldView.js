@@ -41,9 +41,20 @@ class BodyWorldView {
     return !!(this.body && this.body.isReady);
   }
 
-  /** Latest state; refreshed lazily so repeated reads in one tick are cheap. */
+  /**
+   * Latest state, always taken from the body.
+   *
+   * The body owns the freshness policy: the client-mod body polls /state on a timer and
+   * rebuilds its mapped snapshot per call. Caching THAT object here froze the reflex's
+   * view - live 2026-10-13 the fast loop kept reading its first tick's health, so the
+   * "hurt -> charge" and "wounded -> engage" triggers never fired while skeletons shot
+   * the bot from range (the ≤5-block trigger still worked because hostiles() reads the
+   * body directly). The compare keeps the old caching intent for bodies that return a
+   * stable object, without ever serving a stale one.
+   */
   snapshot(force = false) {
-    if (force || !this._last) this._last = this.body ? this.body.snapshot() : null;
+    const latest = this.body ? this.body.snapshot() : null;
+    if (force || !this._last || latest !== this._last) this._last = latest;
     return this._last;
   }
 

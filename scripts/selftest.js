@@ -420,6 +420,35 @@ async function main() {
     return 'graceful degradation path exists';
   });
 
+  await checkAsync('BodyWorldView.snapshot() never serves a stale body state (combat fix 10-13)', async () => {
+    /**
+     * Live 2026-10-13: the engage block read the first body snapshot forever, so the
+     * "hurt -> charge" trigger never fired while skeletons shot the bot from range.
+     * The view must track the body on every read; force still forces the assignment.
+     */
+    const { BodyWorldView } = require(path.join(ROOT, 'src/world/bodyWorldView'));
+    let health = 20;
+    let calls = 0;
+    const fakeBody = {
+      isReady: true,
+      snapshot: () => {
+        calls += 1;
+        return { ready: true, health };
+      },
+      blockAt: () => null
+    };
+    const view = new BodyWorldView(fakeBody, { agent: {} }, { log: { debug() {}, info() {}, warn() {} } });
+    const first = view.snapshot();
+    health = 12;
+    const second = view.snapshot();
+    if (first.health !== 20 || second.health !== 12) {
+      throw new Error(`stale view: first=${first.health} second=${second.health} calls=${calls}`);
+    }
+    const forced = view.snapshot(true);
+    if (forced.health !== 12) throw new Error('force must re-read the body');
+    return 'snapshot() tracks the body every read';
+  });
+
   check('MineflayerBody satisfies the contract surface', () => {
     const required = ['connect', 'disconnect', 'snapshot', 'blockAt', 'findBlocks', 'findBlocksMatching', 'hostiles', 'itemDrops', 'moveTo', 'dig', 'place', 'equip', 'consume', 'attack', 'chat', 'lookAt', 'interrupt', 'describe'];
     const body = new MineflayerBody(cfg, { controller: { bot: null, isAlive: false, loadedPlugins: [] } });
