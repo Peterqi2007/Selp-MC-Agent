@@ -146,7 +146,7 @@ LLM 层（`src/llm/`，生产配置已开启 `toolCalling`）：8 个工具 —�
 
 当前状态（2026-10-10）：
 
-* 离线全绿：`selftest 175/175`、`skills:test 41/41`、`client:test 67/67`、`mining:entry:test 20/20`、
+* 离线全绿：`selftest 175/175`、`skills:test 43/43`、`client:test 67/67`、`mining:entry:test 20/20`、
   `mining:collection:test 24/24`、`mining:recovery:test 18/18`、`tasks:test 52/52`、`p0:verify 8/8`（明细见 §8）。
 * 控制 Mod：当前在线 `agent-client-1.0.0.jar` **60961 字节**（在 60936 基础上含 WalkTo 严格到达 y 容差修复），
   改 Mod 后必须重装（`npm run client:install`）并重启客户端。
@@ -296,7 +296,7 @@ Invoke-RestMethod -Uri http://127.0.0.1:8766/ui/state
 | `npm run client:build` / `client:install` | 构建 / 安装控制 Mod | 主线 |
 | `npm run client:test` | 假 Mod 协议测试（含 pillar 回执/隧道保护/空闲状态刷新） | 67/67 |
 | `npm run clientmod:test` | clientmod 躯体角色扮演路径 | 11/11 |
-| `npm run skills:test` | 技能库（含采矿报价/台账/防坠落/逐格垫柱 B1–B10） | 41/41 |
+| `npm run skills:test` | 技能库（含采矿报价/台账/防坠落/逐格垫柱 B1–B10、护甲/武器核验） | 43/43 |
 | `npm run mining:entry:test` | 统一挖矿入口 A 系列 | 20/20 |
 | `npm run mining:collection:test` | 掉落物收集 C 系列 | 24/24 |
 | `npm run mining:recovery:test` | LLM 异常接管 R 系列（脚本化模型） | 18/18 |
