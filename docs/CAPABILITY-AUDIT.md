@@ -1,5 +1,26 @@
 # 代码级核实：Bot 现状能力矩阵与指令通道
 
+> ## ⚠️ 历史文档（2026-10-02 快照，结论已作废）
+>
+> **本文只对 2026-10-02 当时的代码成立，之后的重写已经逐条推翻了它。** 保留它是为了留下
+> 「重写之前我们面对的是什么」的证据链，**不要用它判断当前能力**。
+>
+> | 本文 §一 的结论 | 现状 |
+> | --- | --- |
+> | 「Bot 能自主工作吗？**不能**，clientmod 下 `Brain` 两个循环从未启动」 | **错。** `src/index.js` 已有 clientmod 分支：`body.connect → chatListener → deathWatch → authme → brain.start()`，双循环在真机跑了多轮 |
+> | 「只有 8899 上 16 个 verb，其中 6 个是坏的」 | 原语已扩到约 30 个（新增 `tunnel`/`pillar`/`menu`/`click` 等），坏的都已修 |
+> | 「Node 侧 19 个任务级指令**永远不执行**」 | 技能层 18 个技能 + 任务槽 `TaskHub`，真机验收多轮通过 |
+> | 「clientmod 没有寻路，`WalkTo` 是直线贪心」 | A\*（`src/pathfinding/` 五个模块）已在 Node 侧落地并在真机使用 |
+> | 「最小修复路径：加约 80 行 clientmod 分支」 | 已完成，且远不止 80 行 |
+> | AuthMe 由测试脚本登录 | 已由 `src/core/authme.js` 在 `brain.start()` 之前自动登录（只 `/login`，永不 `/register`） |
+>
+> **当前状态以这些为准**：[`../README.md`](../README.md) §3（进展与当前状态）、
+> [`ARCHITECTURE.md`](ARCHITECTURE.md)（代码级架构，含 §九 真实缺口）、
+> [`REWRITE-PLAN.md`](REWRITE-PLAN.md)（逐批次真机/离线验证记录）。
+>
+> **仍然有效的部分**：§二对 `CONTROL-PANEL-ANALYSIS.md` 里 AuthMe 错误结论的修正（那一处纠错本身没错），
+> 以及本文「静态核实会误判」这个方法论教训——它正是后来所有验收都要求真机证据的原因。
+
 > **核实范围**：`src/`、`scripts/`、`mod-client/`、`config/` 全量源码阅读（未实机启动 PCL，全部为静态核实）。
 > **核实目的**：回答「目前 bot 能自主工作吗？能给它下什么命令？命令能实现吗？」
 > **修正声明**：本文修正了 [`CONTROL-PANEL-ANALYSIS.md`](CONTROL-PANEL-ANALYSIS.md) 中关于 AuthMe 的一处错误结论（见 §2）。

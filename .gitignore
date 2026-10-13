@@ -22,3 +22,6 @@ mod-bridge/run/
 
 # Stray log files
 *.log
+
+# IDE
+.idea/

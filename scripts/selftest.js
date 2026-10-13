@@ -1197,6 +1197,90 @@ async function main() {
     return `${persona.name}${persona.species ? ` (${persona.species})` : ''}, trigger ${persona.trigger || '(from config)'}, ${persona.body.length} chars`;
   });
 
+  await check('roleplay: `llm.persona.file` actually points at the sheet the prompt uses', () => {
+    /**
+     * The path used to be implicit: `resolveFile` fell back to `config/persona.md` whenever the
+     * config key was absent, so a wrong or stale `file` value would not show up until someone
+     * replaced the sheet. Assert the declared key resolves, and that the prompt is built from
+     * *that* file rather than from whatever happens to sit at the default path.
+     */
+    const { systemPrompt } = require(path.join(ROOT, 'src/llm/blackboard'));
+    const { loadConfig } = require(path.join(ROOT, 'src/util/config'));
+    const { loadPersona } = require(path.join(ROOT, 'src/llm/persona'));
+    const cfg = loadConfig();
+    const declared = cfg.llm && cfg.llm.persona && cfg.llm.persona.file;
+    /**
+     * Deliberately not pinned to the literal `config/persona.md`: an operator may move the sheet,
+     * and the guarantee that matters is "the declared path loads". The default path is asserted
+     * separately by the on-disk check above, which calls the loader with no config at all.
+     */
+    if (typeof declared !== 'string' || !declared.trim()) {
+      throw new Error(`llm.persona.file must name the character sheet, got ${JSON.stringify(declared)}`);
+    }
+
+    const root = cfg.root || ROOT;
+    const sheetPath = path.resolve(root, declared);
+    if (!fs.existsSync(sheetPath)) throw new Error(`llm.persona.file does not exist: ${sheetPath}`);
+    const sheet = loadPersona({ cfg: cfg.llm, root });
+    if (!sheet.loaded || sheet.source !== sheetPath) {
+      throw new Error(`the loader resolved ${sheet.source}, expected ${sheetPath}`);
+    }
+
+    const ctx = { cfg, body: { kind: 'clientmod', supportsCrafting: false }, world: { snapshot: () => null }, brain: { status: () => ({ current: null }) } };
+    const prompt = systemPrompt(ctx, cfg.llm);
+    if (!prompt.includes(sheet.name)) throw new Error(`the prompt does not name ${sheet.name}`);
+    // The machine field, not just the prose: the sheet's own limit must reach the prompt.
+    if (!prompt.includes(`under ${sheet.maxChars} characters`)) {
+      throw new Error(`the prompt does not carry the sheet's say limit (${sheet.maxChars})`);
+    }
+    return `${declared} -> ${sheet.name}, limit ${sheet.maxChars}`;
+  });
+
+  await check('roleplay: the sheet wins over leftover legacy persona strings', () => {
+    /**
+     * Regression for the real bug this pair of tests exists for.
+     *
+     * `config/llm.json` carried `{ name, style, honesty }` from the catgirl era. While the sheet
+     * loaded, the char sheet led the prompt (so it looked right), but `style` was appended to
+     * *every* prompt regardless and `maxChars` overrode the sheet's limit. Both are now fallback
+     * only - honoured when the sheet is missing, ignored when it loads.
+     */
+    const { systemPrompt, personaFor } = require(path.join(ROOT, 'src/llm/blackboard'));
+    const { loadConfig } = require(path.join(ROOT, 'src/util/config'));
+    const cfg = loadConfig();
+    const root = cfg.root || ROOT;
+    const legacy = {
+      ...cfg.llm,
+      persona: { file: 'config/persona.md', name: '小咪', style: '猫娘，每句不超过 40 字，说话带「喵」', honesty: 'legacy honesty', maxChars: 40 }
+    };
+    const ctx = { cfg: { ...cfg, root }, body: { kind: 'clientmod', supportsCrafting: false }, world: { snapshot: () => null }, brain: { status: () => ({ current: null }) } };
+
+    const resolved = personaFor(ctx, legacy);
+    if (resolved.style !== null || resolved.honesty !== null) {
+      throw new Error('legacy style/honesty must not survive a loaded sheet');
+    }
+    if (resolved.maxChars === 40) throw new Error('legacy maxChars must not override the sheet');
+    if (resolved.name === '小咪') throw new Error('legacy name must not override the sheet');
+
+    /**
+     * The observable form of the bug, asserted against the *legacy strings themselves* rather
+     * than against a character like 喵 - the sheet is written in that voice on purpose (its own
+     * worked examples say 喵), so a bare 喵 check would fail on a perfectly healthy prompt.
+     */
+    const prompt = systemPrompt(ctx, legacy);
+    if (prompt.includes('猫娘')) throw new Error('a leftover catgirl style reached the prompt');
+    if (/under 40 characters/.test(prompt)) throw new Error('the leftover 40-char limit reached the prompt');
+    if (/legacy honesty/.test(prompt)) throw new Error('a leftover honesty rule reached the prompt');
+    if (prompt.includes('小咪')) throw new Error('a leftover name reached the prompt');
+
+    // And the fallback still works: no sheet, no blank character.
+    const missing = { ...legacy, persona: { ...legacy.persona, file: 'config/does-not-exist.md' } };
+    const fallbackPrompt = systemPrompt(ctx, missing);
+    if (!fallbackPrompt.includes('猫娘')) throw new Error('with no sheet the legacy style must be used');
+    if (!/under 40 characters/.test(fallbackPrompt)) throw new Error('with no sheet the legacy limit must be used');
+    return 'sheet wins; legacy strings apply only when the sheet is unreadable';
+  });
+
   await checkAsync('roleplay: proactive triggers respect their cooldowns', async () => {
     const { SpeechScheduler } = require(path.join(ROOT, 'src/chat/speechScheduler'));
     const spoken = [];

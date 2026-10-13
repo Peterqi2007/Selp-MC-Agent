@@ -13,11 +13,8 @@
   },
   "_comment_toolCalling": "ON since 2026-10-04 (operator decision). The model may call the eight tools (observe, find_blocks, scan_around, lookup_item, do_task, go_to, do_skill, stop) before deciding, so it looks at the world instead of imagining it: scan_around returns the egocentric terrain grid and every refused/failed call carries failure+hint. Verified live on deepseek-flash: the tool round needs the assistant's reasoning_content replayed and a completion budget big enough for thinking-mode reasoning (both fixed in 513bf33). Requires a provider with native tool calling; the plain intent-JSON exchange remains the fallback when the round is invalid or loops.",
   "toolCalling": true,
-  "persona": {
-    "name": "小咪",
-    "style": "猫娘，每句不超过 40 字，说话带'喵'",
-    "honesty": "只说自己观察到的；不认识的方块要承认；不承诺做不到的事"
-  },
+  "_comment_persona": "The character (name / species / trigger / maxChars / style) lives in config/persona.md and nowhere else. `file` only tells the loader where that sheet is; the legacy string fields (name/style/honesty/maxChars) still exist in src/util/config.js as a safety net for the case where the sheet fails to load, and are ignored while it loads. Do not re-add them here: a leftover `style` used to append '猫娘...带喵' to a 大肥鱼 character sheet that never mentions cats, and a leftover `maxChars` silently overrode the sheet's own limit.",
+  "persona": { "file": "config/persona.md" },
   "history": { "perPlayer": 8, "global": 30 },
   "trace": { "enabled": true, "file": "runtime/llm-trace.jsonl" }
 }

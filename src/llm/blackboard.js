@@ -173,8 +173,16 @@ function statusSummary(ctx) {
  * into the prompt *verbatim* - the operator wrote it as prompt text, so re-interpreting it
  * would only lose information. Only the machine fields come from the frontmatter.
  *
- * `cfg.persona.file` overrides the location; the three legacy string fields (`name`, `style`,
- * `honesty`) are still honoured as a fallback so an older config keeps working.
+ * `cfg.persona.file` points at the sheet. The legacy string fields (`name`, `style`,
+ * `honesty`) and `maxChars` are a **fallback for a sheet that failed to load** - never an
+ * override for one that loaded.
+ *
+ * That asymmetry is the point, and it used to be wrong. While `style` was read
+ * unconditionally, a leftover `style: "猫娘…带喵"` in config/llm.json was appended to a
+ * 大肥鱼 character sheet that says nothing about cats (`style` and `honesty` are only ever
+ * rendered on the no-sheet branch, so it looked inert - but it still won), and a leftover
+ * `maxChars` silently replaced the sheet's own limit. The character sheet is the single
+ * source of truth whenever it is readable.
  *
  * @param {object} ctx agent context (for `cfg.root`)
  * @param {object} cfg the `llm` config section
@@ -183,13 +191,14 @@ function personaFor(ctx, cfg) {
   const root = (ctx && ctx.cfg && ctx.cfg.root) || process.cwd();
   const loaded = loadPersona({ cfg, root, log: (ctx && ctx.log) || null });
   const legacy = (cfg && cfg.persona) || {};
+  const hasSheet = !!loaded.loaded;
   return {
     ...loaded,
     // A file that failed to load must not blank out a working config.
-    name: loaded.loaded ? loaded.name : legacy.name || loaded.name,
-    maxChars: loaded.loaded ? loaded.maxChars : legacy.maxChars || loaded.maxChars,
-    style: legacy.style || null,
-    honesty: legacy.honesty || null
+    name: hasSheet ? loaded.name : legacy.name || loaded.name,
+    maxChars: hasSheet ? loaded.maxChars : legacy.maxChars || loaded.maxChars,
+    style: hasSheet ? null : legacy.style || null,
+    honesty: hasSheet ? null : legacy.honesty || null
   };
 }
 
