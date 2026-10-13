@@ -34,13 +34,37 @@ function pickWeapon(inventory) {
   return names.find((name) => /_(sword|axe)$/.test(bare(name))) || null;
 }
 
-/** Equip the best weapon before a fight; silently keep the held item if there is none. */
+/**
+ * Equip the best weapon before a fight, then verify the hand really holds it.
+ *
+ * `equip()` is a two-step story on a real client: a hotbar `select`, and - when the
+ * stack sits in the bag - menu clicks that move it into the hotbar first. The final
+ * select can race the server on a busy moment, the call answers false, and the old
+ * version trusted that call: live 2026-10-13 the bot punched a pillager with the
+ * shovel that happened to be in hand while its sword sat unused. Read the hand back
+ * from a fresh snapshot and retry once; on a body that cannot report the hand, trust
+ * the call as before.
+ */
 async function equipWeapon(ctx) {
   const body = ctx.body;
   if (!body || typeof body.equip !== 'function') return null;
   const snap = typeof body.snapshot === 'function' ? body.snapshot() : null;
   const weapon = pickWeapon((snap && snap.inventory) || {});
-  if (weapon) await body.equip(weapon).catch(() => false);
+  if (!weapon) return null;
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    await body.equip(weapon).catch(() => false);
+    if (typeof body.refresh === 'function') await body.refresh(true).catch(() => null);
+    const check = typeof body.snapshot === 'function' ? body.snapshot() : null;
+    const held = check && check.heldItem ? check.heldItem : null;
+    if (!held || bare(held) === bare(weapon)) return weapon;
+  }
+  const check = typeof body.snapshot === 'function' ? body.snapshot() : null;
+  const held = check && check.heldItem ? check.heldItem : null;
+  if (ctx && ctx.log && typeof ctx.log.warn === 'function') {
+    ctx.log.warn(
+      `could not get ${bare(weapon)} into the hand (holding ${held ? bare(held) : 'nothing'}) - fighting with what is held`
+    );
+  }
   return weapon;
 }
 

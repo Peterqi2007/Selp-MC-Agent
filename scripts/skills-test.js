@@ -98,6 +98,26 @@ class MenuBody extends Body {
   }
 }
 
+/**
+ * Vanilla quick-move semantics for the MenuBody tests: a shift-click on a carried
+ * armour piece puts it into its armour slot, swapping any worn piece back to the bag.
+ */
+function quickMove(slots) {
+  const ARMOR_SLOT = { helmet: 5, chestplate: 6, leggings: 7, boots: 8 };
+  return (slotIndex) => {
+    const from = slots.find((s) => s.i === slotIndex);
+    if (!from || !from.item || from.item === 'null') return;
+    const target = slots.find((s) => s.i === ARMOR_SLOT[from.item.split('_').pop()]);
+    if (!target) return;
+    const prevItem = target.item;
+    const prevCount = target.count;
+    target.item = from.item;
+    target.count = from.count;
+    from.item = prevItem && prevItem !== 'null' ? prevItem : 'null';
+    from.count = prevItem && prevItem !== 'null' ? prevCount : 0;
+  };
+}
+
 (async () => {
   process.stdout.write('minecraft-survival-agent - skill catalogue test (offline)\n\n');
 
@@ -173,27 +193,19 @@ class MenuBody extends Body {
   });
 
   await scenario('armour quick-moves every piece and reads the slots back', async () => {
-    let landed = false;
+    const state = {
+      slots: [
+        { i: 5, item: 'null', count: 0, player: true },
+        { i: 6, item: 'null', count: 0, player: true },
+        { i: 7, item: 'null', count: 0, player: true },
+        { i: 8, item: 'null', count: 0, player: true },
+        { i: 10, item: 'minecraft:iron_helmet', count: 1, player: true },
+        { i: 11, item: 'minecraft:iron_chestplate', count: 1, player: true }
+      ]
+    };
     const body = new MenuBody(cfg, {
-      menu: () => ({
-        open: true,
-        containerId: 0,
-        menuClass: 'InventoryMenu',
-        slots: landed
-          ? [
-              { i: 5, item: 'minecraft:iron_helmet', count: 1, player: true },
-              { i: 6, item: 'minecraft:iron_chestplate', count: 1, player: true },
-              { i: 10, item: 'null', count: 0, player: true }
-            ]
-          : [
-              { i: 5, item: 'null', count: 0, player: true },
-              { i: 10, item: 'minecraft:iron_helmet', count: 1, player: true },
-              { i: 11, item: 'minecraft:iron_chestplate', count: 1, player: true }
-            ]
-      }),
-      click: () => {
-        landed = true;
-      }
+      menu: () => ({ open: true, containerId: 0, menuClass: 'InventoryMenu', slots: state.slots.map((s) => ({ ...s })) }),
+      click: quickMove(state.slots)
     });
     await body.connect();
     const result = await skills.run('armor', makeCtx(body), {});
@@ -201,6 +213,43 @@ class MenuBody extends Body {
     const quickMoves = body.calls.filter((call) => call.call === 'click' && call.mode === 'quickmove');
     expect(quickMoves.length === 2, `expected 2 quick-moves, saw ${quickMoves.length}`);
     return result.detail;
+  });
+
+  await scenario('worn armour is never quick-moved off (the live toggle, 2026-10-13)', async () => {
+    /**
+     * The reflex runs this skill every 30s against an already-dressed bot. Slots 5..8
+     * are player-owned too, so the old filter treated WORN pieces as candidates and
+     * shifted them back into the bag on every pass - the armour visibly toggled on and
+     * off. Worn pieces must be untouchable; only a bag piece that beats the worn one
+     * may move (and it must come from its bag slot).
+     */
+    const state = {
+      slots: [
+        { i: 5, item: 'minecraft:iron_helmet', count: 1, player: true },
+        { i: 6, item: 'minecraft:diamond_chestplate', count: 1, player: true },
+        { i: 7, item: 'minecraft:iron_leggings', count: 1, player: true },
+        { i: 8, item: 'minecraft:iron_boots', count: 1, player: true },
+        { i: 12, item: 'minecraft:diamond_helmet', count: 1, player: true },
+        { i: 13, item: 'minecraft:iron_boots', count: 1, player: true }
+      ]
+    };
+    const body = new MenuBody(cfg, {
+      menu: () => ({ open: true, containerId: 0, menuClass: 'InventoryMenu', slots: state.slots.map((s) => ({ ...s })) }),
+      click: quickMove(state.slots)
+    });
+    await body.connect();
+    const result = await skills.run('armor', makeCtx(body), {});
+    expect(result.ok, `expected armour to work, got ${result.reason}`);
+    const quickMoves = body.calls.filter((call) => call.call === 'click' && call.mode === 'quickmove');
+    expect(
+      quickMoves.length === 1 && quickMoves[0].slot === 12,
+      `only the better bag piece may move (slot 12): ${JSON.stringify(quickMoves)}`
+    );
+    const wornHelmet = state.slots.find((s) => s.i === 5);
+    expect(wornHelmet.item === 'minecraft:diamond_helmet', `slot 5 ended as ${wornHelmet.item}`);
+    const bagBoots = state.slots.find((s) => s.i === 13);
+    expect(bagBoots.item === 'minecraft:iron_boots', 'the equal boots must stay in the bag');
+    return 'worn pieces untouched; one upgrade swapped in';
   });
 
   // ------------------------------------------------------------------ blocks
@@ -244,6 +293,32 @@ class MenuBody extends Body {
     expect(result.ok, `expected attack to work, got ${result.reason}`);
     expect(/skeleton/.test(result.detail), `should have picked the nearer skeleton, got "${result.detail}"`);
     return result.detail;
+  });
+
+  await scenario('attack verifies the weapon is really in hand and retries a lying swap', async () => {
+    /**
+     * Live 2026-10-13: the bot punched a pillager with a shovel while its sword sat in
+     * the bag - `equip()` answered true, the final select had raced the server, and the
+     * old code never looked at the hand again. One retry must fix the hand.
+     */
+    const body = new MockBody(cfg, {
+      entities: [{ id: 1, name: 'minecraft:zombie', kind: 'hostile', alive: true, position: { x: 3, y: 64, z: 0 } }],
+      inventory: { 'minecraft:iron_sword': 1, 'minecraft:iron_shovel': 1 }
+    });
+    await body.connect();
+    body.held = 'minecraft:iron_shovel';
+    const realEquip = body.equip.bind(body);
+    let equips = 0;
+    body.equip = async (name) => {
+      equips += 1;
+      if (equips === 1) return true; // lies: the hand stays on the shovel
+      return realEquip(name);
+    };
+    const result = await skills.run('attack', makeCtx(body), { maxDistance: 8 });
+    expect(result.ok, `expected attack to work, got ${result.reason}`);
+    expect(equips === 2, `the lying first swap must be retried, saw ${equips} equip call(s)`);
+    expect(body.held === 'minecraft:iron_sword', `hand ended on ${body.held}`);
+    return `sword re-equipped after a lying first swap (${equips} attempts)`;
   });
 
   await scenario('attack reports "no hostile" instead of inventing a target', async () => {

@@ -106,32 +106,54 @@ register({
     /**
      * Preferred path: the menu click route, which is how a player does it.
      *
-     * Shift-clicking an armour item in the inventory makes vanilla move it into its armour
-     * slot, so the skill is "find every piece, quick-move it, then read back slots 5-8".
-     * Slots 5..8 in the player inventory menu are helmet/chest/legs/boots.
+     * Shift-clicking a CARRIED armour item makes vanilla move it into its armour slot.
+     * The worn slots themselves (5..8) are also player-owned slots, so they must never
+     * be quick-moved: live 2026-10-13 the reflex ran this skill every 30s against an
+     * already-dressed bot, every run shifted the worn pieces back into the bag, and the
+     * armour visibly toggled on and off. Only bag slots (>= 9) are candidates, and a
+     * candidate must fill an empty slot or beat what is worn - shifting a worse piece
+     * would swap the good one out.
      */
     if (typeof body.menu === 'function' && typeof body.clickSlot === 'function') {
-      const menu = await body.menu();
-      if (!menu || !Array.isArray(menu.slots)) {
-        if (typeof body.equipArmor === 'function' && (await body.equipArmor())) {
-          return { ok: true, detail: 'equipped armour through the body API' };
+      const ARMOR_SLOT = { helmet: 5, chestplate: 6, leggings: 7, boots: 8 };
+      const ARMOR_RANK = ['leather', 'golden', 'chainmail', 'iron', 'diamond', 'netherite'];
+      const kindOf = (item) => bare(item).split('_').pop();
+      const rankOf = (item) => ARMOR_RANK.indexOf(bare(item).replace(/_(helmet|chestplate|leggings|boots)$/, ''));
+      let changedAny = false;
+      /** A click that the server drops must not turn into a spray at the same slot. */
+      const attempted = new Set();
+      for (let guard = 0; guard < 8; guard += 1) {
+        const menu = await body.menu();
+        if (!menu || !Array.isArray(menu.slots)) {
+          if (!changedAny && typeof body.equipArmor === 'function' && (await body.equipArmor())) {
+            return { ok: true, detail: 'equipped armour through the body API' };
+          }
+          if (!changedAny) return { ok: false, reason: 'no inventory menu available' };
+          break;
         }
-        return { ok: false, reason: 'no inventory menu available' };
-      }
-      const pieces = menu.slots.filter(
-        (slot) => slot.player && /_(helmet|chestplate|leggings|boots)$/.test(slot.item || '')
-      );
-      if (!pieces.length) return { ok: false, reason: 'no armour pieces in the inventory' };
-      for (const piece of pieces) {
-        await body.clickSlot(piece.i, { mode: 'quickmove' });
+        const carried = menu.slots.filter(
+          (slot) => slot.player && slot.i >= 9 && /_(helmet|chestplate|leggings|boots)$/.test(slot.item || '')
+        );
+        const pick = carried.find((piece) => {
+          if (attempted.has(piece.i)) return false;
+          const worn = menu.slots.find((s) => s.i === ARMOR_SLOT[kindOf(piece.item)]);
+          const wornName = worn && worn.item && worn.item !== 'null' ? worn.item : null;
+          return !wornName || rankOf(piece.item) > rankOf(wornName);
+        });
+        if (!pick) break;
+        attempted.add(pick.i);
+        await body.clickSlot(pick.i, { mode: 'quickmove' });
+        changedAny = true;
       }
       const after = await body.menu();
       const worn = (after && after.slots ? after.slots : []).filter(
         (slot) => slot.i >= 5 && slot.i <= 8 && slot.item && slot.item !== 'null'
       );
-      return worn.length
-        ? { ok: true, detail: `wore ${worn.map((s) => bare(s.item)).join(', ')}` }
-        : { ok: false, reason: 'the quick-move did not land in the armour slots' };
+      if (worn.length) return { ok: true, detail: `wore ${worn.map((s) => bare(s.item)).join(', ')}` };
+      return {
+        ok: false,
+        reason: changedAny ? 'the quick-move did not land in the armour slots' : 'no armour pieces in the inventory'
+      };
     }
     const ok = await body.equipArmor();
     return ok ? { ok: true, detail: 'equipped armour' } : { ok: false, reason: 'equipping armour failed' };

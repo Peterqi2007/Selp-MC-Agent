@@ -142,7 +142,7 @@ LLM 层（`src/llm/`，生产配置已开启 `toolCalling`）：8 个工具 —�
 | 10-10 | C1/C2 共享收集 | `AcquisitionGoal` 挖前基线/入包证据（实体消失≠入包）；候选站位+有界接近；count 达标 drain/partial；tunnel 目标保护 | ✅ 离线（`mining:collection:test` 15/15）；真机待测 |
 | 10-10 | P1–P3 LLM 异常接管 | `miningProgress` 触发阈值；`miningRecoveryTools` 六工具；`miningRecovery` 状态机（短批次/预算/重复护栏/以入包证据结束）；外部取消 | ✅ 离线（`mining:recovery:test` 18/18）；**默认关闭**，真机验收后开启 |
 | 10-12 | 收集走位三修 | 严格进入改“精确格中心”（`moveto` 支持小数坐标）；plan 回退严格化（修 0.8 假到达）；预算耗尽允许“零开挖压向掉落物” | ✅ 真机（对角密闭红石 ×2 / ×1 两轮 `verified`；`mining:collection:test` 24/24） |
-| 10-13 | 贴脸僵尸不可见修复 + 反射层复活 | ① clientmod 快照只在动作里刷新——空闲时世界视图整体冻结（面板位置曾停在 58 格之外）；`ClientModBody` 后台 500ms 轮询（`statePollMs` 可配）+ 反射每 tick 兜底刷新。② `needsRescue` 对无 mineflayer 的视图每 tick 抛 TypeError（debug 级被吞）——反射链（吃/自卫/穿甲）从未执行；循环异常改限频 WARN。③ 非 mineflayer 躯体的反射改走技能层（eat/attack/armor），servo 空转不再挡路 | ✅ 离线（`control:test` 36/36、`client:test` 67/67、`selftest` 175/175、9 套件全绿）；真机待重启验证 |
+| 10-13 | 贴脸僵尸不可见修复 + 反射层复活 + 战斗两修 | ① clientmod 快照只在动作里刷新——空闲时世界视图整体冻结（面板位置曾停在 58 格之外）；`ClientModBody` 后台 500ms 轮询（`statePollMs` 可配）+ 反射每 tick 兜底刷新。② `needsRescue` 对无 mineflayer 的视图每 tick 抛 TypeError（debug 级被吞）——反射链（吃/自卫/穿甲）从未执行；循环异常改限频 WARN。③ 非 mineflayer 躯体的反射改走技能层（eat/attack/armor），servo 空转不再挡路。④ 真机续测：护甲技能把穿戴槽（5-8 同为 player 槽）当“背包护甲”快速移动——每 30s 把整套甲穿/脱切换；改为只动背包格、只升级不降级、每格至多一次。⑤ 攻击技能信任 `equip()` 返回值——竞态下剑在背包却拿铲子开打；改为装备后读回持物核验、失败重试一次、仍失败则限频告警 | ✅ 离线（`skills:test` 43/43、`control:test` 36/36、`client:test` 67/67、`selftest` 175/175、其余 6 套件全绿）；真机待重启验证 |
 
 当前状态（2026-10-10）：
 
