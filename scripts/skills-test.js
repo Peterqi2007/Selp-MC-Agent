@@ -560,6 +560,39 @@ function quickMove(slots) {
     return result.reason;
   });
 
+  await scenario('shoot: a mid-fight hand swap (not_a_gun) is re-equipped and the burst continues', async () => {
+    /**
+     * 2026-10-13 live: something swapped the gun for an iron sword mid-fight (a melee
+     * fallback or a manual hotbar swap) and the whole shoot died with not_a_gun even
+     * though rounds had already left the barrel. The skill must re-equip and carry on.
+     */
+    const body = new MockBody(cfg, {
+      entities: [{ id: 1, name: 'minecraft:zombie', kind: 'hostile', alive: true, position: { x: 10, y: 64, z: 0 } }],
+      inventory: { 'tacz:ak47': 1, 'minecraft:iron_sword': 1 },
+      guns: [{ item: 'tacz:ak47', type: 'rifle', magazine: 30 }]
+    });
+    await body.connect();
+    const realShoot = body.shoot.bind(body);
+    let swapsLeft = 1;
+    let leaseSeen = false;
+    body.shoot = async (entity, options) => {
+      if (swapsLeft > 0) {
+        swapsLeft -= 1;
+        body.held = 'minecraft:iron_sword'; // something yanks the gun out of the hand
+      }
+      leaseSeen = leaseSeen || combatState.combatSkillActive();
+      return realShoot(entity, options);
+    };
+    const result = await skills.run('shoot', makeCtx(body), { timeoutMs: 6000 });
+    expect(result.ok, `expected recovery after the swap, got ${result.failure} / ${result.reason}`);
+    expect(swapsLeft === 0, 'the simulated swap did not happen');
+    expect(body.held === 'tacz:ak47', `the gun must be back in hand, held=${body.held}`);
+    expect(body.shootCalls.length >= 2, `expected a retry burst, saw ${JSON.stringify(body.shootCalls)}`);
+    expect(leaseSeen, 'the combat lease must be held while the skill runs');
+    expect(!combatState.combatSkillActive(), 'the combat lease must clear when the skill returns');
+    return `${body.shootCalls.length} bursts, recovered after a hand swap`;
+  });
+
   await scenario('shoot: players are explicit-only, self and offline names refused', async () => {
     const build = () =>
       new MockBody(cfg, {

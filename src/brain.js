@@ -426,8 +426,15 @@ class Brain {
    * True while an explicit fight task owns the fight (attack/defend/shoot submitted
    * through the task hub) - the reflex must not double-fire on the same target
    * (live 2026-10-13: the command attack and the reflex both engaged one pillager).
+   *
+   * A live combat skill counts too, no matter who launched it: the `!` channel and the
+   * LLM actuator run skills straight through the registry and bypass the task hub, so
+   * the hub check alone cannot see them (live 2026-10-13: the explicit `!shoot` and a
+   * reflex shoot replaced each other's bursts until a melee fallback swapped the gun
+   * out of the hand and both flows died with not_a_gun).
    */
   hostileFightTaskActive() {
+    if (combatState.combatSkillActive()) return true;
     const hub = this.ctx.hub;
     const current = hub && typeof hub.status === 'function' ? hub.status().current : null;
     const name = (this.currentTask && this.currentTask.name) || (current && current.name) || '';

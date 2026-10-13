@@ -25,6 +25,16 @@
 const skills = new Map();
 
 const { fold } = require('../core/failure');
+const combatState = require('../world/combatState');
+
+/**
+ * Combat skills hold a cross-module lease while they execute (see combatState's header
+ * note). The fast-loop reflex reads it and refuses to start a second fight - the `!`
+ * channel and the LLM actuator run skills straight through this registry and bypass the
+ * task hub, so the hub-based guard alone never saw them (live 2026-10-13: an explicit
+ * `!shoot` and a reflex shoot replaced each other's bursts until both failed).
+ */
+const COMBAT_SKILLS = new Set(['attack', 'defend', 'shoot']);
 
 function register(skill) {
   if (!skill || !skill.name || typeof skill.run !== 'function') {
@@ -142,6 +152,8 @@ async function run(name, ctx, raw) {
     });
   }
 
+  const combatLease = COMBAT_SKILLS.has(name);
+  if (combatLease) combatState.beginCombatSkill(name);
   try {
     const result = await skill.run(ctx || {}, validated.params);
     if (!result || typeof result !== 'object') {
@@ -150,6 +162,8 @@ async function run(name, ctx, raw) {
     return fold({ ok: result.ok !== false, ...result });
   } catch (err) {
     return fold({ ok: false, reason: `${name} failed: ${err.message}`, failure: 'internal' });
+  } finally {
+    if (combatLease) combatState.endCombatSkill(name);
   }
 }
 

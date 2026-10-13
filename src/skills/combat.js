@@ -10,6 +10,8 @@
  *    ignored for a while - the reflex re-engaged an unreachable zombie forever;
  *  - gunfire is bounded: ≤6-round bursts, aim before the first shot, hold fire under
  *    full cover, and ammo exhaustion switches to another loaded gun before giving up.
+ *  - if the gun leaves the hand mid-burst (a manual hotbar swap or a melee fallback),
+ *    re-equip and retry a couple of times instead of losing the whole fight.
  */
 
 const { register } = require('./registry');
@@ -31,6 +33,8 @@ const APPROACH_MARGIN = 2;
 const SNIPER_SWITCH_DISTANCE = 8;
 const APPROACH_LEGS = 2;
 const SHOOT_BURST_MS = 8000;
+/** How many times a not_a_gun burst is recovered by re-equipping before giving up. */
+const NOT_A_GUN_RETRIES = 2;
 
 /** Effective range for a gun type: the sniper reaches 32, everything else 16. */
 function rangeOf(gunType) {
@@ -369,6 +373,7 @@ register({
     let approachesLeft = APPROACH_LEGS;
     let bursts = 0;
     let shotsTotal = 0;
+    let notAGunRetries = 0;
     const dryGuns = new Set(); // item ids that answered "no_ammo"; never re-select them
 
     for (;;) {
@@ -516,8 +521,25 @@ register({
         }
         return { ok: false, failure: 'blocked', reason: `${bare(target.name)} is fully behind cover` };
       }
-      if (reason === 'tacz_unavailable' || reason === 'not_a_gun') {
-        return { ok: false, failure: reason, reason: `gun path unavailable (${reason})` };
+      if (reason === 'not_a_gun') {
+        /**
+         * The hand changed under the burst - a manual hotbar swap or a melee fallback
+         * equipping a sword. Re-verify and retry instead of losing the whole fight
+         * (live 2026-10-13: two concurrent fights swapped the gun out and the explicit
+         * shoot died with not_a_gun after two rounds had already left the barrel).
+         */
+        if (notAGunRetries < NOT_A_GUN_RETRIES) {
+          notAGunRetries += 1;
+          logInfo(`shoot: ${bare(gun.item)} left the hand - re-equipping (attempt ${notAGunRetries}/${NOT_A_GUN_RETRIES})`);
+          if (await equipVerified(ctx, gun.item)) {
+            await sleep(BURST_PAUSE_MS);
+            continue;
+          }
+        }
+        return { ok: false, failure: 'not_a_gun', reason: 'gun path unavailable (not_a_gun)' };
+      }
+      if (reason === 'tacz_unavailable') {
+        return { ok: false, failure: 'tacz_unavailable', reason: 'gun path unavailable (tacz_unavailable)' };
       }
       if (reason === 'out_of_range') {
         approachesLeft -= 1;

@@ -1251,6 +1251,20 @@ async function buildAgent(options = {}) {
         `a fight task must own the fight: ${JSON.stringify(skillCalls.slice(beforeSuppressed))}`
       );
 
+      // ---- a live combat skill (registry lease) suppresses the reflex too ------------
+      const leaseAgent = mkBrain({ health: 20, hostiles: [hostile(6, 3)] });
+      combatState.beginCombatSkill('shoot');
+      try {
+        const beforeLease = skillCalls.length;
+        await tick(leaseAgent.brain);
+        expect(
+          !skillCalls.slice(beforeLease).some((call) => call.name === 'attack' || call.name === 'shoot'),
+          `a running combat skill must own the fight: ${JSON.stringify(skillCalls.slice(beforeLease))}`
+        );
+      } finally {
+        combatState.endCombatSkill('shoot');
+      }
+
       // ---- gun failure falls back to the melee charge --------------------------------
       shootFails = true;
       const fallback = mkBrain({ health: 15, hostiles: [hostile(5, 10)] });
@@ -1262,7 +1276,7 @@ async function buildAgent(options = {}) {
         `shoot failure must fall back to attack: ${JSON.stringify(fallbackCalls)}`
       );
       shootFails = false;
-      return 'retreat+gun, wounded charge, hit charge, ignore/override, suppression, fallback';
+      return 'retreat+gun, wounded charge, hit charge, ignore/override, suppression (hub+lease), fallback';
     } finally {
       skillsMod.run = realRun;
       combatState.reset();

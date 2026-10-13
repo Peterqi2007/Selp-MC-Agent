@@ -14,6 +14,13 @@
  *  - **The contactless clock.** It accumulates across attack runs, and any health loss on
  *    our side resets it - being hit means contact happened, whatever the cause.
  *
+ *  - **The combat lease.** While attack/defend/shoot is executing - whatever the caller:
+ *    a `!` command, the LLM actuator or the reflex's own chain - the fast loop must not
+ *    start a second fight. Live 2026-10-13: the explicit `!shoot` (run straight through
+ *    the skill registry, bypassing the task hub) and a reflex `shoot` replaced each
+ *    other's bursts until a melee fallback swapped the gun out of the hand and both
+ *    flows died with not_a_gun - the "hub task in progress" guard never saw the command.
+ *
  * Deliberately process-local: the operator restarts the agent to clear it.
  */
 
@@ -73,6 +80,35 @@ function noteHealthDrop() {
   engaged.clear();
 }
 
+/**
+ * Live combat-skill lease (see the header note).
+ *
+ * A depth counter rather than a boolean: a reflex shoot can hand over to its melee
+ * fallback before the first call's `finally` runs, and those are two lease lifetimes.
+ */
+let combatDepth = 0;
+let combatSkillName = null;
+
+function beginCombatSkill(name) {
+  combatDepth += 1;
+  combatSkillName = String(name || 'combat');
+}
+
+function endCombatSkill() {
+  combatDepth = Math.max(0, combatDepth - 1);
+  if (combatDepth === 0) combatSkillName = null;
+}
+
+/** True while a combat skill is executing; the reflex must not double-engage. */
+function combatSkillActive() {
+  return combatDepth > 0;
+}
+
+/** Name of the running combat skill (null when idle) - for logs and tests. */
+function activeCombatSkillName() {
+  return combatSkillName;
+}
+
 /** True when the target sits ≤5 blocks and nothing has touched us for 30s. */
 function isStalled(id) {
   const record = engaged.get(id);
@@ -90,6 +126,8 @@ function reset() {
   ignored.clear();
   engaged.clear();
   stallMs = STALL_MS;
+  combatDepth = 0;
+  combatSkillName = null;
 }
 
 module.exports = {
@@ -98,6 +136,10 @@ module.exports = {
   shouldSkip,
   rememberEngagement,
   noteHealthDrop,
+  beginCombatSkill,
+  endCombatSkill,
+  combatSkillActive,
+  activeCombatSkillName,
   isStalled,
   setStallMs,
   reset,
