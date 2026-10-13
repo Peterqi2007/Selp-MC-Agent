@@ -147,6 +147,18 @@ class Brain {
     if (this.paused || this.stopped || !this.attached) return;
     if (this.ctx.bodyKind === 'mock') return; // scripted world: no physics, no mobs to fight
 
+    /**
+     * Pull fresh state before judging danger: the reflex must see the world as it is
+     * NOW, not as it was when the last action ended. Live 2026-10-13: the cached
+     * snapshot froze between actions, so a zombie standing against the agent's face
+     * stayed invisible to both the reflex and the LLM's observe. The body also polls
+     * in the background (ClientModBody._startStatePoll); this awaited refresh is the
+     * belt to that braces - TTL-deduped, it turns every loop tick into fresh data.
+     */
+    if (this.ctx.body && typeof this.ctx.body.refresh === 'function') {
+      await this.ctx.body.refresh(false).catch(() => null);
+    }
+
     // ---- safe mode: stop feeding the mobs -------------------------------------
     // Several quick deaths in a row mean the current strategy is losing. Drop all
     // goals, hide underground and wait for daylight instead of charging back in.

@@ -48,7 +48,9 @@
 | --- | --- |
 | 本文件 | 现状、架构、快速开始、指令、进展、脚本、限制 |
 | [`docs/REWRITE-PLAN.md`](docs/REWRITE-PLAN.md) | 重写计划与**逐批次进展**（含每次真机 / 离线验证记录）——想知道"现在到哪一步了"先读它 |
-| [`docs/P0-STATUS.md`](docs/P0-STATUS.md) / [`docs/P0-PLAN.md`](docs/P0-PLAN.md) | P0 验收状态与计划书 |
+| [`docs/P0-STATUS.md`](docs/P0-STATUS.md) | P0 验收**历史记录**（2026-10-02 快照，套件/技能/工具数字已过时，见文首声明；安全边界与踩坑证据仍有效） |
+| [`docs/P0-PLAN.md`](docs/P0-PLAN.md) | P0 计划书（其 §11 的「做/不做」清单仍由 `npm run plan:audit` 持续看门） |
+| [`docs/CAPABILITY-AUDIT.md`](docs/CAPABILITY-AUDIT.md) | **历史文档**：重写前的静态能力核实（「Bot 不能自主工作」等结论均已作废，见文首对照表） |
 | [`docs/EXTERNAL-SERVERS.md`](docs/EXTERNAL-SERVERS.md) | 联机玩法：外部服务器配置、Forge 限制、历史方案对比 |
 | [`mod-client/BUILDING.md`](mod-client/BUILDING.md) | 控制 Mod 的构建与安装 |
 | [`mod-bridge/README.md`](mod-bridge/README.md) | 可选的 Fabric 服务端桥（服务器权威状态） |
@@ -140,10 +142,11 @@ LLM 层（`src/llm/`，生产配置已开启 `toolCalling`）：8 个工具 —�
 | 10-10 | C1/C2 共享收集 | `AcquisitionGoal` 挖前基线/入包证据（实体消失≠入包）；候选站位+有界接近；count 达标 drain/partial；tunnel 目标保护 | ✅ 离线（`mining:collection:test` 15/15）；真机待测 |
 | 10-10 | P1–P3 LLM 异常接管 | `miningProgress` 触发阈值；`miningRecoveryTools` 六工具；`miningRecovery` 状态机（短批次/预算/重复护栏/以入包证据结束）；外部取消 | ✅ 离线（`mining:recovery:test` 18/18）；**默认关闭**，真机验收后开启 |
 | 10-12 | 收集走位三修 | 严格进入改“精确格中心”（`moveto` 支持小数坐标）；plan 回退严格化（修 0.8 假到达）；预算耗尽允许“零开挖压向掉落物” | ✅ 真机（对角密闭红石 ×2 / ×1 两轮 `verified`；`mining:collection:test` 24/24） |
+| 10-13 | 贴脸僵尸不可见修复 | clientmod 快照只在动作里刷新——空闲时世界视图整体冻结（反射/`observe`/面板读旧数据，面板位置曾停在 58 格之外）；`ClientModBody` 后台 500ms 状态轮询（`statePollMs` 可配）+ 反射循环每 tick 兜底刷新 | ✅ 离线（`client:test` 67/67、`selftest` 175/175）；真机待重启验证 |
 
 当前状态（2026-10-10）：
 
-* 离线全绿：`selftest 173/173`、`skills:test 41/41`、`client:test 66/66`、`mining:entry:test 20/20`、
+* 离线全绿：`selftest 175/175`、`skills:test 41/41`、`client:test 67/67`、`mining:entry:test 20/20`、
   `mining:collection:test 24/24`、`mining:recovery:test 18/18`、`tasks:test 52/52`、`p0:verify 8/8`（明细见 §8）。
 * 控制 Mod：当前在线 `agent-client-1.0.0.jar` **60961 字节**（在 60936 基础上含 WalkTo 严格到达 y 容差修复），
   改 Mod 后必须重装（`npm run client:install`）并重启客户端。
@@ -163,6 +166,10 @@ LLM 层（`src/llm/`，生产配置已开启 `toolCalling`）：8 个工具 —�
   预算耗尽允许“零开挖压向掉落物”）——两轮真机均 `verified`（红石 ×2 与 ×1 入包；证据
   `runtime/mining-live/2026-10-12T15-02-06-788Z-live-diag-redstone-6.json`、
   `runtime/mining-live/2026-10-12T15-03-32-249Z-live-diag-redstone-7.json`）。
+  10-13：“贴脸僵尸无法识别”根因修复——clientmod 快照只在动作代码里 `refresh()`，空闲时世界视图
+  整体冻结（反射循环、LLM `observe`、面板全部读旧数据；面板里 agent 的位置停在 58 格之外）；
+  `ClientModBody` 现后台 500ms 轮询 `/state`（`statePollMs` 可配、0 可关），反射循环每 tick 再兜底
+  刷新一次。真机验证需重启 agent。
   振荡早退护栏真机生效（A/B 往返 20+ 步 → 3 步内交垫柱）。证据：`runtime/mining-live/*.json`。
   遗留真机项：tunnel 目标保护场景、采集中途 stop、同型地形 3 次重复、LLM 接管 L 系列
   （`miningRecovery.enabled` 仍为 false，验收后显式开启）。
@@ -283,13 +290,13 @@ Invoke-RestMethod -Uri http://127.0.0.1:8766/ui/state
 | `npm run client:launch` | 无头拉起 Forge 客户端（`--server` / `--singleplayer` / `--username`） | 主线 |
 | `npm run client:check` | 检查 Mod 与"是否在世界里" | 主线 |
 | `npm run client:build` / `client:install` | 构建 / 安装控制 Mod | 主线 |
-| `npm run client:test` | 假 Mod 协议测试（含 pillar 回执/隧道保护） | 66/66 |
+| `npm run client:test` | 假 Mod 协议测试（含 pillar 回执/隧道保护/空闲状态刷新） | 67/67 |
 | `npm run clientmod:test` | clientmod 躯体角色扮演路径 | 11/11 |
 | `npm run skills:test` | 技能库（含采矿报价/台账/防坠落/逐格垫柱 B1–B10） | 41/41 |
 | `npm run mining:entry:test` | 统一挖矿入口 A 系列 | 20/20 |
 | `npm run mining:collection:test` | 掉落物收集 C 系列 | 24/24 |
 | `npm run mining:recovery:test` | LLM 异常接管 R 系列（脚本化模型） | 18/18 |
-| `npm run selftest` | 全量离线自检 | 173/173 |
+| `npm run selftest` | 全量离线自检 | 175/175 |
 | `npm run p0:verify` | P0 全量验收（一次跑 8 个套件） | 8/8 |
 | `npm run path:test` | 寻路场景 | 22/22 |
 | `npm run tasks:test` | 三原语（走 / 挖 / 捡） | 52/52 |
@@ -326,7 +333,7 @@ P0 的完整实施状态与验收证据见 [`docs/P0-STATUS.md`](docs/P0-STATUS.
 
 ```powershell
 npm run p0:verify      # 离线全量（约 1 分钟，8 个套件）
-npm run selftest       # 173/173：模块图 / 插件 / 寻路 / 三原语 / 意图 Schema / 工具白名单 / 死亡处理
+npm run selftest       # 175/175：模块图 / 插件 / 寻路 / 三原语 / 意图 Schema / 工具白名单 / 死亡处理
 npm run mining:entry:test      # 20/20：统一挖矿入口
 npm run mining:collection:test # 24/24：共享收集
 npm run mining:recovery:test   # 18/18：LLM 接管（脚本化模型）

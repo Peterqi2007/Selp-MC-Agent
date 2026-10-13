@@ -78,6 +78,22 @@ class ClientModBody extends Body {
     this._snapshotAt = 0;
     this._snapshotTtlMs = options.snapshotTtlMs || 400;
     /**
+     * Keep that snapshot genuinely fresh while the agent is idle.
+     *
+     * Real report (2026-10-13): a zombie stood against the agent's face and nothing
+     * happened - the 600ms reflex loop and the LLM `observe` tool both read a snapshot
+     * that had not been refreshed since the agent's last *action* (`refresh()` calls
+     * live inside action code paths only). `BodyWorldView.snapshot(true)` re-reads this
+     * same cache, it does not poll the mod, so between actions the whole world view -
+     * hostiles included - froze for minutes; the panel showed the bot 58 blocks from
+     * where it really stood, and "@大肥鱼 攻击" truthfully answered from stale data
+     * ("没看到怪物"). The background poll below keeps `_snapshot` <= statePollMs old
+     * for every consumer (reflexes, observe, panel, death watch, tasks).
+     */
+    this.statePollMs = options.statePollMs || (cfgSection.statePollMs === undefined ? 500 : cfgSection.statePollMs);
+    this._statePollTimer = null;
+    this._statePollBusy = false;
+    /**
      * Below this horizontal distance planning is pure overhead, so `moveTo` walks
      * straight there instead (P0-PLAN §3.6(6)).
      */
@@ -202,6 +218,7 @@ class ClientModBody extends Body {
           this.log.info(
             `attached: ${state.dimension} at (${fmt(state.position)}) hp=${state.health} food=${state.food}`
           );
+          this._startStatePoll();
           return true;
         }
       } catch (err) {
@@ -222,8 +239,41 @@ class ClientModBody extends Body {
   }
 
   async disconnect() {
+    this._stopStatePoll();
     this.connected = false;
     this._snapshot = null;
+  }
+
+  /**
+   * Background refresh loop: the difference between a live world view and a frozen one.
+   *
+   * Every refresh() elsewhere in this class belongs to an action (dig, walk, attack...).
+   * Without this poller the cache simply stops updating the moment the agent goes idle,
+   * which is exactly when reflexes - self-defence most of all - must see the world.
+   * TTL-aware and single-flight: a recent action refresh makes the tick a no-op, and
+   * the poller never stacks requests on itself.
+   */
+  _startStatePoll() {
+    if (this._statePollTimer || !(this.statePollMs > 0)) return;
+    this._statePollTimer = setInterval(() => {
+      if (this._statePollBusy || !this.connected) return;
+      this._statePollBusy = true;
+      this.refresh(false)
+        .catch(() => null)
+        .finally(() => {
+          this._statePollBusy = false;
+        });
+    }, this.statePollMs);
+    if (typeof this._statePollTimer.unref === 'function') this._statePollTimer.unref();
+    this.log.debug(`state poll every ${this.statePollMs}ms`);
+  }
+
+  _stopStatePoll() {
+    if (this._statePollTimer) {
+      clearInterval(this._statePollTimer);
+      this._statePollTimer = null;
+    }
+    this._statePollBusy = false;
   }
 
   /** Refresh the cached snapshot if it is stale. */

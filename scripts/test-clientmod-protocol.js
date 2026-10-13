@@ -75,6 +75,8 @@ let chatLog = [];
 const clicks = [];
 /** How many `close` commands the mock received (auto-close accounting). */
 let closeCommands = 0;
+/** How many /state polls the mock has served (idle-refresh regression, 2026-10-13). */
+let stateHits = 0;
 
 /**
  * Tokenising mirror of `ControlHttpServer.execute()` in the Java mod.
@@ -275,6 +277,7 @@ const server = http.createServer((req, res) => {
     }
 
     if (url.pathname === '/state') {
+      stateHits += 1;
       return send({ ...world, position: { ...world.position } });
     }
 
@@ -656,6 +659,25 @@ function check(name, ok, detail) {
 
     const hostiles = body.hostiles(16);
     check('hostiles() reports the zombie', hostiles.length === 1 && /zombie/.test(hostiles[0].name), hostiles[0] && hostiles[0].name);
+    /**
+     * Live report (2026-10-13): "a zombie stood against the agent's face and nothing
+     * happened - I had to kill it myself." Root cause: `refresh()` only ever ran inside
+     * action code paths, so between actions the cached snapshot - hostiles included -
+     * froze; the reflex loop and the LLM `observe` tool both read that stale cache and
+     * truthfully reported "没看到怪物". The body now polls /state in the background;
+     * this check proves an IDLE body sees the world change with no action call at all.
+     */
+    const zombieEntry = world.hostiles[0];
+    const hitsBefore = stateHits;
+    world.hostiles = [];
+    await new Promise((resolve) => setTimeout(resolve, 1600));
+    const idleHostiles = body.hostiles(16);
+    check(
+      'an idle body keeps refreshing its own snapshot (no action needed)',
+      stateHits - hitsBefore >= 2 && idleHostiles.length === 0,
+      `/state hits=${stateHits - hitsBefore}, hostiles=${idleHostiles.length}`
+    );
+    world.hostiles = [zombieEntry];
     const drops = body.itemDrops(8);
     check('itemDrops() reports the dropped log', drops.length === 1 && drops[0].name === 'minecraft:oak_log');
 
