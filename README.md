@@ -47,10 +47,16 @@
 | 文档 | 内容 |
 | --- | --- |
 | 本文件 | 现状、架构、快速开始、指令、进展、脚本、限制 |
-| [`docs/REWRITE-PLAN.md`](docs/REWRITE-PLAN.md) | 重写计划与**逐批次进展**（含每次真机 / 离线验证记录）——想知道"现在到哪一步了"先读它 |
+| 本文件 §3 | **想知道「现在到哪一步了」先读它**：批次表 + 当前状态 + 最新真机记录 |
+| [`docs/PLANNER-REFACTOR.md`](docs/PLANNER-REFACTOR.md) | **规划器（自主决策）专项**：已核实问题 P1–P10、重构债 Q1–Q7，以及与 `!` 命令 / LLM `do_task`/`do_skill` 回路的边界 |
+| [`docs/MINING-LLM-PLAN.md`](docs/MINING-LLM-PLAN.md) | 挖矿方案与**一手真机记录**（附二 10-10 夜 / 附三 10-12 / 附四 10-13）——采矿相关的最新依据 |
+| [`docs/MINING-COLLECTION-PLAN.md`](docs/MINING-COLLECTION-PLAN.md) | 掉落物收集方案与实机记录（§十一，10-10～10-12） |
+| [`docs/COMBAT-PLAN.md`](docs/COMBAT-PLAN.md) | 战斗 v3 方案、离线计数与**真机验收清单**（10-13 夜部分已覆盖） |
+| [`docs/REWRITE-PLAN.md`](docs/REWRITE-PLAN.md) | 重写计划与逐批次进展（含每次真机 / 离线验证记录）——**记录到 2026-10-08**，其后进展看上面三份 |
 | [`docs/P0-STATUS.md`](docs/P0-STATUS.md) | P0 验收**历史记录**（2026-10-02 快照，套件/技能/工具数字已过时，见文首声明；安全边界与踩坑证据仍有效） |
 | [`docs/P0-PLAN.md`](docs/P0-PLAN.md) | P0 计划书（其 §11 的「做/不做」清单仍由 `npm run plan:audit` 持续看门） |
 | [`docs/CAPABILITY-AUDIT.md`](docs/CAPABILITY-AUDIT.md) | **历史文档**：重写前的静态能力核实（「Bot 不能自主工作」等结论均已作废，见文首对照表） |
+| [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) | 模块分层、Body 契约、安全模型与设计不变量（2026-10-07 版；§九 列与技术债，数字按版本日期读） |
 | [`docs/EXTERNAL-SERVERS.md`](docs/EXTERNAL-SERVERS.md) | 联机玩法：外部服务器配置、Forge 限制、历史方案对比 |
 | [`mod-client/BUILDING.md`](mod-client/BUILDING.md) | 控制 Mod 的构建与安装 |
 | [`mod-bridge/README.md`](mod-bridge/README.md) | 可选的 Fabric 服务端桥（服务器权威状态） |
@@ -104,13 +110,13 @@ bot 指向外部服务器，沿用前请先检查 `config/agent.json`。
 
 ## 2. 现在能做什么
 
-技能目录（`src/skills/`，18 个，全部可用 MockBody / 协议假 Mod 离线测试）：
+技能目录（`src/skills/`，19 个，全部可用 MockBody / 协议假 Mod 离线测试）：
 
 | 分类 | 技能 |
 | --- | --- |
 | 物品 | `equip` `eat` `drop` `armor` |
 | 方块与交互 | `place` `use_on` `withdraw` `deposit` |
-| 战斗 | `attack` `defend` |
+| 战斗 | `attack` `defend` `shoot`（TACZ 枪械） |
 | 移动 | `explore` `come` |
 | 生产 | `craft` `smelt` `farm` `sleep` |
 | 采集 | `mine_ore`（统一入口 + 报价选矿 + 走挖一体 tunnel + 逐格垫柱 + 共享收集/入包证据） `fish` |
@@ -125,7 +131,7 @@ LLM 层（`src/llm/`，生产配置已开启 `toolCalling`）：8 个工具 —�
 
 ---
 
-## 3. 项目进展（截至 2026-10-07）
+## 3. 项目进展（批次表截至 2026-10-13；套件计数实测于 2026-10-14）
 
 | 日期 | 批次 | 内容 | 验证 |
 | --- | --- | --- | --- |
@@ -136,21 +142,30 @@ LLM 层（`src/llm/`，生产配置已开启 `toolCalling`）：8 个工具 —�
 | 10-05 | 采矿按 numen 重构 | 报价选目标（挖×4 + 步数 + 矿脉加成）、DigLedger 台账、落沙/贴水准入 | ✅ 真机（2026-10-08，见 REWRITE-PLAN §12.6） |
 | 10-05 | 走挖一体 `tunnel` | Mod 连续控制器：中心转向、边走边挖、下坡不跳、结构化失败；Node 清障重试 | ✅ 真机（2026-10-08：金矿 26+15 块、tunnel 全程 `jumps=0`；当轮修掉换镐/卡跳/爬升三处缺陷） |
 | 10-05 | 防坠落补丁 | Mod tick 探底（落差 >2 或先见液体 → `ledge`）+ Node waypoint 预检 + 洞窟后检 | ✅ 真机（2026-10-08：3 格深坑前 `ledge` 停住，1–2 格台阶零误报） |
-| 10-10 | 挖矿四修复 + 垫柱底座 | 矿石走 `mine_ore`（别名/深板岩/负坐标/到达判定/stalled）；Mod `Pillar` 跳放 | ✅ 真机（垫柱 2 格、钻石两连挖；遗留"只起 1~2 格"） |
+| 10-10 | 挖矿四修复 + 垫柱底座 | 矿石走 `mine_ore`（别名/深板岩/负坐标/到达判定/stalled）；Mod `Pillar` 跳放 | ✅ 真机（垫柱 2 格、钻石两连挖；当时遗留"只起 1~2 格"，已由同批 P4 逐格垫柱解决） |
 | 10-10 | A 统一挖矿入口 | `miningRequest`/`miningDispatch`：六入口共用归一与分流；修 `!goal` 线上 bug；`MineOreTask` 适配器 | ✅ 离线（`mining:entry:test` 20/20） |
-| 10-10 | P4 逐格清障垫柱 | `pillarUp` 执行器（只清 y+2/y+3→垫一格→核验落地）；取消信号；4.5 格 dig 距离闸；权限闸门管单格垫柱；Mod 回执 start/end/placedCells | ✅ 离线（B1–B10、`client:test` 66/66、`selftest` 173/173）；Mod 重编译（60340 字节）；真机待测 |
-| 10-10 | C1/C2 共享收集 | `AcquisitionGoal` 挖前基线/入包证据（实体消失≠入包）；候选站位+有界接近；count 达标 drain/partial；tunnel 目标保护 | ✅ 离线（`mining:collection:test` 15/15）；真机待测 |
-| 10-10 | P1–P3 LLM 异常接管 | `miningProgress` 触发阈值；`miningRecoveryTools` 六工具；`miningRecovery` 状态机（短批次/预算/重复护栏/以入包证据结束）；外部取消 | ✅ 离线（`mining:recovery:test` 18/18）；**默认关闭**，真机验收后开启 |
+| 10-10 | P4 逐格清障垫柱 | `pillarUp` 执行器（只清 y+2/y+3→垫一格→核验落地）；取消信号；4.5 格 dig 距离闸；权限闸门管单格垫柱；Mod 回执 start/end/placedCells | ✅ 离线（B1–B10、`client:test` 66/66、`selftest` 173/173）；Mod 重编译（60340 字节）；**真机已通过**（10-10 夜垫柱 1–2 跳、`start/end/placedCells` 回执齐全，见下行） |
+| 10-10 | C1/C2 共享收集 | `AcquisitionGoal` 挖前基线/入包证据（实体消失≠入包）；候选站位+有界接近；count 达标 drain/partial；tunnel 目标保护 | ✅ 离线（`mining:collection:test` 15/15）；**真机已通过**（10-10 夜起连续多轮 `[verified] collected=1 pending=0`；10-12 三组操作员构造夹具均 `verified`） |
+| 10-10 | P1–P3 LLM 异常接管 | `miningProgress` 触发阈值；`miningRecoveryTools` 六工具；`miningRecovery` 状态机（短批次/预算/重复护栏/以入包证据结束）；外部取消 | ✅ 离线（`mining:recovery:test` 18/18）；**默认关闭**；真机 L01 已通过（0 次模型调用）；**L02 已于 10-10 夜真机尝试 3 次、全部失败**（真实模型，tokens 5354/0/7252；超时与空回执两类当夜由 `40b153c` 修复，**修后未复测**） |
 | 10-12 | 收集走位三修 | 严格进入改“精确格中心”（`moveto` 支持小数坐标）；plan 回退严格化（修 0.8 假到达）；预算耗尽允许“零开挖压向掉落物” | ✅ 真机（对角密闭红石 ×2 / ×1 两轮 `verified`；`mining:collection:test` 24/24） |
-| 10-13 | 贴脸僵尸不可见修复 + 反射层复活 + 战斗三修 | ① clientmod 快照只在动作里刷新——空闲时世界视图整体冻结（面板位置曾停在 58 格之外）；`ClientModBody` 后台 500ms 轮询（`statePollMs` 可配）+ 反射每 tick 兜底刷新。② `needsRescue` 对无 mineflayer 的视图每 tick 抛 TypeError（debug 级被吞）——反射链（吃/自卫/穿甲）从未执行；循环异常改限频 WARN。③ 非 mineflayer 躯体的反射改走技能层（eat/attack/armor），servo 空转不再挡路。④ 真机续测：护甲技能把穿戴槽（5-8 同为 player 槽）当“背包护甲”快速移动——每 30s 把整套甲穿/脱切换；改为只动背包格、只升级不降级、每格至多一次。⑤ 攻击技能信任 `equip()` 返回值——竞态下剑在背包却拿铲子开打；改为装备后读回持物核验、失败重试一次、仍失败则限频告警。⑥ 进食会把食物留在手上——战斗中自动进食把手从剑切成面包，15s 挥砍循环全程拿面包打僵尸（真机：连续三次满超时）；改为 eat 技能吃完恢复原持物 + 反射进食在有敌对目标时让位 | ✅ 离线（`skills:test` 44/44、`control:test` 36/36、`client:test` 67/67、`selftest` 175/175、其余 6 套件全绿）；真机待重启验证 |
-| 10-13 | 战斗 v3：撤退/冲锋/反卡死/TACZ | 真撤退（≤8 血，S 键后撤+面敌+优先用枪）；被远程打即冲锋（掉血/ <16 血/近身触发）；≤5 格 30s 无接触→终止并忽视 180s；TACZ 枪械（狙击 32/其余 16 射程、开镜后开火、≤6 发/轮、每轮后靠近/后撤/换枪/重新瞄准+500ms、弹尽换有弹枪、三点 LOS 全遮不开火+侧翼、近距序 rifle>smg>mg>pistol、反射按默认序、PvP 仅显式）；失败码表扩容；详见 `docs/COMBAT-PLAN.md` | ✅ 离线（`skills:test` 56/56、`control:test` 37/37、`client:test` 73/73、Mod 编译通过）；真机待测 |
+| 10-13 | 贴脸僵尸不可见修复 + 反射层复活 + 战斗三修 | ① clientmod 快照只在动作里刷新——空闲时世界视图整体冻结（面板位置曾停在 58 格之外）；`ClientModBody` 后台 500ms 轮询（`statePollMs` 可配）+ 反射每 tick 兜底刷新。② `needsRescue` 对无 mineflayer 的视图每 tick 抛 TypeError（debug 级被吞）——反射链（吃/自卫/穿甲）从未执行；循环异常改限频 WARN。③ 非 mineflayer 躯体的反射改走技能层（eat/attack/armor），servo 空转不再挡路。④ 真机续测：护甲技能把穿戴槽（5-8 同为 player 槽）当“背包护甲”快速移动——每 30s 把整套甲穿/脱切换；改为只动背包格、只升级不降级、每格至多一次。⑤ 攻击技能信任 `equip()` 返回值——竞态下剑在背包却拿铲子开打；改为装备后读回持物核验、失败重试一次、仍失败则限频告警。⑥ 进食会把食物留在手上——战斗中自动进食把手从剑切成面包，15s 挥砍循环全程拿面包打僵尸（真机：连续三次满超时）；改为 eat 技能吃完恢复原持物 + 反射进食在有敌对目标时让位 | ✅ 离线（当时 `skills:test` 44/44、`control:test` 36/36、`client:test` 67/67、`selftest` 175/175、其余 6 套件全绿）；**真机已验证**（同日真机续测修掉护甲误脱、持物核验、进食抢手三处，见提交 `144a783`、`211b4cd`） |
+| 10-13 | 战斗 v3：撤退/冲锋/反卡死/TACZ | 真撤退（≤8 血，S 键后撤+面敌+优先用枪）；被远程打即冲锋（掉血/ <16 血/近身触发）；≤5 格 30s 无接触→终止并忽视 180s；TACZ 枪械（狙击 32/其余 16 射程、开镜后开火、≤6 发/轮、每轮后靠近/后撤/换枪/重新瞄准+500ms、弹尽换有弹枪、三点 LOS 全遮不开火+侧翼、近距序 rifle>smg>mg>pistol、反射按默认序、PvP 仅显式）；失败码表扩容；详见 `docs/COMBAT-PLAN.md` | ✅ 离线（`skills:test` 56/56 起、`control:test` 37/37、`client:test` 73/73、Mod 编译通过）；**真机已验证开火与 PvP**（10-13 17:46 起 4 轮 16 发击杀掠夺者、PvP 2 轮 4 发击倒玩家、全遮挡诚实 `blocked` 并触发侧翼（两次均被掩体挡住）、拒绝自主打玩家；见提交 `3ba591a`）。现计数 `skills:test` 57/57（+战斗租约防反射双发、`not_a_gun` 自恢复，提交 `1998777`） |
 
-当前状态（2026-10-10）：
+当前状态（套件计数实测于 2026-10-14；真机记录截至 2026-10-13 夜）：
 
-* 离线全绿：`selftest 175/175`、`skills:test 56/56`、`client:test 73/73`、`control:test 37/37`、`mining:entry:test 20/20`、
-  `mining:collection:test 24/24`、`mining:recovery:test 18/18`、`tasks:test 52/52`、`p0:verify 8/8`（明细见 §8）。
-* 控制 Mod：当前在线 `agent-client-1.0.0.jar` **60961 字节**（在 60936 基础上含 WalkTo 严格到达 y 容差修复），
-  改 Mod 后必须重装（`npm run client:install`）并重启客户端。
+* 离线全绿（2026-10-14 实跑）：`selftest 176/176`、`skills:test 57/57`、`client:test 73/73`、`control:test 37/37`、
+  `mining:entry:test 23/23`、`mining:collection:test 24/24`、`mining:recovery:test 18/18`、`tasks:test 52/52`、
+  `path:test 22/22`、`clientmod:test 11/11`、`verify:roleplay 34/34`、`llm:dry` 路由 56/56 + 工具 39/39、
+  `p0:verify 8/8`（明细见 §8）。
+* 控制 Mod：`mod-client/dist/agent-client-1.0.0.jar` **75000 字节**（2026-10-13 17:37 构建，含 WalkTo 严格到达
+  y 容差、战斗 v3 与 TACZ 枪械）；已 `client:install`，与 PCL 版本目录在装的 jar 字节完全一致，并已在 10-13
+  17:38 与 22:03 两个真机会话中实际加载。改 Mod 后必须重装（`npm run client:install`）并重启客户端。
+* **规划器（自主决策）专项**：`slowLoop → decide() → runTask` 这条回路的问题与 **`!` 命令回路**、
+  **LLM `do_task`/`do_skill` 回路**分开记账——已核实 10 条（含 `shelter` 规则静默死规则、`light` 无能力闸门、
+  矿石路径零进展判定失效）与重构债 7 条见 [`docs/PLANNER-REFACTOR.md`](docs/PLANNER-REFACTOR.md)。
+  要点：零进展停牌（B1）/失败罢工（B2）的**记账**发生在 `runTask`，因此**规划器任务与命令表任务共用**
+  （`!` 材料类、LLM `do_task` 材料类都会写）；而 `quarantine` 的**拦截**只发生在 `decide()/pickRule()`，
+  即**只影响自主选目标**。TaskHub 派发的作业（矿石、长技能）既不记账也不被拦。
 * **真机验收（2026-10-10 夜，mc.example.com，角色 `agent`，jar 60936）**：
   `npm run mining:live` 驱动完成 8 轮采矿 + 垫柱探针 + 命令入口 + 中途 stop——**连续 6 轮完整成功**
   （深板岩钻石 ×2、深板岩铁 ×2、金矿 ×2〔含长隧道与命令入口各一〕；均为 `[verified] collected=1 pending=0`，
@@ -174,10 +189,24 @@ LLM 层（`src/llm/`，生产配置已开启 `toolCalling`）：8 个工具 —�
   每 tick 抛 TypeError（setInterval 的 debug 级 catch 静默吞掉）——反射链（自动吃/危险撤退/自卫/
   穿甲）从未执行过；已修（无 bot 视图返回 false）+ 循环异常改限频 WARN。并且非 mineflayer 躯体的
   反射改走技能层（`eat`/`attack`/`armor` 技能，与 `!` 命令/LLM 同一条路径），Combat/AutoEat/
-  ToolManager 的 servo 空转不再挡路。真机验证需重启 agent。
+  ToolManager 的 servo 空转不再挡路。当日已按“改 Node 需重启 Agent”重启复测，护甲/持物/进食三处修正在
+  10-13 真机确认（提交 `144a783`、`211b4cd`）。
   振荡早退护栏真机生效（A/B 往返 20+ 步 → 3 步内交垫柱）。证据：`runtime/mining-live/*.json`。
-  遗留真机项：tunnel 目标保护场景、采集中途 stop、同型地形 3 次重复、LLM 接管 L 系列
-  （`miningRecovery.enabled` 仍为 false，验收后显式开启）。
+  遗留真机项：同型地形 3 次重复、“吃饭 → tunnel”序列（待自然饥饿）、LLM 接管 L 系列 L02+
+  （L01 已通过；**L02 已在 10-10 夜真机尝试 3 次、全部失败，其中超时与空回执两类当夜由 `40b153c` 修复，
+  修后未复测**；`miningRecovery.enabled` 仍为 false，验收后显式开启）。tunnel 目标保护与采集中途 stop
+  已在 10-10 夜真机命中，不再列为遗留。
+* **真机验收（2026-10-13 夜，mc.example.com，角色 `AgentDeepSeek`，jar 75000）**：
+  ① 17:38–17:58 战斗会话：`shoot` 4 轮共 16 发击杀掠夺者、PvP 对 `Logos_Fyan` 2 轮 4 发击倒、
+  全遮挡时诚实 `blocked`（零发射）并各触发一次侧翼（两次仍被掩体挡住，按设计失败而非空放）、
+  自然语言请求“攻击玩家”被拒绝（“我只打僵尸骷髅那些怪物”）；
+  同段另有 2 次死亡与 `danger detected, retreating`，死亡后按设计停牌、需显式恢复。
+  ② 22:03–22:59 采矿会话（账号改名 `AgentDeepSeek` 后首次真机登录成功）：多轮挖矿任务，其中一轮
+  `deepslate_gold_ore x20` 完整成功（自报 53 块粗金入包）；另有多轮**按设计诚实停在“产物未入包”**——
+  每次先落 `pickup_stalled` 触发记录，因 `miningRecovery.enabled=false` 不调用模型（原因含“掉落物低一层”
+  “走位器未进入已开挖格”），随后聊天如实汇报 partial（如“才挖到 2 块…还有 6 块没挖到”）；任务整体另有
+  一轮 `x16` 只挖到 3 块的部分完成记录。证据：`runtime/logs/agent-2026-10-13_*.log`、
+  `runtime/logs/forge-client-2026-10-13_*.log`。
 * 历史真机记录（10-08）：斜下连续 20+ 格、`tunnel` 全程 `jumpsBlocked=0`、防坠落 3 格深坑前停住、
   1–2 格台阶零误报、台账 extra 0（[`docs/REWRITE-PLAN.md`](docs/REWRITE-PLAN.md) §12.6）。
 * 后续候选：断开/离开世界检测（客户端回主菜单后大脑仍会按旧快照规划）、自主采矿目标的退避加宽、
@@ -232,8 +261,9 @@ Invoke-RestMethod -Uri http://127.0.0.1:8766/ui/state
 | `npm run client:check` | 探测 8899：Mod 在不在、是否已进入世界 |
 | `npm run client:verify` | 真机协议验收（需要客户端在跑） |
 
-原语清单（`ControlHttpServer.execute`）：`chat/login/say`、`look/lookat/resync/stop`、`moveto/goto`、
-`dig/mine`、`tunnel`、`place/useon`、`menu/click/close`、`use/select/drop`、`attack`、`target`；
+原语清单（`ControlHttpServer.execute`，25 个 verb）：`chat/login/say`、`cmd/command`、`look/lookat/resync/stop`、
+`moveto/goto`、`dig/mine`、`tunnel`、`pillar/pillarup/tower`、`place/useon/interact`、`menu/slots/click/close`、
+`use/useitem/select/drop`、`attack`、`shoot`、`retreat`、`target`；
 感知 `GET /state /progress /chatlog /health`。`/register` 在四道闸门上被永久拒绝（会重置角色数据）。
 
 ---
@@ -268,7 +298,7 @@ Invoke-RestMethod -Uri http://127.0.0.1:8766/ui/state
 ├─ src\
 │  ├─ index.js                 # 装配与生命周期
 │  ├─ brain.js                 # 快反射（600ms）+ 慢规划 双循环
-│  ├─ skills\                  # 18 个确定性技能 + miningPlan（报价/几何/台账）
+│  ├─ skills\                  # 19 个确定性技能 + miningPlan（报价/几何/台账）
 │  ├─ body\                    # Body 契约与实现：clientmod / mineflayer / mock
 │  ├─ core\                    # taskHub / recoveryLadder / permissions / places / holds / failure
 │  ├─ llm\                     # LLM 回合与 8 个工具（tools\）
@@ -297,11 +327,11 @@ Invoke-RestMethod -Uri http://127.0.0.1:8766/ui/state
 | `npm run client:build` / `client:install` | 构建 / 安装控制 Mod | 主线 |
 | `npm run client:test` | 假 Mod 协议测试（含 pillar 回执/隧道保护/空闲刷新/shoot/retreat） | 73/73 |
 | `npm run clientmod:test` | clientmod 躯体角色扮演路径 | 11/11 |
-| `npm run skills:test` | 技能库（含采矿/垫柱/护甲/武器/进食、枪械选枪与反卡死） | 56/56 |
-| `npm run mining:entry:test` | 统一挖矿入口 A 系列 | 20/20 |
+| `npm run skills:test` | 技能库（含采矿/垫柱/护甲/武器/进食/枪械选枪与反卡死、战斗租约） | 57/57 |
+| `npm run mining:entry:test` | 统一挖矿入口 A 系列（含 A10 规划器停牌键） | 23/23 |
 | `npm run mining:collection:test` | 掉落物收集 C 系列 | 24/24 |
 | `npm run mining:recovery:test` | LLM 异常接管 R 系列（脚本化模型） | 18/18 |
-| `npm run selftest` | 全量离线自检 | 175/175 |
+| `npm run selftest` | 全量离线自检 | 176/176 |
 | `npm run p0:verify` | P0 全量验收（一次跑 8 个套件） | 8/8 |
 | `npm run path:test` | 寻路场景 | 22/22 |
 | `npm run tasks:test` | 三原语（走 / 挖 / 捡） | 52/52 |
@@ -313,8 +343,11 @@ Invoke-RestMethod -Uri http://127.0.0.1:8766/ui/state
 | `npm start` / `npm run server:setup` | 本地无头服务器 + 旧流程（`--no-agent` 只起服） | 历史 / 兼容 |
 | `node scripts/client-real.js --login <pw> [--primitives]` | 真机非破坏自检 / 三原语验收 | 需客户端 |
 
-P0 的完整实施状态与验收证据见 [`docs/P0-STATUS.md`](docs/P0-STATUS.md)；逐批次进展与真机记录见
-[`docs/REWRITE-PLAN.md`](docs/REWRITE-PLAN.md)。
+P0 的完整实施状态与验收证据见 [`docs/P0-STATUS.md`](docs/P0-STATUS.md)（**历史快照**，文首有过期对照表）；
+逐批次进展见 [`docs/REWRITE-PLAN.md`](docs/REWRITE-PLAN.md)（记录到 2026-10-08）。更新的一手记录在
+[`docs/MINING-LLM-PLAN.md`](docs/MINING-LLM-PLAN.md)（附二/附三）、
+[`docs/MINING-COLLECTION-PLAN.md`](docs/MINING-COLLECTION-PLAN.md)（§十一）与
+[`docs/COMBAT-PLAN.md`](docs/COMBAT-PLAN.md)。
 
 ---
 
@@ -322,11 +355,21 @@ P0 的完整实施状态与验收证据见 [`docs/P0-STATUS.md`](docs/P0-STATUS.
 
 * **服务器兼容**：需要客户端 Mod 的 Forge/NeoForge 服必须走"真实客户端 + Mod"路径（已支持）；
   mineflayer 备选躯体只适用于原版 / Paper / Spigot / 纯服务端 Fabric。各服的登录与反作弊规则自行确认。
-* **采矿批次已真机验证**（2026-10-08，见 REWRITE-PLAN §12.6）：numen 采矿重构、tunnel、防坠落补丁全部通过；
-  遗留一项"吃饭 → tunnel"序列待自然饥饿时补测（逻辑已有离线用例覆盖）。
+* **采矿批次已真机验证**（2026-10-08 首轮，10-10～10-12 续测，见 REWRITE-PLAN §12.6 与 MINING-LLM-PLAN 附二/附三）：
+  numen 采矿重构、tunnel、防坠落补丁、逐格垫柱、共享收集（入包证据）与有限清障全部通过；
+  遗留“吃饭 → tunnel”序列待自然饥饿时补测（逻辑已有离线用例覆盖）。
 * **AuthMe**：只 `/login`，永不 `/register`（在 simpfun 类服务器上 `/register` 会重置角色数据）。
+* **规划器是下一阶段重构对象，问题单独立账**：自主规划（`slowLoop → decide() → runTask`）的问题与
+  `!` 命令、LLM 工具分开记录，但**退避机制是共用的**——B1/B2 的记账在 `runTask` 内，凡是经
+  `brain.enqueue` 的任务都会写（规划器任务、`!` 材料类、LLM `do_task` 材料类）；`quarantine` 的拦截
+  只在 `decide()/pickRule()`，即只影响自主选目标；TaskHub 派发的作业（矿石、长技能）两者都不适用。
+  已知问题（`shelter` 规则永不触发、`light` 无能力闸门、矿石路径在规划器层无刹车、停牌粒度/无目标记忆等）
+  汇总在 [`docs/PLANNER-REFACTOR.md`](docs/PLANNER-REFACTOR.md)——**改 bug 或重构前先分清回路**，不要把
+  规划器的问题当成技能层 bug 去修，也不要在改退避机制时忘了它会波及 `!`/`do_task`。
 * **LLM 挖矿接管默认关闭**（`miningRecovery.enabled=false`）：异常仍会被记录，确定性宏耗尽后诚实失败/报告 partial；
-  真机 L 系列验收通过后再显式开启。开启后接管与聊天共用模型并发/token 账本，且不解除危险/权限/死亡停牌。
+  真机 L 系列验收通过后再显式开启（L01 已于 10-12 通过、0 次模型调用；L02 已于 10-10 夜真机尝试 3 次、
+  全部失败——超时与空回执两类当夜已修（`40b153c`），仍在等合法的可恢复停滞夹具做修后复测，
+  且不得为测试移除安全措施）。开启后接管与聊天共用模型并发/token 账本，且不解除危险/权限/死亡停牌。
 * **尚未实现**：交易、附魔、下界/末地、区块级地图记忆（长距离探索会重新找路）。
 * **操作注意**：客户端窗口未聚焦或开着 GUI 时游戏忽略输入；控制 Mod 改动必须重启客户端才生效
   （Node 改动只需重启 Agent）。
@@ -338,8 +381,8 @@ P0 的完整实施状态与验收证据见 [`docs/P0-STATUS.md`](docs/P0-STATUS.
 
 ```powershell
 npm run p0:verify      # 离线全量（约 1 分钟，8 个套件）
-npm run selftest       # 175/175：模块图 / 插件 / 寻路 / 三原语 / 意图 Schema / 工具白名单 / 死亡处理
-npm run mining:entry:test      # 20/20：统一挖矿入口
+npm run selftest       # 176/176：模块图 / 插件 / 寻路 / 三原语 / 意图 Schema / 工具白名单 / 死亡处理
+npm run mining:entry:test      # 23/23：统一挖矿入口
 npm run mining:collection:test # 24/24：共享收集
 npm run mining:recovery:test   # 18/18：LLM 接管（脚本化模型）
 ```

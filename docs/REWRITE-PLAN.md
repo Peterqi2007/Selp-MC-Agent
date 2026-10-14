@@ -3,6 +3,10 @@
 对应操作员 2026-10-02 的指令：「参考 mc_aiplayer / mindcraft 重写，实现玩家绝大部分操作」。
 参考仓库留在 `refs/mc_aiplayer`、`refs/mindcraft`（gitignore，不进入本项目历史）。
 
+> **状态提示（2026-10-14）**：本文记录到 **2026-10-08**，其后进展见 [`../README.md`](../README.md) §3。
+> 其中**规划器（自主决策）**的代码问题、重构债，以及它与 `!` 命令 / LLM 回路的边界，
+> 已单独立账在 [`PLANNER-REFACTOR.md`](PLANNER-REFACTOR.md)——规划器是下一阶段重点重构对象。
+
 ---
 
 ## 一、从两个参考项目各取什么

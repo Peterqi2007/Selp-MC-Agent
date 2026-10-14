@@ -7,6 +7,12 @@
 > 代码级事实见 [`CAPABILITY-AUDIT.md`](CAPABILITY-AUDIT.md)，架构背景见 [`ARCHITECTURE.md`](ARCHITECTURE.md)。
 >
 > 全部结论为**静态代码核实**，未实机启动 PCL。
+>
+> ⚠️ **行号已过期（2026-10-14）**：本文引用的 `brain.js:180/312/354` 等行号属于当时版本
+> （`src/brain.js` 现为 1063 行）。涉及**规划器**（`decide()`/`runTask()`/`maybeRetry()`/`quarantine`）的
+> 部分请以 [`PLANNER-REFACTOR.md`](PLANNER-REFACTOR.md) 为准——包括它纠正的边界：B1/B2 退避**记账**在
+> `runTask`，规划器与命令表任务共用（所以 `!` 材料类、LLM `do_task` 材料类同样受影响）；
+> `quarantine` 的**拦截**才是规划器专属；TaskHub 派发的作业（矿石、`do_skill` 长技能）两者都不适用。
 
 ---
 

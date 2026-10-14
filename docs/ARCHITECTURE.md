@@ -9,6 +9,9 @@
 > **与 2026-09-30 旧版的最大区别**：主线躯体已经从 mineflayer 换成「真实 Forge 客户端 + 控制 Mod」，
 > 决策层新增了**技能目录 / 任务槽 / 失败阶梯 / 权限闸门 / LLM 工具层**；旧版里那份「clientmod 接线缺口」
 > 清单大部分已修复或被新结构取代（残留项统一收进 §九）。
+>
+> **§九 例外**：技术债表已在 **2026-10-14 按代码逐条复核**（见 §九 开头的复核说明），其余章节仍为 2026-10-07 版；
+> **§十 的套件计数已刷新到 2026-10-14 实测值**（与 [`../README.md`](../README.md) §8 同源）。
 
 ---
 
@@ -127,6 +130,13 @@ mineflayer→ controller.connect()，在 'spawn' 事件里 rearm/scan/rescue/too
   回声过滤 / 防抖（`minReplyGapMs`）/ 长度截断只实现一次。
 
 ### 3.2 决策与调度
+
+> **规划器专项**：本节描述的自主规划器（`slowLoop` → `decide()` → `runTask`）是**下一阶段重构对象**。
+> 它的已核实问题清单（P1–P10）、重构债（Q1–Q7），以及它与 **`!` 命令回路**、**LLM `do_task`/`do_skill` 回路**
+> 的边界，统一记在 [`PLANNER-REFACTOR.md`](PLANNER-REFACTOR.md)；本节与 §九只保留结论摘要。
+> **边界要点**：B1/B2 的**记账**在 `runTask`，故为"规划器任务 + 命令表任务"共用（`!` 材料类、LLM `do_task`
+> 材料类同样会写）；`quarantine` 的**拦截**只在 `decide()/pickRule()`，只影响自主选目标；TaskHub 派发的
+> 作业（矿石、长技能）两者都不适用。改退避机制前必须先看这条边界。
 
 #### `src/brain.js` —— 快反射 + 慢规划 + 停牌表
 
@@ -512,35 +522,60 @@ Places        ──► runtime/places.json；LLM 轨迹 ──► runtime/llm-t
 
 ---
 
-## 九、已知缺口与技术债（2026-10-08）
+## 九、已知缺口与技术债
+
+> **复核说明（2026-10-14）**：下表 9 条原写于 2026-10-08；2026-10-14 以**代码为唯一真相**逐条静态复核
+> （只读，未做客户端测试），结论：**#2 已修复；#5 的停牌键一致性已修（同条其余子项仍成立）；#4、#7 部分成立；
+> #9 逐项混合（①②成立／③部分）；其余仍成立**；描述已按复核结果限定或拆分，另新增 §9.1 复核发现。
+> **行号为 2026-10-14 修复后**（quarantine 键修复见 #5）的工作树行号。
+> 其中属于**规划器**的条目（#1、#5 与 §9.1 的 #10–#13）另有一份规划器视角的完整清单与分路说明：
+> [`PLANNER-REFACTOR.md`](PLANNER-REFACTOR.md)（P1–P10 / Q1–Q7）。
+
+| # | 事项 | 复核裁定 | 说明 / 证据 |
+| --- | --- | --- | --- |
+| 1 | 两套执行层并存 | **仍成立**（边界需修正） | 自主慢规划全走 `src/tasks/`（导入 `src/brain.js:18-25`、规则表 `:560-624`），矿石经适配器进技能层（`src/tasks/mineOre.js:57-63` → `skills.run('mine_ore')`）。但"玩家/LLM 指令走 `src/skills/`"不成立：`!chop`/`!mine`(材料)/`!hunt`/`!craft`/`!shelter`/`!light`/`!store` 仍 `new` 旧 Task（`src/chat/commands.js:230-241,330-340`），只有 `!<skill>`（`:638-640`）与矿石分流进技能层。且"新功能只进技能层"已有破例：2026-10-10 的 `fca9a91`、`22d73e0` 仍改 `src/tasks` |
+| 2 | 反射层的 mineflayer 绑定 | **已修复（技能驱动）** | `src/brain.js:258` `skillDriven = this.ctx.bodyKind !== 'mineflayer'`：进食 `:285-289`→`reflexEat`（`:364-389`）→`skills.run('eat')`；危险撤退 `:260-283`→`skillRetreat`（`:400-423`）；遭遇战 `:316-338`→`skills.run('shoot'\|'attack')`；穿甲 `:344-355`→`skills.run('armor')`（30s 限频）。servo 类仍读 controller（`src/survival/autoEat.js:25`、`combat.js:32`、`toolManager.js:22`）且仍在 `src/index.js:213-215` 构造，但只在 mineflayer 分支被调用（`:270-271,288,340,345`）⇒ 对 clientmod 是**兼容残留，不再是"安全空转的反射"**。`needsRescue` 崩溃已修（`src/core/recovery.js:48-49`）；残留 `escapeToGround` 仍直连 `ctx.bot`（`src/core/recovery.js:107,113,121-124`，当前不可达）。真机活动证据：10-13 日志多次 `hostile … - engaging` 与 `danger detected, retreating` |
+| 3 | 部分旧任务未 Body 化 | **仍成立**（清单要加 `light`） | bot 直连：`src/tasks/hunt.js:33,43`、`shelter.js:33,44,114`、`deposit.js:40,103`、**`light.js:31,56,81`（原表漏项）**，另有辅助 getter `src/tasks/task.js:60-62`。clientmod 下 `ctx.bot` 恒为 null（只有 mineflayer 的 `botCreated` 才赋值：`src/index.js:258-259`，说明见 `:315-319`）。能力位：`src/body/body.js:260,272` 默认 false，`src/body/clientModBody.js:1534` 只覆盖 `supportsCrafting` ⇒ hunting/deposit 均 false；`hostiles` 只含敌对（`ClientStateSnapshot.java:363-375` 的 `instanceof Monster`）⇒ 被动生物在任何 body 都不可见。技能层另有 beta 的 `deposit`（`src/skills/containers.js`）可用，故"deposit 不可用"只对任务层成立 |
+| 4 | 断开/离开世界检测缺失 | **部分成立**（拆两条） | **已修**：快照不再冻结——TTL 400ms（`src/body/clientModBody.js:79`）、后台轮询 `statePollMs` 默认 500／设 0 可关（`:93,256-269`）、反射每 tick 兜底 `refresh(false)`（`src/brain.js:205`）、视图每次向 body 取最新（`src/world/bodyWorldView.js:55-59`），并有离线回归 `scripts/test-clientmod-protocol.js:717-721`；回主菜单 ⇒ `ready:false`（`ClientStateSnapshot.java:64-68`）⇒ `snapshot()=null` ⇒ 双循环 early-return（`src/brain.js:483`），walk/nav/plan 报 `body-lost`。**仍缺**：无显式检测/停牌/告警（`src/core/deathWatch.js:86` 直接 return，不走 hold 表）；维度变化无比较；**Mod 不可达时 `refresh()` 的 catch 返回旧快照且不置 `connected=false`（`src/body/clientModBody.js:290-293`）⇒ `isReady` 恒真、大脑无限期按冻结快照规划**；LLM 感知工具读缓存不刷新（`src/llm/tools/perceptors.js`，`statePollMs=0` 时无上限）；走位中退回主菜单时 `WalkTo` 把 `player==null` 当到达（`ClientActions.java:811-813`）而 busy 恒真 ⇒ Node 空轮询到超时（Tunnel/Pillar 正确 `no-body`：`:1513,1853`；DigBlock 有同缺陷） |
+| 5 | 自主采矿目标的失败退避 | **部分修复**（键一致性 2026-10-14 已修；矿石路径仍无刹车） | **键一致性已修**：`decide()` 改为 `return this.pickRule(rules)`（`src/brain.js:626`），`pickRule`（`:648-668`）在 `when()` 通过后**先构造任务、再按 `task.name` 检疫**（`:661`）。修复前查的是 `rule.name`，使"矿石规则 `mine` → 任务 `mine_ore`"与"木头规则 `gather-wood` → 任务 `chop-wood`"两条路径的 30s 停牌**静默失效**。回归用例：`scripts/mining-entry-test.js` A10 三条（套件 20/20 → **23/23**）；把旧键放回去会立刻失败两条（实测）。**但要看清它修好了什么**：真正恢复停牌的是**木头路径**（`chop-wood`，`progress()` 返回数字）与材料路径（本来就正常）；**矿石路径仍然没有刹车**——`MineOreTask.progress()` 每次返回**新对象**（`src/tasks/mineOre.js:79-86`），B1 的严格相等永不成立，且零收获的矿石运行返回 `ok:true`（`src/skills/mining.js:2140`）⇒ 既不停牌也不罢工（详见 [`PLANNER-REFACTOR.md`](PLANNER-REFACTOR.md) P3/P4）。**仍成立**：① 粒度是任务名而非目标 ⇒ 同名规则连坐、却不记住具体不可达矿点，30s 后原样重放（停牌时 `_stalls` 被清零：`:809`；quarantine 过期即删：`:823`）；② 目标级黑名单仍是死代码（`src/core/memory.js:87-99` 无调用者）；③ 30s 为字面量、**无配置键**（`:808`，`config/agent.json` 内无 quarantine/backoff 键）。④ **设计选择而非缺陷**：采矿在"一块都没拿到但见过目标"时返回**成功**（`src/tasks/harvest.js:265-270`，理由见 `:256-264`——曾把"候选全都够不到"误报成"附近没有土"），因此**失败惩罚阶梯（`src/brain.js:762`，20s→120s 递增）对该场景永不适用**，只剩固定 30s 的零进展停牌。**日志辨识**：零进展停牌 = `made no progress (N) for K runs - parking it briefly`（`:807`）；失败退避 = `failed <name>: ...`（`:710`）+ `exhausted retries`（`:755`）；指令停止 = `brain hold: owner-stop`（`holds` 表） |
+| 6 | 通用 WalkTo 无落差保护 | **成立**（限定：Mod 端无保护；Node 端仅"规划期有界"） | Mod 端 `WalkTo`（`ClientActions.java:744-999`）无 ledge/液体探底——`"ledge"` 全文件只出现在 Tunnel（`:1733`）；Node 端 A\* 有 `MAX_DROP = 3`（`src/pathfinding/movementsAdapter.js:44`），但 `src/pathfinding/walker.js:254` 临发前不复检，且两条通路绕过规划：`src/pathfinding/navigator.js:64-65,145-146`（≤directRange 直走）与 `src/body/clientModBody.js:555-564`（短跳直发）。落差预检 `dangerAt` 只在采矿技能内（`src/skills/mining.js:335,1609`）⇒ goto/explore/come 仍可能一脚踩空 |
+| 7 | 采矿批次真机已通过（遗留两项） | **前句成立；遗留拆两条** | **真机通过**：2026-10-08 首轮（金矿 26+15 块、tunnel 全程 `jumps=0`、`ledge` 实测）＋ 10-10～10-12 续测（逐格垫柱/共享收集/有限清障/对角密闭），证据见 MINING-LLM-PLAN 附二/附三。**仍缺(a)**："吃饭→tunnel"只有离线用例（`scripts/skills-test.js:873-911`），待自然饥饿复测。**仍缺(b)**：镐子**耐久管理未实现**——唯一耐久消费者是钓竿（`src/skills/fishing.js:377,381,388`），`heldDurability` 只报主手（`ClientStateSnapshot.java:139`），选镐完全不读耐久（`src/world/toolPolicy.js:67-92`、`src/tasks/mineBlock.js:366`；同级并列时速度优先，而金为木级见 `src/world/items.js:163-165`） |
+| 8 | mod-bridge 未接线 | **仍成立** | `mod-bridge/README.md` 自述 Fabric-only 服务端 Mod；仓库无消费（`src/` 内无相关 require，`scripts/bridge-client.js` 只能手动 `npm run bridge`）。`bridgePort` 唯一真实用途是推导面板端口（`src/index.js:56`）；`installBridgeMod`（`src/util/config.js:244`）与 `paths.modBridge`（`:351`）**无读取者** |
+| 9 | 旧路径残留 | ①**成立** ②**成立** ③**部分成立（客户端行为）** | ①`npm start` = `scripts/run-all.js`：`:143-144` 自称"mineflayer agent"且子进程只带 `--force`（不传 `--body`）⇒ body 取 `config/agent.json:4` 的 `clientmod`（`src/body/factory.js:28`），而它启动的是本地 vanilla 专服，clientmod 需要已运行的 Forge 客户端（`src/body/factory.js:78-82`）；附加：`run-all.js:68-71` 的 `--port` 只改父进程 cfg，不传子进程。②`scripts/gen-srg-names.js:25` 自标 `STATUS: NOT WORKING YET`，仍挂在 `package.json:37` 的 `client:srg`。③`servers.dat` 重连属客户端自身行为：仓库无读写/清理代码（`scripts/launch-forge-client.js:23,35,525` 只拼 `--quickPlayMultiplayer`），无人值守前需操作员处理 |
+
+### 9.1 复核新增发现（2026-10-14，原表未记载）
+
+> #10–#13 中有 4 条属于**规划器**（自主决策回路）。规划器的完整清单——含 P3 `MineOreTask.progress()`
+> 返回新对象导致零进展判定失效、P4 零收获矿石运行返回 `ok:true`、P8 文档声称的 `task:quarantined`
+> 事件从未 emit——见 [`PLANNER-REFACTOR.md`](PLANNER-REFACTOR.md)。
 
 | # | 事项 | 说明 / 证据 |
 | --- | --- | --- |
-| 1 | **两套执行层并存** | 自主慢规划仍走 `src/tasks/`（mineflayer 时代），玩家/LLM 指令走 `src/skills/`。新功能只进技能层；两条链路的一致性靠"harvest 类任务已 Body 化"维持 |
-| 2 | **反射层的 mineflayer 绑定** | AutoEat / Combat / ToolManager 读 `controller.bot`；clientmod 下 `ctx.bot = null`，快循环的吃/自卫/穿甲是**安全空转**（技能层的 `eat`/`attack`/`armor` 仍可用） |
-| 3 | **部分旧任务未 Body 化** | `hunt` / `shelter` / `deposit` 仍直接使用 `ctx.bot`；clientmod 下不可用或功能受限（被动生物也不在 `hostiles` 里） |
-| 4 | **断开/离开世界检测缺失** | 客户端退回主菜单后，Node 仍会按过期快照规划（修复方向：检测 `ready=false`/维度变化 → 挂起 + 周期刷新） |
-| 5 | **自主采矿目标的失败退避** | 自主循环对不可达目标会按 30s 左右反复重试；待加宽退避或配置开关 |
-| 6 | **通用 WalkTo 无落差保护** | 防坠落已覆盖 `tunnel` 与采矿阶梯；通用走路（mod `WalkTo`）仍只有"撞墙跳一格"，落差保护未做 |
-| 7 | **采矿批次真机已通过** | 2026-10-08 在 mc.example.com 验收通过（金矿 26+15 块、tunnel 全程 `jumps=0`、`ledge` 防坠落实测、1–2 格台阶零误报），细节见 REWRITE-PLAN §12.6；遗留"吃饭→tunnel"自然饥饿复测与镐子耐久管理 |
-| 8 | **mod-bridge 未接线** | Fabric-only，且未安装、无代码消费；当前服务器是 Forge ⇒ 只能另建 Fabric 服启用 |
-| 9 | **旧路径残留** | `npm start`（run-all）与默认 `body=clientmod` 不匹配；`scripts/gen-srg-names.js` 是失败尝试的化石；`servers.dat` 会导致客户端断线自动重连旧服务器，无人值守前需清理 |
+| 10 | **`shelter` 规则是静默死规则（bug）** | `src/brain.js:581` 在 `when()` 中引用未定义变量 `bot`（该作用域只有 `view` 与 `this.bot`），规则表 try/catch（`:650-656`）以 **debug 级**吞掉 ReferenceError ⇒ **夜间自主 shelter 永不触发**（三种 body 皆然），自基线提交 `70eb462`（2026-10-02）起就存在；生产 `logging.level=info`，故日志里看不到。`!shelter` 在 clientmod 下同样失败（`ctx.bot` 为 null）。一行可修 |
+| 11 | **`light` 规则无能力闸门** | `src/brain.js:588,608` 只判"有煤/木炭"，不判 body 能力 ⇒ clientmod 下会被反复选中而 `LightTask` 必失败（`src/tasks/light.js:31,56,81`），仅靠 #5 的 30s 停牌缓解 |
+| 12 | **挖矿恢复提示词缺工具参数说明** | `src/llm/miningRecoveryPrompt.js:20,32` 只给工具**名**与通用 step 形状（`"args": object`），模型无从得知 `move_to_cell` 需要 `stand` ⇒ 这正是 2026-10-10 真机 L02 一次失败的来源（Schema 护栏按设计拒绝、零副作用） |
+| 13 | **接管接线的离线覆盖边界** | `scripts/mining-recovery-test.js` 只覆盖监控器与会话（require 列表无 `src/skills/mining.js`）；`src/skills/mining.js:1989,2017` 的两处接管接线**无离线断言** ⇒ "监控器 + 会话通过"不等于"接线被验证"，真机 L02+ 修后未复测 |
 
 ---
 
 ## 十、验证体系
 
-| 套件 | 覆盖 | 现状 |
+| 套件 | 覆盖 | 现状（2026-10-14 实测） |
 | --- | --- | --- |
-| `npm run selftest` | 模块图 / 插件 / 寻路 / 三原语 / 意图 Schema / 工具白名单 / 死亡处理 | 169/169 |
+| `npm run selftest` | 模块图 / 插件 / 寻路 / 三原语 / 意图 Schema / 工具白名单 / 死亡处理 | 176/176 |
 | `npm run p0:verify` | 一次跑 8 个套件（path/tasks/llm:dry/control/roleplay/clientmod/selftest/plan:audit） | 8/8 |
-| `npm run skills:test` | 18 技能（含采矿报价/台账/防坠落） | 33/33 |
-| `npm run client:test` | 假 Mod 协议（含 tunnel、verdict） | 59/59 |
+| `npm run skills:test` | 19 个技能（含采矿报价/台账/防坠落/垫柱/共享收集、战斗与枪械） | 57/57 |
+| `npm run client:test` | 假 Mod 协议（含 tunnel / pillar / verdict / 空闲刷新 / shoot / retreat） | 73/73 |
 | `npm run clientmod:test` | clientmod 躯体角色扮演端到端 | 11/11 |
-| `npm run path:test` / `tasks:test` / `control:test` / `llm:dry` / `plan:audit` | 寻路 22 / 三原语 52 / 双通道+面板 35 / 路由 55+工具 39 / 计划符合性 29 | 全绿 |
+| `npm run mining:entry:test` | 统一挖矿入口 A 系列（含 A10 规划器停牌键） | 23/23 |
+| `npm run mining:collection:test` | 掉落物共享收集 C 系列 | 24/24 |
+| `npm run mining:recovery:test` | LLM 异常接管 R 系列（脚本化模型，不调付费模型） | 18/18 |
+| `npm run verify:roleplay` | 角色扮演审计（无游戏、无网络） | 34/34 |
+| `npm run path:test` / `tasks:test` / `control:test` / `llm:dry` / `plan:audit` | 寻路 22 / 三原语 52 / 双通道+面板+反射 37 / 路由 56+工具 39 / 计划符合性 29 | 全绿 |
 | `npm run client:verify` / `scripts/client-real.js` | 真机协议验收 / 三原语验收 | 需要客户端在跑 |
 
 离线全绿 ≠ 真机通过：真机测试需要操作员确认环境（`start.ps1` → 面板 → 按 REWRITE-PLAN §12 清单）。
+计数口径：本表为 2026-10-14 实跑值（与 `README.md` §8 同源）；改代码后请重跑 `npm run p0:verify` 与相关套件并同步两处。
 
 ---
 

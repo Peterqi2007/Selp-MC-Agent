@@ -375,6 +375,12 @@ acquisition 证据表达。最终回执和日志必须保留升了几格、在�
 
 ### 5.6 统一挖矿入口（先于 LLM 块级工具）
 
+> **规划器边界提示（2026-10-14）**：本节描述的入口统一发生在**请求解释层**；真正决定"何时自动去挖矿"
+> 的是**自主规划器**（`slowLoop → decide() → MineOreTask` 适配器）。规划器侧的已知问题——
+> `MineOreTask.progress()` 每次返回新对象导致规划器的零进展停牌对其完全失效（P3）、零收获矿石运行
+> 返回 `ok:true` 因而也不进失败罢工（P4）、停牌粒度是任务名而非目标（P5）——记在
+> [`PLANNER-REFACTOR.md`](PLANNER-REFACTOR.md)。**不要**把这些当作本方案（技能层）的缺陷来修。
+
 **目标。** 同一目标、数量与采矿参数从不同入口进入时，应得到相同的目标集合和执行器：
 矿石走 `mine_ore`；石头、泥土、沙等普通材料保留 `MineBlockTask`。统一的是请求解释和执行选择，
 不把所有材料都强行改成寻矿，也不在纯步行 A* 中开启挖掘。
@@ -620,6 +626,14 @@ P4 编号沿用原计划，但实施前移；A、P4、C1/C2 不依赖模型调�
 | P2 + C3 | 原任务内恢复状态机、多轮模型调用、同一 AcquisitionGoal 的拾取交接 | 多批次清障/升格/挖矿后继续到实际入包；单任务所有权；宏与恢复同夹具对照 |
 | C4 / 联合验收 | Mod 协议真机核验、真实模型恢复、面板/文档状态 | §6.6 与收集方案 §9.3；所有失败与未覆盖项均保留 |
 
+> **落地状态（2026-10-14 核对）**：A、P4、C1/C2、P1–P3、C3、C4 均已实现。离线套件实测
+> `mining:entry:test 23/23`、`mining:collection:test 24/24`、`mining:recovery:test 18/18`、
+> `skills:test 57/57`、`client:test 73/73`、`selftest 176/176`、`p0:verify 8/8` 全绿（不含 LLM 接管的真机部分）。
+> A/P4/C1/C2 的真机验收已完成（见附二、附三）；`miningRecovery.enabled` 仍为 **false**，
+> L 系列：L01 通过（10-12，0 次模型调用）；**L02 已于 10-10 夜真机尝试 3 次且全部失败**
+> （真实模型，tokens 5354/0/7252；超时与空回执两类失败当夜由 `40b153c` 修复，Schema 拒绝一类为护栏按设计生效；
+> **修后未复测**）。下表为验收设计，编号仍有效。
+
 ### 6.1 A：统一入口的离线验收
 
 覆盖 `scripts/llm-dry.js`、`control-test.js`、`tasks-test.js`、`skills-test.js`；必要时新增专门的
@@ -667,6 +681,9 @@ P4 编号沿用原计划，但实施前移；A、P4、C1/C2 不依赖模型调�
 受控矿道；多次测试使用等价但未被前一轮挖坏的地形。记录代码提交、jar SHA-256/版本、客户端重启状态、
 任务参数、实际入口、前后世界快照及日志，不能只凭聊天回复认定通过。
 
+> 状态（2026-10-14）：该计划对应的真机验收已于 2026-10-08 首轮、10-10～10-12 续测完成，记录见附二/附三；
+> 表中“连续升格”的同型竖井 3 次重复试验仍未完成，其余场景均已覆盖。
+
 | 场景 | 通过标准 |
 | --- | --- |
 | 命令与工具入口 | 游戏 `!mine diamond 2`、面板同指令、经真实工具调用的 `do_task mine` 分别在等价矿点执行；日志全部落到 `mine_ore`，每次只受理一次、实际各挖 2 块矿 |
@@ -695,7 +712,7 @@ P4 编号沿用原计划，但实施前移；A、P4、C1/C2 不依赖模型调�
 
 ### 6.5 P1–P3 / C3 的离线验收矩阵
 
-建议新增 `scripts/mining-recovery-test.js` / `npm run mining:recovery:test`，并接入实施后的相关验证入口。
+建议新增 `scripts/mining-recovery-test.js` / `npm run mining:recovery:test`（**已落地，18/18**），并接入实施后的相关验证入口。
 使用真实监控器、恢复状态机和执行器，注入可控时钟、脚本化模型响应及有约束的 Body/Mod；
 不调用付费模型，不启动游戏。断言动作序列、模型请求次数、目标证据、所有权、预算及最终回执，
 不能只断言模型返回了预定 JSON 或函数没有抛错。
@@ -866,8 +883,26 @@ P4 补单格 pillar 的放置权限；既有 tunnel 的连续挖掘权限缺口�
 9. tunnel 目标保护（CP7）真机命中：以相邻 deepslate 为保护目标发起 1 格隧道，控制器破坏前停手
    （`reason=target_requires_acquisition`、坐标精确、`dugCells=[]`），保护方块原样保留。
 
-尚未执行的真机项：tunnel 目标保护的真实命中场景、采集中途 stop、同型竖井 3 次重复试验，
-以及 §6.6 的 L 系列（`miningRecovery.enabled` 保持 false，离线矩阵已通过）。
+尚未执行的真机项：同型竖井 3 次重复试验。
+§6.6 的 L 系列：L01 已于 10-12 通过（0 次模型调用）；**L02 早在 2026-10-10 夜就已真机尝试 3 次、全部失败**
+（明细见下方补记）。`miningRecovery.enabled` 仍保持 false，离线矩阵已通过。
+本附二第 8、9 条已实测“采集中途 stop”与“tunnel 目标保护”，两者不再是遗留项。
+
+**补记（2026-10-14 复核 `runtime/mining-live/*-L02-*.json` 后补入）**：2026-10-10 夜 23:43–23:52（CST）以
+`npm run mining:live -- --recovery`（仅本次运行内存开启，**真实 LlmClient**，接线见 `scripts/mining-live-test.js:151-160`）
+实际执行了 3 次 L02 真机尝试，均以失败结束：
+
+| 轮次 | 证据文件（`runtime/mining-live/`） | 触发 | calls | tokens | 失败原因 |
+| --- | --- | --- | --- | --- | --- |
+| L02-b2 | `2026-10-10T15-47-16-645Z-live-L02-b2.json` | `pickup_stalled` | 2 | 5354 | `invalid recovery response: empty response` |
+| L02-e | `2026-10-10T15-49-56-153Z-live-L02-e.json` | `pickup_stalled` | 1 | 0 | `recovery_unavailable: timeout after 15000ms` |
+| L02-g | `2026-10-10T15-52-15-266Z-live-L02-g.json` | `pickup_stalled` | 2 | 7252 | `invalid batch: move_to_cell: missing required argument "stand"` |
+
+三轮都停在“矿已挖掉、产物未入包”（L02-b2/e 为 `raw_iron` ×1，L02-g 为 `diamond` ×1）。当夜提交 `40b153c`（23:56）
+针对前两类失败做了修复——`modelTimeoutMs 15000 → 30000`、`maxOutputTokens 2000 → 4096`，并新增“空回执时按双倍预算
+重试一次”；第三类属 Schema 护栏按设计拒绝（零非法副作用），但提示词未给出各工具的参数说明
+（见 [`ARCHITECTURE.md`](ARCHITECTURE.md) §9.1 #12）。**修复后未再复测**：10-12 的 L01 因危险拦停在取矿前就结束
+（无 mining 结果字段），L01b 的 `recoveryRuns` 为 0——两次的 `recovery` 记录都是空数组，此后再无 L02 尝试。
 
 ---
 
@@ -881,5 +916,28 @@ P4 补单格 pillar 的放置权限；既有 tunnel 的连续挖掘权限缺口�
 * 垫柱探针：本处为 2 高矿道，Mod 返回诚实的 `no-headroom`（带精确坐标）；成功跳的
   `start/end/placedCells` 回执已在 60936 实测，60961 未改动 Pillar。
 * 掉落物收集二修（清障支持低一层 + 填坑垫平 + Mod 严格到达 y 容差）见收集方案 §十一。
-* 仍未完成的 L 系列项：L02+（合法停滞 → 真实模型多批接管）。当前宏已能解决既有场景、危险类停不停均
-  不交模型；需要操作员构造可恢复停滞夹具（例如可控竖井振荡）后才能继续，不得为测试移除安全措施。
+* L 系列状态：L01 通过（0 次模型调用）；**L02 早在 10-10 夜已真机尝试 3 次、全部失败**（见附二“补记”），
+  当夜修掉超时与空回执两类失败后**未再复测**。当前宏已能解决既有场景、危险类停不停均不交模型；
+  需要操作员构造可恢复停滞夹具（例如可控竖井振荡）后才能做修后复测，不得为测试移除安全措施。
+
+---
+
+## 附四：2026-10-13 夜真机记录（jar 75000，mc.example.com，角色 `AgentDeepSeek`）
+
+客户端 22:03 启动并加载 75000 字节的新 jar（含战斗 v3 与枪械）；本节只记采矿相关事实，
+战斗部分见 [`COMBAT-PLAN.md`](COMBAT-PLAN.md) §四。证据：`runtime/logs/agent.log`（22:30–22:44 段）、
+`runtime/logs/forge-client-2026-10-13_14-03-28.log`。
+
+* **成功轮**：`deepslate_gold_ore x20` 完整成功并如实播报（“20 个深层金矿石，都变成 53 块粗金进背包”）。
+* **诚实停止轮**（本批主要观察点）：多轮在“矿已挖掉但产物未入包”处停下，每次都先落恢复触发记录
+  `pickup_stalled: the shared collector tried its stands without a verified pickup - miningRecovery.enabled=false,
+  not calling the model`，随后 `stopping:` 说明具体原因——包括
+  「the drop is more than one level away」（掉落物低一层）与
+  「the walker did not enter the opened cell …」（走位器未能进入已开挖格，附精确落点坐标）。
+  聊天如实汇报 partial：“才挖到 2 块深层金矿石，还有 6 块没挖到”；另一轮 `x16` 只记到 3 块。
+* **与开关的语义一致**：因 `miningRecovery.enabled=false`，上述停滞一律**不调用模型**，只记录触发并诚实失败；
+  这符合 §5.2.3 / R08 与 L08 的“关闭开关时不调用模型、仍保留异常与未收记录”的意图（L08 尚未作为
+  独立验收项正式判定）。
+* **账号改名**：本节是 `agent` → `AgentDeepSeek`（配合 littleskin 皮肤）后的首次真机登录，登录正常。
+* **本节未覆盖**：L02+ 的“修后复测”（10-10 夜的三次尝试见附二补记；本节两次停滞触发都因
+  `miningRecovery.enabled=false` 未调模型）、同型竖井 3 次重复试验。

@@ -8,6 +8,13 @@
 > 前置阅读：[`ARCHITECTURE.md`](ARCHITECTURE.md)（含 §六 clientmod 接线缺口）、[`LLM-INTEGRATION-PLAN.md`](LLM-INTEGRATION-PLAN.md)。
 >
 > ⚠️ **本文的缺口清单已由 [`CAPABILITY-AUDIT.md`](CAPABILITY-AUDIT.md) 做代码级核实并修正**（AuthMe 结论、8899 可用 verb 清单、寻路缺失的影响）。两份文档一起看。
+>
+> ⚠️ **行号已过期（2026-10-14）**：本文引用的 `brain.js:40/312/323-327/354/432` 等行号属于当时版本
+> （`src/brain.js` 现为 1063 行）。其中关于"优先级/抢占"的结论已由后来的实现取代；
+> **规划器（自主决策）**的现行问题与重构边界见 [`PLANNER-REFACTOR.md`](PLANNER-REFACTOR.md)。
+> 那里的分路说明也纠正了一个常见误解：B1/B2 退避的**记账**在 `runTask`，由"规划器任务 + 命令表任务"
+> 共用（`!` 材料类、LLM `do_task` 材料类都会写）；只有 `quarantine` 的**拦截**是规划器专属，
+> TaskHub 派发的作业（矿石、长技能）则两者都不适用。
 
 ---
 

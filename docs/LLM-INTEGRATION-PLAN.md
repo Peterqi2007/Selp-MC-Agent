@@ -237,6 +237,14 @@ whisper(username, message)          // 私聊 —— mineflayer 自带 bot.whisp
 | 8 | **长期空闲** | 无任务 且 `_idleTicks` 累积 | 180s | 问玩家要不要派活 |
 | 9 | **Safe Mode** | `brain.safeMode` 变 true | 一次 | 说自己在躲怪、躲多久 |
 
+> ⚠️ **实现现状（2026-10-14 代码核实）**：第 5 条依赖的 **`task:quarantined` 事件在代码里从未被 emit**——
+> `src/brain.js` 只有 `task:done`（`:702`）与 `task:failed`（`:712`）两个事件。因此"失败求助"若要落地，
+> 必须先补事件或改用 `task:failed`。这属于**规划器**遗留（`quarantine` 由规划器与命令表共用的
+> `runTask` 记账），详见 [`PLANNER-REFACTOR.md`](PLANNER-REFACTOR.md) **P8**。
+> **回路边界**：本文档凡涉及 `runTask`/`quarantine`/重试的部分，作用于"经 `brain.enqueue` 的任务"
+> （自主规划 **以及** `!` 材料类、LLM `do_task` 材料类——它们共用同一张命令表）；而 TaskHub 派发的
+> 作业（矿石、`do_skill` 长技能）**不进**这套退避。
+
 **实施要点**：
 - 触发器读的是 `body.snapshot()` + `brain.status()`，**不启动任何任务、不阻塞**
 - 每条触发器的**冷却时间存在 `SpeechScheduler` 内**（不进 `Memory`，避免重启后哑掉）
