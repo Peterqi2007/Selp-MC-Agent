@@ -55,7 +55,7 @@
   hp<16 与“本 tick 掉血”→`shoot{id}`；忽略名单跳过/≤3 覆盖；战斗任务存在→反射不双发；
   枪械失败→近战回退。
 - 其余：`client:test 73/73`、`selftest 176/176`、`tasks:test 52/52`、`mining:collection:test 24/24`、
-  `mining:entry:test 23/23`、`mining:recovery:test 18/18`（计数实测于 2026-10-14）。
+  `mining:entry:test 25/25`、`mining:recovery:test 18/18`（计数实测于 2026-10-14）。
 
 ## 四、真机验收清单（10-13 夜部分覆盖，其余待操作员确认）
 

@@ -154,8 +154,8 @@ LLM 层（`src/llm/`，生产配置已开启 `toolCalling`）：8 个工具 —�
 当前状态（套件计数实测于 2026-10-14；真机记录截至 2026-10-13 夜）：
 
 * 离线全绿（2026-10-14 实跑）：`selftest 176/176`、`skills:test 57/57`、`client:test 73/73`、`control:test 37/37`、
-  `mining:entry:test 23/23`、`mining:collection:test 24/24`、`mining:recovery:test 18/18`、`tasks:test 52/52`、
-  `path:test 22/22`、`clientmod:test 11/11`、`verify:roleplay 34/34`、`llm:dry` 路由 56/56 + 工具 39/39、
+  `mining:entry:test 25/25`、`mining:collection:test 24/24`、`mining:recovery:test 18/18`、`tasks:test 52/52`、
+  `path:test 22/22`、`clientmod:test 11/11`、`verify:roleplay 34/34`、`llm:dry` 路由 67/67 + 工具 39/39、
   `p0:verify 8/8`（明细见 §8）。
 * 控制 Mod：`mod-client/dist/agent-client-1.0.0.jar` **75000 字节**（2026-10-13 17:37 构建，含 WalkTo 严格到达
   y 容差、战斗 v3 与 TACZ 枪械）；已 `client:install`，与 PCL 版本目录在装的 jar 字节完全一致，并已在 10-13
@@ -286,6 +286,11 @@ Invoke-RestMethod -Uri http://127.0.0.1:8766/ui/state
    方块持续有效；`deny` 优先。
 9. **防坠落**：落差 >2 格或先见液体 → Node waypoint 预检 + Mod tick 级探底拒绝（`ledge`）；
    隧道跑完复查洞窟（openness ≥ 45% 即停），正常 1–2 格台阶不受影响。
+10. **中文矿名没有别名（2026-10-14 修复）**：别名表只有英文，于是"金矿"这类中文词到不了深板岩变体——
+   归一化把中文名按普通名字分类成 **material**（`mine_ore only takes ores`），LLM 工具参数（`block:["金矿"]`）
+   与 `do_skill` 边界同样降级；兜底路由又是手写的 4 矿 if 链，铜/红石/绿宝石/石英/残骸掉进"挖石头"，
+   而 `/金/` 会命中**青金石**→挖成金。现在中文词条与英文词条同表（含"X矿/矿石"后缀与"深板岩X"前缀），
+   路由按**最长别名**匹配；10 个矿种 × 6 个入口的矩阵进了 `mining:entry:test` A11。
 
 ---
 
@@ -328,14 +333,14 @@ Invoke-RestMethod -Uri http://127.0.0.1:8766/ui/state
 | `npm run client:test` | 假 Mod 协议测试（含 pillar 回执/隧道保护/空闲刷新/shoot/retreat） | 73/73 |
 | `npm run clientmod:test` | clientmod 躯体角色扮演路径 | 11/11 |
 | `npm run skills:test` | 技能库（含采矿/垫柱/护甲/武器/进食/枪械选枪与反卡死、战斗租约） | 57/57 |
-| `npm run mining:entry:test` | 统一挖矿入口 A 系列（含 A10 规划器停牌键） | 23/23 |
+| `npm run mining:entry:test` | 统一挖矿入口 A 系列（含 A10 规划器停牌键、A11 全矿种深板岩矩阵） | 25/25 |
 | `npm run mining:collection:test` | 掉落物收集 C 系列 | 24/24 |
 | `npm run mining:recovery:test` | LLM 异常接管 R 系列（脚本化模型） | 18/18 |
 | `npm run selftest` | 全量离线自检 | 176/176 |
 | `npm run p0:verify` | P0 全量验收（一次跑 8 个套件） | 8/8 |
 | `npm run path:test` | 寻路场景 | 22/22 |
 | `npm run tasks:test` | 三原语（走 / 挖 / 捡） | 52/52 |
-| `npm run llm:dry` | 意图路由 / Schema / 工具白名单 | 路由 56/56 · 工具 39/39 |
+| `npm run llm:dry` | 意图路由 / Schema / 工具白名单 | 路由 67/67 · 工具 39/39 |
 | `npm run control:test` | 双通道 + 面板 + 死亡处理 + 反射路由 + 战斗反射 | 37/37 |
 | `npm run plan:audit` | 计划书 §11 符合性 | 29/29 |
 | `npm run inspect:server` / `mods:report` | 连服前体检 / Mod 知识报告 | 辅助 |
@@ -382,7 +387,7 @@ P0 的完整实施状态与验收证据见 [`docs/P0-STATUS.md`](docs/P0-STATUS.
 ```powershell
 npm run p0:verify      # 离线全量（约 1 分钟，8 个套件）
 npm run selftest       # 176/176：模块图 / 插件 / 寻路 / 三原语 / 意图 Schema / 工具白名单 / 死亡处理
-npm run mining:entry:test      # 23/23：统一挖矿入口
+npm run mining:entry:test      # 25/25：统一挖矿入口（含全矿种深板岩矩阵）
 npm run mining:collection:test # 24/24：共享收集
 npm run mining:recovery:test   # 18/18：LLM 接管（脚本化模型）
 ```

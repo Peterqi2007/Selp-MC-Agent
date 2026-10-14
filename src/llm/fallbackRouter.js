@@ -122,7 +122,12 @@ const RULES = [
   },
   {
     name: 'mine',
-    pattern: /(挖矿|挖|采矿|矿石|石头|圆石|铁|煤|钻石|金|沙|\bmine\b|\bdig\b|\bmining\b|\bstone\b|\bcobble(stone)?\b|\biron\b|\bcoal\b|\bdiamond\b|\bgold\b|\bsand\b)/i,
+    /**
+     * The noun list must cover every ore a player can name, otherwise "帮我弄点红石" never
+     * reaches `blocksFor` and the answer is "I did not understand" (the 挖/采矿 verbs carry
+     * most requests; the nouns catch the rest). 矿 alone covers 铁矿/铜矿/红石矿/石英矿…
+     */
+    pattern: /(挖矿|挖|采矿|矿石|矿|石头|圆石|铁|煤|钻石|金|沙|铜|红石|绿宝石|翡翠|青金石|石英|残骸|下界合金|\bmine\b|\bdig\b|\bmining\b|\bstone\b|\bcobble(stone)?\b|\biron\b|\bcoal\b|\bdiamond\b|\bgold\b|\bcopper\b|\bredstone\b|\bemerald\b|\blapis\b|\bquartz\b|\bdebris\b|\bsand\b)/i,
     build: (count, text) => {
       const names = blocksFor(text);
       const target = count || 8;
@@ -161,13 +166,17 @@ const RULES = [
 
 /** Map the request text onto concrete block names the mining task understands. */
 function blocksFor(text) {
-  const t = String(text);
-  if (/铁|iron/i.test(t)) return ['iron_ore', 'deepslate_iron_ore'];
-  if (/钻石|diamond/i.test(t)) return ['diamond_ore', 'deepslate_diamond_ore'];
-  if (/煤|coal/i.test(t)) return ['coal_ore', 'deepslate_coal_ore'];
-  if (/金|gold/i.test(t)) return ['gold_ore', 'deepslate_gold_ore'];
-  if (/沙|sand/i.test(t)) return ['sand', 'red_sand'];
-  if (/圆石|cobble/i.test(t)) return ['cobblestone'];
+  /**
+   * One table (plan §5.6.3 "别名规则只维护一份"): the longest alias word in the sentence is
+   * expanded by the shared normalizer, so every ore keeps its deepslate twin.
+   *
+   * The hand-written if-chain this replaces only knew iron / diamond / coal / gold -
+   * copper, redstone, emerald, lapis, quartz and ancient_debris fell through to "mine
+   * stone", and 青金石 matched the 金 test and mined **gold** (found 2026-10-14 by
+   * enumerating every ore through every entry point).
+   */
+  const alias = miningRequest.aliasIn(text);
+  if (alias) return miningRequest.expandTarget(alias);
   return ['stone', 'cobblestone', 'deepslate'];
 }
 

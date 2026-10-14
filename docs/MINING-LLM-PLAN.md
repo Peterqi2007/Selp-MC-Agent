@@ -627,7 +627,7 @@ P4 编号沿用原计划，但实施前移；A、P4、C1/C2 不依赖模型调�
 | C4 / 联合验收 | Mod 协议真机核验、真实模型恢复、面板/文档状态 | §6.6 与收集方案 §9.3；所有失败与未覆盖项均保留 |
 
 > **落地状态（2026-10-14 核对）**：A、P4、C1/C2、P1–P3、C3、C4 均已实现。离线套件实测
-> `mining:entry:test 23/23`、`mining:collection:test 24/24`、`mining:recovery:test 18/18`、
+> `mining:entry:test 25/25`、`mining:collection:test 24/24`、`mining:recovery:test 18/18`、
 > `skills:test 57/57`、`client:test 73/73`、`selftest 176/176`、`p0:verify 8/8` 全绿（不含 LLM 接管的真机部分）。
 > A/P4/C1/C2 的真机验收已完成（见附二、附三）；`miningRecovery.enabled` 仍为 **false**，
 > L 系列：L01 通过（10-12，0 次模型调用）；**L02 已于 10-10 夜真机尝试 3 次且全部失败**

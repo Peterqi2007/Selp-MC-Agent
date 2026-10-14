@@ -48,8 +48,20 @@ for (const pair of Object.values(OVERWORLD_ORE_VARIANTS)) {
 }
 for (const name of Object.keys(OVERWORLD_ORE_VARIANTS)) ORE_BLOCKS.add(name);
 
-/** Words the players and the model actually say, mapped to concrete block names. */
+/**
+ * Words the players and the model actually say, mapped to concrete block names.
+ *
+ * Two vocabularies live in this one table (plan §5.6.3: "别名规则只维护一份"): the English
+ * words the model tends to emit, and the Chinese words the dialogue channel actually
+ * receives. Keys are matched **exactly** here, and the router picks the *longest* key
+ * contained in a sentence (`aliasIn`) - that is what keeps 青金石 from being read as 金,
+ * and `cobblestone` from being read as `stone`.
+ *
+ * Every ore alias points at the plain overworld name; the deepslate twin is added by
+ * `expandTarget` from `OVERWORLD_ORE_VARIANTS`, never written out twice.
+ */
 const TARGET_ALIASES = {
+  // ---- ores: English ------------------------------------------------------
   iron: ['iron_ore'],
   coal: ['coal_ore'],
   diamond: ['diamond_ore'],
@@ -61,6 +73,39 @@ const TARGET_ALIASES = {
   quartz: ['nether_quartz_ore'],
   netherite: ['ancient_debris'],
   debris: ['ancient_debris'],
+  nether_gold: ['nether_gold_ore'],
+  // ---- ores: Chinese ------------------------------------------------------
+  // The dialogue channel is Chinese, and both the model and the player type these; without
+  // them a Chinese ore word reaches `classifyTarget` as a plain name, gets classified as a
+  // *material* and silently degrades to the harvest task (found 2026-10-14: 金矿 never
+  // reached deepslate_gold_ore).
+  铁: ['iron_ore'],
+  铁矿: ['iron_ore'],
+  铁矿石: ['iron_ore'],
+  煤: ['coal_ore'],
+  煤矿: ['coal_ore'],
+  铜: ['copper_ore'],
+  铜矿: ['copper_ore'],
+  金: ['gold_ore'],
+  金矿: ['gold_ore'],
+  红石: ['redstone_ore'],
+  红石矿: ['redstone_ore'],
+  绿宝石: ['emerald_ore'],
+  绿宝石矿: ['emerald_ore'],
+  翡翠: ['emerald_ore'],
+  青金石: ['lapis_ore'],
+  青金石矿: ['lapis_ore'],
+  钻石: ['diamond_ore'],
+  钻石矿: ['diamond_ore'],
+  石英: ['nether_quartz_ore'],
+  石英矿: ['nether_quartz_ore'],
+  下界石英: ['nether_quartz_ore'],
+  下界金: ['nether_gold_ore'],
+  下界金矿: ['nether_gold_ore'],
+  远古残骸: ['ancient_debris'],
+  残骸: ['ancient_debris'],
+  下界合金: ['ancient_debris'],
+  // ---- materials: English -------------------------------------------------
   stone: ['stone', 'cobblestone', 'deepslate'],
   cobble: ['cobblestone'],
   cobblestone: ['cobblestone'],
@@ -69,8 +114,46 @@ const TARGET_ALIASES = {
   // The whole vanilla soil family: the live server's ground is often a biome-mod variant,
   // and `MineBlockTask` additionally matches modded `*_dirt` / `*_grass_block` names.
   dirt: ['dirt', 'grass_block', 'coarse_dirt', 'rooted_dirt', 'podzol', 'mycelium', 'moss_block', 'mud'],
-  wood: ['oak_log', 'spruce_log', 'birch_log', 'jungle_log', 'acacia_log', 'dark_oak_log']
+  wood: ['oak_log', 'spruce_log', 'birch_log', 'jungle_log', 'acacia_log', 'dark_oak_log'],
+  // ---- materials: Chinese -------------------------------------------------
+  石头: ['stone', 'cobblestone', 'deepslate'],
+  圆石: ['cobblestone'],
+  沙子: ['sand', 'red_sand'],
+  沙: ['sand', 'red_sand'],
+  沙砾: ['gravel'],
+  泥土: ['dirt', 'grass_block', 'coarse_dirt', 'rooted_dirt', 'podzol', 'mycelium', 'moss_block', 'mud'],
+  土: ['dirt', 'grass_block', 'coarse_dirt', 'rooted_dirt', 'podzol', 'mycelium', 'moss_block', 'mud'],
+  木头: ['oak_log', 'spruce_log', 'birch_log', 'jungle_log', 'acacia_log', 'dark_oak_log'],
+  原木: ['oak_log', 'spruce_log', 'birch_log', 'jungle_log', 'acacia_log', 'dark_oak_log'],
+  树木: ['oak_log', 'spruce_log', 'birch_log', 'jungle_log', 'acacia_log', 'dark_oak_log']
 };
+
+/**
+ * The Chinese prefix that pins a request to the deepslate member (`深板岩金矿` ->
+ * `deepslate_gold_ore` only), mirroring the English rule "an explicit deepslate name stays
+ * exact".
+ */
+const DEEPSLATE_PREFIX = '深板岩';
+
+/**
+ * Look one word up in the alias table, tolerating the Chinese noun suffixes players add
+ * ("远古残骸矿", "红石矿石"). Unknown words come back null so the caller keeps them verbatim
+ * and `classifyTarget` can still refuse honestly.
+ *
+ * @param {string} key
+ * @returns {string[]|null}
+ */
+function aliasSeeds(key) {
+  const direct = TARGET_ALIASES[key];
+  if (direct) return direct;
+  for (const suffix of ['矿石', '矿']) {
+    if (key.length > suffix.length && key.endsWith(suffix)) {
+      const trimmed = key.slice(0, -suffix.length);
+      if (TARGET_ALIASES[trimmed]) return TARGET_ALIASES[trimmed];
+    }
+  }
+  return null;
+}
 
 /** Skill parameters the unified layer passes through untouched (the skill schema validates). */
 const PASSTHROUGH_PARAMS = ['maxXZ', 'maxY', 'maxMs', 'maxApproachDigs', 'maxExtraDigs', 'eatAt', 'food', 'torch', 'lightThreshold'];
@@ -99,18 +182,26 @@ function namespaceOf(name) {
 function expandTarget(name) {
   const clean = cleanName(name);
   if (!clean) return [];
-  const alias = TARGET_ALIASES[clean];
-  const seeds = alias || [clean];
-  const out = [];
+  /**
+   * `深板岩金矿` asks for the deepslate member only - the Chinese twin of the rule "an
+   * explicit deepslate name stays exact". When the remainder names something with no
+   * deepslate form (深板岩沙子), the plain expansion is kept rather than inventing a twin.
+   */
+  const wantsDeepslate = clean.startsWith(DEEPSLATE_PREFIX) && clean.length > DEEPSLATE_PREFIX.length;
+  const key = wantsDeepslate ? clean.slice(DEEPSLATE_PREFIX.length) : clean;
+  const seeds = aliasSeeds(key) || [key];
+  const all = [];
   for (const seed of seeds) {
     const pair = OVERWORLD_ORE_VARIANTS[seed];
     if (pair) {
-      for (const variant of pair) out.push(variant);
+      for (const variant of pair) all.push(variant);
     } else {
-      out.push(seed);
+      all.push(seed);
     }
   }
-  return [...new Set(out)];
+  if (!wantsDeepslate) return [...new Set(all)];
+  const deepslate = all.filter((variant) => variant.startsWith('deepslate_'));
+  return [...new Set(deepslate.length ? deepslate : all)];
 }
 
 /**
@@ -122,6 +213,28 @@ function expandBlockNames(name) {
   if (!clean) return [];
   const expanded = expandTarget(clean);
   return expanded.length ? expanded : [clean];
+}
+
+/**
+ * The longest alias word contained in `text`, or null.
+ *
+ * Longest-first is the whole point of this helper: 青金石 must beat 金, 红石 must beat a
+ * bare 石 word, and `cobblestone` must beat `stone`. It is the router's half of the shared
+ * table, so adding one ore word here teaches the dialogue router and the request
+ * normalizer at the same time.
+ *
+ * @param {string} text
+ * @returns {string|null} the alias key (feed it to `expandTarget`)
+ */
+function aliasIn(text) {
+  const haystack = String(text == null ? '' : text).toLowerCase();
+  if (!haystack) return null;
+  let best = null;
+  for (const key of Object.keys(TARGET_ALIASES)) {
+    if (!haystack.includes(key)) continue;
+    if (!best || key.length > best.length) best = key;
+  }
+  return best;
 }
 
 /**
@@ -340,6 +453,7 @@ module.exports = {
   namespaceOf,
   expandTarget,
   expandBlockNames,
+  aliasIn,
   classifyTarget,
   resolverFromCtx,
   parseCount,

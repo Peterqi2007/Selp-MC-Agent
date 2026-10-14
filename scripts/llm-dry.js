@@ -65,6 +65,24 @@ const UTTERANCES = [
   { text: 'mine some stone', expect: { type: 'task', task: 'mine', block: 'stone' } },
   { text: '挖沙子', expect: { type: 'task', task: 'mine', block: 'sand' } },
   { text: '我需要金矿', expect: { type: 'skill', skill: 'mine_ore', block: 'gold_ore' } },
+  /**
+   * Every ore, in the words a player actually types (live report 2026-10-14: "金矿" never
+   * extended to 深板岩金矿). The assertion is the **deepslate** member where one exists -
+   * the surface name alone would still pass while the deepslate half was missing.
+   */
+  { text: '挖点金矿', expect: { type: 'skill', skill: 'mine_ore', block: 'deepslate_gold_ore' } },
+  { text: '挖点煤矿', expect: { type: 'skill', skill: 'mine_ore', block: 'deepslate_coal_ore' } },
+  { text: '挖点铜矿', expect: { type: 'skill', skill: 'mine_ore', block: 'deepslate_copper_ore' } },
+  { text: '帮我挖点红石', expect: { type: 'skill', skill: 'mine_ore', block: 'deepslate_redstone_ore' } },
+  { text: '挖点绿宝石', expect: { type: 'skill', skill: 'mine_ore', block: 'deepslate_emerald_ore' } },
+  // 青金石 contains 金: the longest-alias rule must win, or this mines gold.
+  { text: '挖点青金石', expect: { type: 'skill', skill: 'mine_ore', block: 'deepslate_lapis_ore' } },
+  { text: '挖点铁矿石', expect: { type: 'skill', skill: 'mine_ore', block: 'deepslate_iron_ore' } },
+  // An explicit deepslate request stays exact.
+  { text: '挖点深板岩钻石', expect: { type: 'skill', skill: 'mine_ore', block: 'deepslate_diamond_ore' } },
+  { text: '挖点石英', expect: { type: 'skill', skill: 'mine_ore', block: 'nether_quartz_ore' } },
+  { text: '挖点远古残骸', expect: { type: 'skill', skill: 'mine_ore', block: 'ancient_debris' } },
+  { text: 'mine some redstone', expect: { type: 'skill', skill: 'mine_ore', block: 'redstone_ore' } },
   // ---- collect ----------------------------------------------------------
   { text: '捡一下掉落物', expect: { type: 'task', task: 'collect' } },
   { text: '把地上的东西捡起来', expect: { type: 'task', task: 'collect' } },
@@ -173,8 +191,8 @@ function matches(action, expect) {
     );
   }
   process.stdout.write(`  ${correct}/${UTTERANCES.length} correct (${Math.round(ratio * 100)}%)\n`);
-  const routingPass = correct >= 26;
-  process.stdout.write(`  ${routingPass ? 'PASS' : 'FAIL'}  bar is >=26/30\n\n`);
+  const routingPass = correct >= UTTERANCES.length - 4;
+  process.stdout.write(`  ${routingPass ? 'PASS' : 'FAIL'}  bar is >=${UTTERANCES.length - 4}/${UTTERANCES.length}\n\n`);
 
   // ---- 2. schema discipline ----------------------------------------------
   process.stdout.write('2. intent schema: accepts valid, rejects everything else\n');

@@ -472,6 +472,94 @@ async function main() {
     }
   }
 
+  // ------------------------------------------------- every ore x every entry (2026-10-14)
+  process.stdout.write('\n8. every ore keeps its deepslate twin (all ores x all entries)\n');
+  {
+    /**
+     * Live report: "挖点金矿" reached gold_ore but never deepslate_gold_ore. Enumerating every
+     * ore through every entry point found two defects - the alias table had no Chinese at all
+     * (so a Chinese name was classified as a *material*), and the router's hand-written
+     * if-chain knew only iron/diamond/coal/gold (copper/redstone/emerald/lapis/quartz/debris
+     * fell through to stone, and 青金石 matched the 金 test and mined gold).
+     */
+    const ORES = [
+      { en: 'coal', zh: '煤', pair: ['coal_ore', 'deepslate_coal_ore'] },
+      { en: 'iron', zh: '铁', pair: ['iron_ore', 'deepslate_iron_ore'] },
+      { en: 'copper', zh: '铜', pair: ['copper_ore', 'deepslate_copper_ore'] },
+      { en: 'gold', zh: '金', pair: ['gold_ore', 'deepslate_gold_ore'] },
+      { en: 'redstone', zh: '红石', pair: ['redstone_ore', 'deepslate_redstone_ore'] },
+      { en: 'emerald', zh: '绿宝石', pair: ['emerald_ore', 'deepslate_emerald_ore'] },
+      { en: 'lapis', zh: '青金石', pair: ['lapis_ore', 'deepslate_lapis_ore'] },
+      { en: 'diamond', zh: '钻石', pair: ['diamond_ore', 'deepslate_diamond_ore'] },
+      { en: 'quartz', zh: '石英', pair: ['nether_quartz_ore'] },
+      { en: 'netherite', zh: '远古残骸', pair: ['ancient_debris'] }
+    ];
+    const { normalizeMiningRequest, normalizeOreParams } = require('../src/core/miningRequest');
+    const { normalizeIntent } = require('../src/llm/intent');
+    const norm = (blocks) => {
+      const r = normalizeMiningRequest({ blocks });
+      return r.ok ? r.blocks : [`REFUSED:${r.reason}`];
+    };
+    const hasAll = (list, want) => want.every((w) => list.includes(w));
+
+    await check('A11: 所有矿种 × 六个入口都能拓展到深板岩变体', () => {
+      const misses = [];
+      for (const ore of ORES) {
+        const deep = ore.pair.length > 1 ? ore.pair[1] : null;
+        const label = ore.en;
+        // 1) 共享归一化：英文别名 / 中文 / 中文+矿
+        for (const word of [ore.en, ore.zh, `${ore.zh}矿`]) {
+          const got = norm([word]);
+          if (!hasAll(got, ore.pair)) misses.push(`${label} normalize(${word}) -> ${got.join(',')}`);
+        }
+        // 2) 显式深板岩：只保留深板岩成员（没有变体的矿种保持原样）
+        const deepReq = norm([`深板岩${ore.zh}矿`]);
+        if (deep ? !(deepReq.length === 1 && deepReq[0] === deep) : !hasAll(deepReq, ore.pair)) {
+          misses.push(`${label} normalize(深板岩${ore.zh}矿) -> ${deepReq.join(',')}`);
+        }
+        // 3) 兜底路由（自然语言、无模型）
+        for (const phrase of [`挖点${ore.zh}矿`, `帮我挖点${ore.zh}`]) {
+          const routed = fallbackRouter.route(phrase);
+          const blocks = routed.ok && routed.intent.action.args ? String(routed.intent.action.args.block || '').split(',') : [];
+          if (!routed.ok || routed.intent.action.skill !== 'mine_ore' || !hasAll(blocks, ore.pair)) {
+            misses.push(`${label} route("${phrase}") -> ${routed.ok ? `${routed.intent.action.skill}:${blocks.join(',')}` : routed.reason}`);
+          }
+        }
+        // 4) goalRouter（!goal / --goal / 面板命令）
+        const goal = routeGoal({}, `挖${ore.zh}矿`);
+        const goalBlocks = goal && goal.task ? norm([].concat(goal.task.targets || [])) : [];
+        if (!goal || goal.task.name !== 'mine_ore' || !hasAll(goalBlocks, ore.pair)) {
+          misses.push(`${label} goalRouter -> ${goal ? `${goal.task.name}:${goalBlocks.join(',')}` : 'no route'}`);
+        }
+        // 5) LLM 工具参数（模型直接给中文方块名）→ 意图校验 → 共享归一化
+        const intent = normalizeIntent({ action: { type: 'task', task: 'mine', args: { block: [ore.zh] } } });
+        const llmBlocks = intent.ok ? norm(intent.intent.action.args.block) : [`REFUSED:${intent.reason}`];
+        if (!hasAll(llmBlocks, ore.pair)) misses.push(`${label} llm-args(block=[${ore.zh}]) -> ${llmBlocks.join(',')}`);
+        // 6) mine_ore 技能边界参数
+        const skill = normalizeOreParams({ ore: ore.zh });
+        if (!skill.ok || !hasAll(skill.blocks, ore.pair)) {
+          misses.push(`${label} normalizeOreParams(ore=${ore.zh}) -> ${skill.ok ? skill.blocks.join(',') : skill.reason}`);
+        }
+      }
+      assert.strictEqual(misses.length, 0, `ores not fully extended: ${misses.join(' | ')}`);
+      return `${ORES.length} ores x 6 entries, deepslate twin present everywhere`;
+    });
+
+    await check('A11: 青金石不会被当成金、redstone 不会被当成 stone（最长别名优先）', () => {
+      const routed = fallbackRouter.route('挖点青金石');
+      assert(routed.ok, `not routed: ${routed.reason}`);
+      const blocks = String(routed.intent.action.args.block || '').split(',');
+      assert(blocks.includes('lapis_ore') && blocks.includes('deepslate_lapis_ore'), `got ${blocks.join(',')}`);
+      assert(!blocks.includes('gold_ore') && !blocks.includes('deepslate_gold_ore'), `青金石 routed to gold: ${blocks.join(',')}`);
+      const english = fallbackRouter.route('mine some redstone');
+      assert(english.ok, `English redstone not routed: ${english.reason}`);
+      const englishBlocks = String(english.intent.action.args.block || '').split(',');
+      assert(englishBlocks.includes('redstone_ore') && englishBlocks.includes('deepslate_redstone_ore'), `got ${englishBlocks.join(',')}`);
+      assert(!englishBlocks.includes('stone'), `redstone fell through to stone: ${englishBlocks.join(',')}`);
+      return 'lapis -> lapis pair; redstone -> redstone pair (never gold/stone)';
+    });
+  }
+
   process.stdout.write(`\n${failures ? 'FAIL' : 'OK'} - mining entry test: ${checks - failures}/${checks} checks\n`);
   process.exit(failures ? 1 : 0);
 }
