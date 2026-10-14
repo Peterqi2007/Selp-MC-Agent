@@ -19,6 +19,8 @@
  *   - A7 (partial): the ore count is mined-blocks, not drops and not count+2;
  *   - A8/A9 (partial): acceptance is async, replacement is single-owner, an invalid
  *     replacement leaves the legal task alone, and stop leaves no further actions.
+ *   - A10: the planner's 30s park is keyed on the TASK name, so a rule whose task carries a
+ *     different name (`mine` -> `mine_ore`, `gather-wood` -> `chop-wood`) is still parked.
  */
 
 const assert = require('assert');
@@ -402,6 +404,68 @@ async function main() {
         const dugOres = agent.body.history.filter((h) => h.action === 'dig' && /diamond_ore$/.test(h.name));
         assert.strictEqual(dugOres.length, 2, `dug ${dugOres.length} ore blocks`);
         return `mined=${result.mined}, dug blocks=${dugOres.length}`;
+      });
+    } finally {
+      agent.restore();
+    }
+  }
+
+  // ------------------------------------------------- planner quarantine key (2026-10-14)
+  process.stdout.write('\n7. planner quarantine key (rule name vs task name)\n');
+  {
+    /**
+     * The planner parks a goal for 30s when it "succeeds" without progress, and the park is
+     * keyed on the TASK name (`_noteProgress`/`maybeRetry`), so the interception must ask
+     * about the task too. The ore rule is named `mine` but builds `MineOreTask` (name
+     * `mine_ore`); asking about `rule.name` left the autonomous ore path with no park at all
+     * (found by code review 2026-10-14 - the material rule happens to be named `mine` as
+     * well, which is why the live log only ever showed the material case).
+     */
+    const agent = await buildAgent({
+      inventory: {
+        'minecraft:iron_pickaxe': 1,
+        'minecraft:stone_sword': 1,
+        'minecraft:cobblestone': 16,
+        'minecraft:crafting_table': 1,
+        'minecraft:furnace': 1,
+        'minecraft:bread': 3
+      }
+    });
+    try {
+      await check('A10: a quarantined TASK name parks its rule even when rule and task differ', async () => {
+        const first = agent.brain.decide();
+        assert(first, 'decide() returned nothing');
+        assert.strictEqual(first.name, 'mine_ore', `decide() picked ${first.name}`);
+        agent.brain.quarantine.set('mine_ore', Date.now() + 60000);
+        const parked = agent.brain.decide();
+        assert(!parked || parked.name !== 'mine_ore', `a quarantined mine_ore was still selected (${parked && parked.name})`);
+        assert(parked && parked.name === 'mine', `expected a fall-through to the material rule, got ${parked && parked.name}`);
+        agent.brain.quarantine.set('mine_ore', Date.now() - 1);
+        const back = agent.brain.decide();
+        assert(back && back.name === 'mine_ore', `after expiry decide() picked ${back && back.name}`);
+        return `mine_ore parked -> fell through to ${parked.name}; expiry restored mine_ore`;
+      });
+
+      await check('A10: the park key is the task name only, never the rule name', () => {
+        const rules = [{ name: 'gather-wood', when: () => true, make: () => ({ name: 'chop-wood' }) }];
+        agent.brain.quarantine.set('gather-wood', Date.now() + 60000);
+        const byRuleName = agent.brain.pickRule(rules);
+        assert(byRuleName && byRuleName.name === 'chop-wood', 'the rule name parked a task that does not carry it');
+        agent.brain.quarantine.set('chop-wood', Date.now() + 60000);
+        assert.strictEqual(agent.brain.pickRule(rules), null, 'a quarantined task name did not park its rule');
+        agent.brain.quarantine.delete('gather-wood');
+        agent.brain.quarantine.delete('chop-wood');
+        return 'gather-wood/chop-wood: parked by the task name, not the rule name';
+      });
+
+      await check('A10: pickRule keeps its edge contracts (throwing when(), empty make())', () => {
+        const throwing = { name: 'boom', when: () => { throw new Error('nope'); }, make: () => ({ name: 'never' }) };
+        const empty = { name: 'empty', when: () => true, make: () => null };
+        const later = { name: 'later', when: () => true, make: () => ({ name: 'later-task' }) };
+        assert.strictEqual(agent.brain.pickRule([throwing, empty, later]), null, 'a rule that makes nothing must end the search');
+        const skipped = agent.brain.pickRule([throwing, later]);
+        assert(skipped && skipped.name === 'later-task', 'a throwing when() was not skipped');
+        return 'throwing when() skipped; make()=null ends the search';
       });
     } finally {
       agent.restore();

@@ -623,6 +623,29 @@ class Brain {
        */
     ];
 
+    return this.pickRule(rules);
+  }
+
+  /**
+   * First rule that applies and whose TASK is not quarantined.
+   *
+   * The quarantine key is the task's own name, never the rule's: a rule may build a task
+   * with a different name (`mine` builds `MineOreTask`, whose name is `mine_ore`;
+   * `gather-wood` builds `ChopWoodTask`, whose name is `chop-wood`), and both
+   * `_noteProgress()` and `maybeRetry()` record their bookkeeping under the *task* name.
+   * Checking `rule.name` here silently disabled the 30s park on exactly those two paths
+   * (found by code review on 2026-10-14: stalls were filed under `mine_ore`/`chop-wood`
+   * while the planner asked about `mine`/`gather-wood`). Deriving the key from the
+   * constructed task keeps the two names free to differ without drifting again.
+   *
+   * `make()` is only ever called for rules that already passed `when()`, and every task
+   * constructor in `src/tasks/` is a pure field assignment, so constructing a task that is
+   * then discarded for being quarantined costs nothing.
+   *
+   * @param {Array<{name:string,when:Function,make:Function}>} rules
+   * @returns {import('../tasks/task').Task|null}
+   */
+  pickRule(rules) {
     for (const rule of rules) {
       let applicable = false;
       try {
@@ -632,11 +655,14 @@ class Brain {
         continue;
       }
       if (!applicable) continue;
-      if (this.isQuarantined(rule.name)) {
-        this.log.debug(`skipping quarantined goal ${rule.name}`);
+      const task = rule.make();
+      /** A rule that produces nothing ends the search, exactly as it did before. */
+      if (!task) return task;
+      if (this.isQuarantined(task.name)) {
+        this.log.debug(`skipping quarantined goal ${task.name} (rule ${rule.name})`);
         continue;
       }
-      return rule.make();
+      return task;
     }
     return null;
   }
