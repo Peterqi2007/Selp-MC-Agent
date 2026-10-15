@@ -914,12 +914,13 @@ function expect(condition, message) {
     return `subgoal (${subgoal.x},${subgoal.y},${subgoal.z}) at ${reach.toFixed(0)} blocks, arrived in ${legs.length} leg(s)`;
   });
 
-  await scenario('11g nowhere good to hop: report it instead of creasing sideways', async () => {
+  await scenario('11g nowhere good to hop: creep forward, never crease sideways', async () => {
     /**
      * A small dry platform in a lava lake: every cell on the ray is unusable, so the best
      * subgoal available is one of the platform's own edge cells - inside the goal tolerance.
-     * The contract is to stop honestly; the old code answered this by picking lateral cells
-     * just outside the tolerance and shuffling between them.
+     * The contract is: take the forward step (it is real progress), then stop honestly. What
+     * must never happen is answering that with lateral neighbours, which is the shuffle the
+     * live 2026-10-15 report described.
      */
     const { cells } = buildMap({
       radius: 40,
@@ -941,10 +942,53 @@ function expect(condition, message) {
       res.reason === NAV_REASON.STALLED || res.reason === NAV_REASON.OUT_OF_GRID,
       `expected stalled/out-of-grid, got ${res.reason}`
     );
-    expect(legs.length <= 1, `the bot must not wander between platform cells, got ${legs.length} legs`);
+    expect(legs.length <= 3, `at most a step or two of real progress, got ${legs.length} legs`);
+    const sideways = legs.filter((leg) => Math.abs(leg.z - leg.from.z) > 1 || leg.x < leg.from.x);
+    expect(sideways.length === 0, `no leg may crease sideways or backwards: ${JSON.stringify(sideways)}`);
     const wander = Math.hypot(body.position.x, body.position.z);
-    expect(wander <= 3, `the bot must stay on its platform, ended ${wander.toFixed(1)} blocks away`);
-    return `${res.reason} after ${res.iterations} iteration(s), ${legs.length} leg(s), stayed within ${wander.toFixed(1)} blocks`;
+    expect(wander <= 4, `the bot must stay near its platform, ended ${wander.toFixed(1)} blocks away`);
+    return `${res.reason} after ${res.iterations} iteration(s), ${legs.length} forward leg(s), within ${wander.toFixed(1)} blocks`;
+  });
+
+  await scenario('11h a lake wider than the scan: swim waypoints carry the trip across', async () => {
+    /**
+     * The live shape (2026-10-15): bot on a bank, target 40 blocks away, and 27 blocks of deep
+     * water in between - so no dry cell exists anywhere on the line. Refusing liquid waypoints
+     * stranded the trip on the bank (it failed in 19 ms). Water is crossable, so a surface
+     * waypoint is exactly the right answer here.
+     */
+    const lake = (put) => {
+      for (let x = 4; x <= 30; x += 1) {
+        for (let z = -40; z <= 40; z += 1) {
+          for (let y = 57; y <= 63; y += 1) put(x, y, z, WATER); // deep: no floor within reach
+        }
+      }
+    };
+    const { cells } = buildMap({ radius: 40, fill: lake });
+    const bank = makeBody(cells, { x: 3, y: 64, z: 0 });
+    const planner = new PathPlanner(bank, { log, avoidManMade: false });
+    const far = { x: 40, y: 64, z: 0 };
+    const subgoal = planner.pickSubgoal(far);
+    expect(subgoal, 'a lake is not a reason to give up on a subgoal');
+    const reach = Math.hypot(subgoal.x - 3, subgoal.z);
+    expect(reach >= 18, `the swim waypoint must be a real hop, got ${reach.toFixed(1)} blocks`);
+    expect(planner.isSwimSubgoal(v3(subgoal.x, subgoal.y, subgoal.z)), `expected a water waypoint, got ${JSON.stringify(subgoal)}`);
+    expect(!planner.isDrySubgoal(v3(subgoal.x, subgoal.y, subgoal.z)), 'the far bank is out of scan range, so this cell cannot be dry');
+    const hop = await planner.plan(subgoal);
+    expect(hop.status === STATUS.SUCCESS, `swimming to the waypoint must be plannable, got ${hop.status} (${hop.reason})`);
+
+    // And the trip crosses: bank -> swim -> far shore.
+    const body = makeBody(cells, { x: 0, y: 64, z: 0 });
+    const legs = recordLegs(body);
+    const nav = new PathNavigator(body, { log, avoidManMade: false });
+    const res = await nav.goTo(far, { range: 2, timeoutMs: 40000 });
+    expect(res.ok === true, `the trip must cross the lake, got ${res.reason}`);
+    expect(body.position.x >= 32, `the bot must end on the far bank, ended x=${body.position.x}`);
+    expect(
+      legs.some((leg) => cells[`${leg.x},${leg.y},${leg.z}`] === WATER),
+      'crossing a lake means at least one leg puts the body in the water'
+    );
+    return `swim waypoint (${subgoal.x},${subgoal.y},${subgoal.z}) at ${reach.toFixed(0)} blocks, crossed in ${legs.length} legs to x=${body.position.x}`;
   });
 
   // ---- 3b. water costs twice a walk (operator's rule) -----------------------

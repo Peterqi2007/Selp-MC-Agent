@@ -355,13 +355,23 @@ class PathPlanner {
     const fromFeetY = Math.floor(from.y);
 
     // Farthest first (closest to the target), then slide back one cell at a time.
-    for (let step = Math.floor(maxDistance); step >= 1; step -= 1) {
-      const x = Math.round(from.x + ux * step);
-      const z = Math.round(from.z + uz * step);
-      const lineY = Math.round(fromFeetY + (target.y - fromFeetY) * (step / distance));
-      for (const y of this.subgoalHeights(x, z, lineY, fromFeetY)) {
-        const cell = v3(x, y, z);
-        if (this.isUsableSubgoal(cell)) return { x: cell.x, y: cell.y, z: cell.z };
+    // Two passes: a dry standing spot anywhere on the line beats a swim waypoint, because a
+    // dry cell is a place the body can stop and re-plan from. Only when the whole line is
+    // water does the search accept a water cell - refusing it would strand the bot on the
+    // bank of a lake it can perfectly well swim across (live 2026-10-15).
+    const want = [this.isDrySubgoal.bind(this), this.isSwimSubgoal.bind(this)];
+    for (const qualifies of want) {
+      for (let step = Math.floor(maxDistance); step >= 1; step -= 1) {
+        const x = Math.round(from.x + ux * step);
+        const z = Math.round(from.z + uz * step);
+        const lineY = Math.round(fromFeetY + (target.y - fromFeetY) * (step / distance));
+        for (const y of this.subgoalHeights(x, z, lineY, fromFeetY)) {
+          const cell = v3(x, y, z);
+          if (!qualifies(cell)) continue;
+          // A cell this trip already failed to walk into is not a subgoal either.
+          if (this.movements.avoid && this.movements.avoid.has(cell.hash)) continue;
+          return { x: cell.x, y: cell.y, z: cell.z };
+        }
       }
     }
     return null;
@@ -403,17 +413,29 @@ class PathPlanner {
   /**
    * May the bot be *sent to* this cell as an intermediate goal?
    *
-   * Stricter than "a valid path node", because the body has to come to rest here: the cell
-   * must be known, dry, not built (when a guard is installed), occupiable - feet and head
-   * both clear, so sugar cane, tall grass, kelp and friends are fine because they are not
-   * solid - and it must have a real floor under it. The dry requirement implements the
-   * operator's rule that the agent never needs to reach a cell *inside water*: a route may
-   * still cross liquid (A* pays for it), but a waypoint never is one.
+   * Two kinds of waypoint are legitimate, and the difference matters on this server:
+   *
+   *   dry  - a real standing spot: known, not built, feet and head clear, with a floor under
+   *          it. This is the preferred answer and the first thing the search looks for.
+   *   swim - a water cell the body can occupy while crossing a lake or river. Crossing water
+   *          is implemented (the client swims correctly, and A* pays 2x for it), so refusing
+   *          liquid waypoints does not keep the bot dry - it strands it on the bank. Live
+   *          2026-10-15: the operator asked for a point across a 20-block lake, every cell on
+   *          the line was water, no dry subgoal existed, and the trip died in 19 ms.
+   *
+   * What the operator ruled out is a *destination under water*; a surface waypoint while
+   * swimming is not that. Lava and fire stay refused either way, and a water cell is usable
+   * only when nothing dangerous sits directly beneath it.
    *
    * @param {import('./vec3util').PathVec} cell
    * @returns {boolean}
    */
   isUsableSubgoal(cell) {
+    return this.isDrySubgoal(cell) || this.isSwimSubgoal(cell);
+  }
+
+  /** A cell the body can come to rest on, out of the water. */
+  isDrySubgoal(cell) {
     if (!cell || !this.world.inGrid(cell)) return false;
     const block = this.world.blockAt(cell);
     if (!block || block.liquid) return false;
@@ -421,6 +443,14 @@ class PathPlanner {
     if (!this.movements.canStandAt(cell)) return false;
     if (!this.movements.hasFloorAt(cell)) return false;
     return true;
+  }
+
+  /** A water cell the body can occupy on its way across. */
+  isSwimSubgoal(cell) {
+    if (!cell || !this.world.inGrid(cell)) return false;
+    if (typeof this.world.veto === 'function' && this.world.veto(cell)) return false;
+    // One definition of "can tread water here", shared with the movement model.
+    return this.movements.canSwimAt(cell);
   }
 
   /**

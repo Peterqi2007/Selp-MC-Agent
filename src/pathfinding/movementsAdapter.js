@@ -162,6 +162,34 @@ class MovementsAdapter {
   }
 
   /**
+   * Can the bot tread water in this cell?
+   *
+   * WHY THIS IS SEPARATE FROM `hasFloorAt`
+   * --------------------------------------
+   * Requiring a floor under every liquid cell made deep water impassable: a lake six blocks
+   * deep has no solid block within reach, so the bot could neither walk in (no floor) nor drop
+   * in (the drop probe stopped after three blocks), and a target on the far side came back as
+   * `noPath`. Live 2026-10-15: the operator asked for a point across a 27-block lake and the
+   * trip died on the bank. The client swims perfectly well - `WalkTo` holds forward and floats
+   * - so the model has to allow the move the client can actually perform.
+   *
+   * What is still refused: lava, anything `dangerous`, unknown cells, and water with something
+   * dangerous directly underneath (a swim waypoint over a lava lake is a death sentence).
+   *
+   * @param {import('./vec3util').PathVec} pos
+   * @returns {boolean}
+   */
+  canSwimAt(pos) {
+    if (!this.allowSwim) return false;
+    const feet = this.world.blockAt(pos);
+    if (!feet || !feet.liquid || feet.dangerous) return false;
+    if (!this.canStandAt(pos)) return false; // feet and head must both be clear
+    const below = this.world.blockAt(v3(pos.x, pos.y - 1, pos.z));
+    if (!below || below.dangerous) return false;
+    return true;
+  }
+
+  /**
    * Neighbours of a node.
    *
    * IMPORTANT: A* reads the traversal cost off the neighbour object itself -
@@ -207,9 +235,11 @@ class MovementsAdapter {
     for (const [dx, dz] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
       const flat = v3(here.x + dx, here.y, here.z + dz);
 
-      // 1. walk straight across
+      // 1. walk straight across (or tread water, which needs no floor - see canSwimAt)
       const flatBlock = this.world.blockAt(flat);
-      if (flatBlock && !flatBlock.solid && this.canStandAt(flat) && this.hasFloorAt(flat)) {
+      const flatOk = flatBlock && !flatBlock.solid &&
+        (flatBlock.liquid ? this.canSwimAt(flat) : this.canStandAt(flat) && this.hasFloorAt(flat));
+      if (flatOk) {
         push(dx, 0, dz, flatBlock.liquid ? MOVE.SWIM : MOVE.WALK);
         continue;
       }
@@ -231,8 +261,9 @@ class MovementsAdapter {
         const landing = this.world.blockAt(below);
         if (landing === null) break; // unknown below: stop probing
         if (landing.dangerous) break;
-        if (this.canStandAt(below) && this.hasFloorAt(below)) {
-          push(dx, -drop, dz, MOVE.DROP);
+        // Into water: treading is enough, a floor is not required (see canSwimAt).
+        if (landing.liquid ? this.canSwimAt(below) : this.canStandAt(below) && this.hasFloorAt(below)) {
+          push(dx, -drop, dz, landing.liquid ? MOVE.SWIM : MOVE.DROP);
           break;
         }
         if (landing.solid) break; // blocked: no further fall in this column

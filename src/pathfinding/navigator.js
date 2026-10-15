@@ -208,15 +208,19 @@ class PathNavigator {
             }
           } else if (first.noop) {
             /**
-             * The subgoal is already inside the goal tolerance, so there is nothing to walk -
-             * and, importantly, nothing to gain from asking its neighbours either. That is the
-             * second half of the 2026-10-15 wandering: a subgoal 2-6 blocks away (the search
-             * had slid back to the bot's own ledge) came back as "already there", the +/-5
-             * fallback then picked lateral cells just outside the tolerance, and the bot
-             * creased sideways one block at a time. Replanning cannot fix it either - the ray
-             * and the terrain are unchanged - so it counts as a stalled cycle and the trip
-             * ends honestly instead of wandering.
+             * The subgoal is inside the goal tolerance (`range`), so the plan came back as
+             * "already there" and the walker was never asked to move.
+             *
+             * Two things follow, and they are not the same. What must NOT happen is the +/-5
+             * fallback: asking for lateral neighbours is how one-block jitter started on
+             * 2026-10-15. What must happen is that the bot still *enters* the cell - a 2-3
+             * block step toward the target is real progress, and from there the ray is new and
+             * a farther subgoal may well exist (a lake bank, the lip of a ravine). So retry
+             * the same cell with a strict tolerance, which is also what makes the client walk
+             * into the block instead of stopping short of it.
              */
+            const strict = await this.hopTo(subgoal, target, { range: 0.5, deadline });
+            if (strict.started && strict.moved) continue;
             stalledCycles += 1;
             if (stalledCycles >= 3) {
               this.stats.failed += 1;
