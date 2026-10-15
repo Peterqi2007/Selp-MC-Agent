@@ -1079,6 +1079,79 @@ function expect(condition, message) {
     return `slab/stair land+floor, waterlogged fence refused, swim -> deck is a step-up`;
   });
 
+  // ---- 11k/11l. the feet cell on partial ground (live 2026-10-15) -----------
+  //
+  // `floor(y)` on a bot standing on farmland (15/16 high) or on a bottom slab (top face at
+  // y+0.5) returns **the block being stood on**, so the model concluded the body was inside a
+  // solid block. A* then had no legal neighbour at all: the subgoal search slid back into the
+  // bot's own cell, the planner answered "already within range", and the trip died in nine
+  // milliseconds at (75,63,65) on live. `feetCell()` moves the feet to the cell above the block
+  // they are standing on - conditionally, so a jumping bot is not moved up in mid-air.
+
+  await scenario('11k standing on farmland: the feet are in the cell above it', async () => {
+    const cells = {};
+    const put = (x, y, z, n) => {
+      cells[`${x},${y},${z}`] = n;
+    };
+    for (let x = -20; x <= 20; x += 1) {
+      for (let z = -3; z <= 3; z += 1) {
+        for (let y = 58; y <= 61; y += 1) put(x, y, z, STONE);
+        put(x, 62, z, 'minecraft:farmland'); // the block being stood on: 15/16 high
+        put(x, 63, z, x % 3 === 0 ? 'minecraft:wheat' : AIR); // crops are passable
+        put(x, 64, z, AIR);
+      }
+    }
+    // Live coordinates: the bot stood at (77.93, 62.94, 67.25) on farmland.
+    const body = makeBody(cells, { x: 0.93, y: 62.94, z: 0.25 });
+    const planner = new PathPlanner(body, { log, avoidManMade: false });
+    const feet = planner.feetCell({ x: 0.93, y: 62.94, z: 0.25 });
+    expect(feet.y === 63, `farmland feet must snap to the cell above, got y=${feet.y}`);
+    expect(planner.movements.canStandAt(feet), 'the snapped cell must be occupiable (wheat does not block)');
+    const near = await planner.plan({ x: 6, y: 63, z: 0 }, { range: 1 });
+    expect(near.status === STATUS.SUCCESS, `a farm is walkable ground, got ${near.status} (${near.reason})`);
+
+    const subgoal = planner.pickSubgoal({ x: 40, y: 63, z: 0 });
+    expect(subgoal, 'a far target must still get a subgoal');
+    const reach = Math.hypot(subgoal.x - 0.93, subgoal.z - 0.25);
+    expect(reach >= 1.5, `the subgoal must not be the cell underfoot, got ${reach.toFixed(2)} blocks`);
+    // A jumping bot must NOT be snapped up: the cell at floor(y) is air there.
+    const midAir = planner.feetCell({ x: 0.5, y: 63.6, z: 0.5 });
+    expect(midAir.y === 63, `mid-air feet stay in their own cell, got y=${midAir.y}`);
+    return `farmland -> feet y=63, plan 6 blocks ${near.status}, subgoal at ${reach.toFixed(0)} blocks`;
+  });
+
+  await scenario('11l standing on a slab deck: plan along the bridge, not from inside it', async () => {
+    const deck = 'minecraft:oak_slab';
+    const cells = {};
+    const put = (x, y, z, n) => {
+      cells[`${x},${y},${z}`] = n;
+    };
+    // A slab bridge over deep water, exactly the shape from live (deck at the water surface).
+    for (let x = -3; x <= 26; x += 1) {
+      for (let z = -3; z <= 3; z += 1) {
+        for (let y = 58; y <= 62; y += 1) put(x, y, z, WATER);
+        put(x, 63, z, AIR);
+        put(x, 64, z, AIR);
+      }
+    }
+    for (let x = -3; x <= 26; x += 1) {
+      put(x, 62, 0, deck); // the deck row
+      put(x, 63, 0, AIR);
+    }
+    // Standing ON the deck: feet at 62.5, i.e. floor(y) is the slab itself (live: y=62.5).
+    const body = makeBody(cells, { x: 5.2, y: 62.5, z: 0.3 });
+    const planner = new PathPlanner(body, { log, avoidManMade: false });
+    const feet = planner.feetCell({ x: 5.2, y: 62.5, z: 0.3 });
+    expect(feet.y === 63, `slab-deck feet must snap to the cell above, got y=${feet.y}`);
+    const along = await planner.plan({ x: 12, y: 63, z: 0 }, { range: 1 });
+    expect(along.status === STATUS.SUCCESS, `walking along the deck must plan, got ${along.status} (${along.reason})`);
+    expect(along.path.every((n) => cells[`${n.x},${n.y - 1},${n.z}`] === deck), 'every step must be on the deck, not in the water');
+    const subgoal = planner.pickSubgoal({ x: 40, y: 63, z: 0 });
+    expect(subgoal, 'a far target across the bridge must get a subgoal');
+    expect(Math.hypot(subgoal.x - 5.2, subgoal.z - 0.3) >= 1.5, 'the subgoal must not be the deck cell underfoot');
+    return `deck -> feet y=63, ${along.path.length} deck steps, subgoal (${subgoal.x},${subgoal.y},${subgoal.z})`;
+  });
+
   // ---- 3b. water costs twice a walk (operator's rule) -----------------------
   await scenario('3b water: twice the cost of flat ground, and never free', async () => {
     expect(COST.SWIM === 2 * COST.WALK, `water must cost exactly 2x a walk, got ${COST.SWIM} vs ${COST.WALK}`);

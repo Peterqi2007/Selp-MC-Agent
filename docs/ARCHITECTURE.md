@@ -259,7 +259,12 @@ mineflayer→ controller.connect()，在 'spawn' 事件里 rearm/scan/rescue/too
   口径的既定结果，不是缺陷。**台阶/半砖（含含水 waterlogged）一律算陆地**：`PARTIAL_BUT_WALKABLE`
   让它们 `solid + standable + 永不算液体`，向上走按完整方块处理；块名先剥掉 `[...]` 状态再分类
   （否则 `oak_fence[waterlogged=true]` 会被误判成可站）。真要踩水时，导航器先在 ±5 格内找**能走过去的
-  干格**（桥面即干格），找不到才游泳。回归：`npm run path:test` 第 11 组（11a–11j）+ 3b。
+  干格**（桥面即干格），找不到才游泳。**脚位格按"实际站着的方块"修正**（`PathPlanner.feetCell()`）：
+  站在农田（15/16）、土径、下置半砖（顶面 y+0.5）或台阶上时，`floor(y)` 返回的是**脚下那块方块**，
+  于是 A\* 从"实心方块内部"出发、没有任何合法邻居 → 子目标滑回自身 → `already within range` → 9ms
+  判 stalled（真机 (75,63,65)）。`_plan` 起点、子目标基准高度、`hopTo` 原地判定与 `sidestep` 起点
+  全部改用它，子目标另加"不能是自己所在那一格"（`Math.round` 会把 x=75.8 的一步舍回 75）。
+  回归：`npm run path:test` 第 11 组（11a–11l）+ 3b。
 
 #### Mod 侧 `mod-client/`
 
@@ -588,7 +593,7 @@ Places        ──► runtime/places.json；LLM 轨迹 ──► runtime/llm-t
 | `npm run mining:collection:test` | 掉落物共享收集 C 系列 | 24/24 |
 | `npm run mining:recovery:test` | LLM 异常接管 R 系列（脚本化模型，不调付费模型） | 18/18 |
 | `npm run verify:roleplay` | 角色扮演审计（无游戏、无网络） | 34/34 |
-| `npm run path:test` / `tasks:test` / `control:test` / `llm:dry` / `plan:audit` | 寻路 33 / 三原语 52 / 双通道+面板+反射 37 / 路由 67+工具 39 / 计划符合性 29 | 全绿 |
+| `npm run path:test` / `tasks:test` / `control:test` / `llm:dry` / `plan:audit` | 寻路 35 / 三原语 52 / 双通道+面板+反射 37 / 路由 67+工具 39 / 计划符合性 29 | 全绿 |
 | `npm run client:verify` / `scripts/client-real.js` | 真机协议验收 / 三原语验收 | 需要客户端在跑 |
 
 离线全绿 ≠ 真机通过：真机测试需要操作员确认环境（`start.ps1` → 面板 → 按 REWRITE-PLAN §12 清单）。

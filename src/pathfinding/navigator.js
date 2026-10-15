@@ -447,7 +447,9 @@ class PathNavigator {
     const res = await this.planner.plan(cell, { range: options.range });
     const path = res.path || [];
     const before = this.body.snapshot() && this.body.snapshot().position;
-    const startCell = before ? v3(before.x, before.y, before.z) : null;
+    // The planner's own notion of "the cell the body is in" - on farmland, a slab or a stair
+    // that is the cell *above* the block being stood on (see PathPlanner.feetCell).
+    const startCell = before ? this.planner.feetCell(before) : null;
     const last = path.length ? path[path.length - 1] : null;
     /**
      * `already within range` comes back as a one-cell path to where we stand. Walking it is
@@ -515,7 +517,7 @@ class PathNavigator {
   sidestep(target, tried = new Set(), why = 'blocked') {
     const snap = this.body.snapshot();
     if (!snap || !snap.position) return null;
-    const from = v3(snap.position.x, snap.position.y, snap.position.z);
+    const from = this.planner.feetCell(snap.position);
     const dx = target.x - from.x;
     const dz = target.z - from.z;
     const length = Math.hypot(dx, dz);

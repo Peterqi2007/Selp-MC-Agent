@@ -180,7 +180,7 @@ class PathPlanner {
 
     // v3() already floors to integer block coordinates, so no .floored() call is needed
     // (and would not exist - see vec3util.js for why this is a plain object, not a Vec3).
-    const start = toPathVec(snap.position);
+    const start = this.feetCell(snap.position);
     const goalPos = v3(target.x, target.y, target.z);
 
     // ---- already there? ---------------------------------------------------
@@ -288,6 +288,41 @@ class PathPlanner {
   }
 
   /**
+   * The cell the bot's feet are actually *in*, given a float position.
+   *
+   * WHY THIS IS NOT JUST `Math.floor(y)`
+   * -----------------------------------
+   * Standing on a partial block puts the feet *above* the bottom of that block's cell: farmland
+   * and dirt paths are 15/16 high, a bottom slab's top face is at y+0.5, a stair's lower half
+   * likewise. `floor(y)` then returns **the block being stood on**, and the model concludes the
+   * body is inside a solid block - from which A* has no legal neighbour at all, so a target
+   * beyond the scan collapses to "already within range" on the bot's own cell and the trip dies
+   * in milliseconds. Live 2026-10-15: the bot stood on farmland (feet y=62.94) and could not
+   * plan one step; the same shape of failure is what "it cannot cross the bridge" looked like,
+   * because a bridge deck is a row of slabs (feet y=62.5) and this server's decks are waterlogged.
+   *
+   * The snap is conditional, not a blanket `Math.round(y)`: rounding would also move a *jumping*
+   * bot one cell up in mid-air (feet 63.6 over a floor at 62), which would break planning during
+   * a hop. Only when the cell at `floor(y)` is itself a standable block do the feet belong to the
+   * cell above it - and only if that cell is somewhere the body could actually occupy.
+   *
+   * @param {{x:number,y:number,z:number}} position float or cell position
+   * @returns {import('./vec3util').PathVec|null}
+   */
+  feetCell(position) {
+    const cell = toPathVec(position);
+    if (!cell) return null;
+    const standingOn = this.world.blockAt(cell);
+    if (!standingOn || !standingOn.solid || standingOn.standable === false) return cell;
+    // Feet strictly above the bottom of a block they could be standing on top of?
+    if (!(position.y - cell.y > 0.05)) return cell;
+    const above = v3(cell.x, cell.y + 1, cell.z);
+    if (!this.world.inGrid(above) && this.world.inGrid(cell)) return cell;
+    if (this.movements.canStandAt(above)) return above;
+    return cell;
+  }
+
+  /**
    * The point `maxDistance` along the straight line from the bot toward `target` - geometry
    * only, no terrain opinion. Clamped to the target when it is nearer than `maxDistance`.
    *
@@ -352,7 +387,20 @@ class PathPlanner {
       options.maxDistance === undefined ? Math.max(1, this.world.scanRadius - 1) : options.maxDistance,
       distance
     );
-    const fromFeetY = Math.floor(from.y);
+    const fromFeetY = this.feetCell(from).y;
+    /**
+     * A subgoal has to be a cell the body is not already in.
+     *
+     * `Math.round` can land a one-cell step back inside the bot's own cell (a bot at x=75.8
+     * "steps" to x=75), and a subgoal like that comes back from the planner as "already within
+     * range": no walk, no progress, three stalled cycles, trip over in nine milliseconds - the
+     * live 2026-10-15 signature at (75,63,65). So the *cell* is compared, not the distance: a
+     * genuine one-block hop is progress and stays legal, while the body's own cell can never be
+     * a subgoal.
+     */
+    const ownCell = v3(from.x, fromFeetY, from.z).hash;
+    const minHop = options.minHop === undefined ? 0.25 : options.minHop;
+    const farEnough = (cell) => cell.hash !== ownCell && Math.hypot(cell.x - from.x, cell.z - from.z) > minHop;
 
     // Farthest first (closest to the target), then slide back one cell at a time.
     // Two passes: a dry standing spot anywhere on the line beats a swim waypoint, because a
@@ -368,6 +416,7 @@ class PathPlanner {
         for (const y of this.subgoalHeights(x, z, lineY, fromFeetY)) {
           const cell = v3(x, y, z);
           if (!qualifies(cell)) continue;
+          if (!farEnough(cell)) continue;
           // A cell this trip already failed to walk into is not a subgoal either.
           if (this.movements.avoid && this.movements.avoid.has(cell.hash)) continue;
           return { x: cell.x, y: cell.y, z: cell.z };
@@ -488,7 +537,7 @@ class PathPlanner {
      */
     const minDistance = options.minDistance === undefined ? 3 : options.minDistance;
     const fromDistance = Math.hypot(target.x - from.x, target.z - from.z);
-    const baseY = Number.isFinite(anchor.y) ? Math.floor(anchor.y) : Math.floor(from.y);
+    const baseY = Number.isFinite(anchor.y) ? Math.floor(anchor.y) : this.feetCell(from).y;
     const out = [];
     const seen = new Set();
 
