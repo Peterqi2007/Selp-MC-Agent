@@ -192,6 +192,40 @@ class PathNavigator {
         const anchor = subgoal || this.planner.subgoalPoint(target);
         if (!anchor) return this.done(false, NAV_REASON.OUT_OF_GRID, iterations);
 
+        /**
+         * Prefer a bridge over open water.
+         *
+         * A swim waypoint is the right answer when the line really is all water, but the deck
+         * of a player bridge is *dry land* even when it is built from waterlogged slabs, and it
+         * typically sits a few blocks off the straight line. Walking that deck is both faster
+         * and far more reliable than swimming the river beside it, so before committing to a
+         * swim the navigator looks for a plannable dry cell in the same +/-5 box. Only if none
+         * of them can be walked does it swim.
+         */
+        if (subgoal && this.planner.isSwimSubgoal(v3(subgoal.x, subgoal.y, subgoal.z))) {
+          const dry = this.planner.subgoalCandidates(anchor, target, {
+            radius: this.subgoalNeighbourRadius,
+            max: this.subgoalMaxAttempts,
+            minDistance: range + 2,
+            dryOnly: true
+          });
+          const untilDry = Math.min(deadline, Date.now() + this.subgoalTryBudgetMs);
+          let bridged = false;
+          for (const candidate of dry) {
+            if (Date.now() > untilDry) break;
+            const hop = await this.hopTo(candidate, target, { range, deadline });
+            if (hop.started && hop.moved) {
+              this.log.info(
+                `swim waypoint (${subgoal.x},${subgoal.y},${subgoal.z}) bypassed for dry land at ` +
+                  `(${candidate.x},${candidate.y},${candidate.z})`
+              );
+              bridged = true;
+              break;
+            }
+          }
+          if (bridged) continue;
+        }
+
         if (subgoal) {
           this.log.info(
             `target (${target.x},${target.y},${target.z}) is outside the ${this.planner.world.scanRadius}-block scan - ` +

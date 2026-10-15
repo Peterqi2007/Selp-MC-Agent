@@ -476,6 +476,12 @@ class PathPlanner {
     const radius = options.radius === undefined ? 5 : options.radius;
     const max = options.max === undefined ? 8 : options.max;
     /**
+     * `dryOnly` exists for the "prefer a bridge over open water" case: a deck of waterlogged
+     * slabs a few blocks off the line is dry land, and walking it beats swimming the river
+     * beside it.
+     */
+    const qualifies = options.dryOnly ? this.isDrySubgoal.bind(this) : this.isUsableSubgoal.bind(this);
+    /**
      * A candidate closer than this to the bot would be reported as "already there" by the
      * planner (the goal carries a `range` tolerance), so it is not a hop - offering it just
      * turns the fallback into one-block jitter (live 2026-10-15).
@@ -496,7 +502,7 @@ class PathPlanner {
           const cell = v3(x, y, z);
           if (seen.has(cell.hash)) continue;
           seen.add(cell.hash);
-          if (!this.isUsableSubgoal(cell)) continue;
+          if (!qualifies(cell)) continue;
           const targetDistance = Math.hypot(target.x - cell.x, target.z - cell.z);
           // Progress guard: never send the bot somewhere *farther* from the target than it
           // already is - that would be wandering dressed up as a detour.

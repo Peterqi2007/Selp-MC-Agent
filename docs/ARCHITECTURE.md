@@ -256,7 +256,10 @@ mineflayer→ controller.connect()，在 'spawn' 事件里 rearm/scan/rescue/too
   运动模型另加 `canSwimAt`：**踩水横渡不要求下方有地板**（深海原本不可通行：湖底 6 格深 → 既走不进也
   跳不进 → noPath），岩浆与"其下有岩浆"仍一律拒绝。`planner.toward()` 已删除。水域移动代价
   `COST.SWIM = 2.0`（= 2× 平地，操作员口径）：桥顺路时 A\* 会走桥，但窄河仍可能直接游过去——那是代价
-  口径的既定结果，不是缺陷。回归：`npm run path:test` 第 11 组（11a–11h）+ 3b。
+  口径的既定结果，不是缺陷。**台阶/半砖（含含水 waterlogged）一律算陆地**：`PARTIAL_BUT_WALKABLE`
+  让它们 `solid + standable + 永不算液体`，向上走按完整方块处理；块名先剥掉 `[...]` 状态再分类
+  （否则 `oak_fence[waterlogged=true]` 会被误判成可站）。真要踩水时，导航器先在 ±5 格内找**能走过去的
+  干格**（桥面即干格），找不到才游泳。回归：`npm run path:test` 第 11 组（11a–11j）+ 3b。
 
 #### Mod 侧 `mod-client/`
 
@@ -585,7 +588,7 @@ Places        ──► runtime/places.json；LLM 轨迹 ──► runtime/llm-t
 | `npm run mining:collection:test` | 掉落物共享收集 C 系列 | 24/24 |
 | `npm run mining:recovery:test` | LLM 异常接管 R 系列（脚本化模型，不调付费模型） | 18/18 |
 | `npm run verify:roleplay` | 角色扮演审计（无游戏、无网络） | 34/34 |
-| `npm run path:test` / `tasks:test` / `control:test` / `llm:dry` / `plan:audit` | 寻路 31 / 三原语 52 / 双通道+面板+反射 37 / 路由 67+工具 39 / 计划符合性 29 | 全绿 |
+| `npm run path:test` / `tasks:test` / `control:test` / `llm:dry` / `plan:audit` | 寻路 33 / 三原语 52 / 双通道+面板+反射 37 / 路由 67+工具 39 / 计划符合性 29 | 全绿 |
 | `npm run client:verify` / `scripts/client-real.js` | 真机协议验收 / 三原语验收 | 需要客户端在跑 |
 
 离线全绿 ≠ 真机通过：真机测试需要操作员确认环境（`start.ps1` → 面板 → 按 REWRITE-PLAN §12 清单）。

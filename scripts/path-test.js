@@ -991,6 +991,94 @@ function expect(condition, message) {
     return `swim waypoint (${subgoal.x},${subgoal.y},${subgoal.z}) at ${reach.toFixed(0)} blocks, crossed in ${legs.length} legs to x=${body.position.x}`;
   });
 
+  // ---- 11i/11j. waterlogged slabs and stairs (operator's rule, 2026-10-15) ---
+  //
+  // "The bridge deck is wooden slabs - waterlogged blocks, but you do not actually enter the
+  // water. Treat every slab and stair as land, and as a full block when stepping up."
+  //
+  // Which is exactly right, and the model had two gaps around it. A blockstate suffix used to
+  // defeat the shape classification (a waterlogged *fence* came out standable), and a bridge a
+  // few blocks off the straight line was never chosen: the subgoal search only looked along the
+  // ray, found water, and swam the river beside its own bridge.
+
+  await scenario('11i a waterlogged slab bridge off the line: walk it instead of swimming', async () => {
+    const deck = 'minecraft:oak_slab';
+    const { cells } = buildMap({
+      radius: 40,
+      fill: (put) => {
+        for (let x = 4; x <= 30; x += 1) {
+          for (let z = -40; z <= 40; z += 1) {
+            for (let y = 57; y <= 63; y += 1) put(x, y, z, WATER); // deep water right up to the bank
+          }
+        }
+        // The bridge: one row of slabs at z=4, level with both banks (feet at y=64).
+        for (let x = 3; x <= 31; x += 1) {
+          put(x, 63, 4, deck);
+          put(x, 64, 4, AIR);
+        }
+      }
+    });
+    const body = makeBody(cells, { x: 0, y: 64, z: 0 });
+    const legs = recordLegs(body);
+    const notes = [];
+    const nav = new PathNavigator(body, {
+      log: { debug() {}, info: (m) => notes.push(m), warn: (m) => notes.push(m), error() {} },
+      avoidManMade: false
+    });
+    const res = await nav.goTo({ x: 40, y: 64, z: 0 }, { range: 2, timeoutMs: 40000 });
+    expect(res.ok === true, `the trip must cross the lake, got ${res.reason}`);
+    expect(
+      !legs.some((leg) => cells[`${leg.x},${leg.y},${leg.z}`] === WATER),
+      `the body must never be in the water when a bridge exists: ${JSON.stringify(legs.filter((l) => cells[`${l.x},${l.y},${l.z}`] === WATER))}`
+    );
+    const onDeck = legs.filter((leg) => cells[`${leg.x},${leg.y - 1},${leg.z}`] === deck).length;
+    expect(onDeck >= 4, `the crossing must walk the slab deck, deck legs=${onDeck}`);
+    expect(notes.some((m) => /bypassed for dry land/.test(m)), 'the swim waypoint should have been bypassed for the bridge');
+    return `crossed dry on ${onDeck} deck legs (${legs.length} total), never in water`;
+  });
+
+  await scenario('11j slabs and stairs are land, and a full block to step up onto', () => {
+    // Classification: waterlogged or not, a slab/stair is solid land, never liquid.
+    for (const name of ['minecraft:oak_slab', 'minecraft:oak_slab[waterlogged=true]', 'minecraft:stone_slab[waterlogged=true]', 'minecraft:oak_stairs', 'minecraft:cobblestone_stairs[waterlogged=true]']) {
+      const d = describeBlock(name);
+      expect(d.solid === true, `${name} must be solid`);
+      expect(d.liquid === false, `${name} must never be liquid, the body is not in water on top of it`);
+      expect(d.standable === true, `${name} must be a floor`);
+    }
+    // The suffix must not defeat the shape rules: a waterlogged fence is still not a floor.
+    const fence = describeBlock('minecraft:oak_fence[waterlogged=true]');
+    expect(fence.solid === true && fence.standable === false, 'a waterlogged fence is not something to stand on');
+    expect(describeBlock('minecraft:water').liquid === true, 'plain water stays liquid');
+
+    // Movement: from a swim cell, stepping UP onto a waterlogged slab deck is one step, exactly
+    // as if the deck were a full block.
+    const cells = {};
+    const put = (x, y, z, n) => {
+      cells[`${x},${y},${z}`] = n;
+    };
+    for (let x = -1; x <= 3; x += 1) {
+      for (let z = -1; z <= 1; z += 1) {
+        put(x, 61, z, STONE);
+        put(x, 62, z, WATER);
+        put(x, 63, z, WATER); // the bot swims with its feet at y=63
+        put(x, 64, z, AIR);
+        put(x, 65, z, AIR);
+      }
+    }
+    put(1, 63, 0, 'minecraft:oak_slab[waterlogged=true]'); // the deck, one level below the feet target
+    put(1, 64, 0, AIR);
+    const body = makeBody(cells, { x: 0, y: 63, z: 0 });
+    const planner = new PathPlanner(body, { log, avoidManMade: false });
+    const here = v3(0, 63, 0);
+    const neighbours = planner.movements.getNeighbors(here);
+    const stepUp = neighbours.find((n) => n.x === 1 && n.y === 64 && n.z === 0);
+    expect(stepUp, `stepping up onto the deck must be a legal move, got ${neighbours.map((n) => `${n.x},${n.y},${n.z}:${n.move}`).join(' ')}`);
+    expect(stepUp.move === 'step-up', `expected a step-up tag, got ${stepUp.move}`);
+    expect(planner.isDrySubgoal(v3(1, 64, 0)), 'the deck cell above a waterlogged slab is dry land');
+    expect(!planner.isSwimSubgoal(v3(1, 63, 0)), 'the waterlogged slab itself is never a swim waypoint');
+    return `slab/stair land+floor, waterlogged fence refused, swim -> deck is a step-up`;
+  });
+
   // ---- 3b. water costs twice a walk (operator's rule) -----------------------
   await scenario('3b water: twice the cost of flat ground, and never free', async () => {
     expect(COST.SWIM === 2 * COST.WALK, `water must cost exactly 2x a walk, got ${COST.SWIM} vs ${COST.WALK}`);

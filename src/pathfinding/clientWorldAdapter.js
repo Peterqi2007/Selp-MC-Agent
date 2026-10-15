@@ -43,23 +43,75 @@ const SCAN_DOWN = 8;
 const NOT_STANDABLE = /(^|_)(fence|fence_gate|wall|pane|bars|chain|door|trapdoor|carpet|button|pressure_plate|candle|sign|banner|bed|gate|rod|lantern|torch|flower_pot|skull|head|hopper|cauldron|composter|anvil|grindstone|stonecutter|lectern|bell|brewing_stand|enchanting_table|daylight_detector|repeater|comparator|tripwire_hook|lever|rail|bush|sapling|kelp|seagrass|coral|amethyst_cluster|bud|pointed_dripstone|sculk_sensor|sculk_shrieker|turtle_egg|sniffer_egg|dragon_egg|cocoa|sweet_berry)$/;
 
 /**
+ * Blocks that are *partial* in shape but behave as a full block for movement.
+ *
+ * Slabs and stairs are the bridge material on this server, and the operator's rule (2026-10-15)
+ * is explicit: a half slab or a stair is **land** - you walk on it, you step up onto it like a
+ * full block - even when it is waterlogged. A waterlogged slab is a solid block with fluid
+ * inside it; the body standing on top is *not* in water, so the model must never treat that
+ * cell as liquid (which would turn a bridge deck into a swim waypoint and send the bot into
+ * the river beside its own bridge).
+ *
+ * Consequence, and why this is a named constant: `solid` and `standable` are true, `liquid` is
+ * false, and `hasFloorAt()` may use them as a floor. Their half-height only ever means "you can
+ * also get on top of it from the same level", which the integer cell model already expresses.
+ */
+const PARTIAL_BUT_WALKABLE = /(^|_)(slab|stairs)$/;
+
+/**
+ * Split a block name into its base name and blockstate properties.
+ *
+ * The mod currently sends bare registry names ("minecraft:oak_slab"), but a name can carry a
+ * state suffix - "minecraft:oak_fence[waterlogged=true]" - and classification has to survive
+ * that: matching `NOT_STANDABLE` against the *suffixed* string silently said "a waterlogged
+ * fence is something you can stand on", which is exactly the shape of failure this model
+ * exists to prevent.
+ *
+ * @param {string} name
+ * @returns {{bare:string, props:Object<string,string>}}
+ */
+function parseBlockName(name) {
+  const raw = String(name == null ? '' : name);
+  const match = raw.match(/\[([^\]]*)\]/);
+  const bare = raw
+    .replace(/\[[^\]]*\]/g, '')
+    .replace(/^[a-z0-9_]+:/i, '')
+    .trim()
+    .toLowerCase();
+  const props = {};
+  if (match) {
+    for (const pair of match[1].split(',')) {
+      const [key, value] = pair.split('=');
+      if (key && value !== undefined) props[key.trim().toLowerCase()] = value.trim().toLowerCase();
+    }
+  }
+  return { bare, props };
+}
+
+/**
  * Movement-relevant properties of a block, derived from its name.
  *
  * Deliberately a small, testable pure function rather than pulling in the whole
  * minecraft-data block table: P0 only needs to know whether a cell blocks movement,
  * whether it is a liquid, whether it is climbable, and whether it can be stood *on*.
  *
- * @param {string} name e.g. "minecraft:oak_log" or "create:cogwheel"
- * @returns {{name:string, bare:string, solid:boolean, liquid:boolean, lava:boolean, climbable:boolean, dangerous:boolean, standable:boolean}}
+ * @param {string} name e.g. "minecraft:oak_log", "minecraft:oak_slab[waterlogged=true]"
+ * @returns {{name:string, bare:string, solid:boolean, liquid:boolean, lava:boolean, climbable:boolean, dangerous:boolean, standable:boolean, waterlogged:boolean, partialButWalkable:boolean}}
  */
 function describeBlock(name) {
-  const bare = String(name).replace(/^[a-z0-9_]+:/i, '');
-  const liquid = /^(water|flowing_water|bubble_column)$/.test(bare);
+  const { bare, props } = parseBlockName(name);
+  const waterlogged = props.waterlogged === 'true';
+  /**
+   * A partial-but-walkable block is NEVER liquid, waterlogged or not: that is the operator's
+   * rule for bridge decks. Everything else keeps the old name-based classification.
+   */
+  const partialButWalkable = PARTIAL_BUT_WALKABLE.test(bare);
+  const liquid = !partialButWalkable && /^(water|flowing_water|bubble_column)$/.test(bare);
   const lava = /^(lava|flowing_lava)$/.test(bare);
   const climbable = /^(ladder|vine|scaffolding|twisting_vines|weeping_vines|cave_vines)$/.test(bare);
   // Things that hurt to stand in; the movement model refuses to enter them.
   const dangerous = lava || /^(fire|soul_fire|magma_block|cactus|sweet_berry_bush|powder_snow|wither_rose)$/.test(bare);
-  const solid = !PASSABLE.has(bare) && !liquid && !lava;
+  const solid = partialButWalkable || (!PASSABLE.has(bare) && !liquid && !lava);
   return {
     name,
     bare,
@@ -74,9 +126,13 @@ function describeBlock(name) {
      *
      * `false` for anything with a partial or non-full collision shape that does not give you
      * a surface at the top of its own cell (see NOT_STANDABLE). Non-solid blocks are never a
-     * floor either, whatever their shape.
+     * floor either, whatever their shape. Slabs and stairs are the documented exception: they
+     * are walked and stepped onto exactly like full blocks (PARTIAL_BUT_WALKABLE).
      */
-    standable: solid && !NOT_STANDABLE.test(bare)
+    standable: solid && !NOT_STANDABLE.test(bare),
+    /** Fluid inside the block (slabs/stairs/fences can be waterlogged): still land, not water. */
+    waterlogged,
+    partialButWalkable
   };
 }
 
