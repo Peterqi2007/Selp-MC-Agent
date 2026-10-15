@@ -849,6 +849,104 @@ function expect(condition, message) {
     return `sugar cane accepted at x=23, stone refused at x=21, subgoal=(23,${subgoal.y},0)`;
   });
 
+  // ---- 11f/11g. the wandering regression (live 2026-10-15) -----------------
+  //
+  // On the live server the bot "walked at random": one-block hops that creased sideways. The
+  // cause was the subgoal search's *vertical* window - it probed only the straight line's own
+  // height (and the bot's, +/-1), so across a height change every column failed the occupancy
+  // test and the search slid all the way back to the bot's own ledge. The navigator then got a
+  // subgoal 2-6 blocks away, which the goal tolerance reported as "already there"; the +/-5
+  // fallback answered that with lateral cells just outside the tolerance, and the bot wandered
+  // a block at a time. The fix probes the whole visible column (-8..+8) and refuses to treat an
+  // "already there" answer as a reason to look sideways.
+
+  /** A plateau at y=65 with a one-block staircase down to low ground at y=61. */
+  function cliffMap({ radius = 40 } = {}) {
+    const cells = {};
+    const put = (x, y, z, name) => {
+      cells[`${x},${y},${z}`] = name;
+    };
+    for (let x = -radius; x <= radius; x += 1) {
+      for (let z = -radius; z <= radius; z += 1) {
+        for (let y = 56; y <= 60; y += 1) put(x, y, z, STONE);
+        put(x, 61, z, GRASS); // low ground: feet at 62
+        for (let y = 62; y <= 71; y += 1) put(x, y, z, AIR);
+      }
+    }
+    for (let x = -4; x <= 4; x += 1) {
+      for (let z = -4; z <= 4; z += 1) {
+        for (let y = 61; y <= 64; y += 1) put(x, y, z, STONE);
+        put(x, 65, z, GRASS); // plateau: feet at 66
+        for (let y = 66; y <= 71; y += 1) put(x, y, z, AIR);
+      }
+    }
+    // Staircase along z=0: 64, 63, 62, 61 -> the drop is one block per step, so it is walkable.
+    for (let i = 0; i < 4; i += 1) {
+      const x = 5 + i;
+      const top = 64 - i;
+      for (let y = 61; y <= top; y += 1) put(x, y, 0, STONE);
+      put(x, top, 0, GRASS);
+      for (let y = top + 1; y <= 71; y += 1) put(x, y, 0, AIR);
+    }
+    return { cells };
+  }
+
+  await scenario('11f a cliff between bot and target: the subgoal is still far away, not the ledge underfoot', async () => {
+    const { cells } = cliffMap();
+    const body = makeBody(cells, { x: 0, y: 66, z: 0 });
+    const planner = new PathPlanner(body, { log, avoidManMade: false });
+    const far = { x: 40, y: 62, z: 0 };
+    const subgoal = planner.pickSubgoal(far);
+    expect(subgoal, 'a cliff is not a reason to give up on a subgoal');
+    const reach = Math.hypot(subgoal.x, subgoal.z);
+    expect(reach >= 20, `the subgoal must be a real hop, got ${reach.toFixed(1)} blocks at ${JSON.stringify(subgoal)}`);
+    expect(subgoal.y === 62, `the subgoal must sit on the low ground (feet 62), got y=${subgoal.y}`);
+    const hop = await planner.plan(subgoal);
+    expect(hop.status === STATUS.SUCCESS, `the staircase makes it reachable, got ${hop.status} (${hop.reason})`);
+
+    // And the trip must not degenerate into a long train of one-block legs.
+    const navBody = makeBody(cells, { x: 0, y: 66, z: 0 });
+    const legs = recordLegs(navBody);
+    const nav = new PathNavigator(navBody, { log, avoidManMade: false });
+    const res = await nav.goTo(far, { range: 2, timeoutMs: 30000 });
+    expect(res.ok === true, `the trip must arrive, got ${res.reason}`);
+    expect(legs.length <= 8, `40 blocks must not take ${legs.length} legs (that is the wandering signature)`);
+    return `subgoal (${subgoal.x},${subgoal.y},${subgoal.z}) at ${reach.toFixed(0)} blocks, arrived in ${legs.length} leg(s)`;
+  });
+
+  await scenario('11g nowhere good to hop: report it instead of creasing sideways', async () => {
+    /**
+     * A small dry platform in a lava lake: every cell on the ray is unusable, so the best
+     * subgoal available is one of the platform's own edge cells - inside the goal tolerance.
+     * The contract is to stop honestly; the old code answered this by picking lateral cells
+     * just outside the tolerance and shuffling between them.
+     */
+    const { cells } = buildMap({
+      radius: 40,
+      fill: (put) => {
+        for (let x = -40; x <= 40; x += 1) {
+          for (let z = -40; z <= 40; z += 1) put(x, 63, z, LAVA);
+        }
+        for (let x = -2; x <= 2; x += 1) {
+          for (let z = -2; z <= 2; z += 1) put(x, 63, z, GRASS); // the platform
+        }
+      }
+    });
+    const body = makeBody(cells, { x: 0, y: 64, z: 0 });
+    const legs = recordLegs(body);
+    const nav = new PathNavigator(body, { log, avoidManMade: false });
+    const res = await nav.goTo({ x: 40, y: 64, z: 0 }, { range: 2, timeoutMs: 10000 });
+    expect(res.ok === false, 'a lava horizon must not be reported as arrival');
+    expect(
+      res.reason === NAV_REASON.STALLED || res.reason === NAV_REASON.OUT_OF_GRID,
+      `expected stalled/out-of-grid, got ${res.reason}`
+    );
+    expect(legs.length <= 1, `the bot must not wander between platform cells, got ${legs.length} legs`);
+    const wander = Math.hypot(body.position.x, body.position.z);
+    expect(wander <= 3, `the bot must stay on its platform, ended ${wander.toFixed(1)} blocks away`);
+    return `${res.reason} after ${res.iterations} iteration(s), ${legs.length} leg(s), stayed within ${wander.toFixed(1)} blocks`;
+  });
+
   // ---- 3b. water costs twice a walk (operator's rule) -----------------------
   await scenario('3b water: twice the cost of flat ground, and never free', async () => {
     expect(COST.SWIM === 2 * COST.WALK, `water must cost exactly 2x a walk, got ${COST.SWIM} vs ${COST.WALK}`);

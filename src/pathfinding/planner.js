@@ -359,15 +359,45 @@ class PathPlanner {
       const x = Math.round(from.x + ux * step);
       const z = Math.round(from.z + uz * step);
       const lineY = Math.round(fromFeetY + (target.y - fromFeetY) * (step / distance));
-      const preferred = options.preferY === undefined ? lineY : options.preferY;
-      // Interpolated height first, then the bot's own level, then one either way: a river
-      // bank and a hillside both want "the walkable cell nearest the line".
-      for (const y of [preferred, fromFeetY, preferred + 1, preferred - 1, fromFeetY + 1, fromFeetY - 1]) {
+      for (const y of this.subgoalHeights(x, z, lineY, fromFeetY)) {
         const cell = v3(x, y, z);
         if (this.isUsableSubgoal(cell)) return { x: cell.x, y: cell.y, z: cell.z };
       }
     }
     return null;
+  }
+
+  /**
+   * Candidate heights for one column, nearest the line's own height first.
+   *
+   * WHY THE WHOLE COLUMN AND NOT JUST THE LINE
+   * ------------------------------------------
+   * A target 40 blocks away over a cliff is a normal case here, and the walkable surface under
+   * the ray can sit several blocks above or below the straight line between the two y values.
+   * Probing only the line's height (and the bot's, +/-1) made *every* column over such a height
+   * change fail the occupancy test, so the search slid all the way back to the bot's own ledge
+   * and handed the navigator a subgoal 2-6 blocks away: one-block hops, then the +/-5 fallback
+   * picking lateral cells - which is exactly what "the bot wanders at random" looked like in
+   * the 2026-10-15 live test. The scan already reports -8..+8 vertically, so the surface is
+   * visible; it just has to be looked at.
+   *
+   * Ordering keeps the intent ("as close to the straight line as possible") while letting a
+   * cliff, a valley or a hilltop win when the line itself runs through rock or air.
+   *
+   * @param {number} x @param {number} z column to probe
+   * @param {number} lineY interpolated height of the bot->target line at that column
+   * @param {number} fromFeetY the bot's own feet height
+   * @returns {number[]}
+   */
+  subgoalHeights(x, z, lineY, fromFeetY) {
+    const up = Number.isFinite(this.world.scanUp) ? this.world.scanUp : 8;
+    const down = Number.isFinite(this.world.scanDown) ? this.world.scanDown : 8;
+    const out = [];
+    for (let y = fromFeetY - down; y <= fromFeetY + up; y += 1) out.push(y);
+    out.sort(
+      (a, b) => Math.abs(a - lineY) - Math.abs(b - lineY) || Math.abs(a - fromFeetY) - Math.abs(b - fromFeetY)
+    );
+    return out;
   }
 
   /**
@@ -415,6 +445,12 @@ class PathPlanner {
     if (!anchor || !target || !from) return [];
     const radius = options.radius === undefined ? 5 : options.radius;
     const max = options.max === undefined ? 8 : options.max;
+    /**
+     * A candidate closer than this to the bot would be reported as "already there" by the
+     * planner (the goal carries a `range` tolerance), so it is not a hop - offering it just
+     * turns the fallback into one-block jitter (live 2026-10-15).
+     */
+    const minDistance = options.minDistance === undefined ? 3 : options.minDistance;
     const fromDistance = Math.hypot(target.x - from.x, target.z - from.z);
     const baseY = Number.isFinite(anchor.y) ? Math.floor(anchor.y) : Math.floor(from.y);
     const out = [];
@@ -425,6 +461,7 @@ class PathPlanner {
         if (dx === 0 && dz === 0) continue;
         const x = Math.round(anchor.x + dx);
         const z = Math.round(anchor.z + dz);
+        if (Math.hypot(x - from.x, z - from.z) < minDistance) continue;
         for (const y of [baseY, baseY + 1, baseY - 1, baseY + 2, baseY - 2]) {
           const cell = v3(x, y, z);
           if (seen.has(cell.hash)) continue;

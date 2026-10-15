@@ -206,6 +206,23 @@ class PathNavigator {
               this.stats.failed += 1;
               return this.done(false, NAV_REASON.STALLED, iterations);
             }
+          } else if (first.noop) {
+            /**
+             * The subgoal is already inside the goal tolerance, so there is nothing to walk -
+             * and, importantly, nothing to gain from asking its neighbours either. That is the
+             * second half of the 2026-10-15 wandering: a subgoal 2-6 blocks away (the search
+             * had slid back to the bot's own ledge) came back as "already there", the +/-5
+             * fallback then picked lateral cells just outside the tolerance, and the bot
+             * creased sideways one block at a time. Replanning cannot fix it either - the ray
+             * and the terrain are unchanged - so it counts as a stalled cycle and the trip
+             * ends honestly instead of wandering.
+             */
+            stalledCycles += 1;
+            if (stalledCycles >= 3) {
+              this.stats.failed += 1;
+              return this.done(false, NAV_REASON.STALLED, iterations);
+            }
+            continue;
           }
         } else {
           /**
@@ -220,7 +237,9 @@ class PathNavigator {
 
         const candidates = this.planner.subgoalCandidates(anchor, target, {
           radius: this.subgoalNeighbourRadius,
-          max: this.subgoalMaxAttempts
+          max: this.subgoalMaxAttempts,
+          // Anything within the goal tolerance is not a hop (see `hopTo`).
+          minDistance: range + 2
         });
         const until = Math.min(deadline, Date.now() + this.subgoalTryBudgetMs);
         let hopped = false;
@@ -400,8 +419,14 @@ class PathNavigator {
     const noop =
       !last || (path.length === 1 && startCell && last.x === startCell.x && last.y === startCell.y && last.z === startCell.z);
     if (noop) {
-      this.trace({ kind: 'subgoal-try', target: { ...target }, cell: { ...cell }, status: res.status, ok: false });
-      return { started: false, moved: false };
+      /**
+       * `already there` and `no route at all` are different answers and must not be treated
+       * alike: the first means the caller should NOT go looking for another cell nearby (that
+       * is how one-block jitter starts), the second means it should.
+       */
+      const already = !!last;
+      this.trace({ kind: 'subgoal-try', target: { ...target }, cell: { ...cell }, status: res.status, ok: false, noop: already });
+      return { started: false, moved: false, noop: already };
     }
 
     this.trace({

@@ -243,13 +243,16 @@ mineflayer→ controller.connect()，在 'spawn' 事件里 rearm/scan/rescue/too
   晚到的轮询看到 `{busy:false}` 会把"没走到"当成功，是 A* 跳跃/横移判定失效的根因。
 * 走路由 `src/pathfinding/clientWorldAdapter.js + navigator` 做 Node 侧 A*，再换算成 mod 的
   `moveto` 航点；`tunnel` 则整段交给客户端控制器（见下）。
-* **跨网格目标 = 子目标接力（2026-10-14）**：感知只有 ±24 水平 / +8−8 垂直，网格外是"未知"而非空气。
-  `out-of-grid` 时导航器不再朝目标盲走，而是 `planner.pickSubgoal()` 取"直线方向上距目标最近、≤23 格、
-  干爽可站（脚位+头位可通过，甘蔗等非碰撞方块放行，水面不作目的地）"的格子，A\* 规划过去 → 走到 →
-  重规划；规划不通则用 `planner.subgoalCandidates()` 在其 ±5 格内按"先就近、再靠 bot"的顺序重试（上限
-  8 次 / 6s）；全部失败即诚实 `out-of-grid` 且**一步不迈**。`planner.toward()` 已删除。
-  水域移动代价 `COST.SWIM = 2.0`（= 2× 平地，操作员口径）：桥顺路时 A\* 会走桥，但窄河仍可能直接游过去
-  ——那是代价口径的既定结果，不是缺陷。回归：`npm run path:test` 第 11 组 + 3b。
+* **跨网格目标 = 子目标接力（2026-10-14，10-15 修陡坎乱走）**：感知只有 ±24 水平 / +8−8 垂直，网格外
+  是"未知"而非空气。`out-of-grid` 时导航器不再朝目标盲走，而是 `planner.pickSubgoal()` 取"直线方向上
+  距目标最近、≤23 格、干爽可站（脚位+头位可通过，甘蔗等非碰撞方块放行，水面不作目的地）"的格子，
+  A\* 规划过去 → 走到 → 重规划；规划不通则用 `planner.subgoalCandidates()` 在其 ±5 格内按"先就近、
+  再靠 bot"的顺序重试（上限 8 次 / 6s，候选须比 `range+2` 更远，避免"已经到达"式的假跳）；全部失败
+  即诚实 `out-of-grid`/`stalled` 且**一步不迈**。落脚高度在**整列** −8..+8 内按"离直线高度最近"排序
+  选取（`subgoalHeights`）——只在直线那一层找，会在陡坎/河谷处把子目标滑回 bot 脚下，退化成 1 格一跳
+  的横向抖动（10-15 真机"随机游走"）。`planner.toward()` 已删除。水域移动代价 `COST.SWIM = 2.0`
+  （= 2× 平地，操作员口径）：桥顺路时 A\* 会走桥，但窄河仍可能直接游过去——那是代价口径的既定结果，
+  不是缺陷。回归：`npm run path:test` 第 11 组（11a–11g）+ 3b。
 
 #### Mod 侧 `mod-client/`
 
@@ -578,7 +581,7 @@ Places        ──► runtime/places.json；LLM 轨迹 ──► runtime/llm-t
 | `npm run mining:collection:test` | 掉落物共享收集 C 系列 | 24/24 |
 | `npm run mining:recovery:test` | LLM 异常接管 R 系列（脚本化模型，不调付费模型） | 18/18 |
 | `npm run verify:roleplay` | 角色扮演审计（无游戏、无网络） | 34/34 |
-| `npm run path:test` / `tasks:test` / `control:test` / `llm:dry` / `plan:audit` | 寻路 28 / 三原语 52 / 双通道+面板+反射 37 / 路由 67+工具 39 / 计划符合性 29 | 全绿 |
+| `npm run path:test` / `tasks:test` / `control:test` / `llm:dry` / `plan:audit` | 寻路 30 / 三原语 52 / 双通道+面板+反射 37 / 路由 67+工具 39 / 计划符合性 29 | 全绿 |
 | `npm run client:verify` / `scripts/client-real.js` | 真机协议验收 / 三原语验收 | 需要客户端在跑 |
 
 离线全绿 ≠ 真机通过：真机测试需要操作员确认环境（`start.ps1` → 面板 → 按 REWRITE-PLAN §12 清单）。
