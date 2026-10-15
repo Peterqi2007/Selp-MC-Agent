@@ -155,7 +155,7 @@ LLM 层（`src/llm/`，生产配置已开启 `toolCalling`）：8 个工具 —�
 
 * 离线全绿（2026-10-14 实跑）：`selftest 176/176`、`skills:test 57/57`、`client:test 73/73`、`control:test 37/37`、
   `mining:entry:test 25/25`、`mining:collection:test 24/24`、`mining:recovery:test 18/18`、`tasks:test 52/52`、
-  `path:test 35/35`、`clientmod:test 11/11`、`verify:roleplay 34/34`、`llm:dry` 路由 67/67 + 工具 39/39、
+  `path:test 35/35`、`clientmod:test 11/11`、`verify:roleplay 34/34`、`llm:dry` 路由 67/67 + 工具 43/43、
   `p0:verify 8/8`（明细见 §8）。
 * 控制 Mod：`mod-client/dist/agent-client-1.0.0.jar` **75000 字节**（2026-10-13 17:37 构建，含 WalkTo 严格到达
   y 容差、战斗 v3 与 TACZ 枪械）；已 `client:install`，与 PCL 版本目录在装的 jar 字节完全一致，并已在 10-13
@@ -327,6 +327,15 @@ Invoke-RestMethod -Uri http://127.0.0.1:8766/ui/state
    `sidestep` 的起点全部改用它；子目标还加了"**不能是自己所在那一格**"的判据（`Math.round` 会把
    75.8 的一步舍回 75）。回归：`path:test` 11k（农田起点的脚位与规划）、11l（半砖桥面上沿桥规划）；
    把 `feetCell` 退回 `floor` 会立刻复现 "got y=62"。
+15. **同一件事被播报两次，而且两种格式（2026-10-15 真机）**：玩家连说两次"到(31,63,59)"，两趟 `goto`
+   任务各自完工 → 先播模型措辞的 `大肥鱼搞定了：walk to 31,63,59 - arrived at … (moved 29.89 blocks in
+   5968ms)`，**632 毫秒后**又播模板兜底的同一件事（第二趟赶不上模型：`another turn is already running`）
+   —— 同一次行动的"重复 + 格式不同"就是这么来的（偶发，取决于两个相同请求是否时间重叠）。根因：
+   `config` 里为 `taskDone` 声明的 `cooldownMs: 30000` **从来没被消费**（只有 `speechScheduler` 用它自己
+   那几个**状态**触发器）。现在 `announceFinished` 按 `任务名|描述|成功与否` 记时间戳，在声明的冷却窗口内
+   **重复的同一件事不再播**（不同的完工、以及成功后再失败都照常播，不会被误吞）；模板文案同时去掉
+   `(moved N blocks in M ms)` 遥测、理由与描述重复时不再复述。回归：`llm:dry` 四条断言
+   （重复合并 / 去掉遥测 / 不同完工仍播 / 失败不被吞）。
 
 ---
 
@@ -376,7 +385,7 @@ Invoke-RestMethod -Uri http://127.0.0.1:8766/ui/state
 | `npm run p0:verify` | P0 全量验收（一次跑 8 个套件） | 8/8 |
 | `npm run path:test` | 寻路场景（含跨网格子目标接力、河流与桥、陡坎不乱走、游泳过湖） | 31/31 |
 | `npm run tasks:test` | 三原语（走 / 挖 / 捡） | 52/52 |
-| `npm run llm:dry` | 意图路由 / Schema / 工具白名单 | 路由 67/67 · 工具 39/39 |
+| `npm run llm:dry` | 意图路由 / Schema / 工具白名单 / 完工播报去重 | 路由 67/67 · 工具 43/43 |
 | `npm run control:test` | 双通道 + 面板 + 死亡处理 + 反射路由 + 战斗反射 | 37/37 |
 | `npm run plan:audit` | 计划书 §11 符合性 | 29/29 |
 | `npm run inspect:server` / `mods:report` | 连服前体检 / Mod 知识报告 | 辅助 |

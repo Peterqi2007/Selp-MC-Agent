@@ -57,6 +57,19 @@ class LlmCore {
 
     /** Player requests currently in flight, keyed by a short id. */
     this.requests = new Map();
+    /**
+     * Recently announced task completions, keyed by task + description.
+     *
+     * Two identical instructions can be in flight at once - the live 2026-10-15 case was the
+     * player asking "到(31,63,59)" twice: both trips completed and each one announced itself,
+     * so the operator heard "…搞定了：walk to 31,63,59 - arrived at … (moved 29.89 blocks in
+     * 5968ms)" followed 632 ms later by the *same* news in the template wording (the second
+     * one could not use the model - `another turn is already running`). One action, one
+     * report: repeats of the same description inside the trigger's cooldown are dropped.
+     * Distinct completions are never suppressed, only repeats of the same task name and
+     * description with the same outcome.
+     */
+    this.announcedCompletions = new Map();
     /** Recent turns for the panel (`GET /llm`). */
     this.turns = [];
     this.tokensToday = 0;
@@ -167,7 +180,45 @@ class LlmCore {
     // A failure announcement is opt-out, because a silent failure looks like a stuck bot.
     if (!ok && trigger.alsoOnFailure === false) return null;
 
-    const detail = `${info.description || info.name}${info.reason ?` - ${String(info.reason).slice(0, 60)}` : ''}`;
+    /**
+     * One action, one report.
+     *
+     * The declared `cooldownMs` on this trigger used to be consumed only by the *state*
+     * triggers in the speech scheduler, so it did nothing here: two identical tasks finishing
+     * back to back each announced themselves (live 2026-10-15 - duplicate success lines in two
+     * different wordings). The window is keyed on the task and its description, so it
+     * suppresses only repeats of the same news; a different job finishing a second later is
+     * still reported. The key is stamped *before* speaking, because the duplicate usually
+     * arrives while the first announcement is still waiting on the model.
+     */
+    const window = Number.isFinite(trigger.cooldownMs) ? trigger.cooldownMs : 30000;
+    const key = `${info.name || ''}|${info.description || ''}|${ok ? 'ok' : 'fail'}`;
+    const last = this.announcedCompletions.get(key);
+    if (last !== undefined && Date.now() - last < window) {
+      const skipped = { kind: 'proactive-skip', trigger: 'taskDone', reason: 'duplicate completion', task: info.name, detail: info.description || null, sinceMs: Date.now() - last };
+      this.trace(skipped);
+      this.remember(skipped);
+      this.log.debug(`proactive[taskDone] skipped: ${info.description || info.name} was already reported ${Math.round((Date.now() - last) / 1000)}s ago`);
+      return null;
+    }
+    this.announcedCompletions.set(key, Date.now());
+    // Keep the map from growing without bound on a long session.
+    if (this.announcedCompletions.size > 50) {
+      const oldest = [...this.announcedCompletions.entries()].sort((a, b) => a[1] - b[1])[0];
+      if (oldest) this.announcedCompletions.delete(oldest[0]);
+    }
+
+    /**
+     * The detail is what the template reads out, so it must not sound like a log line: the
+     * pathfinder's `(moved 29.89 blocks in 5968ms)` telemetry is dropped, and a reason that
+     * merely repeats the description is not said twice.
+     */
+    const reason = String(info.reason || '')
+      .replace(/\s*\(moved [^)]*\)/gi, '')
+      .replace(/\s+/g, ' ')
+      .trim();
+    const description = String(info.description || info.name || '').trim();
+    const detail = reason && !description.includes(reason) ? `${description} - ${reason}`.slice(0, 60) : description;
     // Returns the promise so the caller (and the tests) can await the utterance. It is
     // deliberately not awaited inside `attachTo` - a chat line must never block the brain's
     // event handler, which the task queue owns.

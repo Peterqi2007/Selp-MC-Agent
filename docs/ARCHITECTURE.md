@@ -323,6 +323,12 @@ mineflayer→ controller.connect()，在 'spawn' 事件里 rearm/scan/rescue/too
   `lowHealth`（血 ≤6，冷却 45s）、`respawn`（事件钩子）。**完工汇报**走 LLM 的 `announceFinished`
   （只对玩家发起的任务播报）。所有主动发言经 `LlmCore.speakUp`，**丢弃模型提出的任何 action**——
   "自己给自己派活"在结构上不可能。
+* **一件事只播一次**（2026-10-15）：`announceFinished` 按 `任务名|描述|成功与否` 记一次时间戳，在触发器
+  声明的 `proactive.triggers.taskDone.cooldownMs`（默认 30s）内**重复的同一件事不再播**；不同的完工
+  （哪怕 1 秒后）照常播，成功后再失败也照常播。真机故障：玩家两次说同一句"到(31,63,59)"，两趟任务各自
+  完工 → 先模型措辞、632ms 后模板兜底（因为 `another turn is already running`）重复播报；根因是那个
+  `cooldownMs` 此前只被 speechScheduler 的**状态**触发器消费，`speakUp` 根本没读它。模板文案同时去掉
+  寻路的 `(moved N blocks in M ms)` 遥测，理由重复时不再复述。回归：`llm:dry` 四条断言。
 
 ### 3.7 LLM 层：`src/llm/`
 
@@ -593,7 +599,7 @@ Places        ──► runtime/places.json；LLM 轨迹 ──► runtime/llm-t
 | `npm run mining:collection:test` | 掉落物共享收集 C 系列 | 24/24 |
 | `npm run mining:recovery:test` | LLM 异常接管 R 系列（脚本化模型，不调付费模型） | 18/18 |
 | `npm run verify:roleplay` | 角色扮演审计（无游戏、无网络） | 34/34 |
-| `npm run path:test` / `tasks:test` / `control:test` / `llm:dry` / `plan:audit` | 寻路 35 / 三原语 52 / 双通道+面板+反射 37 / 路由 67+工具 39 / 计划符合性 29 | 全绿 |
+| `npm run path:test` / `tasks:test` / `control:test` / `llm:dry` / `plan:audit` | 寻路 35 / 三原语 52 / 双通道+面板+反射 37 / 路由 67+工具 43 / 计划符合性 29 | 全绿 |
 | `npm run client:verify` / `scripts/client-real.js` | 真机协议验收 / 三原语验收 | 需要客户端在跑 |
 
 离线全绿 ≠ 真机通过：真机测试需要操作员确认环境（`start.ps1` → 面板 → 按 REWRITE-PLAN §12 清单）。

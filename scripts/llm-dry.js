@@ -561,8 +561,7 @@ function matches(action, expect) {
   );
 
   // ---- 7. the assembled prompt -------------------------------------------
-  const body = new MockBody(cfg, { blocks: [{ name: 'oak_log', position: { x: 4, y: 64, z: 0 } }] });
-  await body.connect();
+  const body = new MockBody(cfg, { blocks: [{ name: 'oak_log', position: { x: 4, y: 64, z: 0 } }] });  await body.connect();
   /**
    * Present the body as the client-mod one. The mock can craft, and crafting is exactly
    * the capability that must read "no" in production (P0 does not craft); printing the
@@ -580,6 +579,38 @@ function matches(action, expect) {
     reply: async () => true
   };
   const promptCore = new LlmCore(ctx, { ...llmCfg, enabled: false }, { log });
+
+  /**
+   * One action, one report (live 2026-10-15).
+   *
+   * The player asked for the same coordinates twice, both trips completed, and each announced
+   * itself - first in the model's wording, then again in the template's (the second could not
+   * use the model: "another turn is already running"). The trigger's declared `cooldownMs` was
+   * only ever consumed by the speech scheduler's *state* triggers, so nothing deduplicated
+   * this. These checks pin both halves of the fix: repeats are dropped, distinct news is not,
+   * and the template no longer reads out pathfinder telemetry.
+   */
+  const utterances = [];
+  const announceCtx = { ...ctx, reply: async (text) => (utterances.push(text), true) };
+  const announceCore = new LlmCore(announceCtx, { ...llmCfg, enabled: false }, { log });
+  const doneInfo = {
+    name: 'go-to',
+    description: 'walk to 31,63,59',
+    reason: 'arrived at 31,63,59 (moved 1.3 blocks in 626ms)',
+    source: 'llm'
+  };
+  await announceCore.announceFinished(doneInfo, true);
+  await announceCore.announceFinished(doneInfo, true);
+  tcheck('a repeated completion is announced once', utterances.length === 1, JSON.stringify(utterances));
+  tcheck(
+    'the completion line drops the pathfinder telemetry',
+    utterances.length === 1 && !/moved|ms\b/.test(utterances[0]),
+    String(utterances[0])
+  );
+  await announceCore.announceFinished({ ...doneInfo, description: 'walk to 3,66,93', reason: 'arrived at 3,66,93' }, true);
+  tcheck('a different completion is still announced', utterances.length === 2, JSON.stringify(utterances));
+  await announceCore.announceFinished(doneInfo, false);
+  tcheck('a failure of the same task is not swallowed by the success', utterances.length === 3, JSON.stringify(utterances));
 
   /**
    * Capability table consistency (src/llm/blackboard.js): every row comes from a live
