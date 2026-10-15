@@ -697,14 +697,26 @@ async function main() {
     return `${res.status} in ${ms}ms`;
   });
 
-  await checkAsync('pathfinding: targets beyond the scan grid report out-of-grid', async () => {
+  await checkAsync('pathfinding: targets beyond the scan grid report out-of-grid, and offer a dry subgoal', async () => {
     const body = mapBody(flatMap(24), { x: 0, y: 64, z: 0 });
     const planner = new PathPlanner(body, { log: silent });
-    const res = await planner.plan({ x: 40, y: 64, z: 0 });
+    const far = { x: 40, y: 64, z: 0 };
+    const res = await planner.plan(far);
     if (res.status !== STATUS.OUT_OF_GRID) throw new Error(`expected out-of-grid, got ${res.status}`);
-    const toward = planner.toward({ x: 40, y: 64, z: 0 }, 12);
-    if (!toward || toward.x <= 0) throw new Error('toward() should point at the target');
-    return `out-of-grid, then toward (${toward.x},${toward.y},${toward.z})`;
+    /**
+     * The blind `toward()` step that used to live here was removed on 2026-10-14: a leg aimed
+     * at unobserved terrain with the target's own y is how the bot walked into a river instead
+     * of over the bridge. The replacement is a validated, dry cell inside the grid that the
+     * navigator plans to with A* (`pickSubgoal`), with a +/-5 neighbour search when that plan
+     * fails. See scripts/path-test.js section 11 for the full behaviour.
+     */
+    const subgoal = planner.pickSubgoal(far);
+    if (!subgoal) throw new Error('a flat map must offer a subgoal toward a far target');
+    if (subgoal.x <= 0) throw new Error('the subgoal should point at the target');
+    if (!planner.isUsableSubgoal(subgoal)) throw new Error('the subgoal must satisfy the movement model');
+    const hop = await planner.plan(subgoal);
+    if (hop.status !== STATUS.SUCCESS) throw new Error(`the subgoal must be plannable, got ${hop.status}`);
+    return `out-of-grid, then subgoal (${subgoal.x},${subgoal.y},${subgoal.z}) -> ${hop.status}`;
   });
 
   await checkAsync('pathfinding: lava is never entered, even as a shortcut', async () => {

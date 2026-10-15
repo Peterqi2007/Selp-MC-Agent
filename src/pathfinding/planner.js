@@ -10,9 +10,11 @@
  *
  * The hard constraint this module exists to manage: the mod's perception grid is only
  * +/-24 blocks horizontally. A target further away cannot be planned in one shot, so the
- * planner reports `out-of-grid` and the *caller* (WaypointWalker) walks toward it and
- * replans. Encoding that as a distinct status, rather than silently returning noPath, is
- * the difference between "the bot is stuck" and "the bot needs two hops".
+ * planner reports `out-of-grid` and the *caller* (PathNavigator) picks a **subgoal** inside
+ * the grid - the dry cell on the straight line to the target that is closest to it
+ * (`pickSubgoal`) - and plans to that instead. Encoding that as a distinct status, rather
+ * than silently returning noPath or walking blindly, is the difference between "the bot is
+ * stuck", "the bot needs two hops" and "the bot walked into the river".
  */
 
 const AStar = require('mineflayer-pathfinder/lib/astar');
@@ -60,7 +62,7 @@ function withinGoalRange(px, py, pz, tx, ty, tz, range) {
  * A goal expressed against our movement model.
  *
  * `GoalNear` from the plugin would work for `isEnd`, but its `heuristic` uses plain
- * 3D distance while our costs are weighted (climbing costs 1.5, swimming 2.5). Weighting
+ * 3D distance while our costs are weighted (climbing costs 1.5-2.0, swimming 2.0). Weighting
  * the heuristic by the cheapest possible move keeps it admissible - an over-estimating
  * heuristic makes A* return suboptimal paths, which here means silly routes.
  */
@@ -286,23 +288,171 @@ class PathPlanner {
   }
 
   /**
-   * A cheap "walk toward it" direction for targets we cannot plan to yet.
+   * The point `maxDistance` along the straight line from the bot toward `target` - geometry
+   * only, no terrain opinion. Clamped to the target when it is nearer than `maxDistance`.
+   *
+   * @param {{x:number,y:number,z:number}} target
+   * @param {{maxDistance?:number}} [options]
    * @returns {{x:number,y:number,z:number}|null}
    */
-  toward(target, distance = 12) {
-    const snap = this.body.snapshot();
-    if (!snap || !snap.position) return null;
-    const from = toPathVec(snap.position);
+  subgoalPoint(target, options = {}) {
+    const snap = this.body.snapshot ? this.body.snapshot() : null;
+    const from = snap && snap.position;
+    if (!from || !target) return null;
     const dx = target.x - from.x;
     const dz = target.z - from.z;
-    const length = Math.hypot(dx, dz);
-    if (length < 0.001) return null;
-    const step = Math.min(distance, length);
+    const distance = Math.hypot(dx, dz);
+    if (!Number.isFinite(distance) || distance < 0.001) return null;
+    const maxDistance = options.maxDistance === undefined
+      ? Math.max(1, this.world.scanRadius - 1)
+      : options.maxDistance;
+    const step = Math.min(maxDistance, distance);
     return {
-      x: Math.round(from.x + (dx / length) * step),
+      x: Math.round(from.x + (dx / distance) * step),
       y: Math.round(target.y),
-      z: Math.round(from.z + (dz / length) * step)
+      z: Math.round(from.z + (dz / distance) * step)
     };
+  }
+
+  /**
+   * The dry, standable cell on the straight line to `target` that is closest to the target
+   * and no further than `maxDistance` from the bot. `null` when the whole line is unusable.
+   *
+   * WHY THIS EXISTS
+   * ---------------
+   * The scan grid is the entire world knowledge this planner has (about +/-24 blocks
+   * horizontally, -8/+8 vertically), and a cell outside it is *unknown* rather than empty.
+   * A target beyond the grid therefore cannot be planned to in one A* call - and the old
+   * answer, walking blindly in its direction, is exactly how the bot ended up in a river
+   * instead of on the bridge (live 2026-10-14): the blind step took its y from the target,
+   * ignored the water, and never looked at the bridge that was inside the grid all along.
+   *
+   * So this picks a *real* intermediate goal - on the line the bot would walk anyway, as far
+   * toward the target as the grid allows - and lets A* answer the terrain question (bridge
+   * or swim) with its own cost model. The search slides back toward the bot until it finds a
+   * cell that satisfies the movement model's own occupancy rules, so a subgoal can never be
+   * somewhere the planner would refuse: a wall, a fence top, a lava pool, or the water
+   * surface (`isUsableSubgoal`).
+   *
+   * @param {{x:number,y:number,z:number}} target
+   * @param {{maxDistance?:number, preferY?:number}} [options]
+   * @returns {{x:number,y:number,z:number}|null}
+   */
+  pickSubgoal(target, options = {}) {
+    const snap = this.body.snapshot ? this.body.snapshot() : null;
+    const from = snap && snap.position;
+    if (!from || !target) return null;
+    const dx = target.x - from.x;
+    const dz = target.z - from.z;
+    const distance = Math.hypot(dx, dz);
+    if (!Number.isFinite(distance) || distance < 1) return null;
+    const ux = dx / distance;
+    const uz = dz / distance;
+    const maxDistance = Math.min(
+      options.maxDistance === undefined ? Math.max(1, this.world.scanRadius - 1) : options.maxDistance,
+      distance
+    );
+    const fromFeetY = Math.floor(from.y);
+
+    // Farthest first (closest to the target), then slide back one cell at a time.
+    for (let step = Math.floor(maxDistance); step >= 1; step -= 1) {
+      const x = Math.round(from.x + ux * step);
+      const z = Math.round(from.z + uz * step);
+      const lineY = Math.round(fromFeetY + (target.y - fromFeetY) * (step / distance));
+      const preferred = options.preferY === undefined ? lineY : options.preferY;
+      // Interpolated height first, then the bot's own level, then one either way: a river
+      // bank and a hillside both want "the walkable cell nearest the line".
+      for (const y of [preferred, fromFeetY, preferred + 1, preferred - 1, fromFeetY + 1, fromFeetY - 1]) {
+        const cell = v3(x, y, z);
+        if (this.isUsableSubgoal(cell)) return { x: cell.x, y: cell.y, z: cell.z };
+      }
+    }
+    return null;
+  }
+
+  /**
+   * May the bot be *sent to* this cell as an intermediate goal?
+   *
+   * Stricter than "a valid path node", because the body has to come to rest here: the cell
+   * must be known, dry, not built (when a guard is installed), occupiable - feet and head
+   * both clear, so sugar cane, tall grass, kelp and friends are fine because they are not
+   * solid - and it must have a real floor under it. The dry requirement implements the
+   * operator's rule that the agent never needs to reach a cell *inside water*: a route may
+   * still cross liquid (A* pays for it), but a waypoint never is one.
+   *
+   * @param {import('./vec3util').PathVec} cell
+   * @returns {boolean}
+   */
+  isUsableSubgoal(cell) {
+    if (!cell || !this.world.inGrid(cell)) return false;
+    const block = this.world.blockAt(cell);
+    if (!block || block.liquid) return false;
+    if (typeof this.world.veto === 'function' && this.world.veto(cell)) return false;
+    if (!this.movements.canStandAt(cell)) return false;
+    if (!this.movements.hasFloorAt(cell)) return false;
+    return true;
+  }
+
+  /**
+   * Alternative subgoals around `anchor`, for when the best cell cannot be planned to.
+   *
+   * A single subgoal is a single question; when A* answers "no route" the useful move is to
+   * ask a nearby one (the operator's +/-5 blocks). Candidates are therefore ordered by
+   * distance to the *anchor* first - locality, because the anchor was chosen for a reason
+   * and its neighbours are the cells most likely to share its route - and by distance to the
+   * target second. Ordering by target distance first looks better on paper but spends every
+   * attempt on the far side of an obstacle (measured: a crosswise wall put every reachable
+   * alternative at rank 9+), which is exactly the case this fallback exists for.
+   *
+   * @param {{x:number,y:number,z:number}} anchor the primary subgoal, or its geometric point
+   * @param {{x:number,y:number,z:number}} target
+   * @param {{radius?:number, max?:number}} [options]
+   * @returns {Array<{x:number,y:number,z:number,distance:number}>}
+   */
+  subgoalCandidates(anchor, target, options = {}) {
+    const snap = this.body.snapshot ? this.body.snapshot() : null;
+    const from = snap && snap.position;
+    if (!anchor || !target || !from) return [];
+    const radius = options.radius === undefined ? 5 : options.radius;
+    const max = options.max === undefined ? 8 : options.max;
+    const fromDistance = Math.hypot(target.x - from.x, target.z - from.z);
+    const baseY = Number.isFinite(anchor.y) ? Math.floor(anchor.y) : Math.floor(from.y);
+    const out = [];
+    const seen = new Set();
+
+    for (let dx = -radius; dx <= radius; dx += 1) {
+      for (let dz = -radius; dz <= radius; dz += 1) {
+        if (dx === 0 && dz === 0) continue;
+        const x = Math.round(anchor.x + dx);
+        const z = Math.round(anchor.z + dz);
+        for (const y of [baseY, baseY + 1, baseY - 1, baseY + 2, baseY - 2]) {
+          const cell = v3(x, y, z);
+          if (seen.has(cell.hash)) continue;
+          seen.add(cell.hash);
+          if (!this.isUsableSubgoal(cell)) continue;
+          const targetDistance = Math.hypot(target.x - cell.x, target.z - cell.z);
+          // Progress guard: never send the bot somewhere *farther* from the target than it
+          // already is - that would be wandering dressed up as a detour.
+          if (targetDistance >= fromDistance) break;
+          out.push({ x: cell.x, y: cell.y, z: cell.z, distance: targetDistance });
+          break; // one usable height per column is enough
+        }
+      }
+    }
+
+    const offset = (c) => Math.abs(c.x - anchor.x) + Math.abs(c.z - anchor.z);
+    const botDistance = (c) => Math.hypot(c.x - from.x, c.z - from.z);
+    /**
+     * Locality first, then *nearer the bot*.
+     *
+     * The second key matters more than it looks: an obstacle that eats the primary subgoal
+     * usually sits between the bot and that subgoal, so among equally local cells the one
+     * closer to the bot is the one on the near side of it. Measured on a crosswise wall, the
+     * opposite tie-break (prefer nearer the target) put every reachable alternative at rank
+     * 9+ and spent the whole attempt budget on the far side.
+     */
+    out.sort((a, b) => offset(a) - offset(b) || botDistance(a) - botDistance(b));
+    return out.slice(0, max);
   }
 
   result(status, path, reason, nodes = 0) {

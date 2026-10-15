@@ -21,6 +21,7 @@ const { WaypointWalker, WALK_REASON, mergeWaypoints } = require('../src/pathfind
 const { PathNavigator, NAV_REASON } = require('../src/pathfinding/navigator');
 const { v3, distanceBetween } = require('../src/pathfinding/vec3util');
 const { describeBlock } = require('../src/pathfinding/clientWorldAdapter');
+const { COST } = require('../src/pathfinding/movementsAdapter');
 
 // --------------------------------------------------------------------------- map building
 
@@ -29,6 +30,7 @@ const GRASS = 'minecraft:grass_block';
 const STONE = 'minecraft:stone';
 const WATER = 'minecraft:water';
 const LAVA = 'minecraft:lava';
+const PLANKS = 'minecraft:oak_planks';
 
 /**
  * Build a cell map.
@@ -321,15 +323,26 @@ function expect(condition, message) {
   });
 
   // ---- 6. out of grid -----------------------------------------------------
-  await scenario('6 out of grid: distant target reports out-of-grid, not noPath', async () => {
+  await scenario('6 out of grid: distant target reports out-of-grid, and offers a dry subgoal', async () => {
     const { cells } = buildMap({ radius: 30 });
     const body = makeBody(cells, { x: 0, y: 64, z: 0 });
     const planner = new PathPlanner(body, { log });
-    const res = await planner.plan({ x: 40, y: 64, z: 0 });
+    const far = { x: 40, y: 64, z: 0 };
+    const res = await planner.plan(far);
     expect(res.status === STATUS.OUT_OF_GRID, `expected out-of-grid, got ${res.status}`);
-    const toward = planner.toward({ x: 40, y: 64, z: 0 }, 12);
-    expect(toward && toward.x > 0, 'toward() should point in the target direction');
-    return `status=${res.status}, toward=(${toward.x},${toward.y},${toward.z})`;
+    /**
+     * The replacement for the old blind `toward()` step: a *validated* cell inside the grid,
+     * on the line to the target, as far toward it as the scan allows. It must be a cell the
+     * movement model would accept - dry, occupiable, with a floor - because the navigator
+     * plans to it rather than walking at it.
+     */
+    const subgoal = planner.pickSubgoal(far);
+    expect(subgoal, 'a flat map must offer a subgoal toward a far target');
+    expect(subgoal.x > 0 && subgoal.x <= 23, `subgoal should sit inside the grid toward the target, got x=${subgoal.x}`);
+    expect(planner.isUsableSubgoal(subgoal), 'the chosen subgoal must satisfy the movement model');
+    const hop = await planner.plan(subgoal);
+    expect(hop.status === STATUS.SUCCESS, `the subgoal must be plannable, got ${hop.status} (${hop.reason})`);
+    return `status=${res.status}, subgoal=(${subgoal.x},${subgoal.y},${subgoal.z}) -> ${hop.status} in ${hop.path.length} nodes`;
   });
 
   // ---- 7. stuck -----------------------------------------------------------
@@ -627,6 +640,268 @@ function expect(condition, message) {
     const anyLavaNode = res.path.some((n) => n.x >= 3 && n.x <= 7);
     expect(!anyLavaNode, 'no path node may sit inside the lava span');
     return `${res.status} (lava refused)`;
+  });
+
+  // ---- 11. beyond the scan grid: subgoal hopping instead of blind walking ----------
+  //
+  // Live 2026-10-14: asked to cross a river, the bot walked into the water instead of over
+  // the bridge that was six blocks away. The cause was not the cost model but the fallback:
+  // a target beyond the 24-block scan grid made the navigator take a straight-line step with
+  // the target's own y and no terrain check (`planner.toward()`), so A* was never asked the
+  // question at all. These scenarios pin the replacement: a *validated* dry subgoal inside
+  // the grid, planned to with A*, with a +/-5 neighbour search when that plan fails.
+
+  /** Instrument a body so every leg it is asked to walk is recorded, with where it started. */
+  function recordLegs(body) {
+    const legs = [];
+    const original = body.moveTo.bind(body);
+    body.moveTo = async (target, opts = {}) => {
+      const from = { ...body.snapshot().position };
+      legs.push({ ...target, raw: opts.raw === true, from });
+      return original(target, opts);
+    };
+    return legs;
+  }
+
+  /** Flat map with a north-south river at x in [riverX0, riverX1] and a plank bridge. */
+  function riverMap(spec) {
+    const { radius, riverX0, riverX1, bridgeZ } = spec;
+    return buildMap({
+      radius,
+      fill: (put) => {
+        for (let x = riverX0; x <= riverX1; x += 1) {
+          for (let z = -radius; z <= radius; z += 1) put(x, 63, z, WATER);
+        }
+        if (bridgeZ !== undefined) {
+          for (let x = riverX0 - 1; x <= riverX1 + 1; x += 1) {
+            put(x, 63, bridgeZ, PLANKS);
+            put(x, 64, bridgeZ, AIR);
+          }
+        }
+      }
+    });
+  }
+
+  await scenario('11a beyond the grid: hops through dry subgoals, and never steps past the scan', async () => {
+    const { cells } = riverMap({ radius: 40, riverX0: 6, riverX1: 9, bridgeZ: 6 });
+    const body = makeBody(cells, { x: 0, y: 64, z: 0 });
+    const legs = recordLegs(body);
+    const plans = [];
+    const nav = new PathNavigator(body, {
+      log,
+      // `avoidManMade` is the planner/walker key (the operator's world has it false);
+      // `allowManMade` is the *body's* navigator picker and is not what the planner reads.
+      avoidManMade: false,
+      trace: (rec) => {
+        if (rec.kind === 'plan') plans.push(rec);
+        if (rec.kind === 'subgoal' || rec.kind === 'subgoal-try') plans.push(rec);
+      }
+    });
+    const res = await nav.goTo({ x: 35, y: 64, z: 0 }, { range: 2, timeoutMs: 30000 });
+
+    expect(res.ok === true, `a 35-block trip across flat ground must still arrive, got ${res.reason}`);
+    const hops = plans.filter((p) => p.kind === 'subgoal');
+    expect(hops.length >= 1, 'the trip must have been carried out as subgoal hops');
+    /**
+     * The property that was broken: no leg may ever be aimed at terrain outside the scan.
+     * That is what "do not walk blindly" means operationally - the old code issued legs up
+     * to 20 blocks toward a target nobody had observed, and the leg carried the target's y.
+     */
+    const scan = 24;
+    const blind = legs.filter((leg) => Math.hypot(leg.x - leg.from.x, leg.z - leg.from.z) > scan);
+    expect(blind.length === 0, `no leg may leave the scan grid, got ${JSON.stringify(blind.slice(0, 2))}`);
+    for (const hop of hops) {
+      const chosen = hop.chosen;
+      const distance = Math.hypot(chosen.x - 0, chosen.z - 0);
+      expect(distance <= scan, `subgoal (${chosen.x},${chosen.z}) would be outside the grid`);
+    }
+    return `arrived in ${hops.length} hop(s), ${legs.length} leg(s), none beyond ${scan} blocks`;
+  });
+
+  await scenario('11b the ray lands in water: the subgoal slides back to dry land', async () => {
+    // Everything east of x=2 is water, so the farthest cell on the line is wet: the subgoal
+    // has to walk back toward the bot until the movement model accepts a cell.
+    const { cells } = buildMap({
+      radius: 40,
+      fill: (put) => {
+        for (let x = 2; x <= 40; x += 1) {
+          for (let z = -40; z <= 40; z += 1) put(x, 63, z, WATER);
+        }
+      }
+    });
+    const body = makeBody(cells, { x: 0, y: 64, z: 0 });
+    const planner = new PathPlanner(body, { log });
+    const subgoal = planner.pickSubgoal({ x: 40, y: 64, z: 0 });
+    expect(subgoal, 'there is dry land behind the water, so a subgoal must exist');
+    expect(subgoal.x <= 1, `the subgoal must slide back to the last dry cell, got x=${subgoal.x}`);
+    expect(planner.isUsableSubgoal(subgoal), 'the slid-back subgoal must satisfy the movement model');
+    const blocked = planner.pickSubgoal({ x: 40, y: 64, z: 0 }, { maxDistance: 1 });
+    expect(blocked && blocked.x <= 1, 'even a one-cell reach must stay on dry land');
+    return `water from x=2 -> subgoal (${subgoal.x},${subgoal.y},${subgoal.z})`;
+  });
+
+  await scenario('11c primary subgoal unreachable: the +/-5 neighbours are tried instead', async () => {
+    /**
+     * A full-width wall at x=22: the subgoal on the ray (x=23) is dry and standable but
+     * cannot be reached, while cells just short of the wall can. This is the case the
+     * operator asked for - "if pathfinding finds nothing, pick points within +/-5 blocks".
+     */
+    const { cells } = buildMap({
+      radius: 40,
+      fill: (put) => {
+        for (let z = -40; z <= 40; z += 1) {
+          put(22, 64, z, STONE);
+          put(22, 65, z, STONE);
+        }
+      }
+    });
+    const body = makeBody(cells, { x: 0, y: 64, z: 0 });
+    const planner = new PathPlanner(body, { log });
+    const far = { x: 40, y: 64, z: 0 };
+    const primary = planner.pickSubgoal(far);
+    expect(primary && primary.x === 23, `expected the ray subgoal at x=23, got ${JSON.stringify(primary)}`);
+    const blocked = await planner.plan(primary);
+    expect(blocked.status !== STATUS.SUCCESS, `x=23 is sealed off, planning there must fail, got ${blocked.status}`);
+
+    const candidates = planner.subgoalCandidates(primary, far, { radius: 5, max: 8 });
+    expect(candidates.length > 0, 'the +/-5 neighbourhood must offer alternatives');
+    for (const candidate of candidates) {
+      expect(Math.abs(candidate.x - primary.x) <= 5 && Math.abs(candidate.z - primary.z) <= 5, 'candidate escaped the +/-5 box');
+      expect(planner.isUsableSubgoal(candidate), `candidate (${candidate.x},${candidate.y},${candidate.z}) is not usable`);
+      expect(candidate.distance < 40, 'candidates must be closer to the target than the bot');
+    }
+    const reachable = [];
+    for (const candidate of candidates) {
+      const res = await planner.plan(candidate);
+      if (res.status === STATUS.SUCCESS) reachable.push(candidate);
+    }
+    expect(reachable.length > 0, 'at least one neighbour subgoal must be plannable (this side of the wall)');
+    expect(reachable.every((c) => c.x < 22), `the wall is solid, so reachable subgoals must sit west of it, got ${JSON.stringify(reachable)}`);
+
+    // And the navigator as a whole must make progress rather than reporting out-of-grid.
+    // Range defaults to 1 here on purpose: with a wider goal tolerance A* legitimately
+    // "reaches" the sealed subgoal from a cell on the near side of the wall, and the
+    // neighbour search would never be exercised.
+    const navBody = makeBody(cells, { x: 0, y: 64, z: 0 });
+    const tried = [];
+    const nav = new PathNavigator(navBody, {
+      log,
+      avoidManMade: false,
+      trace: (rec) => {
+        if (rec.kind === 'subgoal-try') tried.push(rec);
+      },
+      subgoalMaxAttempts: 8
+    });
+    await nav.goTo(far, { timeoutMs: 20000 });
+    expect(navBody.position.x >= 15, `the bot should have closed on the wall, stopped at x=${navBody.position.x}`);
+    expect(tried.length >= 1, 'the unreachable primary subgoal must be recorded as a failed try');
+    return `primary x=23 unreachable -> ${reachable.length} neighbour(s) plannable, bot reached x=${navBody.position.x}`;
+  });
+
+  await scenario('11d no subgoal can be planned: honest out-of-grid, and the bot does not move', async () => {
+    /**
+     * A walled box: the subgoals on the ray are perfectly good *cells* (flat grass, dry,
+     * standable) but nothing outside the box can be planned to. This is the case where the
+     * old code walked blindly for 8-20 blocks; the contract now is to report `out-of-grid`
+     * without issuing a single leg.
+     */
+    const { cells } = buildMap({
+      radius: 40,
+      fill: (put) => {
+        for (const [dx, dz] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
+          put(dx, 64, dz, STONE);
+          put(dx, 65, dz, STONE);
+        }
+        put(0, 66, 0, STONE); // and a lid, so not even a jump can help
+      }
+    });
+    const body = makeBody(cells, { x: 0, y: 64, z: 0 });
+    const legs = recordLegs(body);
+    const planner = new PathPlanner(body, { log, avoidManMade: false });
+    const far = { x: 40, y: 64, z: 0 };
+    expect(planner.pickSubgoal(far), 'the fixture must offer usable subgoals (the box is the obstacle)');
+    expect(planner.subgoalCandidates(planner.pickSubgoal(far), far, { radius: 5, max: 8 }).length > 0, 'the box must have usable neighbours too');
+
+    const nav = new PathNavigator(body, { log, avoidManMade: false });
+    const res = await nav.goTo(far, { range: 2, timeoutMs: 10000 });
+    expect(res.ok === false, 'an unreachable horizon must not be reported as arrival');
+    expect(res.reason === NAV_REASON.OUT_OF_GRID, `expected out-of-grid, got ${res.reason}`);
+    expect(body.position.x === 0 && body.position.z === 0, `the bot must not move, ended at ${JSON.stringify(body.position)}`);
+    expect(legs.length === 0, `no leg may be issued when no subgoal is plannable, got ${JSON.stringify(legs)}`);
+    return `${res.reason} in ${res.iterations} iteration(s), 0 legs issued`;
+  });
+
+  await scenario('11e plants are not obstacles: sugar cane and tall grass do not block a subgoal', async () => {
+    const { cells } = buildMap({
+      radius: 40,
+      fill: (put) => {
+        put(23, 64, 0, 'minecraft:sugar_cane'); // the cell the subgoal wants to occupy
+        put(23, 65, 0, 'minecraft:tall_grass'); // and the head cell
+        put(21, 64, 0, STONE); // a solid block instead: this one must be stepped around
+      }
+    });
+    const body = makeBody(cells, { x: 0, y: 64, z: 0 });
+    const planner = new PathPlanner(body, { log });
+    expect(planner.isUsableSubgoal(v3(23, 64, 0)), 'sugar cane is passable - it must not veto a subgoal');
+    expect(!planner.isUsableSubgoal(v3(21, 64, 0)), 'a solid block at the feet must veto a subgoal');
+    const subgoal = planner.pickSubgoal({ x: 40, y: 64, z: 0 });
+    expect(subgoal && subgoal.x === 23, `the subgoal should still be the farthest cell, got ${JSON.stringify(subgoal)}`);
+    return `sugar cane accepted at x=23, stone refused at x=21, subgoal=(23,${subgoal.y},0)`;
+  });
+
+  // ---- 3b. water costs twice a walk (operator's rule) -----------------------
+  await scenario('3b water: twice the cost of flat ground, and never free', async () => {
+    expect(COST.SWIM === 2 * COST.WALK, `water must cost exactly 2x a walk, got ${COST.SWIM} vs ${COST.WALK}`);
+    expect(COST.SWIM > COST.WALK, 'water must never be as cheap as walking');
+
+    // (a) a narrow river far from its bridge: swimming is the route the model prefers.
+    const narrow = riverMap({ radius: 30, riverX0: 10, riverX1: 11, bridgeZ: 14 });
+    const swimBody = makeBody(narrow.cells, { x: 0, y: 64, z: 0 });
+    const swimPlanner = new PathPlanner(swimBody, { log, avoidManMade: false, allowSwim: true });
+    const swim = await swimPlanner.plan({ x: 20, y: 64, z: 0 });
+    expect(swim.status === STATUS.SUCCESS, `a narrow river is crossable, got ${swim.status}`);
+    /**
+     * "Crosses the water" means the body's own cell is water. Testing the x coordinate alone
+     * would also pass for a bridge at the same x - walking *over* a plank deck puts the feet
+     * in an air cell - which is exactly the distinction these two halves pin down.
+     */
+    const feet = (map, n) => map[`${n.x},${n.y},${n.z}`];
+    expect(swim.path.some((n) => feet(narrow.cells, n) === WATER), 'the allowed route should put the body in the water');
+
+    // (b) the same river with swimming off: the bridge becomes the route, and no water is used.
+    const dryBody = makeBody(narrow.cells, { x: 0, y: 64, z: 0 });
+    const dryPlanner = new PathPlanner(dryBody, { log, avoidManMade: false, allowSwim: false });
+    const dry = await dryPlanner.plan({ x: 20, y: 64, z: 0 });
+    expect(dry.status === STATUS.SUCCESS, `the bridge must make it crossable without swimming, got ${dry.status} (${dry.reason})`);
+    expect(!dry.path.some((n) => feet(narrow.cells, n) === WATER), 'the dry route must not put the body in the water');
+    expect(dry.path.some((n) => narrow.cells[`${n.x},${n.y - 1},${n.z}`] === PLANKS), 'the dry route must use the bridge');
+
+    // (c) a bridge on the line beats swimming across the same span: water is not free.
+    // Two levels here, because they answer different questions. The path level shows the
+    // *model's* preference (walk the deck, not the river); the navigator level shows the trip
+    // staying dry end to end, which is what "it used the bridge" actually means.
+    const wide = riverMap({ radius: 30, riverX0: 10, riverX1: 17, bridgeZ: 0 });
+    const planBody = makeBody(wide.cells, { x: 0, y: 64, z: 0 });
+    const planPlanner = new PathPlanner(planBody, { log, avoidManMade: false, allowSwim: true });
+    const inbound = await planPlanner.plan({ x: 20, y: 64, z: 0 });
+    expect(inbound.status === STATUS.SUCCESS, `a bridged river must be crossable, got ${inbound.status}`);
+    const plankCells = inbound.path.filter((n) => wide.cells[`${n.x},${n.y - 1},${n.z}`] === PLANKS).length;
+    expect(plankCells >= 4, `with the bridge on the line the route should walk it, plank cells=${plankCells}`);
+    expect(!inbound.path.some((n) => wide.cells[`${n.x},${n.y},${n.z}`] === WATER), 'the bridged route must not enter the water');
+
+    // Same map, target 25 blocks out: this trip also exercises the subgoal hop, and it must
+    // still cross on foot (the walker merges the straight deck into one leg, so "no leg ever
+    // puts the body in water" is the property to assert, not "a leg lands on a plank").
+    const bridgeBody = makeBody(wide.cells, { x: 0, y: 64, z: 0 });
+    const bridgeLegs = recordLegs(bridgeBody);
+    const bridgeNav = new PathNavigator(bridgeBody, { log, avoidManMade: false, allowSwim: true });
+    const bridge = await bridgeNav.goTo({ x: 25, y: 64, z: 0 }, { range: 2, timeoutMs: 30000 });
+    expect(bridge.ok === true, `a bridged river must be crossed, got ${bridge.reason}`);
+    expect(
+      !bridgeLegs.some((leg) => wide.cells[`${leg.x},${leg.y},${leg.z}`] === WATER),
+      'with a bridge on the line the crossing must stay dry (no leg may put the body in water)'
+    );
+    return `SWIM=${COST.SWIM} = 2x WALK=${COST.WALK}; narrow river swims, no-swim bridge, bridged span walks ${plankCells} plank cells and stays dry over ${bridgeLegs.length} legs`;
   });
 
   // ---- summary -----------------------------------------------------------

@@ -14,7 +14,9 @@
  *   success            -> done
  *   partial            -> walk it anyway; it is progress, and we are about to replan
  *   noPath/blocked     -> stop; the caller picks another target
- *   out-of-grid        -> step toward the target, then replan
+ *   out-of-grid        -> plan to a dry subgoal inside the grid and hop, then replan;
+ *                         no usable subgoal -> report out-of-grid without moving (never
+ *                         walk blindly at terrain nobody has seen)
  *   timeout            -> retry once, then stop
  *
  * That decision table is the whole point of building this instead of letting the client's
@@ -72,6 +74,18 @@ class PathNavigator {
     this.maxSidesteps = options.maxSidesteps === undefined ? 2 : options.maxSidesteps;
     /** How far the sideways leg reaches. Inside the scan radius, far enough to matter. */
     this.sidestepDistance = options.sidestepDistance || 3;
+    /**
+     * Subgoal search for targets beyond the scan grid.
+     *
+     * A subgoal is a *single question* - "can you get to this one cell?" - so when A* says
+     * no, the useful move is to ask a neighbour of it rather than to walk at the target and
+     * hope. `subgoalNeighbourRadius` is the operator's +/-5 blocks, `subgoalMaxAttempts` and
+     * `subgoalTryBudgetMs` bound the extra search so a hostile map cannot turn one `goTo`
+     * into a hundred A* runs.
+     */
+    this.subgoalNeighbourRadius = options.subgoalNeighbourRadius === undefined ? 5 : options.subgoalNeighbourRadius;
+    this.subgoalMaxAttempts = options.subgoalMaxAttempts === undefined ? 8 : options.subgoalMaxAttempts;
+    this.subgoalTryBudgetMs = options.subgoalTryBudgetMs === undefined ? 6000 : options.subgoalTryBudgetMs;
     this.stats = { calls: 0, arrived: 0, failed: 0, iterations: 0, sidesteps: 0 };
   }
 
@@ -157,14 +171,75 @@ class PathNavigator {
       // ---- plan -------------------------------------------------------------
       const plan = await this.planner.plan(target, { range });
 
+      /**
+       * Beyond the scan grid: hop to a subgoal *inside* it and plan there.
+       *
+       * The previous answer was `planner.toward()` - a straight-line step taken with the
+       * target's own y and no terrain check at all - and that is precisely how the bot ended
+       * up in the river instead of on the bridge (live 2026-10-14): the step ignored the
+       * water, ignored the bank, and never asked A* whether the bridge six blocks away was
+       * the better route. Blind walking is not a fallback for "I cannot see that far"; it is
+       * a different, worse planner.
+       *
+       * So: take the dry cell on the line to the target that is closest to it and still
+       * inside the grid (`pickSubgoal`), let A* answer the terrain question with real costs,
+       * and hop. If that subgoal cannot be planned to, ask the cells within +/-5 blocks of
+       * it. If none of them works either, report `out-of-grid` honestly - without moving.
+       */
       if (plan.status === STATUS.OUT_OF_GRID) {
-        // Expected for distant targets: take a step in the right direction and look again.
         lastReason = NAV_REASON.OUT_OF_GRID;
-        const step = this.planner.toward(target, Math.max(8, this.replanEvery));
-        if (!step) return this.done(false, NAV_REASON.OUT_OF_GRID, iterations);
-        const walked = await this.walker.walk([v3(step.x, step.y, step.z)], { range: 2, timeoutMs: 15000 });
-        if (!walked.ok) return this.done(false, walked.reason === WALK_REASON.BLOCKED ? NAV_REASON.BLOCKED : NAV_REASON.OUT_OF_GRID, iterations);
-        continue;
+        const subgoal = this.planner.pickSubgoal(target);
+        const anchor = subgoal || this.planner.subgoalPoint(target);
+        if (!anchor) return this.done(false, NAV_REASON.OUT_OF_GRID, iterations);
+
+        if (subgoal) {
+          this.log.info(
+            `target (${target.x},${target.y},${target.z}) is outside the ${this.planner.world.scanRadius}-block scan - ` +
+              `hoping to a subgoal at (${subgoal.x},${subgoal.y},${subgoal.z})`
+          );
+
+          const first = await this.hopTo(subgoal, target, { range, deadline });
+          if (first.started) {
+            if (first.moved) continue;
+            stalledCycles += 1;
+            if (stalledCycles >= 3) {
+              this.stats.failed += 1;
+              return this.done(false, NAV_REASON.STALLED, iterations);
+            }
+          }
+        } else {
+          /**
+           * No dry cell anywhere on the line inside the grid, so there is no primary hop to
+           * try. The geometric `anchor` is then used only as the *centre* of the +/-5 search:
+           * planning to it directly would mean walking into water, and a waypoint the body
+           * cannot stand on is not a waypoint (operator's rule: the agent never needs to
+           * reach a cell inside water).
+           */
+          this.log.debug('no dry subgoal on the line to the target - searching around the geometric point instead');
+        }
+
+        const candidates = this.planner.subgoalCandidates(anchor, target, {
+          radius: this.subgoalNeighbourRadius,
+          max: this.subgoalMaxAttempts
+        });
+        const until = Math.min(deadline, Date.now() + this.subgoalTryBudgetMs);
+        let hopped = false;
+        for (const candidate of candidates) {
+          if (Date.now() > until) break;
+          const hop = await this.hopTo(candidate, target, { range, deadline });
+          if (hop.started && hop.moved) {
+            hopped = true;
+            break;
+          }
+        }
+        if (hopped) continue;
+
+        this.stats.failed += 1;
+        this.log.warn(
+          `no usable subgoal within ${this.subgoalNeighbourRadius} blocks of ` +
+            `(${anchor.x},${anchor.y},${anchor.z}) - reporting out-of-grid instead of walking blindly`
+        );
+        return this.done(false, NAV_REASON.OUT_OF_GRID, iterations);
       }
 
       if (plan.status === STATUS.NO_PATH) {
@@ -290,6 +365,62 @@ class PathNavigator {
 
     this.stats.failed += 1;
     return this.done(false, NAV_REASON.MAX_ITERATIONS, iterations);
+  }
+
+  /**
+   * Plan to one intermediate cell and walk a slice of it.
+   *
+   * Used for targets beyond the scan grid, where the trip becomes a sequence of hops that
+   * each start from freshly observed terrain. Three outcomes matter, and they are
+   * deliberately distinguished because the correct response differs:
+   *
+   *   started=false             nothing to do (no route, or the route goes nowhere) - the
+   *                             caller may try a neighbouring subgoal;
+   *   started=true, moved=false a walk that reported success without displacing the body:
+   *                             the arrival-deadlock shape, which must count against the
+   *                             stall budget instead of being mistaken for progress;
+   *   started=true, moved=true  a real hop; replan from here.
+   *
+   * @param {{x:number,y:number,z:number}} cell subgoal to plan to
+   * @param {{x:number,y:number,z:number}} target the trip's real target (for the trace)
+   * @param {{range:number, deadline:number}} options
+   * @returns {Promise<{started:boolean, moved:boolean}>}
+   */
+  async hopTo(cell, target, options) {
+    const res = await this.planner.plan(cell, { range: options.range });
+    const path = res.path || [];
+    const before = this.body.snapshot() && this.body.snapshot().position;
+    const startCell = before ? v3(before.x, before.y, before.z) : null;
+    const last = path.length ? path[path.length - 1] : null;
+    /**
+     * `already within range` comes back as a one-cell path to where we stand. Walking it is
+     * a no-op the walker reports as "arrived" - the exact shape of the arrival deadlock
+     * (live 2026-10-14) - so it is not a hop.
+     */
+    const noop =
+      !last || (path.length === 1 && startCell && last.x === startCell.x && last.y === startCell.y && last.z === startCell.z);
+    if (noop) {
+      this.trace({ kind: 'subgoal-try', target: { ...target }, cell: { ...cell }, status: res.status, ok: false });
+      return { started: false, moved: false };
+    }
+
+    this.trace({
+      kind: 'subgoal',
+      target: { ...target },
+      chosen: { ...cell },
+      status: res.status,
+      pathLen: path.length,
+      from: before ? { ...before } : null
+    });
+    const slice = path.slice(0, Math.min(this.replanEvery, path.length));
+    const walked = await this.walker.walk(slice, {
+      range: options.range,
+      timeoutMs: Math.min(60000, options.deadline - Date.now())
+    });
+    if (!walked.ok) return { started: false, moved: false };
+    const after = this.body.snapshot() && this.body.snapshot().position;
+    const moved = before && after ? distanceBetween(after, before) >= 0.1 : true;
+    return { started: true, moved };
   }
 
   /**

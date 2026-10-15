@@ -36,7 +36,19 @@ const COST = {
   STEP_UP: 1.5,
   DROP_BASE: 1.0,
   DROP_PER_BLOCK: 0.5,
-  SWIM: 2.5,
+  /**
+   * Twice a flat walk (operator's rule, 2026-10-14: "水域移动需增加代价，但不要惩罚太大，
+   * 相较于平地 *2 即可").
+   *
+   * It has to be *more* than a walk or the planner would treat a river as open ground and
+   * never look at the bridge; it must not be so much more that a short swim is refused in
+   * favour of an enormous detour - crossing water is implemented and the client does it
+   * correctly, so the model should use it when it is genuinely the better route. Note the
+   * honest consequence: with 2.0 a narrow river is still cheaper to swim than to walk around
+   * to a distant bridge, and that is intended - preferring the bridge needs a finer model of
+   * water and bank height, not a bigger constant.
+   */
+  SWIM: 2.0,
   CLIMB: 2.0
 };
 
