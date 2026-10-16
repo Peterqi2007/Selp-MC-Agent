@@ -48,13 +48,13 @@
 | --- | --- |
 | 本文件 | 现状、架构、快速开始、指令、进展、脚本、限制 |
 | 本文件 §3 | **想知道「现在到哪一步了」先读它**：批次表 + 当前状态 + 最新真机记录 |
+| [`docs/P1-PLANNER-PLAN.md`](docs/P1-PLANNER-PLAN.md) | **下一阶段方案**：规划器重构（语言/动作脑区解耦、分级自主感知、自主解题、自主学习、聊天扩展）。⚠️ **尚未提交入 git**，且其"P0 寻路仍待优化"一句已被 10-15 的寻路六修追平（见 §3） |
 | [`docs/PLANNER-REFACTOR.md`](docs/PLANNER-REFACTOR.md) | **规划器（自主决策）专项**：已核实问题 P1–P10、重构债 Q1–Q7，以及与 `!` 命令 / LLM `do_task`/`do_skill` 回路的边界 |
 | [`docs/MINING-LLM-PLAN.md`](docs/MINING-LLM-PLAN.md) | 挖矿方案与**一手真机记录**（附二 10-10 夜 / 附三 10-12 / 附四 10-13 / 附五 10-14）——采矿相关的最新依据 |
 | [`docs/MINING-COLLECTION-PLAN.md`](docs/MINING-COLLECTION-PLAN.md) | 掉落物收集方案与实机记录（§十一，10-10～10-12） |
 | [`docs/COMBAT-PLAN.md`](docs/COMBAT-PLAN.md) | 战斗 v3 方案、离线计数与**真机验收清单**（10-13 夜部分已覆盖） |
 | [`docs/REWRITE-PLAN.md`](docs/REWRITE-PLAN.md) | 重写计划与逐批次进展（含每次真机 / 离线验证记录）——**记录到 2026-10-08**，其后进展看上面三份 |
-| [`docs/P0-STATUS.md`](docs/P0-STATUS.md) | P0 验收**历史记录**（2026-10-02 快照，套件/技能/工具数字已过时，见文首声明；安全边界与踩坑证据仍有效） |
-| [`docs/P0-PLAN.md`](docs/P0-PLAN.md) | P0 计划书（其 §11 的「做/不做」清单仍由 `npm run plan:audit` 持续看门） |
+| [`docs/P0-PLAN.md`](docs/P0-PLAN.md) / [`docs/P0-STATUS.md`](docs/P0-STATUS.md) | **P0 已收官（2026-10-16）→ 两份都转为历史文档**：P0 计划书与验收档案，只作验收证据与踩坑记录保留。其中**仍活着**的只有 P0-PLAN §11 的「做/不做」边界——作为防回归契约由 `npm run plan:audit` 持续看门 |
 | [`docs/CAPABILITY-AUDIT.md`](docs/CAPABILITY-AUDIT.md) | **历史文档**：重写前的静态能力核实（「Bot 不能自主工作」等结论均已作废，见文首对照表） |
 | [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) | 模块分层、Body 契约、安全模型与设计不变量（2026-10-07 版；§九 列与技术债，数字按版本日期读） |
 | [`docs/EXTERNAL-SERVERS.md`](docs/EXTERNAL-SERVERS.md) | 联机玩法：外部服务器配置、Forge 限制、历史方案对比 |
@@ -131,7 +131,14 @@ LLM 层（`src/llm/`，生产配置已开启 `toolCalling`）：8 个工具 —�
 
 ---
 
-## 3. 项目进展（批次表截至 2026-10-13；套件计数实测于 2026-10-14）
+## 3. 项目进展（批次表截至 2026-10-16；套件计数实测于 2026-10-16）
+
+> **P0 已验收收官（2026-10-16）**：离线 `npm run p0:verify` **8/8 套件通过**、P0 计划书 §11 的
+> 「做/不做」清单 `npm run plan:audit` **29/29 全过**；真机自 2026-10-08 首轮起多轮通过。
+> **`docs/P0-PLAN.md` 与 `docs/P0-STATUS.md` 因此转为历史文档**（只作验收证据与踩坑记录保留；
+> 其中仍活着的只有 §11 那条防回归边界）。下一阶段是 **P1 规划器重构**，方案见
+> [`docs/P1-PLANNER-PLAN.md`](docs/P1-PLANNER-PLAN.md)（**尚未提交入 git**；其"P0 寻路仍待优化"
+> 一句已被下方 10-15 的寻路六修追平，且该方案要求在**独立分支**上实施）。
 
 | 日期 | 批次 | 内容 | 验证 |
 | --- | --- | --- | --- |
@@ -151,12 +158,18 @@ LLM 层（`src/llm/`，生产配置已开启 `toolCalling`）：8 个工具 —�
 | 10-13 | 贴脸僵尸不可见修复 + 反射层复活 + 战斗三修 | ① clientmod 快照只在动作里刷新——空闲时世界视图整体冻结（面板位置曾停在 58 格之外）；`ClientModBody` 后台 500ms 轮询（`statePollMs` 可配）+ 反射每 tick 兜底刷新。② `needsRescue` 对无 mineflayer 的视图每 tick 抛 TypeError（debug 级被吞）——反射链（吃/自卫/穿甲）从未执行；循环异常改限频 WARN。③ 非 mineflayer 躯体的反射改走技能层（eat/attack/armor），servo 空转不再挡路。④ 真机续测：护甲技能把穿戴槽（5-8 同为 player 槽）当“背包护甲”快速移动——每 30s 把整套甲穿/脱切换；改为只动背包格、只升级不降级、每格至多一次。⑤ 攻击技能信任 `equip()` 返回值——竞态下剑在背包却拿铲子开打；改为装备后读回持物核验、失败重试一次、仍失败则限频告警。⑥ 进食会把食物留在手上——战斗中自动进食把手从剑切成面包，15s 挥砍循环全程拿面包打僵尸（真机：连续三次满超时）；改为 eat 技能吃完恢复原持物 + 反射进食在有敌对目标时让位 | ✅ 离线（当时 `skills:test` 44/44、`control:test` 36/36、`client:test` 67/67、`selftest` 175/175、其余 6 套件全绿）；**真机已验证**（同日真机续测修掉护甲误脱、持物核验、进食抢手三处，见提交 `144a783`、`211b4cd`） |
 | 10-13 | 战斗 v3：撤退/冲锋/反卡死/TACZ | 真撤退（≤8 血，S 键后撤+面敌+优先用枪）；被远程打即冲锋（掉血/ <16 血/近身触发）；≤5 格 30s 无接触→终止并忽视 180s；TACZ 枪械（狙击 32/其余 16 射程、开镜后开火、≤6 发/轮、每轮后靠近/后撤/换枪/重新瞄准+500ms、弹尽换有弹枪、三点 LOS 全遮不开火+侧翼、近距序 rifle>smg>mg>pistol、反射按默认序、PvP 仅显式）；失败码表扩容；详见 `docs/COMBAT-PLAN.md` | ✅ 离线（`skills:test` 56/56 起、`control:test` 37/37、`client:test` 73/73、Mod 编译通过）；**真机已验证开火与 PvP**（10-13 17:46 起 4 轮 16 发击杀掠夺者、PvP 2 轮 4 发击倒玩家、全遮挡诚实 `blocked` 并触发侧翼（两次均被掩体挡住）、拒绝自主打玩家；见提交 `3ba591a`）。现计数 `skills:test` 57/57（+战斗租约防反射双发、`not_a_gun` 自恢复，提交 `1998777`） |
 
-当前状态（套件计数实测于 2026-10-14；真机记录截至 2026-10-13 夜）：
+| 10-14 | 中文矿名 + 规划器立账 | 中文矿名与深板岩变体（别名表补中文、路由改**最长别名匹配**，10 矿种 × 6 入口矩阵进 A11）；规划器停牌键改用任务名（木头路径恢复停牌 + A10 三条）；**规划器专项立账** `docs/PLANNER-REFACTOR.md` | ✅ 离线（`mining:entry:test` 20→25/25）；**真机确认**：采集到深板岩青金石（操作员口述） |
+| 10-15 | A\* 寻路六修 | 真机故障"卡在 75,63,65、随机游走、困在岸上"连修六刀：跨网格目标改**子目标接力**（删除 `toward()` 盲走，水域代价 2.5→2.0）→ 子目标落脚高度改**整列搜索**（"已经到达"不再触发 ±5 回退）→ 水格可作过渡航点 + 运动模型补**踩水横渡** → 含水台阶/半砖按陆地（剥状态后缀、**优先走桥而不是游泳**）→ **脚位格修正**（站在农田/半砖/土径上时 `feetCell()` 取脚下方块**之上**，修"一步都规划不出来/9ms 判 stalled"） | ✅ 离线（`path:test` 31→**35/35**，11f–11l 全是这轮故障的回归）；真机待复测 |
+| 10-15 | LLM 完工播报去重 | 同一件事被播报两次（模型措辞 + 632ms 后模板兜底，格式还不一样）：`config` 为 `taskDone` 声明的 `cooldownMs: 30000` **从未被消费**——现在 `announceFinished` 按「任务名\|描述\|成功与否」记时间戳并压制窗口内重复（不同完工、成功后再失败照常播）；模板去掉 `(moved N blocks in M ms)` 遥测 | ✅ 离线（`llm:dry` 工具 39→**43/43** 四条断言；真机故障见 §6 第 15 条） |
+| 10-16 | **P0 收官** | 8/8 套件、`plan:audit` 29/29 复核通过；P0 计划书与验收档案**转为历史文档**；REFS 新增 Voyager 参考项目并明确 `refs/` 忽略范围 | ✅ 离线（`p0:verify` 8/8，2026-10-16 实跑） |
 
-* 离线全绿（2026-10-14 实跑）：`selftest 176/176`、`skills:test 57/57`、`client:test 73/73`、`control:test 37/37`、
+当前状态（套件计数实测于 2026-10-16；真机记录截至 2026-10-13 夜 / 10-14 人工）：
+
+* **P0 已收官**：`p0:verify 8/8`（`path:test` · `tasks:test` · `llm:dry` · `control:test` · `verify:roleplay` ·
+  `clientmod:test` · `selftest` · `plan:audit`），P0 两份文档已转历史。
+* 离线全绿（2026-10-16 实跑）：`selftest 176/176`、`skills:test 57/57`、`client:test 73/73`、`control:test 37/37`、
   `mining:entry:test 25/25`、`mining:collection:test 24/24`、`mining:recovery:test 18/18`、`tasks:test 52/52`、
-  `path:test 35/35`、`clientmod:test 11/11`、`verify:roleplay 34/34`、`llm:dry` 路由 67/67 + 工具 43/43、
-  `p0:verify 8/8`（明细见 §8）。
+  `path:test 35/35`、`clientmod:test 11/11`、`verify:roleplay 34/34`、`llm:dry` 路由 67/67 + 工具 43/43（明细见 §8）。
 * 控制 Mod：`mod-client/dist/agent-client-1.0.0.jar` **75000 字节**（2026-10-13 17:37 构建，含 WalkTo 严格到达
   y 容差、战斗 v3 与 TACZ 枪械）；已 `client:install`，与 PCL 版本目录在装的 jar 字节完全一致，并已在 10-13
   17:38 与 22:03 两个真机会话中实际加载。改 Mod 后必须重装（`npm run client:install`）并重启客户端。
@@ -393,11 +406,13 @@ Invoke-RestMethod -Uri http://127.0.0.1:8766/ui/state
 | `npm start` / `npm run server:setup` | 本地无头服务器 + 旧流程（`--no-agent` 只起服） | 历史 / 兼容 |
 | `node scripts/client-real.js --login <pw> [--primitives]` | 真机非破坏自检 / 三原语验收 | 需客户端 |
 
-P0 的完整实施状态与验收证据见 [`docs/P0-STATUS.md`](docs/P0-STATUS.md)（**历史快照**，文首有过期对照表）；
+P0 已于 2026-10-16 收官（`p0:verify` 8/8、`plan:audit` 29/29）；[`docs/P0-STATUS.md`](docs/P0-STATUS.md) 与
+[`docs/P0-PLAN.md`](docs/P0-PLAN.md) 都是**历史文档 / 验收档案**（文首有过期对照表与收官依据）。
 逐批次进展见 [`docs/REWRITE-PLAN.md`](docs/REWRITE-PLAN.md)（记录到 2026-10-08）。更新的一手记录在
 [`docs/MINING-LLM-PLAN.md`](docs/MINING-LLM-PLAN.md)（附二/附三）、
 [`docs/MINING-COLLECTION-PLAN.md`](docs/MINING-COLLECTION-PLAN.md)（§十一）与
-[`docs/COMBAT-PLAN.md`](docs/COMBAT-PLAN.md)。
+[`docs/COMBAT-PLAN.md`](docs/COMBAT-PLAN.md)；**下一阶段方案**见
+[`docs/P1-PLANNER-PLAN.md`](docs/P1-PLANNER-PLAN.md)（尚未提交入 git）。
 
 ---
 
