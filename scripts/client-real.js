@@ -42,6 +42,7 @@ const { MineBlockTask } = require('../src/tasks/mineBlock');
  * ends up sitting next to an agent that walks through someone's farm.
  */
 const { manMadeReason: classify, assessStandability, looksLikeTree } = require('../src/world/safety');
+const { isDaytime } = require('../src/world/daytime');
 
 const args = process.argv.slice(2);
 function valueOf(flag) {
@@ -432,10 +433,21 @@ function note(s) {
 
     // ---- mining prerequisite ---------------------------------------------
     const mine = new MineBlockTask(ctx, { block: ['stone', 'cobblestone'], count: 2, probeShaft: false, warmupMs: 0 });
+    const stoneBefore = countOf(body, 'stone') + countOf(body, 'cobblestone');
     const mineRes = await mine.execute();
+    await body.refresh(true);
+    const stoneGained = countOf(body, 'stone') + countOf(body, 'cobblestone') - stoneBefore;
     const hasPick = Object.keys(body.snapshot().inventory || {}).some((n) => /pickaxe/.test(n));
     if (hasPick) {
-      check('mine: task ran with a pickaxe present', true, mineRes.reason);
+      /**
+       * Count the DROP, not the task's own verdict: the previous check only proved that the
+       * task ran. On 2026-10-17 it collected 2/2 while this line still said "task ran".
+       */
+      check(
+        'mine: stone actually entered the inventory with a pickaxe',
+        stoneGained >= 1,
+        `${mineRes.reason} (inventory +${stoneGained} stone/cobblestone)`
+      );
     } else {
       check(
         'mine: refuses cleanly without a pickaxe',
@@ -466,15 +478,6 @@ function note(s) {
    *
    * This is a safety gate, not an acceptance item.
    */
-  function isDaytime(time) {
-    if (!time) return null;
-    if (typeof time.timeOfDay === 'number' && Number.isFinite(time.timeOfDay)) {
-      const t = ((time.timeOfDay % 24000) + 24000) % 24000;
-      return !(t >= 12542 && t <= 23458);
-    }
-    return typeof time.isDay === 'boolean' ? time.isDay : null;
-  }
-
   async function ensureDaytime(clientBody) {
     let snap = await clientBody.refresh(true).catch(() => null);
     if (!snap || !snap.time) snap = clientBody.snapshot();

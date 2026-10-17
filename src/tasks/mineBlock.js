@@ -485,6 +485,10 @@ class MineBlockTask extends HarvestTask {
         z: Math.floor(here.z)
       });
       const name = below ? bare(below.name) : null;
+      this.log.info(
+        `probe shaft: y=${Math.floor(here.y)} below=${name || 'null'}` +
+          (below && below.position ? ` at ${JSON.stringify(below.position)}` : '')
+      );
       if (!name || ['air', 'cave_air', 'void_air', 'water', 'lava', 'bedrock', 'barrier'].includes(name)) break;
 
       const ok = await this.breakBlock(below);

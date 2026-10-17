@@ -11,6 +11,7 @@
 
 const { register } = require('./registry');
 const { bare } = require('../world/items');
+const { isDaytime } = require('../world/daytime');
 const { RecoveryLadder } = require('../core/recoveryLadder');
 
 const GROUND = /^(dirt|coarse_dirt|rooted_dirt|grass_block|podzol|mycelium)$/;
@@ -24,15 +25,6 @@ const SEEDS = /(_seeds$|^carrot$|^potato$|^beetroot_seeds$|^nether_wart$)/;
  * the world does. Beds work from 12542 to 23458, so derive from the clock and keep the
  * flag only as a fallback for bodies that do not report timeOfDay.
  */
-function isDaytime(time) {
-  if (!time) return null;
-  if (typeof time.timeOfDay === 'number' && Number.isFinite(time.timeOfDay)) {
-    const t = ((time.timeOfDay % 24000) + 24000) % 24000;
-    return !(t >= 12542 && t <= 23458);
-  }
-  return typeof time.isDay === 'boolean' ? time.isDay : null;
-}
-
 function findItem(inventory, pattern) {
   return Object.keys(inventory || {}).find((name) => pattern.test(bare(name))) || null;
 }

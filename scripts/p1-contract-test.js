@@ -2253,6 +2253,21 @@ function makeBrain() {
     });
   }
 
+  // ------------------------------------------------------------ day/night
+  process.stdout.write('\n39. day/night\n');
+  {
+    const { isDaytime } = require('../src/world/daytime');
+    check('isDay wins over a shifted timeOfDay', () => {
+      assert.strictEqual(isDaytime({ isDay: true, timeOfDay: 13233 }), true);
+      assert.strictEqual(isDaytime({ isDay: false, timeOfDay: 6000 }), false);
+    });
+    check('timeOfDay is only the fallback', () => {
+      assert.strictEqual(isDaytime({ timeOfDay: 6000 }), true);
+      assert.strictEqual(isDaytime({ timeOfDay: 18000 }), false);
+      assert.strictEqual(isDaytime(null), null);
+    });
+  }
+
   // summary
   const failed = results.filter((result) => !result.ok);
   process.stdout.write(`\nP1 contract test: ${results.length - failed.length}/${results.length} checks passed\n`);

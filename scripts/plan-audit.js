@@ -1138,6 +1138,18 @@ if (STAGE === 'p1') {
     return 'day check -> bed -> sleep -> re-check; no bed = stop';
   });
 
+  check('P1: day/night trusts the client isDay when present', () => {
+    const daytime = read('src/world/daytime.js');
+    const farm = read('src/skills/farming.js');
+    const live = read('scripts/client-real.js');
+    if (!/typeof time\.isDay === 'boolean'/.test(daytime)) throw new Error('isDay is not consulted');
+    if (!/typeof time\.isDay === 'boolean'/.test(farm) && !/require\('\.\.\/world\/daytime'\)/.test(farm)) {
+      throw new Error('the sleep skill does not use the shared daytime rule');
+    }
+    if (!/require\('\.\.\/src\/world\/daytime'\)/.test(live)) throw new Error('live tests do not use the shared daytime rule');
+    return 'isDay first; timeOfDay fallback; one shared rule';
+  });
+
   check('P1: proposals are wired with an offline answer surface', () => {
     const brain = read('src/brain.js');
     const commands = read('src/chat/commands.js');

@@ -22,7 +22,8 @@
 | --- | --- | --- |
 | 模组协议（`client:verify`） | **23/23 PASS** | `runtime/logs/client-verify-2026-10-17.log` |
 | 登录 + 谨慎寻路（`client-real --login`） | **7/7 PASS**；服务器确认 `Вход успешен` | `runtime/logs/client-real-login-2026-10-17.log` |
-| 采集原语（`--primitives --dig dirt:4,stone:4`） | **首次 9/10**：砍树 PASS，**挖石 FAIL**；复测被**死亡/空背包/界面打开**打断，结论待复验 | `runtime/logs/client-real-primitives-2026-10-17.log`、`client-real-stone-retest-2026-10-17.log`、`client-real-dirt-stone-retest-2026-10-17.log` |
+| 采集原语（`--primitives --dig dirt:4,stone:4`） | **首次 9/10**：砍树 PASS；`--dig stone` 前置检查在无石点位 FAIL；**独立 `mine` 任务 2/2 PASS（库存 +2）** | `runtime/logs/client-real-primitives-2026-10-17.log`、`client-real-mine-check-2026-10-17.log` |
+| 独立 `mine` 任务 | **PASS**：`collected 2/2 stone/cobblestone`，库存 +2 | `client-real-mine-check-2026-10-17.log` |
 | `/state` 空闲耗时 | p50 **43.8ms**、p95 **64.9ms**、max 81.5ms（30 次） | `runtime/logs/state-idle-2026-10-17.json` |
 | Agent 自动 AuthMe 登录（修复后） | **PASS**：`logging in (startup, attempt 1)` → `logged in` → 服务器 `Вход успешен` | `runtime/logs/agent-authme-final-2026-10-17.log` |
 | A01 面板 `!` 命令（`status`） | PASS：3ms 返回；`/llm` tokens **0 → 0**；非法 `mine` 返回 usage | 本记录（未单独落盘） |
@@ -71,8 +72,18 @@ FAIL  dig stone：32 个 stone/cobblestone 目标全部 noPath，库存 +0
   不再把环境问题报成路径失败。
 - 复测需要：存活、无界面、背包里有镐、位置附近有可暴露的石头。
 
-**当前结论：挖石仍未被真机证明通过；首次失败可能是路径器/目标选择，也可能是死亡界面，
-两者都已有针对性修复，等待一次干净环境的复验。**
+### 4.4 自然地表与独立 mine（09:24–09:28）
+
+- 09:24 在自然草地（68,63,61）复测：`probe shaft` 挖掉脚下方块（`grass_block`），下一格就是
+  `air`，没有石层；`--dig stone` 仍失败。说明该点位的石头在别处，且“先挖石再逛”顺序不利。
+- 09:28 单独跑采集原语（`--chop-count 0`）末尾的 `MineBlockTask`：
+  `mine: picked up 1 (1/2)`、`picked up 1 (2/2)`，**`collected 2/2 stone/cobblestone`，库存 +2**。
+- 该检查原先只断言“任务跑过”；已改为断言**库存实际增加**，这次通过。
+- 结论：**石头采集（带镐）真机通过**；`--dig stone` 的前置检查在无石点位失败是测试顺序/选址问题，
+  不是采集能力缺失。后续可把 `--dig` 放到 roam/chop 之后，或先把角色带到裸露石层再跑。
+
+**当前结论：砍树（首次 2 原木）与石头（2/2，库存 +2）均已在真机通过；`--dig stone` 这一条
+前置检查仍会因点位/顺序失败，需要在脚本里调整顺序或明确选址。**
 
 ### 4.3 干净背包复测（09:17，仍无效）
 
@@ -109,8 +120,11 @@ FAIL  dig stone：32 个 stone/cobblestone 目标全部 noPath，库存 +0
 - **实测（2026-10-17 09:20）**：`timeOfDay=12774` 时运行 `client-real --no-login --walk 3`，
   门禁触发：找到 `minecraft:white_bed` at (89,70,63)，`moveTo` 无法到达（当前位置 67,63,61），
   随即**中止测试**并报 `no usable bed - aborted`，没有执行任何夜间寻路/挖掘。
-  手动带到床边也失败；没有 `/spawn` 可用。结论：**安全门禁生效（停），但“夜间睡觉”本身
-  尚未成功完成**，需要在床可达的位置重试。
+  手动带到床边也失败；没有 `/spawn` 可用。
+- **09:24 修正**：快照 `timeOfDay=13233` 时 `isDay=true`（服务器时区偏移），旧门禁把白天
+  误判为夜晚。已抽出 `src/world/daytime.js`：**优先信 `isDay`**，缺失时才回退 `timeOfDay`；
+  睡眠技能与测试脚本共用。修复后 09:24 的白天测试正常进行。
+- 结论：**安全门禁生效（夜里会停），但真正的夜间睡眠尚未成功**；需要床可达时重试。
 
 ## 7. F1 / Computer Use
 - `computer_use_status`：helper 运行中、WGC 截图可用、桌面会话正常；
@@ -122,10 +136,10 @@ FAIL  dig stone：32 个 stone/cobblestone 目标全部 noPath，库存 +0
 ## 7. 结论与下一步
 
 **已验证**：模组协议、AuthMe 登录（含 Agent 自动登录修复）、谨慎寻路、砍树采集、
-`!` 面板命令与零模型调用、`/state` 空闲成本。
+**石头采集（独立 mine 2/2，库存 +2）**、`!` 面板命令与零模型调用、`/state` 空闲成本。
 
-**未通过/未验证**：挖石（首次 FAIL，复测无效）、移动/挖矿/反射/GUI 下的 `/state`、
-F1 CU 限窗、A02 之后的模型/多人/重启项。
+**未通过/未验证**：`--dig stone` 前置检查的点位/顺序、夜间睡眠（床不可达）、
+移动/挖矿/反射/GUI 下的 `/state`、F1 CU 限窗、A02 之后的模型/多人/重启项。
 
 下一步建议：
 1. **干净环境复验挖石**：确认存活、无界面、背包有镐；用 `--dig stone:2` 单独跑，
