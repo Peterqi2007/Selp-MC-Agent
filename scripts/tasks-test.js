@@ -175,7 +175,9 @@ function treeBlocks(x, z, height, species = 'oak', options = {}) {
     const task = new MineBlockTask(makeCtx(body, cfg), { block: ['stone'], count: 1, shaftDepth: 4 });
     const res = await task.execute();
     expect(body.stats.dug > 0, 'the shaft should have dug at least one block');
-    expect(res.ok || /only collected/.test(res.reason), `unexpected reason "${res.reason}"`);
+    expect(res.ok, `expected the shaft to collect stone, got "${res.reason}"`);
+    const cobble = body.inventory['minecraft:cobblestone'] || 0;
+    expect(cobble >= 1, `expected cobblestone from the shaft, have ${cobble}`);
     return `dug ${body.stats.dug}, reason="${res.reason}"`;
   });
 

@@ -300,12 +300,61 @@ class MineBlockTask extends HarvestTask {
     await this.digWhatIAmLookingAt();
 
     // ---- no exposed targets: start a shaft --------------------------------
-    if (this.probeShaftEnabled && !this.findTargets().length) {
+    /**
+     * Buried stone is not a walkable target: `findTargets()` sees it through the block map,
+     * but `moveTo(range:1)` can never stand next to it. Live 2026-10-17 that produced 32
+     * consecutive noPath failures. Only an *exposed* face counts as a target; if there is
+     * none, open a shaft.
+     */
+    if (this.probeShaftEnabled && !this.hasExposedTarget()) {
       this.log.info(`no ${this.unitName()} exposed, digging a probe shaft`);
       await this.probeShaft();
     }
 
     return super.run();
+  }
+
+  /** A target with at least one air neighbour: reachable without rearranging the world. */
+  isExposed(block) {
+    const world = this.ctx.world;
+    if (!world || typeof world.blockAtAbsolute !== 'function' || !block || !block.position) return false;
+    const p = block.position;
+    for (const [dx, dy, dz] of [[1, 0, 0], [-1, 0, 0], [0, 0, 1], [0, 0, -1], [0, 1, 0], [0, -1, 0]]) {
+      const neighbour = world.blockAtAbsolute({
+        x: Math.floor(p.x) + dx,
+        y: Math.floor(p.y) + dy,
+        z: Math.floor(p.z) + dz
+      });
+      if (neighbour && /^(air|cave_air|void_air)$/.test(bare(neighbour.name))) return true;
+    }
+    return false;
+  }
+
+  hasExposedTarget() {
+    return this.findTargets().some((block) => this.isExposed(block));
+  }
+
+  /**
+   * Approach, then fall back to "already within reach".
+   *
+   * A wall block beside a shaft cannot be approached by pathfinding (its own cell is solid),
+   * but the body can dig it from a few blocks away. Only exposed targets get this fallback,
+   * and the body still enforces its own reach/line-of-sight rules.
+   */
+  async approach(target) {
+    const reached = await super.approach(target);
+    if (reached) return true;
+    if (!this.isExposed(target)) return false;
+    const here = this.position;
+    if (!here || !target.position) return false;
+    const distance = Math.hypot(
+      here.x - target.position.x,
+      here.y - target.position.y,
+      here.z - target.position.z
+    );
+    if (distance > 4) return false;
+    this.log.info(`${this.name}: ${target.name} is exposed and within ${distance.toFixed(1)} blocks - digging without walking`);
+    return true;
   }
 
   /** Is this crosshair target one of ours, and harvestable where it stands? */
@@ -423,14 +472,33 @@ class MineBlockTask extends HarvestTask {
       const here = this.position;
       if (!here) break;
 
-      const feet = world.blockAtAbsolute({ x: Math.floor(here.x), y: Math.floor(here.y), z: Math.floor(here.z) });
-      if (feet && !['air', 'cave_air', 'water', 'lava'].includes(bare(feet.name))) {
-        const ok = await this.breakBlock(feet);
-        if (ok) advanced = true;
-      }
-      await sleep(200);
+      /**
+       * Dig the block *below the feet*, not the feet cell.
+       *
+       * The old code read `floor(here.y)` (the air the bot stands in) and therefore never
+       * dug anything: live 2026-10-17 a surface with no exposed stone stayed untouched while
+       * the task walked at buried targets and reported noPath.
+       */
+      const below = world.blockAtAbsolute({
+        x: Math.floor(here.x),
+        y: Math.floor(here.y) - 1,
+        z: Math.floor(here.z)
+      });
+      const name = below ? bare(below.name) : null;
+      if (!name || ['air', 'cave_air', 'void_air', 'water', 'lava', 'bedrock', 'barrier'].includes(name)) break;
 
-      if (this.findTargets().length) break;
+      const ok = await this.breakBlock(below);
+      if (ok) {
+        advanced = true;
+        await this.collectDrops({ radius: 6, attempts: 3 });
+      } else {
+        this.log.warn(`probe shaft: could not break ${below.name} at ${JSON.stringify(below.position || null)} - stopping the shaft`);
+        break;
+      }
+      await sleep(300);
+
+      // Stop as soon as the shaft opened an exposed face we can work on.
+      if (this.hasExposedTarget()) break;
     }
 
     if (!advanced) this.log.debug('probe shaft found nothing and dug nothing');

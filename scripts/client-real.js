@@ -278,6 +278,24 @@ function note(s) {
 
     const ctx = buildTaskContext(body);
     await body.refresh(true);
+    /**
+     * A screen-open session makes every movement key a no-op. The 2026-10-17 retest lost
+     * its inventory (death) and kept running: the stone task reported 32 noPath failures
+     * while the real cause was the death screen. Abort before changing anything, so the
+     * verdict cannot be mistaken for a pathfinding bug.
+     */
+    const preflight = body.snapshot();
+    if (preflight && preflight.screenOpen) {
+      check(
+        'P0 primitives start from a usable session (no screen open)',
+        false,
+        `${preflight.screen || 'a screen'} is open - close it and re-run`
+      );
+      out('aborting primitives before any world change; these results are not valid');
+      await body.disconnect();
+      summarise();
+      return;
+    }
 
     // ---- primitive 1: walk ------------------------------------------------
     const walkTarget = pickSafeDestination(body, walkDistance > 0 ? walkDistance : 5);
@@ -313,7 +331,21 @@ function note(s) {
       for (const entry of digSpec) {
         const name = entry.name;
         const want = entry.count;
-        const before = countOf(body, name);
+        /**
+         * Count the block's DROP, not its name: stone drops cobblestone, deepslate drops
+         * cobbled_deepslate. The first live run counted `stone` and reported "+0" while the
+         * task had actually put cobblestone in the bag.
+         */
+        const harvested = (clientBody) => {
+          const names =
+            name === 'stone'
+              ? ['stone', 'cobblestone']
+              : name === 'deepslate'
+                ? ['deepslate', 'cobbled_deepslate']
+                : [name];
+          return names.reduce((sum, item) => sum + countOf(clientBody, item), 0);
+        };
+        const before = harvested(body);
         const task = new MineBlockTask(ctx, {
           block: name === 'dirt' ? ['dirt', 'grass_block'] : [name],
           count: want,
@@ -323,7 +355,7 @@ function note(s) {
         });
         const res = await task.execute();
         await body.refresh(true);
-        const gained = countOf(body, name) - before;
+        const gained = harvested(body) - before;
         const hasPick = Object.keys(body.snapshot().inventory || {}).some((n) => /pickaxe/.test(n));
         if (/stone|cobble|deepslate|_ore/.test(name) && !hasPick) {
           check(

@@ -1121,6 +1121,14 @@ if (STAGE === 'p1') {
     return 'policy first; refused actions never reach the executor';
   });
 
+  check('P1: mining only walks to exposed targets and probes below the feet', () => {
+    const mine = read('src/tasks/mineBlock.js');
+    if (!/hasExposedTarget/.test(mine) || !/isExposed/.test(mine)) throw new Error('buried targets are still treated as walkable');
+    if (!/Math\.floor\(here\.y\) - 1/.test(mine)) throw new Error('the shaft still digs the feet cell');
+    if (!/digging without walking/.test(mine)) throw new Error('the within-reach fallback is missing');
+    return 'exposed-only targets; shaft digs y-1; reachable fallback';
+  });
+
   check('P1: proposals are wired with an offline answer surface', () => {
     const brain = read('src/brain.js');
     const commands = read('src/chat/commands.js');

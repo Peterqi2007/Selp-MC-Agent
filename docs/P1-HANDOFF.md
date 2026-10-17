@@ -23,7 +23,7 @@ npm run p1:baseline -- --suites  # 记录提交/配置指纹/套件结果到 run
 | `planner:test` | **32/32** |
 | `p1:contract:test` | **146/146** |
 | `p1:fault:test` | **7/7** |
-| `plan:audit --stage p1` | **91/91** |
+| `plan:audit --stage p1` | **92/92** |
 
 没有启动 Minecraft、没有调用模型、没有执行生成代码或 GUI 自动化。
 
@@ -46,7 +46,7 @@ npm run p1:baseline -- --suites  # 记录提交/配置指纹/套件结果到 run
 | --- | --- |
 | `client:verify`（模组协议） | **23/23 PASS** |
 | `client-real --login`（登录+谨慎寻路） | **7/7 PASS**，服务器确认 `Вход успешен` |
-| `client-real --primitives` | **9/10**：砍树 PASS；**挖石 FAIL（32 个目标 noPath）** |
+| `client-real --primitives` | **首次 9/10**：砍树 PASS；**挖石 FAIL（noPath）**；复测因死亡/空背包/界面无效 |
 | Agent 自动 AuthMe 登录 | 首次失败（探针早于 ChatListener 首轮播种）；修复后 **PASS**，未发 `/register` |
 | A01 面板 `!status` / 非法 `!mine` | PASS：3ms、模型 tokens 0→0、明确 usage |
 | `/state` 空闲 | p50 43.8ms / p95 64.9ms（30 次，1.79MB，63,257 cells） |
@@ -73,7 +73,7 @@ npm run p1:baseline -- --suites  # 记录提交/配置指纹/套件结果到 run
 
 | 项 | 原因 / 下一步 |
 | --- | --- |
-| 挖石路径（真机） | **实测失败**：32 个目标 noPath；需复现并定位 |
+| 挖石路径（真机） | **首次失败，复测无效**：probe/计数已修，需存活+有镐+无界面复验 |
 | 真实 harness 传输与插件 | 需要 DSH/Codex 宿主接线与单独批准；适配器/回合/续轮桥已就绪 |
 | 真实模型判定与语言行为 | 需要模型端点/预算与客户端窗口；契约与 stub 已就绪（A02+ 未执行） |
 | 代码技能真实生成/试运行/受限执行 | 需要编码后端与 A19 安全边界评审；当前只做静态检查与 dry-run |
