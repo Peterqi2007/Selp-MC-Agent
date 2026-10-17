@@ -23,7 +23,7 @@ npm run p1:baseline -- --suites  # 记录提交/配置指纹/套件结果到 run
 | `planner:test` | **32/32** |
 | `p1:contract:test` | **146/146** |
 | `p1:fault:test` | **7/7** |
-| `plan:audit --stage p1` | **92/92** |
+| `plan:audit --stage p1` | **93/93** |
 
 没有启动 Minecraft、没有调用模型、没有执行生成代码或 GUI 自动化。
 
@@ -51,6 +51,10 @@ npm run p1:baseline -- --suites  # 记录提交/配置指纹/套件结果到 run
 | A01 面板 `!status` / 非法 `!mine` | PASS：3ms、模型 tokens 0→0、明确 usage |
 | `/state` 空闲 | p50 43.8ms / p95 64.9ms（30 次，1.79MB，63,257 cells） |
 | F1 CU 限窗 | **未执行**：helper 无已授权应用，读取 java 窗口被拒 |
+
+**夜间安全**：`client-real` 在寻路/采集前检查时间，夜里找床睡觉；无床/走不到则中止。
+运行 Agent 时夜里用 `!sleep`，确认天亮再继续。睡觉不是验收项。
+实测（09:20）：门禁触发并中止（床不可达），未做夜间动作。
 
 证据：`runtime/logs/client-verify-2026-10-17.log`、`client-real-login-2026-10-17.log`、
 `client-real-primitives-2026-10-17.log`、`agent-authme-final-2026-10-17.log`、

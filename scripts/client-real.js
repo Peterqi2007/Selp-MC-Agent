@@ -222,6 +222,12 @@ function note(s) {
   // ----------------------------------------------------------- pathfinding
   out('');
   out('4. cautious pathfinding test (no digging, no placing)');
+  if (!(await ensureDaytime(body))) {
+    check('night safety: daytime or slept in a bed before walking', false, 'no usable bed - aborted');
+    await body.disconnect();
+    summarise();
+    return;
+  }
 
   const PROTECTED_DEST = /minecraft/; // placeholder, real check below
   // Pick a destination on natural ground, refusing anything man-made.
@@ -278,6 +284,12 @@ function note(s) {
 
     const ctx = buildTaskContext(body);
     await body.refresh(true);
+    if (!(await ensureDaytime(body))) {
+      check('night safety: daytime or slept in a bed before primitives', false, 'no usable bed - aborted');
+      await body.disconnect();
+      summarise();
+      return;
+    }
     /**
      * A screen-open session makes every movement key a no-op. The 2026-10-17 retest lost
      * its inventory (death) and kept running: the stone task reported 32 noPath failures
@@ -446,6 +458,64 @@ function note(s) {
 
   await body.disconnect();
   summarise();
+
+  /**
+   * Night safety for live tests: the operator's rule is that the game must not be played
+   * through the night unattended. Sleep in a bed when night falls; if no bed can be used,
+   * stop the test instead of walking/digging in the dark.
+   *
+   * This is a safety gate, not an acceptance item.
+   */
+  function isDaytime(time) {
+    if (!time) return null;
+    if (typeof time.timeOfDay === 'number' && Number.isFinite(time.timeOfDay)) {
+      const t = ((time.timeOfDay % 24000) + 24000) % 24000;
+      return !(t >= 12542 && t <= 23458);
+    }
+    return typeof time.isDay === 'boolean' ? time.isDay : null;
+  }
+
+  async function ensureDaytime(clientBody) {
+    let snap = await clientBody.refresh(true).catch(() => null);
+    if (!snap || !snap.time) snap = clientBody.snapshot();
+    if (isDaytime(snap && snap.time) !== false) return true;
+
+    note('night fell: looking for a bed before continuing (safety rule)');
+    let beds = [];
+    try {
+      beds = clientBody.findBlocksMatching((name) => /_bed$/.test(String(name)), {
+        maxDistance: 32,
+        count: 1
+      });
+    } catch (err) {
+      note(`bed search failed: ${err.message}`);
+    }
+    if (!beds.length) {
+      note('night and no bed within 32 blocks - stopping instead of playing through the night');
+      return false;
+    }
+    const bed = beds[0];
+    note(`sleeping in ${bed.name} at (${bed.position.x},${bed.position.y},${bed.position.z})`);
+    const reached = await clientBody
+      .moveTo(bed.position, { range: 3, timeoutMs: 30000 })
+      .catch(() => false);
+    if (!reached) {
+      note('could not reach the bed - stopping (safety)');
+      return false;
+    }
+    await clientBody.useOn(bed.position, { face: { x: 0, y: 1, z: 0 } }).catch(() => false);
+    const deadline = Date.now() + 120000;
+    while (Date.now() < deadline) {
+      await new Promise((resolve) => setTimeout(resolve, 2000));
+      const state = await clientBody.refresh(true).catch(() => null);
+      if (isDaytime(state && state.time) === true) {
+        note('slept until morning, continuing');
+        return true;
+      }
+    }
+    note('still night after 120s - stopping (safety)');
+    return false;
+  }
 
   /** A task context backed by the live client - the same shape index.js builds. */
   function buildTaskContext(clientBody) {

@@ -1129,6 +1129,15 @@ if (STAGE === 'p1') {
     return 'exposed-only targets; shaft digs y-1; reachable fallback';
   });
 
+  check('P1: live tests sleep at night or stop', () => {
+    const real = read('scripts/client-real.js');
+    if (!/ensureDaytime/.test(real)) throw new Error('live tests have no night gate');
+    if (!/_bed\$/.test(real)) throw new Error('the night gate never looks for a bed');
+    if (!/useOn\(bed\.position/.test(real)) throw new Error('the night gate never uses the bed');
+    if (!/stopping instead of playing through the night/.test(real)) throw new Error('no-bed must stop, not continue');
+    return 'day check -> bed -> sleep -> re-check; no bed = stop';
+  });
+
   check('P1: proposals are wired with an offline answer surface', () => {
     const brain = read('src/brain.js');
     const commands = read('src/chat/commands.js');
