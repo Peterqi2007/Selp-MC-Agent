@@ -157,6 +157,16 @@ class TaskSlot {
   }
 
   /** B2 (strike backoff): retry a failed task or park the goal with a growing window. */
+  /**
+   * A04: will this failure be retried? Intermediate retries are not terminal and must not
+   * broadcast another `task:failed`; only the last attempt does.
+   */
+  willRetry(task) {
+    const reason = task.result ? task.result.reason : null;
+    if (reason && /cancel/i.test(reason)) return false;
+    return (task.retries || 0) < (task.maxRetries || 0);
+  }
+
   maybeRetry(task) {
     const brain = this.brain;
     const reason = task.result ? task.result.reason : null;
@@ -248,12 +258,20 @@ class TaskSlot {
       } else {
         brain.log.warn(`failed ${task.name}: ${res.reason}`);
         brain.ctx.memory.bump(`task:${task.name}:fail`);
+        /**
+         * A04: a retry is not a terminal event, but P0 consumers still expect a failure
+         * event on the first attempt. Keep the event for compatibility and mark whether it
+         * is retrying; exactly one attempt per task carries `terminal:true`.
+         */
+        const retrying = this.willRetry(task);
         this.publish('task:failed', {
           name: task.name,
           reason: res.reason,
           description: task.description,
           source: task.source || 'autonomous',
-          level: task.level || null
+          level: task.level || null,
+          retrying,
+          terminal: !retrying
         });
         this.maybeRetry(task);
       }

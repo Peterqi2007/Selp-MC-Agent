@@ -43,7 +43,9 @@
 - 观察到的 19ms 空闲与单 `current` 不能证明 A07 全部通过；A07 的多步计划/父计划子步骤
   本轮未构造。
 - **修复已落**：`TaskSlot` 为每个 task 分配唯一 `taskId`，`attemptId` 使用
-  `taskId#retry`；回归 `p1:contract 151/151` 覆盖同名任务。
+  `taskId#retry`；失败事件带 `retrying/terminal`，只有最终尝试 `terminal:true`。
+  P0 `control:test` 仍能在首次失败时收到事件；回归 `p1:contract 153/153` 覆盖同名任务与
+  终态标记。
 
 ### M1.5 / A08：停止
 
@@ -83,7 +85,8 @@
 
 | 修复 | 文件 | 离线验证 |
 | --- | --- | --- |
-| 同名任务唯一 `taskId`/`attemptId` | `src/core/taskSlot.js` | `p1:contract:test 151/151`（新增同名任务） |
+| 同名任务唯一 `taskId`/`attemptId` | `src/core/taskSlot.js` | `p1:contract:test 153/153`（同名任务） |
+| 重试终态标记（兼容 P0 首次失败事件） | `src/core/taskSlot.js` | `p1:contract:test 153/153`（terminal 标记）；`control:test 37/37` |
 | 零矿不得 `ok` | `src/skills/mining.js` | `mining-collection-test 25/25`（新增 C04b） |
 | 完整门禁 | — | `npm run p1:verify` 结果见下 |
 
@@ -94,8 +97,8 @@
 
 1. 白天、存活、无界面；有可达床或在不跨夜窗口内完成。
 2. A06：`mine diamond_ore` 无目标 → 必须 `task:failed`/partial，不是 `task:done`。
-3. A04：两个同名任务 → `taskId/attemptId` 不同；重试只应在最终失败时播报终态（需先决定
-   重试事件语义）。
+3. A04：两个同名任务 → `taskId/attemptId` 不同；失败事件带 `retrying/terminal`，
+   只有最终尝试 `terminal:true`；需复验。
 4. A08：用真正运行的任务（`mine dirt` 或可达 `goto`）测 stop ≤3s、按键释放、无迟到动作。
 5. A31/F3：带 `Last-Event-ID` 重放更早事件；临时设置 `web.eventsToken` 测 401/token；
    `planVersion` 旧草案拒绝需宿主接口。

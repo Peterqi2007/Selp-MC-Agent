@@ -2331,6 +2331,53 @@ function makeBrain() {
       assert.notStrictEqual(failed[0].attemptId, failed[1].attemptId);
       assert.match(failed[0].attemptId, /^task-\d+#0$/);
     });
+
+    // A04: a retry is not a terminal broadcast; only the final attempt is.
+    const retrySlot = new TaskSlot({}, { log: silent });
+    const retryEvents = [];
+    retrySlot.brain = {
+      log: silent,
+      running: true,
+      paused: false,
+      stopped: false,
+      events: { publish: (event) => retryEvents.push(event) },
+      completedGoals: [],
+      queue: [],
+      ctx: { memory: { bump() {}, rememberLandmark() {} } },
+      drainQueue() {},
+      runTask: (task) => retrySlot.runTask(task)
+    };
+    const flaky = {
+      name: 'flaky-go-to',
+      description: 'walk',
+      source: 'chat',
+      state: 'pending',
+      retries: 0,
+      maxRetries: 1,
+      result: null,
+      async execute() {
+        this.result = { ok: false, reason: 'noPath retry' };
+      },
+      snapshot() {
+        return {};
+      }
+    };
+    await retrySlot.runTask(flaky);
+    check('a retried failure is marked non-terminal but still observable', () => {
+      const failed = retryEvents.filter((event) => event.type === 'task:failed');
+      assert.strictEqual(failed.length, 1);
+      assert.strictEqual(failed[0].retrying, true);
+      assert.strictEqual(failed[0].terminal, false);
+      assert.strictEqual(flaky.retries, 1);
+    });
+    await new Promise((resolve) => setTimeout(resolve, 1800));
+    check('only the final failed attempt is terminal', () => {
+      const failed = retryEvents.filter((event) => event.type === 'task:failed');
+      assert.strictEqual(failed.length, 2);
+      assert.strictEqual(failed.filter((event) => event.terminal === true).length, 1);
+      assert.strictEqual(failed[1].attemptId, `${flaky.taskId}#1`);
+      assert.strictEqual(failed[1].terminal, true);
+    });
   }
 
   // summary

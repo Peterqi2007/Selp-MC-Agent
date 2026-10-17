@@ -22,7 +22,7 @@ npm run p1:baseline -- --suites  # 记录提交/配置指纹/套件结果到 run
 | --- | --- |
 | P0 regression（8 suites） | **8/8** |
 | `planner:test` | **32/32** |
-| `p1:contract:test` | **151/151** |
+| `p1:contract:test` | **153/153** |
 | `p1:fault:test` | **7/7** |
 | `plan:audit --stage p1` | **95/95** |
 
