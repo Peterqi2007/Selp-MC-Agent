@@ -709,6 +709,26 @@ if (STAGE === 'p1') {
     return 'conditional facts; saved with the session';
   });
 
+  check('P1: planning work is budgeted and a new round keeps the total', () => {
+    const budget = read('src/planner/budget.js');
+    const brain = read('src/brain.js');
+    if (!/class Budget/.test(budget)) throw new Error('Budget is missing');
+    if (!/DEFAULT_LIMITS/.test(budget)) throw new Error('budgets have no defaults');
+    if (!/total/.test(budget)) throw new Error('cumulative consumption is not kept');
+    if (!/new Budget/.test(brain)) throw new Error('brain does not create the budget');
+    return 'finite searches/replans/retries; reset keeps totals';
+  });
+
+  check('P1: steps are verified and done steps cannot be reopened', () => {
+    const verifier = read('src/planner/verifier.js');
+    const guard = read('src/planner/draftGuard.js');
+    if (!/verifyStep/.test(verifier) || !/postcondition/.test(verifier)) throw new Error('step verification is missing');
+    if (!/verifyPlan/.test(verifier)) throw new Error('plan verification is missing');
+    if (!/reopens-done-step/.test(guard) || !/drops-done-step/.test(guard)) throw new Error('the replay guard does not protect done steps');
+    if (!/budget-exhausted/.test(guard)) throw new Error('replans are not budgeted');
+    return 'pre/post verification; done steps frozen; replans budgeted';
+  });
+
   check('P1: proposals are wired with an offline answer surface', () => {
     const brain = read('src/brain.js');
     const commands = read('src/chat/commands.js');

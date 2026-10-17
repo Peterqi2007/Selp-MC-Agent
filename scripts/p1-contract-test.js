@@ -791,6 +791,108 @@ function makeBrain() {
     });
   }
 
+  // ------------------------------------------------ budgets + verification
+  process.stdout.write('\n13. budgets + verification + replan guard\n');
+  const { Budget } = require('../src/planner/budget');
+  const { verifyStep } = require('../src/planner/verifier');
+  const { validateReplanDraft } = require('../src/planner/draftGuard');
+
+  {
+    const budget = new Budget();
+    assert(budget.spend('searches').ok);
+    assert(budget.spend('searches').ok);
+    assert(budget.spend('searches').ok);
+    const refused = budget.spend('searches');
+    check('a search budget refuses the fourth search', () => {
+      assert.strictEqual(refused.ok, false);
+      assert.strictEqual(refused.reason, 'budget-exhausted');
+      assert.strictEqual(budget.remaining('searches'), 0);
+    });
+    budget.reset();
+    check('new information starts a fresh round but keeps the cumulative total', () => {
+      assert.strictEqual(budget.remaining('searches'), 3);
+      assert.strictEqual(budget.status().total.searches, 3);
+    });
+  }
+
+  {
+    const observation = {
+      inventory: { 'minecraft:iron_ore': 2 },
+      position: { x: 0, y: 64, z: 0 },
+      blocks: { '1,64,0': 'minecraft:stone' }
+    };
+    check('a step fails its precondition before it runs', () => {
+      const result = verifyStep(
+        { preconditions: { inventoryAtLeast: { 'minecraft:iron_ore': 3 } } },
+        observation
+      );
+      assert.strictEqual(result.ok, false);
+      assert.strictEqual(result.stage, 'precondition');
+    });
+    check('a step that claims success without the postcondition is rejected', () => {
+      const result = verifyStep(
+        { postconditions: { inventoryAtLeast: { 'minecraft:iron_ore': 3 } } },
+        observation
+      );
+      assert.strictEqual(result.ok, false);
+      assert.strictEqual(result.stage, 'postcondition');
+    });
+    check('position and block conditions are checked against the observation', () => {
+      assert(verifyStep({ preconditions: { blockAt: { position: { x: 1, y: 64, z: 0 }, block: 'minecraft:stone' } } }, observation).ok);
+      const far = verifyStep(
+        { postconditions: { positionNear: { position: { x: 9, y: 64, z: 0 }, range: 2 } } },
+        observation
+      );
+      assert.strictEqual(far.ok, false);
+    });
+  }
+
+  {
+    const current = {
+      planId: 'p',
+      version: 2,
+      steps: [
+        { id: 's1', type: 'mine', status: 'done', args: { count: 1 } },
+        { id: 's2', type: 'mine', status: 'pending', args: { count: 2 } }
+      ]
+    };
+    const draft = {
+      baseVersion: 2,
+      steps: [
+        { id: 's1', type: 'mine', status: 'done', args: { count: 1 } },
+        { id: 's2', type: 'mine', status: 'pending', args: { count: 4 } }
+      ]
+    };
+    check('a replan may change unfinished steps only', () => {
+      const result = validateReplanDraft({ current, draft });
+      assert(result.ok);
+      assert.deepStrictEqual(result.changed, ['s2']);
+    });
+    check('a replan cannot reopen or drop a done step', () => {
+      const reopen = validateReplanDraft({
+        current,
+        draft: {
+          baseVersion: 2,
+          steps: [
+            { id: 's1', type: 'mine', status: 'pending', args: { count: 1 } },
+            { id: 's2', type: 'mine', status: 'pending', args: { count: 2 } }
+          ]
+        }
+      });
+      assert.strictEqual(reopen.reason, 'reopens-done-step');
+      const drop = validateReplanDraft({
+        current,
+        draft: { baseVersion: 2, steps: [{ id: 's2', type: 'mine', status: 'pending', args: { count: 2 } }] }
+      });
+      assert.strictEqual(drop.reason, 'drops-done-step');
+    });
+    check('an exhausted replan budget refuses the draft', () => {
+      const budget = new Budget({ limits: { replans: 0 } });
+      const result = validateReplanDraft({ current, draft, budget });
+      assert.strictEqual(result.reason, 'budget-exhausted');
+    });
+  }
+
   // summary
   const failed = results.filter((result) => !result.ok);
   process.stdout.write(`\nP1 contract test: ${results.length - failed.length}/${results.length} checks passed\n`);
