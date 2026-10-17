@@ -33,6 +33,7 @@ const { ProposalDesk } = require('./planner/proposals');
 const { TaskEvents } = require('./core/taskEvents');
 const { PlanStore } = require('./core/planStore');
 const { PlanRunner } = require('./core/planRunner');
+const { PlanQuestionBridge } = require('./planner/planQuestions');
 const { TurnLifecycle } = require('./core/turnLifecycle');
 const { HarnessAdapter } = require('./harness/adapter');
 const { StateStore } = require('./core/stateStore');
@@ -118,6 +119,8 @@ class Brain {
       log: this.log
     });
     ctx.planRunner = this.planRunner;
+    this.planQuestions = new PlanQuestionBridge({ plans: this.plans, proposals: this.proposals });
+    ctx.planQuestions = this.planQuestions;
     this.turns = new TurnLifecycle();
     ctx.turns = this.turns;
     this.harness = new HarnessAdapter({ turns: this.turns, events: this.events });
@@ -721,18 +724,43 @@ class Brain {
     this.log.info(`proposed ${outcome.proposal.target} - waiting for the player (!proposal accept)`);
   }
 
+  /** Run a plan; a question step becomes a proposal instead of a second question system. */
+  async runPlan(planId, options = {}) {
+    const result = await this.planRunner.run(planId, options);
+    if (result && result.waiting) {
+      return { ...result, question: this.planQuestions.ask(planId) };
+    }
+    return result;
+  }
+
   /** Player accepted a proposal: build the task and enqueue it as an explicit directive. */
   async acceptProposal(id = null, options = {}) {
     const result = this.proposals.accept(id, options);
     if (!result.ok) return result;
-    const task = buildTask(this.ctx, result.proposal.candidate);
+    const candidate = result.proposal.candidate;
+    if (candidate && candidate.type === 'plan_question') {
+      const args = candidate.args || {};
+      const resumed = await this.planRunner.resume(args.planId, true);
+      return { ...result, resumed };
+    }
+    const task = buildTask(this.ctx, candidate);
     if (!task) return { ok: false, reason: 'unknown-task-type' };
     const receipt = await this.enqueue(task, { level: 'directive', source: 'proposal' });
     return { ...result, receipt };
   }
 
-  rejectProposal(id = null, options = {}) {
-    return this.proposals.reject(id, options);
+  async rejectProposal(id = null, options = {}) {
+    const pending = this.proposals.pending();
+    const planQuestion =
+      pending && pending.candidate && pending.candidate.type === 'plan_question'
+        ? pending.candidate.args
+        : null;
+    const result = this.proposals.reject(id, options);
+    if (result.ok && planQuestion) {
+      const resumed = await this.planRunner.resume(planQuestion.planId, false);
+      return { ...result, resumed };
+    }
+    return result;
   }
 
   // ------------------------------------------------------------- task runner

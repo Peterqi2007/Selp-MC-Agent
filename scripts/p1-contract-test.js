@@ -1362,6 +1362,71 @@ function makeBrain() {
     });
   }
 
+  // ------------------------------------------- plan questions reuse proposals
+  process.stdout.write('\n22. plan questions use the proposal desk\n');
+  {
+    const brain = makeBrain();
+    const ran = [];
+    brain.planRunner.createTask = (step, ids) => ({ name: step.id, ids, cancel() {} });
+    brain.planRunner.runTask = async (task) => {
+      ran.push(task.name);
+      return { ok: true, status: 'succeeded' };
+    };
+    brain.plans.applyDraft({
+      planId: 'pq',
+      steps: [
+        { id: 'a', type: 'mine' },
+        { id: 'w', type: 'wait_for_player', args: { question: '继续执行吗？' } },
+        { id: 'c', type: 'mine' }
+      ]
+    });
+    const parked = await brain.runPlan('pq');
+    check('a waiting plan becomes a plan_question proposal', () => {
+      assert.strictEqual(parked.waiting.stepId, 'w');
+      assert.strictEqual(parked.question.ok, true);
+      const pending = brain.proposals.pending();
+      assert.strictEqual(pending.candidate.type, 'plan_question');
+      assert.strictEqual(pending.reason, '继续执行吗？');
+      assert.deepStrictEqual(ran, ['a']);
+    });
+    const accepted = await brain.acceptProposal();
+    check('accepting the question resumes the plan', () => {
+      assert(accepted.ok);
+      assert(accepted.resumed.ok);
+      assert.deepStrictEqual(ran, ['a', 'c']);
+      assert(brain.plans.get('pq').steps.every((step) => step.status === 'done'));
+      assert.strictEqual(brain.proposals.pending(), null);
+    });
+  }
+
+  {
+    const brain = makeBrain();
+    const ran = [];
+    brain.planRunner.createTask = (step, ids) => ({ name: step.id, ids, cancel() {} });
+    brain.planRunner.runTask = async (task) => {
+      ran.push(task.name);
+      return { ok: true, status: 'succeeded' };
+    };
+    brain.plans.applyDraft({
+      planId: 'pr',
+      steps: [
+        { id: 'a', type: 'mine' },
+        { id: 'w', type: 'wait_for_player', args: { question: '继续执行吗？' } },
+        { id: 'c', type: 'mine' }
+      ]
+    });
+    await brain.runPlan('pr');
+    const rejected = await brain.rejectProposal();
+    check('rejecting the question fails the step and stops the plan', () => {
+      assert(rejected.ok);
+      assert.deepStrictEqual(ran, ['a']);
+      const plan = brain.plans.get('pr');
+      assert.strictEqual(plan.steps.find((step) => step.id === 'w').status, 'failed');
+      assert.strictEqual(plan.steps.find((step) => step.id === 'c').status, 'pending');
+      assert.strictEqual(brain.proposals.pending(), null);
+    });
+  }
+
   // summary
   const failed = results.filter((result) => !result.ok);
   process.stdout.write(`\nP1 contract test: ${results.length - failed.length}/${results.length} checks passed\n`);

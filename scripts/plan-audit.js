@@ -861,6 +861,28 @@ if (STAGE === 'p1') {
     return 'brain=null keeps P0 all-tools; language/action are opt-in';
   });
 
+  check('P1: plan questions reuse the proposal desk', () => {
+    const bridge = read('src/planner/planQuestions.js');
+    const brain = read('src/brain.js');
+    if (!/class PlanQuestionBridge/.test(bridge)) throw new Error('PlanQuestionBridge is missing');
+    if (!/proposals\.propose/.test(bridge)) throw new Error('plan questions do not use the proposal desk');
+    if (!/plan:/.test(bridge) || !/plan_question/.test(bridge)) throw new Error('the proposal is not identifiable');
+    if (!/new PlanQuestionBridge/.test(brain)) throw new Error('brain does not create the bridge');
+    return 'one question lifecycle: ProposalDesk';
+  });
+
+  check('P1: answering a plan question resumes the plan', () => {
+    const brain = read('src/brain.js');
+    if (!/accepted\.resumed|resumed = await this\.planRunner\.resume/.test(brain)) {
+      throw new Error('accept does not resume the plan');
+    }
+    if (!/planRunner\.resume\(planQuestion\.planId, false\)/.test(brain)) {
+      throw new Error('reject does not fail the waiting step');
+    }
+    if (!/async runPlan/.test(brain)) throw new Error('brain has no runPlan entry');
+    return 'accept -> resume(true); reject -> resume(false)';
+  });
+
   check('P1: proposals are wired with an offline answer surface', () => {
     const brain = read('src/brain.js');
     const commands = read('src/chat/commands.js');

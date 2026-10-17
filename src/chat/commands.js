@@ -417,7 +417,7 @@ class ChatController {
           return result;
         }
         if (sub === 'reject') {
-          const result = ctx.brain.rejectProposal(null, { by: 'player' });
+          const result = await ctx.brain.rejectProposal(null, { by: 'player' });
           this.say(
             result.ok
               ? `这次不做了（${result.proposal.target}，三分钟内不再提）`
