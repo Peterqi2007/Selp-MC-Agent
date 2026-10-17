@@ -164,6 +164,7 @@ export function apply(ctx, config = {}) {
   const record = { observations: [], steps: [], receipts: [], finish: null };
   let handle = null;
   let busy = false;
+  const agentErrors = [];
 
   const ensureAgent = async () => {
     /**
@@ -190,8 +191,24 @@ export function apply(ctx, config = {}) {
       handle = null;
     }
     const sessionId = `mc-harness-${Date.now()}`;
-    handle = await agents.create({ sessionId, agentOptions });
-    log(`agent ${sessionId} created (${agentOptions.provider}/${agentOptions.model})`);
+    /**
+     * Live 2026-10-17: without meta.cwd the persisted session is `_no-cwd`; the created
+     * agent publishes and accepts an inbox splice (seq 6 -> 7) but never runs a model turn.
+     * A real session has cwd=<repo>. Pass the workspace explicitly.
+     */
+    handle = await agents.create({
+      sessionId,
+      agentOptions,
+      meta: { cwd: config.cwd || process.cwd() }
+    });
+    try {
+      handle.agent.ctx.on('agent/error', ({ error }) => {
+        agentErrors.push(String((error && error.message) || error));
+      });
+    } catch {
+      /* event surface unavailable */
+    }
+    log(`agent ${sessionId} created (${agentOptions.provider}/${agentOptions.model}) cwd=${config.cwd || process.cwd()}`);
     return handle;
   };
 
@@ -235,6 +252,7 @@ export function apply(ctx, config = {}) {
       record.steps.length = 0;
       record.receipts.length = 0;
       record.finish = null;
+      agentErrors.length = 0;
       try {
         const agent = await ensureAgent();
         const prompt = [
@@ -265,6 +283,7 @@ export function apply(ctx, config = {}) {
           seqAfterFollowup,
           seqAfterIdle: agent.agent.session.seq,
           agentStatus: agent.agent.status || null,
+          agentErrors,
           steps: record.steps,
           receipts: record.receipts,
           observations: record.observations,
