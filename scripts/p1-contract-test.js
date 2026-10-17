@@ -585,6 +585,80 @@ function makeBrain() {
     });
   }
 
+  // ------------------------------------------------------- waiting_for_player
+  process.stdout.write('\n10. waiting_for_player\n');
+  {
+    const plans = new PlanStore();
+    plans.applyDraft({
+      planId: 'pw',
+      steps: [
+        { id: 'a', type: 'mine' },
+        { id: 'w', type: 'wait_for_player', args: { question: '还要继续吗？' } },
+        { id: 'c', type: 'mine' }
+      ]
+    });
+    const ran = [];
+    const runner = new PlanRunner({
+      plans,
+      createTask: (step) => ({ name: step.id, cancel() {} }),
+      runTask: async (task) => {
+        ran.push(task.name);
+        return { ok: true, status: 'succeeded' };
+      }
+    });
+    const first = await runner.run('pw');
+    check('a question step parks the plan without creating a task', () => {
+      assert.deepStrictEqual(ran, ['a']);
+      assert.strictEqual(first.ok, false);
+      assert.strictEqual(first.waiting.stepId, 'w');
+      assert.strictEqual(first.waiting.question, '还要继续吗？');
+      const plan = plans.get('pw');
+      assert.strictEqual(plan.steps.find((step) => step.id === 'w').status, 'waiting');
+      assert.strictEqual(plan.steps.find((step) => step.id === 'c').status, 'pending');
+    });
+    const resumed = await runner.resume('pw', true);
+    check('resume after a yes continues the remaining steps', () => {
+      assert(resumed.ok);
+      assert.deepStrictEqual(ran, ['a', 'c']);
+      assert(plans.get('pw').steps.every((step) => step.status === 'done'));
+    });
+  }
+
+  {
+    const plans = new PlanStore();
+    plans.applyDraft({
+      planId: 'pr',
+      steps: [
+        { id: 'a', type: 'mine' },
+        { id: 'w', type: 'wait_for_player', args: { question: '还要继续吗？' } },
+        { id: 'c', type: 'mine' }
+      ]
+    });
+    const ran = [];
+    const runner = new PlanRunner({
+      plans,
+      createTask: (step) => ({ name: step.id, cancel() {} }),
+      runTask: async (task) => {
+        ran.push(task.name);
+        return { ok: true, status: 'succeeded' };
+      }
+    });
+    await runner.run('pr');
+    const rejected = await runner.resume('pr', false);
+    check('a no fails the waiting step and stops the plan', () => {
+      assert.strictEqual(rejected.ok, false);
+      assert.deepStrictEqual(ran, ['a']);
+      const plan = plans.get('pr');
+      assert.strictEqual(plan.steps.find((step) => step.id === 'w').status, 'failed');
+      assert.strictEqual(plan.steps.find((step) => step.id === 'c').status, 'pending');
+    });
+    const again = await runner.resume('pr');
+    check('resuming a finished question plan says nothing is waiting', () => {
+      assert.strictEqual(again.ok, false);
+      assert.strictEqual(again.reason, 'nothing-waiting');
+    });
+  }
+
   // summary
   const failed = results.filter((result) => !result.ok);
   process.stdout.write(`\nP1 contract test: ${results.length - failed.length}/${results.length} checks passed\n`);

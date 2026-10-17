@@ -15,7 +15,10 @@
  *     which keeps the body ownership rule intact;
  *   - `cancel()` is honoured between steps and forwarded to the running step, so a stop
  *     does not wait for the whole plan;
- *   - already-`done` steps are skipped, which is what makes a resumed plan cheap.
+ *   - already-`done` steps are skipped, which is what makes a resumed plan cheap;
+ *   - a `wait_for_player` step parks the plan (`status: 'waiting'`) and returns the
+ *     question; `resume(planId, answer)` continues it. A false answer fails that step and
+ *     stops the plan - it is never treated as consent.
  *
  * This is the offline contract; wiring a real planner/harness to it is M3.
  */
@@ -62,6 +65,30 @@ class PlanRunner {
         if (this.active.cancelled) break;
         if (step.status === 'done') {
           results.push({ stepId: step.id, status: 'succeeded', skipped: true });
+          continue;
+        }
+        /**
+         * A question step does not create a task. Without an answer, the plan parks and the
+         * caller gets the question; `resume()` re-enters `run()` with the answer.
+         */
+        if (step.type === 'wait_for_player' || step.wait === true) {
+          const answer = options.answers ? options.answers[step.id] : undefined;
+          if (answer === undefined) {
+            this._writeStep(planId, step.id, 'waiting');
+            return {
+              ok: false,
+              waiting: {
+                planId,
+                stepId: step.id,
+                question: step.question || (step.args && step.args.question) || null
+              },
+              results
+            };
+          }
+          const accepted = answer !== false && answer !== 'deny';
+          results.push({ stepId: step.id, status: accepted ? 'succeeded' : 'cancelled', waiting: true });
+          this._writeStep(planId, step.id, accepted ? 'done' : 'failed');
+          if (!accepted) break;
           continue;
         }
         const task = this.createTask(step, {
@@ -111,6 +138,16 @@ class PlanRunner {
     this.active.reason = reason;
     if (this.currentTask && typeof this.currentTask.cancel === 'function') this.currentTask.cancel();
     return true;
+  }
+
+  /** Continue a plan parked on a `wait_for_player` step. */
+  async resume(planId, answer = true) {
+    const plan = this.plans.get(planId);
+    if (!plan) return { ok: false, reason: 'unknown-plan', results: [] };
+    const waiting = plan.steps.find((step) => step.status === 'waiting');
+    if (!waiting) return { ok: false, reason: 'nothing-waiting', results: [] };
+    if (this.active) return { ok: false, reason: 'busy', results: [] };
+    return this.run(planId, { answers: { [waiting.id]: answer } });
   }
 
   _writeStep(planId, stepId, status) {

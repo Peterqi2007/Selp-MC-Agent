@@ -670,6 +670,15 @@ if (STAGE === 'p1') {
     return 'plans + pending questions + event seq; no action replay; opt-in';
   });
 
+  check('P1: a plan can wait for the player without executing', () => {
+    const runner = read('src/core/planRunner.js');
+    if (!/wait_for_player/.test(runner)) throw new Error('wait_for_player steps are not supported');
+    if (!/'waiting'/.test(runner)) throw new Error('the plan does not park in waiting');
+    if (!/async resume\(/.test(runner)) throw new Error('a parked plan cannot be resumed');
+    if (!/nothing-waiting/.test(runner)) throw new Error('resume does not refuse when nothing is waiting');
+    return 'question step parks; yes continues, no fails; nothing executes unseen';
+  });
+
   check('P1: proposals are wired with an offline answer surface', () => {
     const brain = read('src/brain.js');
     const commands = read('src/chat/commands.js');
