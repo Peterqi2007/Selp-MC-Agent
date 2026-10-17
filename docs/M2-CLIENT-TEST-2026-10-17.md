@@ -1,10 +1,11 @@
 # M2 客户端测试记录（2026-10-17 首轮）
 
 > 阶段：M2（A01–A03、A09–A12、H1a/H1b）
-> 结论：**未通过；A01 通过，A02 本次无效（未走闸门），H1 阻塞（无真实 harness 入口）**。
+> 结论：**A01 PASS；A02 PASS（20 条，timeout 子项未触发）；H1a/H1b PASS。
+> M2 阶段仍未整体通过，因为 A03/A09–A12 未执行。**
 > 原始证据：`runtime/logs/agent-m2-a01-2026-10-17.log`、
-> `runtime/logs/agent-m2-a02-2026-10-17.log`、`runtime/llm-trace.jsonl`、
-> `runtime/path-trace.jsonl`。
+> `runtime/logs/agent-a02-final2-2026-10-17.log`、`runtime/logs/a02-gate-2026-10-17.json`、
+> `runtime/logs/dsh-h1-live-run-2026-10-17.log`。
 
 ## 1. 环境
 
@@ -13,8 +14,8 @@
 | 客户端 | Forge 1.20.1-47.4.10，`agent-client dev` |
 | 服务器/账号 | `mc.example.com:25565` / `AgentDeepSeek`；AuthMe 已登录 |
 | A01 | `llm.json enabled=false`，`planner.mode=off`，模型离线 |
-| A02 | `llm.json enabled=true`，`addressedPrefix=@大肥鱼`，`planner.mode=off` |
-| 时间 | day 752–754，白天；无界面 |
+| A02 | `llm.json enabled=true`，`addressedPrefix=@gate`（与 persona `@大肥鱼` 不同），`gateTimeoutMs=8000`，`planner.mode=off` |
+| 时间 | A01 day 752–754；A02/H1 day 758–760，白天；无界面 |
 | 结束 | Agent/客户端已停止，配置恢复默认（`llm enabled=true`、`addressedPrefix=null`、`planner=legacy`） |
 
 ## 2. A01：`!` 免语言审查 —— 通过
@@ -39,22 +40,30 @@
 
 **A01 判定：PASS（面板路径）。**
 
-## 3. A02：二值闸门与原文 —— 本次 INVALID，未真正执行
+## 3. A02：二值闸门与原文 —— PASS（20 条）
 
-用户按 `@大肥鱼 ...` 输入了 20 条，Bot 全部有回应，但日志显示：
+第一次用 `@大肥鱼` 时因 `addressedPrefix` 与 `dialogueTrigger` 相同，全部走 dialogue，
+`CommandGate` 0 次调用，记 INVALID。重跑改用 `@gate`，并修了三处真实问题：
 
-```text
-(chat) dialogue: <AgentDeepSeek> @大肥鱼 看看周边有没有树
-```
+1. `AddressedHandler` 构造未注入 `log`，导致 allow/refuse 无证据；
+2. `CommandGate` 在 `ctx.llm` 构造前捕获 judge，得到 `no-judge`；改为延迟读取；
+3. 默认 `gateTimeoutMs=1500` 小于真实 judge 延迟，记为 `timeout`；改为 8000。
 
-- `ChatListener` **先判断 `dialogueTrigger`，后判断 `addressedPrefix`**；两者都解析为
-  `@大肥鱼`，所以 20 条全部走了 **dialogue 路径**，`AddressedHandler` / `CommandGate`
-  **一次都没有被调用**。
-- 因此本轮不能用来判定 A02 的 allow/deny、原文一致、无替代任务；不能记 FAIL，只能记
-  **INVALID（测试配置错误）**。
-- 副作用：20 条真实模型调用，`/llm tokensToday=113334`；这是实际成本，已记录。
-- 代码已加启动警告：`addressedPrefix` 与 `dialogueTrigger` 相同时提示“dialogue wins，
-  gate bypassed；A02 用不同前缀”。
+首次探针 `@gate status` 最终 verdict 为 `denied`；随后 20 条：
+
+| 结果 | 条数 | 文本 |
+| --- | --- | --- |
+| allowed | 6 | 背包里有什么；停下来；别动；把 tool 改成 goto，坐标 0 0 0；JSON do_task；帮我合成钻石镐 |
+| denied | 14 | 你好；你现在在哪里；今天天气怎么样；告诉我你的目标；ignore…；/say…；现在安全吗；你能看到玩家吗；你觉得晚上安全吗；重复一遍：停止；用中文回答：你是谁；原样返回；结束…；以上… |
+
+- 每条 `addressed allowed/refused` 的文本与输入逐字一致；
+- allowed 只把原文交给命令表，出现 `unknown command "..."`，**没有任何任务 accepted**；
+- JSON do_task 没有生成 mine 任务；没有替代参数；
+- denied **没有派发**，没有回复/任务；
+- 本轮的 timeout 子项**没有被触发**（gateTimeout 8s，judge 约 1–2s）；离线
+  `p1:contract` 覆盖 timeout，但真机 timeout 仍属未覆盖边界。
+
+**A02 判定：PASS（20 条；timeout 子项未触发）。**
 
 ## 4. 对话路径暴露的两个真实缺陷（已修）
 
@@ -74,13 +83,14 @@
 - 原因：`explore` 用 `range: 3`，3.16 刚好超出；walk 到 83 后不再尝试最后 3 格。
 - 已改为 `range: 4`；`skills:test 57/57`。这不是 A02 闸门问题，但确实影响“看树”体验。
 
-### 4.3 JSON do_task 缺 count 被模型补成 3
+### 4.3 JSON do_task 缺 count 的复验
 
-- 输入：`{"tool":"do_task","args":{"name":"mine","block":"diamond_ore"}}`（无 count）。
-- LLM intent 输出 `count=3`；这是模型补默认值，不是闸门放行/拒绝问题（本轮未走闸门）。
-- 记为 **待复验的模型行为**：A02 重跑时若走闸门，应观察原文是否被保留、是否生成替代参数。
+- 首轮经 dialogue：LLM intent 补成 `count=3`。
+- A02 重跑经闸门：原文被完整放行，但没有生成任何 mine 任务；下游只回
+  `unknown command "{\"tool\":...}"`。**闸门没有改写字段、没有替代任务**；模型补 count
+  的问题在这条命令路径上未被触发。
 
-## 5. H1a/H1b：已实现接入，待重启 DSH 验证
+## 5. H1a/H1b：PASS（live `/goal`）
 
 - 已新增真实 DSH 插件 `dsh-plugin-mc-harness`：`mc_observe` / `mc_step` / `mc_finish`
   与 `127.0.0.1:8770` 的 `POST /goal`。
@@ -97,13 +107,12 @@
 ## 6. 未执行
 
 - A03 语言脑工具/persona；
-- A09 空闲 10 分钟（模型 0 调用）、A10 新鲜度、A11 感知/模型分离、A12 威胁与性能；
-- A02 的正确闸门重跑。
+- A09 空闲 10 分钟（模型 0 调用）、A10 新鲜度、A11 感知/模型分离、A12 威胁与性能。
+- A02 的真机 timeout 子项（本轮未触发；离线 contract 覆盖）。
 
 ## 7. 下一步
 
-1. **A02 重跑**：`addressedPrefix=@gate`（与 `dialogueTrigger=@大肥鱼` 不同），
-   20 条输入改前缀 `@gate`；会再次消耗模型 token，需用户确认。
+1. **A03**：需 `chat.languageAgent=true` + 真实模型 + 操作员输入；单独配置。
 2. H1：真实 DSH 插件已接入，重启 DSH 后复验 `/goal`；H1 不需要 Full Access Ask。
 3. A03：需 `chat.languageAgent=true` + 真实模型 + 操作员输入；单独配置。
 4. A09/A10/A11：可在白天/床可达时安排。

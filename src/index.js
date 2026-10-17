@@ -320,19 +320,27 @@ async function main() {
    * An allowed instruction is dispatched as the **original** text.
    */
   if (chatCfg.addressedPrefix) {
+    log.info(`addressed channel: prefix "${chatCfg.addressedPrefix}" (gate timeout ${chatCfg.gateTimeoutMs || 8000}ms)`);
     const { CommandGate } = require('./chat/commandGate');
     const { AddressedHandler } = require('./chat/addressedHandler');
     const gate = new CommandGate({
-      judge:
-        typeof ctx.judgeInstruction === 'function'
-          ? ctx.judgeInstruction
-          : ctx.llm && typeof ctx.llm.judgeInstruction === 'function'
-            ? (text) => ctx.llm.judgeInstruction(text)
-            : null,
-      timeoutMs: chatCfg.gateTimeoutMs || 1500
+      /**
+       * Resolve the judge lazily. This block runs before ctx.llm is constructed; capturing
+       * the function now yields null and every instruction is refused with "no-judge"
+       * (live A02 2026-10-17). Read ctx.llm at decision time instead.
+       */
+      judge: (text) => {
+        if (typeof ctx.judgeInstruction === 'function') return ctx.judgeInstruction(text);
+        if (ctx.llm && typeof ctx.llm.judgeInstruction === 'function') {
+          return ctx.llm.judgeInstruction(text);
+        }
+        throw new Error('no judge available');
+      },
+      timeoutMs: chatCfg.gateTimeoutMs || 8000
     });
     const addressed = new AddressedHandler({
       gate,
+      log,
       dispatch: (text, meta) => ctx.chat.handle(text, (meta && meta.from) || 'addressed', { source: 'addressed' })
     });
     chatListener.onAddressed = (text, line) => addressed.handle(text, { line });

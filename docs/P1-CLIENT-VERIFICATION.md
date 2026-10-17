@@ -29,7 +29,7 @@
 | 阶段 | 当前判定 | 原因摘要 |
 | --- | --- | --- |
 | M1 身份/能力/结果/执行权 | **PASS（适用子集）** | A06 零矿、A04 身份/终态、A08 停止、A31 重放、F3 token 真机通过；A05 命令、A07 替换通过；残余明确留 M2/M3/M7 |
-| M2 双脑路由/分层感知 | **未通过（A01 通过；A02 无效；H1 PASS）** | A01 真机 tokens 0 通过；A02 因前缀冲突走 dialogue，闸门未调用；H1a/H1b 经 live DSH `/goal` 通过 |
+| M2 双脑路由/分层感知 | **未通过（A01/A02/H1 PASS；A03/A09–A12 未执行）** | A01 tokens 0；A02 20 条闸门 6 allowed/14 denied、原文一致、无替代任务；H1a/H1b 经 live DSH `/goal` 通过 |
 | M3 可恢复规划/学习/求助 | **未通过（部分）** | A17/A29 仅事件环部分；A13–A16、A28、A30、A27、F2 未执行（H1a/H1b 已前移到 M2） |
 | M4 代码技能 | **未通过（未开始）** | A18–A20、A27 代码子项未执行 |
 | M5 computer_use | **阻塞** | F1 未验证（Computer Use 无已授权应用）；A21/A22 未执行 |
@@ -211,7 +211,7 @@ H1b（不可实现时拒绝/退回）都必须通过**（任务拆解不能晚�
 | 主张 ID | 可证伪主张 | 仪器与技术内容 | 正向证据 / 反证 | 有效性边界 | 现状 |
 | --- | --- | --- | --- | --- | --- |
 | **M2.1 / A01** | 模型离线时，`!` 有效命令仍执行且模型调用为 0；非法参数给出明确错误；不因 persona 拒绝 | 停用模型端点；发 `!status`、非法 `!mine`、`!shoot player`；读 `/llm` tokens 与面板结果 | 正：tokens 0→0、命令/错误正确；反：任何模型调用或人格拒绝 | 面板/游戏内都算；不能证明模型在线时的行为 | **PASS（2026-10-17）**：LLM off，tokens 0→0；status 3ms、非法 mine usage、shoot no player；面板路径 |
-| **M2.2 / A02** | ≥20 条 `@` 指令/回答中，闸门只放行/拒绝；放行原文逐字一致；改写字段/错误 Schema/超时都不派发替代任务 | 准备 20 条样本（正常/改写/坏 Schema/超时）；抓请求原文、判定 verdict、实际任务参数 | 正：原文一致、拒绝有记录、无替代任务；反：字段被“修好”、生成替代任务、拒绝后执行 | 需要真实模型/预算；不能证明所有模型版本 | **INVALID（2026-10-17）**：`addressedPrefix` 与 `dialogueTrigger` 同为 `@大肥鱼`，ChatListener 先走 dialogue，闸门 0 次调用；需用 `@gate` 重跑 |
+| **M2.2 / A02** | ≥20 条 `@` 指令/回答中，闸门只放行/拒绝；放行原文逐字一致；改写字段/错误 Schema/超时都不派发替代任务 | 准备 20 条样本（正常/改写/坏 Schema/超时）；抓请求原文、判定 verdict、实际任务参数 | 正：原文一致、拒绝有记录、无替代任务；反：字段被“修好”、生成替代任务、拒绝后执行 | 需要真实模型/预算；timeout 子项本轮未触发，离线 contract 覆盖 | **PASS（2026-10-17）**：`@gate` 20 条，6 allowed/14 denied；原文逐字一致；allowed 无任务/替代参数；timeout 未触发 |
 | **M2.3 / A03** | 语言脑工具清单无 body/技能/任务工具；persona 只影响措辞；`say/silence` 可用；旧能力描述不导致误拒绝 | 抓语言脑 `systemPrompt`/工具 JSON；尝试让语言脑执行动作；对照动作脑清单 | 正：无执行工具、拒绝执行；反：出现 `do_task/dig/goto` 或语言脑改身体 | 需要真实模型；不能证明模型不会口头“声称执行” | **未执行** |
 | **M2.4 / A09** | 空闲 10 分钟模型调用为 0 且无新增订阅；快照刷新不算违规；任务结束停订阅；保命数据仍可用 | 空闲 10 分钟，记录 `/llm` tokens、订阅/事件 seq、/state 请求；再触发追踪/拾取/定向观察 | 正：tokens 0、订阅不增、刷新可计；反：空闲轮询触发模型/新订阅 | 需白天/安全区；不能证明 10 分钟外的长期空闲 | **未执行**（只有 idle 延迟测量） |
 | **M2.5 / A10** | `/state` 超时/过期/跨维度/部分刷新时，旧值标 stale；不得据过期位置攻击/拾取；不伪装原子快照 | 注入延迟/断连/切维度/部分字段；读 `observedAt/fieldAge/staleFields`；尝试用旧位置行动 | 正：stale 标记、拒绝旧位置动作；反：旧坐标被当新值 | 需要故障注入；不能证明所有模组字段 | **未执行** |
@@ -220,13 +220,14 @@ H1b（不可实现时拒绝/退回）都必须通过**（任务拆解不能晚�
 | **M2.8 / H1a** | 真实 coding harness 接入动作脑后，一个**可执行**的多步目标被拆成 ≥2 个可执行步骤；Node 按步骤执行并带回身份/事件；无第二个高层规划者同时派身体动作 | 真实 DSH 对话（H1 不需要 Full Access Ask）；给一个可执行多步目标；抓 harness 请求/步骤草案、`planVersion`、Node 步骤执行、事件 `taskId/stepId`；观察是否只有一套规划循环 | 正：≥2 步分解、逐步执行、事件归属正确、单规划者；反：只回一段文本不执行、Node 与 harness 各跑一套、步骤替换父计划 | 只证明拆解/传输/执行权，不证明拆解质量（A13 才验）；代码生成/A18 仍在 M4，二者不混 | **PASS（2026-10-17）**：live `/goal`，3 次 observe + 2 条 `mc_step`（`mine dirt 2`、`stop`），`achieved=true`，`dirt 39→41` |
 | **M2.9 / H1b** | 对**现有条件无法实现**的玩家指令（缺材料/缺能力/越权/目标不存在），harness 不伪造可执行步骤，不产生身体动作，明确说明缺什么、拒绝或请求澄清/退回 | 选至少 1 条不可实现指令（如无钻石/无工作台时要求钻石镐，或要求无法到达/越权的目标）；抓 harness 拆解、Node 执行、事件、聊天回复；核对是否真的没有动作 | 正：无步骤执行/无身体动作 + 明确原因或澄清；反：编造步骤、尝试不可实现动作、声称完成 | 只覆盖选定样本，不证明所有“不可实现”分类；拒绝措辞质量不是重点 | **PASS（2026-10-17）**：live `/goal`，0 条 mutating `mc_step`（只读 observe 允许），`achieved=false`，说明缺钻石/工作台/craft |
 
-**M2 当前判定：未通过（A01 通过；A02 无效；H1 PASS）。** 2026-10-17：
-A01 面板路径 tokens 0→0 通过；A02 的 20 条因 `addressedPrefix` 与 `dialogueTrigger` 相同
-全部走 dialogue，闸门 0 次调用，记 INVALID；H1a/H1b 已通过真实 live DSH 对话的 `/goal`：
-H1a 2 条 `mc_step`、`dirt 39→41`、`achieved=true`；H1b 0 条 mutating 步骤、`achieved=false`。
-M2 仍未通过是因为 A02 无效、A03/A09–A12 未执行。副作用：对话路径暴露 `mine +2` 多挖与
-`explore` range=3 卡死，已修并加回归；隐藏 agent 的 `/goal` 因 host 无 provider transport
-仍失败，H1 自动化改走 live 对话。详见
+**M2 当前判定：未通过（A01/A02/H1 PASS；A03/A09–A12 未执行）。** 2026-10-17：
+A01 面板 tokens 0→0 通过；A02 用 `@gate` 重跑 20 条，6 allowed/14 denied，原文逐字一致、
+allowed 无任务/替代参数、denied 无派发；timeout 子项未触发（离线 contract 覆盖）。
+H1a/H1b 已通过真实 live DSH 对话的 `/goal`：H1a 2 条 `mc_step`、`dirt 39→41`、
+`achieved=true`；H1b 0 条 mutating 步骤、`achieved=false`。M2 仍未整体通过，仅因
+A03/A09–A12 未执行。副作用：对话路径暴露 `mine +2` 多挖与 `explore` range=3 卡死，
+已修并加回归；隐藏 agent 的 `/goal` 因 host 无 provider transport 仍失败，H1 自动化
+改走 live 对话。详见
 [`M2-CLIENT-TEST-2026-10-17.md`](M2-CLIENT-TEST-2026-10-17.md) 与
 [`DSH-HARNESS.md`](DSH-HARNESS.md)。
 **H1a/H1b 通过门槛**：可执行样本（H1a）与不可实现样本（H1b）都必须有有效证据；只有 H1a 通过、
@@ -346,7 +347,7 @@ A27–A31 在最终组合下通过；矩阵逐项有证据；P1 才可发布。
 | Agent 自动 AuthMe 修复 | 真机 PASS | M1 入口前置 | 登录链路可用 | 任何验收 ID |
 | 夜间门禁 | 会中止（床不可达） | 跨阶段安全门 | 夜里不会继续跑 | 睡觉成功；验收项 |
 | F1 尝试 | **BLOCKED**（尚未建立 Full Access Ask CU 对话/无授权应用） | M5 入口 | 当前不能做 CU；需在该 CU 对话选择 Full Access Ask + 授权 java 窗口 | F1 本身未验证 |
-| M2 首轮（2026-10-17） | **A01 PASS；A02 INVALID；H1 PASS** | M2 | A01 无模型命令通过；A02 暴露前缀冲突（闸门未调用）；live DSH `/goal` 的 H1a（2 步、dirt+2）与 H1b（0 mutating、false）通过；对话路径暴露 mine +2/explore 卡死并修复 | A02 未真正测闸门；A03/A09–A12 未执行；隐藏 agent `/goal` 无 provider transport |
+| M2 首轮（2026-10-17） | **A01 PASS；A02 PASS；H1 PASS** | M2 | A01 无模型命令；A02 20 条 6 allowed/14 denied、原文一致、无替代任务；H1a 2 步/dirt+2、H1b 0 mutating 均通过；mine +2/explore 卡死已修复 | A03/A09–A12 未执行；A02 timeout 未触发；隐藏 agent `/goal` 无 provider transport |
 
 ## 11. 审阅状态与下一步
 

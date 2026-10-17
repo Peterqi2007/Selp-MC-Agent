@@ -35,9 +35,16 @@ class AddressedHandler {
     }
     if (!verdict || !verdict.ok) {
       const reason = (verdict && verdict.reason) || 'denied';
-      this.log.debug(`addressed instruction refused (${reason}): ${text}`);
+      this.log.info(`addressed refused (${reason}): ${text}`);
       return { ok: false, reason };
     }
+    /**
+     * A02 evidence needs the gate's own verdict, not only the bot's reply. The addressed
+     * channel is opt-in, so logging the allowed original text here is acceptable.
+     */
+    this.log.info(
+      `addressed allowed: ${text}${verdict.rewritten ? ` (rewritten "${verdict.rewritten}" ignored)` : ''}`
+    );
     try {
       const result = await this.dispatch(verdict.dispatch, meta);
       return { ok: true, dispatch: verdict.dispatch, result };
