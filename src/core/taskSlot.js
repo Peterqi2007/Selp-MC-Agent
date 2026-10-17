@@ -40,6 +40,8 @@ class TaskSlot {
     this.failCounts = new Map();
     this._progressSeen = new Map();
     this._stalls = new Map();
+    /** Unique task ids: two tasks with the same name must not share an attemptId. */
+    this.seq = 0;
     /** The planner's pending tasks. Brain keeps a reference to this same array. */
     this.queue = [];
   }
@@ -203,6 +205,12 @@ class TaskSlot {
   async runTask(task) {
     const brain = this.brain;
     if (!brain) throw new Error('TaskSlot.runTask needs a brain');
+    /**
+     * Identity is assigned once per task, not derived from the task name. Live M1
+     * 2026-10-17: two `go-to` tasks shared `taskId="go-to"` and `attemptId="go-to#0"`,
+     * so their events were indistinguishable and looked like duplicate terminals.
+     */
+    if (!task.taskId) task.taskId = `task-${++this.seq}`;
     const held = this.brainTask;
     if (this.busy && held !== task) {
       this.queue.push(task);
@@ -287,7 +295,7 @@ class TaskSlot {
         stepId: (payload && payload.stepId) || (task ? task.stepId || null : null),
         attemptId:
           (payload && payload.attemptId) ||
-          (task ? `${task.name}#${task.retries || 0}` : null)
+          (task ? `${task.taskId || task.name}#${task.retries || 0}` : null)
       });
     }
     if (typeof brain.emit === 'function') brain.emit(event, payload);

@@ -1,0 +1,102 @@
+# M1 客户端测试记录（2026-10-17 首轮）
+
+> 阶段：M1（身份/能力/结果/执行权/停止）
+> 判定口径：只看工作流是否正确，不要求任务成功；环境不足不判失败。
+> 结果：**未通过（发现 2 个真实 FAIL，已修复，待复验）**。
+> 原始证据：`runtime/logs/m1-client-run-2026-10-17.json`、`.console.log`、
+> `runtime/logs/agent-m1-2026-10-17.log`。
+
+## 1. 环境
+
+| 项 | 值 |
+| --- | --- |
+| 客户端 | Forge 1.20.1-47.4.10，`agent-client dev`，Java 21.0.7 |
+| 服务器 | `mc.example.com:25565`，账号 `AgentDeepSeek`，AuthMe 已登录 |
+| Agent | `planner.mode=off`，`state.enabled=false`，模型在线（本轮未调用） |
+| 时间/位置 | 白天（`timeOfDay≈8400–10376`），(62,61,32)，无界面 |
+| 夜间 | 测试后临近夜晚；附近 60×10×60 内无床，按规则**停止**，未夜间继续 |
+| 配置恢复 | 测试后 `planner.mode=legacy`、`state.enabled=false`；Agent/客户端已停止 |
+
+## 2. 执行结果
+
+### M1.1 / A04、M1.4 / A07：请求身份与替换
+
+操作：发送 `goto 70 61 32`，200ms 后发送 `goto 80 61 40`；读取 SSE 事件与
+`/ui/state`。
+
+观察（事件 seq 1–7）：
+
+```
+1 task:failed go-to go-to#0 noPath 70,61,32
+2 task:failed go-to go-to#0 noPath 80,61,40
+3 task:failed go-to go-to#1 noPath 70,61,32
+4 task:failed go-to go-to#1 noPath 80,61,40
+5 task:failed go-to go-to#2 noPath 70,61,32
+6 task:quarantined go-to go-to#2 strikes
+7 task:failed go-to go-to#2 noPath 80,61,40
+```
+
+- **FAIL（身份）**：两个不同的 `go-to` 任务共用 `taskId="go-to"` 与
+  `attemptId="go-to#0"`，事件不可区分；这正是 A04 要防的“推进错误请求”。
+- **FAIL（终态重复）**：重试的每次尝试都发布 `task:failed`，同一逻辑任务出现多次终态播报；
+  A04 要求“终态最多一次播报”。
+- 观察到的 19ms 空闲与单 `current` 不能证明 A07 全部通过；A07 的多步计划/父计划子步骤
+  本轮未构造。
+- **修复已落**：`TaskSlot` 为每个 task 分配唯一 `taskId`，`attemptId` 使用
+  `taskId#retry`；回归 `p1:contract 151/151` 覆盖同名任务。
+
+### M1.5 / A08：停止
+
+操作：在 `goto 200 64 200` 后 400ms 发 `stop`。
+
+- `runningBeforeStop=false`：任务在 stop 前已 `out-of-grid` 失败；**停止测试无效**
+  （stop 10ms、无位移，但不能证明“运行中 ≤3s 停止”）。
+- 结论：**INVALID，不是 PASS**；需要选一个真正运行的长时间任务重测（例如 `mine dirt` 或
+  可达路径的长 `goto`）。
+
+### M1.3 / A06：进度与完成（**真实 FAIL**）
+
+操作：`mine diamond_ore 1`（附近没有钻石矿）。
+
+- 回执 `taskId=t1`；随后事件 `task:done`，reason:
+  `mined 0 diamond_ore/deepslate_diamond_ore (dug 0 blocks, ... collected 0 drop(s))`。
+- **FAIL**：零产出仍报 `task:done`，属于 A06 明确禁止的“虚报完成”。
+- **修复已落**：`src/skills/mining.js` 改为 `ok = !planExceeded && stats.ores > 0`；
+  回归 `mining-collection-test 25/25` 新增“零矿不得成功”。
+
+### M1.2 / A05：能力统一（部分）
+
+操作：`craft diamond_pickaxe 1`（材料不足）。
+
+- 回执：`ok:false, reason:"missing diamond x3"`，任务未启动、无动作。
+- **PASS（命令路径）**：缺料与不支持的区分在命令入口成立。
+- **未覆盖**：自然语言/规划入口是否共用同一能力来源；A05 不能整体通过。
+
+### M1.6 / A31、M1.7 / F3：SSE 与身份
+
+- SSE `/events` 连接成功，收到 11 条事件，seq 单调；`taskId/attemptId` 字段存在但如上冲突。
+- 以 `lastEventId=11` 重连，1.2s 内无事件（没有重复），但未验证“从更早 ID 重放”的完整性。
+- **未测**：token 鉴权（`web.eventsToken` 为空）、`planVersion` 旧草案拒绝、双 emitter 去重。
+- 结论：**PARTIAL**，不能算 A31/F3 通过。
+
+## 3. 修复与离线证据
+
+| 修复 | 文件 | 离线验证 |
+| --- | --- | --- |
+| 同名任务唯一 `taskId`/`attemptId` | `src/core/taskSlot.js` | `p1:contract:test 151/151`（新增同名任务） |
+| 零矿不得 `ok` | `src/skills/mining.js` | `mining-collection-test 25/25`（新增 C04b） |
+| 完整门禁 | — | `npm run p1:verify` 结果见下 |
+
+**当前 M1 判定：未通过（修复待真机复验）。** A06 的修复还需在真实客户端确认
+`mine 0` 变为 `task:failed`；A04 的终态重复问题（重试每次发布）尚未修改，仍是开放项。
+
+## 4. 下一轮 M1 复验清单
+
+1. 白天、存活、无界面；有可达床或在不跨夜窗口内完成。
+2. A06：`mine diamond_ore` 无目标 → 必须 `task:failed`/partial，不是 `task:done`。
+3. A04：两个同名任务 → `taskId/attemptId` 不同；重试只应在最终失败时播报终态（需先决定
+   重试事件语义）。
+4. A08：用真正运行的任务（`mine dirt` 或可达 `goto`）测 stop ≤3s、按键释放、无迟到动作。
+5. A31/F3：带 `Last-Event-ID` 重放更早事件；临时设置 `web.eventsToken` 测 401/token；
+   `planVersion` 旧草案拒绝需宿主接口。
+6. 记录：每次测试前确认 `screenOpen=false`、白天/床、背包/工具；入夜停止。

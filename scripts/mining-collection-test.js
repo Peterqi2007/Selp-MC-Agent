@@ -825,6 +825,19 @@ async function main() {
     return (result.acquisition || [])[0];
   });
 
+  await check('C04b: zero ore is not reported as success (live M1 2026-10-17)', async () => {
+    const body = new MockBody(cfg, {
+      start: { x: 0, y: 64, z: 0 },
+      blocks: mineWorld({ corridor: DIAMOND_CORRIDOR }),
+      inventory: { 'minecraft:iron_pickaxe': 1 }
+    });
+    await body.connect();
+    const result = await skills.run('mine_ore', makeCtx(body), { ore: 'diamond_ore', maxMs: 2500, eatAt: 1 });
+    assert.strictEqual(result.mined || 0, 0, `expected zero ore, got ${result.mined}`);
+    assert.strictEqual(result.ok, false, 'zero ore must not be task:done');
+    return `ok=${result.ok}, mined=${result.mined || 0}`;
+  });
+
   await check('C10: digging a diamond but receiving cobblestone never verifies', async () => {
     const body = new MockBody(cfg, {
       start: { x: 0, y: 64, z: 0 },

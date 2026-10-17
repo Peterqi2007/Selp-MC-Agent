@@ -2137,7 +2137,12 @@ register({
       extraCells: stats.ledger.extraCells
     };
     return {
-      ok: !stats.planExceeded,
+      /**
+       * Zero ore is not success. Live M1 2026-10-17: `!mine diamond_ore` with no target
+       * returned `task:done` ("mined 0 ..."), exactly the false completion A06 forbids.
+       * `planExceeded` alone only says the planner stopped, not that anything was mined.
+       */
+      ok: !stats.planExceeded && stats.ores > 0,
       stopped: stats.planExceeded ? 'plan-exceeded' : stats.countReached ? 'count' : null,
       mined: stats.ores,
       blocks: stats.blocks,

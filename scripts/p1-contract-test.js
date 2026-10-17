@@ -218,7 +218,7 @@ function makeBrain() {
     assert.strictEqual(done[0].requestId, 'req-1');
     assert.strictEqual(done[0].planId, 'plan-1');
     assert.strictEqual(done[0].stepId, 'step-1');
-    assert.strictEqual(done[0].attemptId, 'probe-task#0');
+    assert.strictEqual(done[0].attemptId, 'task-1#0');
   });
 
   const hub = brain.ctx.hub;
@@ -2287,6 +2287,49 @@ function makeBrain() {
       const onlyOutside = { findBlocksMatching: () => [beds[2], beds[3]] };
       assert.strictEqual(findBedNear(onlyOutside, { x: 0, y: 64, z: 0 }), null);
       assert.strictEqual(findBedNear(null, { x: 0, y: 64, z: 0 }), null);
+    });
+  }
+
+  // ------------------------------------------------------- task identity
+  process.stdout.write('\n41. task identity\n');
+  {
+    const { TaskSlot } = require('../src/core/taskSlot');
+    const published = [];
+    const slot = new TaskSlot({}, { log: silent });
+    slot.brain = {
+      log: silent,
+      running: true,
+      paused: false,
+      stopped: false,
+      events: { publish: (event) => published.push(event) },
+      completedGoals: [],
+      queue: [],
+      ctx: { memory: { bump() {}, rememberLandmark() {} } },
+      drainQueue() {}
+    };
+    const makeTask = (reason) => ({
+      name: 'go-to',
+      description: 'walk',
+      source: 'chat',
+      state: 'pending',
+      retries: 0,
+      maxRetries: 0,
+      result: null,
+      async execute() {
+        this.result = { ok: false, reason };
+      },
+      snapshot() {
+        return {};
+      }
+    });
+    await slot.runTask(makeTask('noPath A'));
+    await slot.runTask(makeTask('noPath B'));
+    check('two same-name tasks get distinct taskId and attemptId', () => {
+      const failed = published.filter((event) => event.type === 'task:failed');
+      assert.strictEqual(failed.length, 2);
+      assert.notStrictEqual(failed[0].taskId, failed[1].taskId);
+      assert.notStrictEqual(failed[0].attemptId, failed[1].attemptId);
+      assert.match(failed[0].attemptId, /^task-\d+#0$/);
     });
   }
 
