@@ -1011,6 +1011,27 @@ if (STAGE === 'p1') {
     return 'proposal -> task -> hub event provenance';
   });
 
+  check('P1: candidates and promoted skills live in separate directories', () => {
+    const directory = read('src/codeSkills/directory.js');
+    if (!/candidatesRoot/.test(directory) || !/promotedRoot/.test(directory)) {
+      throw new Error('the candidate/promoted split is missing');
+    }
+    if (!/writeFileAtomic/.test(directory) || !/renameSync/.test(directory)) {
+      throw new Error('writes are not atomic');
+    }
+    if (/require\(['"](child_process|vm)['"]\)/.test(directory)) throw new Error('the directory executes code');
+    return 'candidates/ vs promoted/; temp+rename';
+  });
+
+  check('P1: promotion has a versioned pointer with rollback and retire', () => {
+    const directory = read('src/codeSkills/directory.js');
+    if (!/current\.json/.test(directory)) throw new Error('there is no current pointer');
+    if (!/previous/.test(directory)) throw new Error('the pointer does not remember the previous version');
+    if (!/rollback\(/.test(directory) || !/retire\(/.test(directory)) throw new Error('rollback/retire missing');
+    if (!/entry-escapes-directory|entry-must-be-relative/.test(directory)) throw new Error('entry paths are not contained');
+    return 'current.json {version, previous}; rollback/retire; containment';
+  });
+
   check('P1: proposals are wired with an offline answer surface', () => {
     const brain = read('src/brain.js');
     const commands = read('src/chat/commands.js');

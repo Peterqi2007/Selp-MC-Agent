@@ -1880,6 +1880,56 @@ function makeBrain() {
     });
   }
 
+  // ------------------------------------------- code-skill directory layout
+  process.stdout.write('\n31. code-skill directory layout\n');
+  {
+    const { CodeSkillDirectory } = require('../src/codeSkills/directory');
+    const dir = fs.mkdtempSync(nodePath.join(os.tmpdir(), 'p1-skills-'));
+    const layout = new CodeSkillDirectory({ root: dir, now: () => 1000 });
+    const manifest = {
+      name: 'agent.tower',
+      version: '1.0.0',
+      apiVersion: 1,
+      entry: 'index.js',
+      permissions: ['read_state']
+    };
+    const code = 'module.exports = { async run() { return { ok: true }; } };\n';
+    const written = layout.writeCandidate(manifest, code);
+    check('the candidate directory holds the manifest and entry', () => {
+      assert(written.ok);
+      assert(fs.existsSync(nodePath.join(written.dir, 'manifest.json')));
+      assert.strictEqual(fs.readFileSync(nodePath.join(written.dir, 'index.js'), 'utf8'), code);
+    });
+    const escaped = layout.writeCandidate({ ...manifest, entry: '../evil.js' }, code);
+    check('a candidate entry cannot escape its directory', () => {
+      assert.strictEqual(escaped.ok, false);
+      assert.strictEqual(escaped.reason, 'invalid-manifest');
+    });
+
+    const promoted = layout.promote('agent.tower', '1.0.0');
+    check('promotion copies the files and writes the current pointer', () => {
+      assert(promoted.ok);
+      assert.strictEqual(layout.current('agent.tower').version, '1.0.0');
+      assert(fs.existsSync(nodePath.join(layout.promotedDir('agent.tower', '1.0.0'), 'index.js')));
+    });
+
+    layout.writeCandidate({ ...manifest, version: '1.0.1' }, code);
+    layout.promote('agent.tower', '1.0.1');
+    const rolled = layout.rollback('agent.tower');
+    check('rollback points current back to the previous version', () => {
+      assert(rolled.ok);
+      assert.strictEqual(rolled.version, '1.0.0');
+      assert.strictEqual(layout.current('agent.tower').version, '1.0.0');
+    });
+
+    layout.retire('agent.tower', '1.0.0');
+    check('retiring the current version removes it and the pointer', () => {
+      assert.strictEqual(layout.current('agent.tower'), null);
+      assert.strictEqual(fs.existsSync(layout.promotedDir('agent.tower', '1.0.0')), false);
+    });
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+
   // summary
   const failed = results.filter((result) => !result.ok);
   process.stdout.write(`\nP1 contract test: ${results.length - failed.length}/${results.length} checks passed\n`);
