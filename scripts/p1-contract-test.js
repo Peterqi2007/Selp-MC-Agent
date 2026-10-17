@@ -2195,6 +2195,64 @@ function makeBrain() {
     });
   }
 
+  // ---------------------------------------------------- CU guarded executor
+  process.stdout.write('\n38. CU guarded executor\n');
+  {
+    const { ComputerUseGuard } = require('../src/computer/guard');
+    const { WindowPolicy } = require('../src/computer/windowPolicy');
+    const policy = new WindowPolicy();
+    const calls = [];
+    const guard = new ComputerUseGuard({
+      policy,
+      execute: async (action) => {
+        calls.push(action);
+        return { ok: true };
+      }
+    });
+    const denied = await guard.act({ kind: 'click', windowId: 'mc', x: 10, y: 10 });
+    check('an unverified policy keeps the executor untouched', () => {
+      assert.strictEqual(denied.ok, false);
+      assert.strictEqual(denied.executed, false);
+      assert.strictEqual(calls.length, 0);
+    });
+
+    policy.verify({ gameWindowId: 'mc', bounds: { x: 0, y: 0, width: 800, height: 600 } });
+    const allowed = await guard.act({ kind: 'click', windowId: 'mc', x: 100, y: 100 });
+    check('a verified in-window action reaches the executor once', () => {
+      assert(allowed.ok);
+      assert.strictEqual(allowed.executed, true);
+      assert.strictEqual(calls.length, 1);
+    });
+
+    const outside = await guard.act({ kind: 'click', windowId: 'mc', x: 900, y: 100 });
+    const wrongWindow = await guard.act({ kind: 'click', windowId: 'other', x: 10, y: 10 });
+    check('out-of-bounds and out-of-window actions are refused before execution', () => {
+      assert.strictEqual(outside.reason, 'outside-bounds');
+      assert.strictEqual(wrongWindow.reason, 'outside-window');
+      assert.strictEqual(calls.length, 1);
+    });
+
+    const noExecutor = new ComputerUseGuard({ policy });
+    const unwired = await noExecutor.act({ kind: 'screenshot', windowId: 'mc' });
+    check('without an executor nothing runs', () => {
+      assert.strictEqual(unwired.executed, false);
+      assert.strictEqual(unwired.reason, 'no-executor');
+    });
+
+    const broken = new ComputerUseGuard({
+      policy,
+      execute: async () => {
+        throw new Error('gui crashed');
+      }
+    });
+    const failed = await broken.act({ kind: 'click', windowId: 'mc', x: 10, y: 10 });
+    check('an executor failure is reported as attempted, not successful', () => {
+      assert.strictEqual(failed.ok, false);
+      assert.strictEqual(failed.executed, true);
+      assert.strictEqual(failed.reason, 'executor-error');
+    });
+  }
+
   // summary
   const failed = results.filter((result) => !result.ok);
   process.stdout.write(`\nP1 contract test: ${results.length - failed.length}/${results.length} checks passed\n`);

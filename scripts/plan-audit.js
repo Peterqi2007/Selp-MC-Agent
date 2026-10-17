@@ -1110,6 +1110,17 @@ if (STAGE === 'p1') {
     return 'retrieval + language context; never executes';
   });
 
+  check('P1: CU policy is enforced before any executor runs', () => {
+    const guard = read('src/computer/guard.js');
+    if (!/class ComputerUseGuard/.test(guard)) throw new Error('ComputerUseGuard is missing');
+    if (!/policy\.check\(action\)/.test(guard)) throw new Error('the guard does not consult the policy first');
+    if (!/executed: false/.test(guard) || !/no-executor/.test(guard)) {
+      throw new Error('refusals can still report as executed');
+    }
+    if (!/executed: true/.test(guard)) throw new Error('attempted executor calls are not distinguished');
+    return 'policy first; refused actions never reach the executor';
+  });
+
   check('P1: proposals are wired with an offline answer surface', () => {
     const brain = read('src/brain.js');
     const commands = read('src/chat/commands.js');
