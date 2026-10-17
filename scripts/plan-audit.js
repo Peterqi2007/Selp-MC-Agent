@@ -920,6 +920,19 @@ if (STAGE === 'p1') {
     return 'language-only; P0 tool list still 8';
   });
 
+  check('P1: the language agent can only read or speak', () => {
+    const agent = read('src/llm/languageAgent.js');
+    if (!/class LanguageAgent/.test(agent)) throw new Error('LanguageAgent is missing');
+    if (!/SURFACES\.language\.includes/.test(agent)) throw new Error('tool names are not checked against the language surface');
+    if (!/not-language-tool/.test(agent)) throw new Error('execution tools are not refused');
+    const codeOnly = agent.replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/.*$/gm, '');
+    if (/\b(do_task|do_skill|go_to|stop)\b/.test(codeOnly)) {
+      throw new Error('the language agent references an execution tool');
+    }
+    if (!/registry\.call/.test(agent)) throw new Error('the agent does not use the tool registry');
+    return 'language surface only; execution refused before any call';
+  });
+
   check('P1: proposals are wired with an offline answer surface', () => {
     const brain = read('src/brain.js');
     const commands = read('src/chat/commands.js');

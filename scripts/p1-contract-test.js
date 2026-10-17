@@ -1513,6 +1513,83 @@ function makeBrain() {
     });
   }
 
+  // ------------------------------------------------------- language agent
+  process.stdout.write('\n24. language agent\n');
+  const { LanguageAgent } = require('../src/llm/languageAgent');
+  {
+    const spoken = [];
+    const ctx = { reply: async (text, options) => spoken.push({ text, options }) };
+    const agent = new LanguageAgent({
+      ctx,
+      complete: async () => '{"tool":"say","args":{"text":"我在林子里"}}'
+    });
+    const result = await agent.respond({ text: '你在哪？' });
+    check('the language agent speaks through the single reply path', () => {
+      assert(result.ok);
+      assert.strictEqual(result.spoke, true);
+      assert.strictEqual(spoken.length, 1);
+      assert.strictEqual(spoken[0].text, '我在林子里');
+      assert.strictEqual(spoken[0].options.conversation, true);
+    });
+  }
+
+  {
+    const spoken = [];
+    const silentAgent = new LanguageAgent({
+      ctx: { reply: async (text) => spoken.push(text) },
+      complete: async () => '{"tool":"silence"}'
+    });
+    const silent = await silentAgent.respond({ text: '随便聊聊' });
+    check('silence stays silent', () => {
+      assert(silent.ok);
+      assert.strictEqual(silent.spoke, false);
+      assert.strictEqual(spoken.length, 0);
+    });
+  }
+
+  {
+    const spoken = [];
+    const agent = new LanguageAgent({
+      ctx: { reply: async (text) => spoken.push(text) },
+      complete: async () => '{"tool":"do_task","args":{"task":"mine"}}'
+    });
+    const refused = await agent.respond({ text: '帮我挖矿' });
+    check('the language agent refuses every execution tool', () => {
+      assert.strictEqual(refused.ok, false);
+      assert.strictEqual(refused.reason, 'not-language-tool');
+      assert.strictEqual(refused.tool, 'do_task');
+      assert.strictEqual(spoken.length, 0);
+    });
+  }
+
+  {
+    const spoken = [];
+    const agent = new LanguageAgent({
+      ctx: { reply: async (text) => spoken.push(text) },
+      complete: async () => 'I think I should say hello'
+    });
+    const malformed = await agent.respond({ text: 'hi' });
+    check('malformed model output becomes silence, never a guessed action', () => {
+      assert(malformed.ok);
+      assert.strictEqual(malformed.spoke, false);
+      assert.strictEqual(malformed.reason, 'malformed');
+      assert.strictEqual(spoken.length, 0);
+    });
+  }
+
+  {
+    const agent = new LanguageAgent({
+      complete: async () => {
+        throw new Error('model offline');
+      }
+    });
+    const failed = await agent.respond({ text: 'hi' });
+    check('a model failure is reported, not turned into speech', () => {
+      assert.strictEqual(failed.ok, false);
+      assert.strictEqual(failed.reason, 'model-error');
+    });
+  }
+
   // summary
   const failed = results.filter((result) => !result.ok);
   process.stdout.write(`\nP1 contract test: ${results.length - failed.length}/${results.length} checks passed\n`);
