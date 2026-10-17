@@ -248,8 +248,11 @@ export function apply(ctx, config = {}) {
       let body = '';
       for await (const chunk of req) body += chunk;
       let goal = '';
+      let requestedAgentId = '';
       try {
-        goal = String(JSON.parse(body || '{}').goal || '').trim();
+        const parsed = JSON.parse(body || '{}');
+        goal = String(parsed.goal || '').trim();
+        requestedAgentId = String(parsed.agentId || '').trim();
       } catch {
         return jsonReply(res, 400, { ok: false, error: 'invalid JSON' });
       }
@@ -261,7 +264,20 @@ export function apply(ctx, config = {}) {
       record.finish = null;
       agentErrors.length = 0;
       try {
-        const agent = await ensureAgent();
+        let agent;
+        if (requestedAgentId) {
+          const agents = typeof ctx.get === 'function' ? ctx.get('agents') : null;
+          const live = agents && typeof agents.get === 'function' ? agents.get(requestedAgentId) : null;
+          if (!live) return jsonReply(res, 404, { ok: false, error: `live agent not found: ${requestedAgentId}` });
+          /**
+           * Target a real desktop conversation. A hidden programmatic agent has no
+           * provider transport/credential context in this host: live H1 2026-10-17
+           * reached LlmError TRANSPORT. A live agent already has its session auth.
+           */
+          agent = { agent: live, dispose: null };
+        } else {
+          agent = await ensureAgent();
+        }
         const prompt = [
           'You are the Minecraft action planner running inside a real DeepSeek Harness.',
           'Decompose the goal into small, executable steps and execute them with mc_step,',
@@ -288,6 +304,7 @@ export function apply(ctx, config = {}) {
           ok: true,
           goal,
           sessionId: agent.agent.id || null,
+          agentId: agent.agent.id || null,
           messageCount: history.length,
           seqAfterFollowup,
           seqAfterIdle: agent.agent.session.seq,

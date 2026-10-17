@@ -90,12 +90,13 @@ npm run dsh:h1
 | DSH 加载插件 | ✅ `GET 8770/health` 返回 `plugin: dsh-mc-harness` |
 | `mc_step` | ✅ 真机可用：手动 `mine dirt 2` 经 8766 执行，任务完成 |
 | `mc_observe` | ✅ 真机可用：返回位置/血量/时间/当前任务；对象输出已改 JSON 字符串 |
-| `POST /goal` | ❌ 仍失败：返回 200 但 `messageCount=0`、`steps=[]`、`final=""`；DSH session 只有 header。程序化 agent 的 `followup` 未提交 user message（尝试默认模型/新建会话后仍如此） |
+| `POST /goal` | ⚠️ 隐藏 agent 路径失败：source 修正后 `messageCount=3`，但 provider 报 `LlmError TRANSPORT`；同一 profile 的 live 会话正常。已支持 `/goal {agentId}` 指向 live 对话 |
 | H1a | ✅ **工具面通过**：`mc_observe` → `mine dirt 2` → `stop` → `mc_finish(achieved=true)`；任务日志 `collected 4/2` |
 | H1b | ✅ **工具面通过**：无 `mc_step`，`mc_finish(achieved=false)`，说明缺钻石/工作台；`/health steps=2` 未增加 |
 
-**判定边界**：H1a/H1b 的**真实 DSH 工具面**已经通过，但 `POST /goal` 自动入口仍未通过，
-因此 `npm run dsh:h1` 仍会 FAIL；不能把 H1 标为“自动化完整通过”。
+**判定边界**：H1a/H1b 的**真实 DSH 工具面**已经通过；`/goal` 的新建隐藏 agent 因 host 无
+provider transport 上下文而失败，现在改用 `agentId` 指向 live 对话。live `/goal` 尚未验证，
+不能把 H1 标为“自动化完整通过”。
 
 证据：`runtime/logs/dsh-h1-tool-results-2026-10-17.json`、`runtime/logs/agent-h1-tools-2026-10-17.log`。
 `/goal` 的空会话证据：`~/.dsh/sessions/_no-cwd/mc-harness-*/session.v4.jsonl.zstd` 仅含 header。
@@ -106,8 +107,9 @@ npm run dsh:h1
   `whenIdle()` 立即返回。
 - 已尝试：`ctx.get('agents')`、显式 `deepseek-official/deepseek-flash`、每次新建会话、
   `await followup`、`messageCount` 诊断；仍未解决。
-- 下一步需读 `dsh-agent-loop` 的 agent 创建/驱动契约，或改用“已存在的 DSH 对话”
-  作为 harness（当前 H1 工具面就是这样执行的），不再反复重启试错。
+- 结论：host 里程序化新建的 agent 没有当前桌面会话的 provider transport 上下文；
+  这不是 driver 契约问题。正确做法是用 `agentId` 指向一个已存在的 live 对话。
+- 复验：重启后开第二个 DSH 对话（保持 idle），用 `DSH_AGENT_ID=<id> npm run dsh:h1`。
 
 ### 重启后复验
 
