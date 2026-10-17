@@ -34,6 +34,7 @@ const { TaskEvents } = require('./core/taskEvents');
 const { PlanStore } = require('./core/planStore');
 const { PlanRunner } = require('./core/planRunner');
 const { TurnLifecycle } = require('./core/turnLifecycle');
+const { HarnessAdapter } = require('./harness/adapter');
 const { bare } = require('./world/items');
 /**
  * The skill layer, for reflex work on bodies without a mineflayer instance.
@@ -112,6 +113,8 @@ class Brain {
     ctx.planRunner = this.planRunner;
     this.turns = new TurnLifecycle();
     ctx.turns = this.turns;
+    this.harness = new HarnessAdapter({ turns: this.turns, events: this.events });
+    ctx.harness = this.harness;
     /**
      * Holds: the single table of "why is the brain not working" (src/core/holds.js).
      *
@@ -877,6 +880,7 @@ class Brain {
       plans: this.plans ? this.plans.status() : null,
       planRunner: this.planRunner ? { busy: this.planRunner.busy } : null,
       turns: this.turns ? { activeId: this.turns.activeId } : null,
+      harness: this.harness ? this.harness.status() : null,
       completedGoals: this.completedGoals.slice(-10),
       memory: this.ctx.memory.summary()
     };

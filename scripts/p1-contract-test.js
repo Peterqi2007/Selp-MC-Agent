@@ -419,6 +419,52 @@ function makeBrain() {
     });
   }
 
+  // --------------------------------------------------------- harness adapter
+  process.stdout.write('\n7. harness adapter\n');
+  const { HarnessAdapter } = require('../src/harness/adapter');
+
+  {
+    const turns = new TurnLifecycle();
+    const adapter = new HarnessAdapter({ turns });
+    const transcript = adapter.replay([
+      { type: 'turn.started', requestId: 'r1' },
+      { type: 'tool.call', turnId: 'turn-1', taskId: 't1', tool: 'mine' },
+      { type: 'task.event', event: { type: 'task:done', taskId: 't1' } },
+      { type: 'turn.resume', turnId: 'turn-1' },
+      { type: 'tool.call', turnId: 'turn-1', taskId: 't2' },
+      { type: 'task.event', event: { type: 'task:done', taskId: 't1' } },
+      { type: 'turn.cancel', turnId: 'turn-1', reason: 'stop' },
+      { type: 'task.event', event: { type: 'task:done', taskId: 't2' } }
+    ]);
+    check('the adapter maps a recorded harness stream to lifecycle actions', () => {
+      assert.deepStrictEqual(
+        transcript.map((action) => action.kind),
+        ['started', 'waiting', 'resumable', 'resumed', 'waiting', 'ignored', 'cancelled', 'ignored']
+      );
+      assert.strictEqual(transcript[5].reason, 'task-mismatch');
+      assert.strictEqual(transcript[7].reason, 'turn-cancelled');
+    });
+  }
+
+  {
+    const events = new TaskEvents();
+    const turns = new TurnLifecycle();
+    const adapter = new HarnessAdapter({ events, turns });
+    const started = adapter.start({ requestId: 'r2' });
+    adapter.toolCall({ turnId: started.turn.id, taskId: 't9', tool: 'mine' });
+    events.publish({ type: 'task:done', taskId: 't9', attemptId: 't9', reason: 'ok' });
+    events.publish({ type: 'task:done', taskId: 't9', attemptId: 't9', reason: 'ok' });
+    const resumed = adapter.resume(started.turn.id);
+    check('a real TaskEvents completion parks and resumes the turn once', () => {
+      assert(resumed.ok);
+      assert.strictEqual(resumed.event.taskId, 't9');
+      assert.deepStrictEqual(
+        adapter.actions.map((action) => action.kind),
+        ['started', 'waiting', 'resumable', 'resumed']
+      );
+    });
+  }
+
   // summary
   const failed = results.filter((result) => !result.ok);
   process.stdout.write(`\nP1 contract test: ${results.length - failed.length}/${results.length} checks passed\n`);
@@ -426,5 +472,5 @@ function makeBrain() {
     process.stdout.write('FAILED\n');
     process.exit(1);
   }
-  process.stdout.write('M1 offline contracts hold (events hub + plan store + SSE + plan/turn)\n');
+  process.stdout.write('M1 offline contracts hold (events hub + plan store + SSE + plan/turn/adapter)\n');
 })();

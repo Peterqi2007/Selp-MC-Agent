@@ -600,6 +600,18 @@ if (STAGE === 'p1') {
     return 'waiting -> resumable -> resume once; cancelled stays cancelled';
   });
 
+  check('P1: the harness adapter is transport-agnostic and replayable', () => {
+    const adapter = read('src/harness/adapter.js');
+    const brain = read('src/brain.js');
+    if (!/class HarnessAdapter/.test(adapter)) throw new Error('HarnessAdapter is missing');
+    if (!/taskToTurn/.test(adapter)) throw new Error('task events are not mapped back to a turn');
+    if (!/replay\(/.test(adapter)) throw new Error('the adapter has no offline replay entry');
+    if (/require\(['"](http|https|net|ws)['"]\)/.test(adapter)) throw new Error('the adapter must not own a transport');
+    if (/fetch\(/.test(adapter)) throw new Error('the adapter must not call the network');
+    if (!/new HarnessAdapter/.test(brain)) throw new Error('brain does not create the adapter');
+    return 'recorded stream -> turn actions; no transport';
+  });
+
   check('P1: proposals are wired with an offline answer surface', () => {
     const brain = read('src/brain.js');
     const commands = read('src/chat/commands.js');
