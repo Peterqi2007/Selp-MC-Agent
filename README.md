@@ -51,7 +51,7 @@
 | [`docs/P1-PLANNER-PLAN.md`](docs/P1-PLANNER-PLAN.md) | **下一阶段方案**：规划器重构（语言/动作脑区解耦、分级自主感知、自主解题、自主学习、聊天扩展）；§1.9 单列 coding harness 与自研动作脑的比较与接入边界。要求在**独立分支**实施；2026-10-17 裁决见 §1.1.1 |
 | [`docs/P1-M0.md`](docs/P1-M0.md) | **P1 M0 记录**：基线（提交/指纹/套件）、问题复核、P0→P1 审计迁移清单、评测集 v1、测量模板与版本登记。离线项已完成，**客户端三项未执行** |
 | [`docs/P1-M1.md`](docs/P1-M1.md) | **P1 M1 记录（离线 M1a–M1d）**：`TaskEvents` 汇聚/重放、身份字段、`PlanStore` 单一写者、同端口 SSE、Capability 表、TaskResult 六态、`mine_ore` progress 值域、PlanRunner、TurnLifecycle、HarnessAdapter；`p1:contract:test` 22/22。真实 DSH 插件接线与持久化未完成 |
-| [`docs/P1-M2.md`](docs/P1-M2.md) | **P1 M2 记录（离线契约 + 地址通道）**：二值闸门、`@` 通道默认关闭、严格 LLM 判定器、双脑工具清单过滤、字段新鲜度；`p1:contract:test` 82/82。真实模型判定、双 agent 实例、感知刷新与真机测量未完成 |
+| [`docs/P1-M2.md`](docs/P1-M2.md) | **P1 M2 记录（离线契约 + 地址通道）**：二值闸门、`@` 通道默认关闭、严格 LLM 判定器、双脑工具清单过滤、字段新鲜度；`p1:contract:test` 86/86（含监听器端到端）。真实模型判定、双 agent 实例、感知刷新与真机测量未完成 |
 | [`docs/P1-M3.md`](docs/P1-M3.md) | **P1 M3 记录（离线持久化/等待/续轮/学习/预算）**：原子状态、计划/问题/事件/方法/回答恢复、`wait_for_player`、`ResumeBridge`、`MethodLibrary`、`AnswerMemory`、`Budget`、`verifier`、`draftGuard`；默认关闭。真实 harness 传输、联网学习、A17/A29 真机未完成 |
 | [`docs/P1-M4.md`](docs/P1-M4.md) | **P1 M4 记录（离线安全子集）**：manifest 校验、候选→试运行→晋升状态机（隔离/回退/下线）、受限运行器 dry-run 契约、promoted-only 检索目录；**不执行生成代码**。代码生成、真实受限执行、A18–A20 未完成 |
 | [`docs/P1-M5.md`](docs/P1-M5.md) | **P1 M5 记录（窗口策略离线契约）**：CU 默认拒绝（F1 未验证）、窗口/边界/截图限窗、显式 verify+证据。GUI 中断、截图成本、A21/A22 未完成 |

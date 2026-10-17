@@ -1289,6 +1289,79 @@ function makeBrain() {
     });
   }
 
+  // ------------------------------------------- addressed channel end-to-end
+  process.stdout.write('\n21. addressed channel end-to-end\n');
+  {
+    const { ChatListener } = require('../src/chat/chatListener');
+    const dispatched = [];
+    const commands = [];
+    let lines = ['<Steve> hello'];
+    const listener = new ChatListener(
+      { readChat: async () => ({ lines }) },
+      { chat: { handle: async (command) => commands.push(command) } },
+      { prefix: '!', addressedPrefix: '@', log: silent }
+    );
+    const handler = new AddressedHandler({
+      gate: { decide: async (text) => ({ ok: true, dispatch: text }) },
+      dispatch: async (text) => dispatched.push(text)
+    });
+    listener.onAddressed = (text) => handler.handle(text);
+    await listener.poll(); // seed baseline
+    lines = ['<Steve> hello', '<Steve> @帮我砍 8 根木头'];
+    await listener.poll();
+    check('the listener routes @ through the gate and dispatches the original', () => {
+      assert.deepStrictEqual(dispatched, ['帮我砍 8 根木头']);
+      assert.strictEqual(listener.stats.addressed, 1);
+    });
+    lines = ['<Steve> hello', '<Steve> @帮我砍 8 根木头', '<Steve> !help'];
+    await listener.poll();
+    check('the addressed channel and the ! channel coexist', () => {
+      assert.deepStrictEqual(commands, ['help']);
+    });
+  }
+
+  {
+    const { ChatListener } = require('../src/chat/chatListener');
+    const dispatched = [];
+    let lines = ['<Steve> hello'];
+    const listener = new ChatListener(
+      { readChat: async () => ({ lines }) },
+      { chat: { handle: async () => {} } },
+      { prefix: '!', addressedPrefix: '@', log: silent }
+    );
+    listener.onAddressed = (text) =>
+      new AddressedHandler({
+        gate: { decide: async () => ({ ok: false, reason: 'denied' }) },
+        dispatch: async (value) => dispatched.push(value)
+      }).handle(text);
+    await listener.poll();
+    lines = ['<Steve> hello', '<Steve> @帮我砍树'];
+    await listener.poll();
+    check('a denied addressed line never reaches dispatch', () => {
+      assert.deepStrictEqual(dispatched, []);
+      assert.strictEqual(listener.stats.addressed, 1, 'the channel still saw the line');
+    });
+  }
+
+  {
+    const { ChatListener } = require('../src/chat/chatListener');
+    const dispatched = [];
+    let lines = ['<Steve> hello'];
+    const listener = new ChatListener(
+      { readChat: async () => ({ lines }) },
+      { chat: { handle: async () => {} } },
+      { prefix: '!', log: silent }
+    );
+    listener.onAddressed = (text) => dispatched.push(text);
+    await listener.poll();
+    lines = ['<Steve> hello', '<Steve> @帮我砍树'];
+    await listener.poll();
+    check('with the channel disabled, @ is not an addressed instruction', () => {
+      assert.deepStrictEqual(dispatched, []);
+      assert.strictEqual(listener.stats.addressed, 0);
+    });
+  }
+
   // summary
   const failed = results.filter((result) => !result.ok);
   process.stdout.write(`\nP1 contract test: ${results.length - failed.length}/${results.length} checks passed\n`);
