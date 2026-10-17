@@ -292,9 +292,13 @@ export function apply(ctx, config = {}) {
         ].join('\n');
         await agent.agent.followup({
           content: [{ type: 'text', text: prompt }],
-          // DSH v4 message format accepts producer-owned source kinds; 'plugin' is
-          // rejected live with "format v4 message requires a producer-owned source kind".
-          source: { kind: 'user' }
+          // v4 rejects kind:'plugin'; a user message needs the same producer fields the
+          // UI supplies, or pre-step can reject the turn before any model request.
+          source: {
+            kind: 'user',
+            rpcId: `mc-h1-${Date.now()}`,
+            clientTimeZone: 'UTC'
+          }
         });
         const seqAfterFollowup = agent.agent.session.seq;
         await agent.agent.whenIdle();
