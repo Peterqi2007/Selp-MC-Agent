@@ -203,7 +203,14 @@ export function apply(ctx, config = {}) {
     });
     try {
       handle.agent.ctx.on('agent/error', ({ error }) => {
-        agentErrors.push(String((error && error.message) || error));
+        agentErrors.push({
+          name: error && error.name,
+          message: String((error && error.message) || error),
+          code: error && error.code,
+          status: error && error.status,
+          cause: error && error.cause ? String(error.cause.message || error.cause) : null,
+          detail: error && error.detail ? String(error.detail) : null
+        });
       });
     } catch {
       /* event surface unavailable */
