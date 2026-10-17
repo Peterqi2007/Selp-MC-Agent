@@ -72,7 +72,9 @@
     "replyInGame": true,
     "maxChars": 100,
     "minReplyGapMs": 1200,
-    "conversationGuard": false
+    "conversationGuard": false,
+    "addressedPrefix": null,
+    "gateTimeoutMs": 1500
   },
   "_comment_proactive": "Role-play: the bot speaks without being spoken to. taskDone is event-driven (brain task events, player-sourced only); hungry and lowHealth are states, so they are polled with per-trigger cooldowns - without a cooldown a starving bot would repeat forever. Every unprompted line goes through LlmCore.speakUp, which drops any action the model proposes, so these triggers can never start work.",
   "proactive": {

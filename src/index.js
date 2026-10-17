@@ -307,9 +307,32 @@ async function main() {
   const chatCfg = cfg.agent.chat || {};
   const chatListener = new ChatListener(ctx.body, ctx, {
     prefix: chatCfg.prefix === undefined ? '!' : chatCfg.prefix,
-    intervalMs: chatCfg.pollIntervalMs || 700
+    intervalMs: chatCfg.pollIntervalMs || 700,
+    addressedPrefix: chatCfg.addressedPrefix || null
   });
   ctx.chatListener = chatListener;
+
+  /**
+   * Channel A0: addressed instructions (`@...`), disabled by default.
+   *
+   * The judge is injected (a future LLM adapter sets `ctx.judgeInstruction`); with no judge
+   * every instruction is refused, which is the honest default until M3 wires the gate.
+   * An allowed instruction is dispatched as the **original** text.
+   */
+  if (chatCfg.addressedPrefix) {
+    const { CommandGate } = require('./chat/commandGate');
+    const { AddressedHandler } = require('./chat/addressedHandler');
+    const gate = new CommandGate({
+      judge: typeof ctx.judgeInstruction === 'function' ? ctx.judgeInstruction : null,
+      timeoutMs: chatCfg.gateTimeoutMs || 1500
+    });
+    const addressed = new AddressedHandler({
+      gate,
+      dispatch: (text, meta) => ctx.chat.handle(text, (meta && meta.from) || 'addressed', { source: 'addressed' })
+    });
+    chatListener.onAddressed = (text, line) => addressed.handle(text, { line });
+    ctx.addressedHandler = addressed;
+  }
 
   /**
    * botFacade: a read-only, bot-shaped view over the Body.

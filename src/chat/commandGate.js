@@ -36,4 +36,44 @@ function gateVerdict(input = {}) {
   return { ok: true, dispatch: String(original), reason: 'allowed', rewritten };
 }
 
-module.exports = { gateVerdict, VERDICTS };
+/**
+ * CommandGate - the async half of the binary gate (P1 M2).
+ *
+ * The judge is injected (an LLM adapter later, a stub in tests). This class owns the timeout
+ * and the interpretation; it never sees the body and never dispatches anything itself.
+ */
+class CommandGate {
+  constructor(options = {}) {
+    this.judge = options.judge || null;
+    this.timeoutMs = options.timeoutMs || 1500;
+    this.now = options.now || (() => Date.now());
+  }
+
+  /** @returns {Promise<{ok:boolean, dispatch:string|null, reason:string}>} */
+  async decide(text) {
+    if (!text || !String(text).trim()) return { ok: false, dispatch: null, reason: 'empty' };
+    if (typeof this.judge !== 'function') return { ok: false, dispatch: null, reason: 'no-judge' };
+
+    let timer = null;
+    let timedOut = false;
+    const timeout = new Promise((resolve) => {
+      timer = setTimeout(() => {
+        timedOut = true;
+        resolve(undefined);
+      }, this.timeoutMs);
+    });
+
+    let verdict;
+    try {
+      verdict = await Promise.race([Promise.resolve().then(() => this.judge(text)), timeout]);
+    } catch (err) {
+      if (timer) clearTimeout(timer);
+      return { ok: false, dispatch: null, reason: 'judge-error', error: err.message };
+    }
+    if (timer) clearTimeout(timer);
+    if (timedOut) return { ok: false, dispatch: null, reason: 'timeout' };
+    return gateVerdict({ verdict, original: text });
+  }
+}
+
+module.exports = { gateVerdict, VERDICTS, CommandGate };

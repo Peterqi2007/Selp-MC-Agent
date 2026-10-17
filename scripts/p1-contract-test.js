@@ -1144,6 +1144,77 @@ function makeBrain() {
     });
   }
 
+  // --------------------------------------------------- addressed gate channel
+  process.stdout.write('\n18. addressed gate channel\n');
+  const { CommandGate } = require('../src/chat/commandGate');
+  const { AddressedHandler } = require('../src/chat/addressedHandler');
+
+  {
+    const gate = new CommandGate({
+      judge: async () => ({ verdict: 'allow', text: 'rewrite this' }),
+      timeoutMs: 100
+    });
+    const verdict = await gate.decide('帮我砍树');
+    check('an allow verdict dispatches the original, not the rewrite', () => {
+      assert(verdict.ok);
+      assert.strictEqual(verdict.dispatch, '帮我砍树');
+      assert.strictEqual(verdict.rewritten, 'rewrite this');
+    });
+    const denied = await new CommandGate({ judge: () => ({ verdict: 'deny' }) }).decide('x');
+    const malformed = await new CommandGate({ judge: () => ({ verdict: 'maybe' }) }).decide('x');
+    const noJudge = await new CommandGate({}).decide('x');
+    const errored = await new CommandGate({
+      judge: () => {
+        throw new Error('boom');
+      }
+    }).decide('x');
+    const timedOut = await new CommandGate({
+      judge: () => new Promise(() => {}),
+      timeoutMs: 20
+    }).decide('x');
+    check('deny, malformed, missing judge, error and timeout all dispatch nothing', () => {
+      for (const result of [denied, malformed, noJudge, errored, timedOut]) {
+        assert.strictEqual(result.ok, false);
+        assert.strictEqual(result.dispatch, null);
+      }
+      assert.strictEqual(malformed.reason, 'malformed');
+      assert.strictEqual(noJudge.reason, 'no-judge');
+      assert.strictEqual(errored.reason, 'judge-error');
+      assert.strictEqual(timedOut.reason, 'timeout');
+    });
+  }
+
+  {
+    const dispatched = [];
+    const allowed = new AddressedHandler({
+      gate: { decide: async () => ({ ok: true, dispatch: 'original instruction' }) },
+      dispatch: async (text) => {
+        dispatched.push(text);
+        return { ok: true };
+      }
+    });
+    const handled = await allowed.handle('whatever the gate said');
+    const refused = new AddressedHandler({
+      gate: { decide: async () => ({ ok: false, reason: 'denied' }) },
+      dispatch: async (text) => dispatched.push(text)
+    });
+    const denied = await refused.handle('do not dispatch me');
+    const broken = new AddressedHandler({
+      gate: { decide: async () => ({ ok: true, dispatch: 'x' }) },
+      dispatch: async () => {
+        throw new Error('table down');
+      }
+    });
+    const failed = await broken.handle('x');
+    check('the addressed handler dispatches only the approved original', () => {
+      assert(handled.ok);
+      assert.deepStrictEqual(dispatched, ['original instruction']);
+      assert.strictEqual(denied.ok, false);
+      assert.strictEqual(denied.reason, 'denied');
+      assert.strictEqual(failed.reason, 'dispatch-error');
+    });
+  }
+
   // summary
   const failed = results.filter((result) => !result.ok);
   process.stdout.write(`\nP1 contract test: ${results.length - failed.length}/${results.length} checks passed\n`);

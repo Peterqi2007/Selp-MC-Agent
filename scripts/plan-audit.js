@@ -460,7 +460,7 @@ check('every config key the plan adds is actually consumed', () => {
   const sections = {
     clientMod: ['host', 'port', 'timeoutMs', 'directRange'],
     pathfinding: ['maxPathLength', 'replanEvery', 'nodeTimeoutMs', 'tickTimeoutMs', 'allowSwim', 'allowDig', 'waypointRange', 'stuckThreshold', 'jumpStreakLimit', 'maxSidesteps', 'trace'],
-    chat: ['prefix', 'dialogueTrigger', 'pollIntervalMs', 'ignoreOtherChat', 'replyInGame', 'maxChars', 'minReplyGapMs', 'conversationGuard'],
+    chat: ['prefix', 'dialogueTrigger', 'pollIntervalMs', 'ignoreOtherChat', 'replyInGame', 'maxChars', 'minReplyGapMs', 'conversationGuard', 'addressedPrefix', 'gateTimeoutMs'],
     proactive: ['enabled', 'intervalMs'],
     death: ['detectIntervalMs', 'alertConsole', 'alertPanel', 'alertStateFile'],
     web: ['bind', 'port', 'eventsToken'],
@@ -802,6 +802,27 @@ if (STAGE === 'p1') {
       if (!new RegExp(needle).test(drills)) throw new Error(`fault drill "${needle}" is missing`);
     }
     return 'timeout/cancel/throw/preempt/takeover/restart drills';
+  });
+
+  check('P1: addressed instructions pass a binary gate before dispatch', () => {
+    const gate = read('src/chat/commandGate.js');
+    const handler = read('src/chat/addressedHandler.js');
+    if (!/class CommandGate/.test(gate)) throw new Error('CommandGate is missing');
+    if (!/dispatch: String\(original\)/.test(gate)) throw new Error('the original text is not preserved');
+    if (!/judge-error|timeout/.test(gate)) throw new Error('errors/timeouts are not refused');
+    if (!/class AddressedHandler/.test(handler)) throw new Error('AddressedHandler is missing');
+    if (!/verdict\.dispatch/.test(handler)) throw new Error('the handler does not dispatch the approved text');
+    return 'allow -> original; deny/error/timeout -> nothing';
+  });
+
+  check('P1: the addressed channel is wired but off by default', () => {
+    const listener = read('src/chat/chatListener.js');
+    const index = read('src/index.js');
+    const cfg = JSON.parse(read('config/agent.json'));
+    if (!/addressedPrefix/.test(listener) || !/onAddressed/.test(listener)) throw new Error('the listener has no addressed channel');
+    if (!/onAddressed/.test(index) || !/AddressedHandler/.test(index)) throw new Error('the addressed handler is not wired');
+    if (!cfg.chat || cfg.chat.addressedPrefix !== null) throw new Error('the addressed channel must default off');
+    return 'channel plumbed; judge injected; default off';
   });
 
   check('P1: proposals are wired with an offline answer surface', () => {

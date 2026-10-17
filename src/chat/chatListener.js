@@ -118,6 +118,13 @@ class ChatListener {
      * line is seen once.
      */
     this.dialogueTrigger = options.dialogueTrigger || null;
+    /**
+     * Addressed channel (P1 M2): when set, lines starting with this prefix are routed through
+     * a binary gate before the command table. Default null = channel disabled, so the
+     * existing `!`/dialogue behaviour is unchanged.
+     */
+    this.addressedPrefix = options.addressedPrefix || null;
+    this.onAddressed = null;
     this.onDialogue = null;
     /** Every non-command line, for the panel and for prompt history. */
     this.heard = [];
@@ -125,7 +132,7 @@ class ChatListener {
     this.recent = [];
     this.timer = null;
     this.running = false;
-    this.stats = { polls: 0, lines: 0, commands: 0, dialogues: 0, echoes: 0, ignored: 0, errors: 0 };
+    this.stats = { polls: 0, lines: 0, commands: 0, dialogues: 0, addressed: 0, echoes: 0, ignored: 0, errors: 0 };
   }
 
   /** Fingerprint a line the same way the filter does, for `noteOwnSpeech`. */
@@ -240,6 +247,7 @@ class ChatListener {
     const fresh = this.newLines(batch);
     const handled = [];
     const dialogues = [];
+    const addressed = [];
 
     for (const line of fresh) {
       const text = line.trim();
@@ -300,6 +308,20 @@ class ChatListener {
         continue;
       }
 
+      // ---- channel A0: addressed instructions (`@...`) -------------------
+      if (this.addressedPrefix && content.startsWith(this.addressedPrefix)) {
+        const utterance = content.slice(this.addressedPrefix.length).trim();
+        if (utterance) {
+          addressed.push({ utterance, line: text });
+          this.stats.addressed += 1;
+          this.heard.push({ at: new Date().toISOString(), line: text, kind: 'addressed' });
+          if (this.heard.length > 20) this.heard.shift();
+        } else {
+          this.stats.ignored += 1;
+        }
+        continue;
+      }
+
       // ---- channel A: the deterministic prefix ---------------------------
       if (!this.prefix || !content.startsWith(this.prefix)) {
         this.heard.push({ at: new Date().toISOString(), line: text, kind: 'other' });
@@ -326,6 +348,15 @@ class ChatListener {
       } catch (err) {
         this.log.error(`chat command failed: ${err.message}`);
         if (this.ctx.reply) await this.ctx.reply(`出错了: ${err.message}`).catch(() => {});
+      }
+    }
+
+    for (const item of addressed) {
+      if (!this.onAddressed) continue;
+      try {
+        await this.onAddressed(item.utterance, item.line);
+      } catch (err) {
+        this.log.error(`addressed handling failed: ${err.message}`);
       }
     }
 
