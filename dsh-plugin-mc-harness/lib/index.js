@@ -207,6 +207,18 @@ export function apply(ctx, config = {}) {
     if (req.method === 'GET' && url.pathname === '/health') {
       return jsonReply(res, 200, { ok: true, plugin: name, port, controlUrl, busy, steps: record.steps.length });
     }
+    if (req.method === 'GET' && url.pathname === '/agents') {
+      const agents = typeof ctx.get === 'function' ? ctx.get('agents') : null;
+      const live = agents && typeof agents.list === 'function' ? agents.list() : [];
+      return jsonReply(res, 200, {
+        ok: true,
+        agents: live.map((a) => ({
+          id: a.id || null,
+          status: a.status || null,
+          sessionId: a.session && a.session.id ? a.session.id : null
+        }))
+      });
+    }
     if (req.method === 'POST' && url.pathname === '/goal') {
       if (busy) return jsonReply(res, 409, { ok: false, error: 'busy' });
       let body = '';
@@ -241,6 +253,7 @@ export function apply(ctx, config = {}) {
           content: [{ type: 'text', text: prompt }],
           source: { kind: 'plugin', plugin: name }
         });
+        const seqAfterFollowup = agent.agent.session.seq;
         await agent.agent.whenIdle();
         const history = agent.agent.session.deriveMessages();
         const final = lastAssistantText(agent.agent.session);
@@ -249,6 +262,9 @@ export function apply(ctx, config = {}) {
           goal,
           sessionId: agent.agent.id || null,
           messageCount: history.length,
+          seqAfterFollowup,
+          seqAfterIdle: agent.agent.session.seq,
+          agentStatus: agent.agent.status || null,
           steps: record.steps,
           receipts: record.receipts,
           observations: record.observations,
