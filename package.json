@@ -43,6 +43,7 @@
     "mining:recovery:test": "node scripts/mining-recovery-test.js",
     "mining:live": "node scripts/mining-live-test.js",
     "control:test": "node scripts/control-test.js",
+    "planner:test": "node scripts/planner-retirement-test.js",
     "llm:dry": "node scripts/llm-dry.js",
     "p0:verify": "node scripts/p0-verify.js",
     "personal:test": "node scripts/personal-test.js",

@@ -762,6 +762,19 @@ class Brain {
       const windowMs = Math.min(120000, 20000 * strikes);
       this.quarantine.set(task.name, Date.now() + windowMs);
       this.log.debug(`${task.name} quarantined for ${Math.round(windowMs / 1000)}s (strike ${strikes})`);
+      /**
+       * P8: the docs advertised `task:quarantined` for well over a year while the code
+       * only ever emitted `task:done` / `task:failed`. Emitting here is what lets the
+       * follow-up ("could not do X, here is why") become event-driven instead of polled.
+       * `reason` distinguishes this strike-based park from the zero-progress one.
+       */
+      this.emit('task:quarantined', {
+        name: task.name,
+        reason: 'strikes',
+        strikes,
+        until: this.quarantine.get(task.name),
+        source: task.source || 'autonomous'
+      });
       this.drainQueue();
       return;
     }
@@ -807,6 +820,15 @@ class Brain {
         this.log.warn(`${task.name} made no progress (${value}) for ${stalls} runs - parking it briefly`);
         this.quarantine.set(task.name, Date.now() + 30000);
         this._stalls.delete(task.name);
+        /** Same event as the strike-based park; `reason` tells them apart (P8). */
+        this.emit('task:quarantined', {
+          name: task.name,
+          reason: 'no-progress',
+          value,
+          stalls,
+          until: this.quarantine.get(task.name),
+          source: task.source || 'autonomous'
+        });
       }
     } else {
       this._stalls && this._stalls.delete(task.name);
@@ -982,7 +1004,7 @@ class Brain {
 
   // ------------------------------------------------------------- task events
 
-  /** Subscribe to `task:done` / `task:failed`. Returns an unsubscribe function. */
+  /** Subscribe to `task:done` / `task:failed` / `task:quarantined`. Returns an unsubscribe function. */
   on(event, handler) {
     if (!this.listeners.has(event)) this.listeners.set(event, new Set());
     this.listeners.get(event).add(handler);

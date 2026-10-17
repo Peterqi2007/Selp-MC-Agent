@@ -49,7 +49,8 @@
 | 本文件 | 现状、架构、快速开始、指令、进展、脚本、限制 |
 | 本文件 §3 | **想知道「现在到哪一步了」先读它**：批次表 + 当前状态 + 最新真机记录 |
 | [`docs/P1-PLANNER-PLAN.md`](docs/P1-PLANNER-PLAN.md) | **下一阶段方案**：规划器重构（语言/动作脑区解耦、分级自主感知、自主解题、自主学习、聊天扩展）；§1.9 单列 coding harness 与自研动作脑的比较与接入边界。要求在**独立分支**实施；2026-10-17 裁决见 §1.1.1 |
-| [`docs/PLANNER-RETIREMENT.md`](docs/PLANNER-RETIREMENT.md) | **自主规划器退役**：`slowLoop` 拆为 GoalEvaluator + 提案 + TaskSlot，S0–S4 四阶段、目标文件、开关与回归判据；挂载到 P1 的 M0/M1/M3/M7 |
+| [`docs/PLANNER-RETIREMENT.md`](docs/PLANNER-RETIREMENT.md) | **自主规划器退役**：`slowLoop` 拆为 GoalEvaluator + 提案 + TaskSlot，S0–S4 四阶段、目标文件、开关与回归判据；挂载到 P1 的 M0/M1/M3/M7。S0 已完成（离线，`npm run planner:test`） |
+| [`docs/P1-CLIENT-TESTS.md`](docs/P1-CLIENT-TESTS.md) | **客户端/真机测试清单**：P1 与退役判据里所有需要真实客户端/服务器的项，**当前全部未执行**（本分支只跑离线套件） |
 | [`docs/PLANNER-AB-EXPERIMENT.md`](docs/PLANNER-AB-EXPERIMENT.md) | **选型 A/B 实验设计**（**条件触发**：仅当 P1 §1.9.2 降级判定成立才执行）：24 次计分运行的场景与门槛；成本审计按时间 / token / 模块复用三项（§6–§7），§10 是决策闸门，**不做经济性评估**（§8.4） |
 | [`docs/HARNESS-INTERFACES.md`](docs/HARNESS-INTERFACES.md) | **两侧接口事实**：Codex（`base_instructions` 可整段替换 / `tool_mode` / hooks / MCP）与 DSH（0.2.0-rc.2、cordis 插件契约、system-prompt 装配、preset）的一手机器取证，含待验证项 |
 | [`docs/PLANNER-REFACTOR.md`](docs/PLANNER-REFACTOR.md) | **规划器（自主决策）专项**：已核实问题 P1–P10、重构债 Q1–Q7，以及与 `!` 命令 / LLM `do_task`/`do_skill` 回路的边界 |

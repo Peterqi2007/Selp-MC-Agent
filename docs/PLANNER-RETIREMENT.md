@@ -68,7 +68,7 @@ src/brain.js               // 只留 fastLoop（反射）+ 调度器；
 
 | 阶段 | 做什么 | 不改什么 | 出口 |
 | --- | --- | --- | --- |
-| **S0 立抓手** | `progress()` 值域断言；`decide()` 可注入夹具（照 `mining-entry-test.js` 的 `buildAgent`）；`task:quarantined` 二选一（补 emit 或删文档依赖，P8） | 不改任何行为 | 新断言全绿 |
+| **S0 立抓手 ✅（离线）** | `progress()` 值域断言；`decide()` 可注入夹具（照 `mining-entry-test.js` 的 `buildAgent`）；`task:quarantined` 二选一（补 emit 或删文档依赖，P8） | 不改任何任务行为（只**新增**一个事件） | `planner:test` 17/17 全绿（2026-10-17） |
 | **S1 抽 evaluator** | 规则表搬进 `planner/evaluator.js`，输出声明式候选；`brain.decide()` 变薄壳 | 仍由 legacy 执行 | A10 改为直接测 evaluator；`plan:audit` 加"evaluator 存在且不构造 Task 实例" |
 | **S2 抽 TaskSlot** | 合并两套所有权（`activeTask` / `hub.current` + hold）；B1/B2、超时、强制结算、统一事件出口进执行器 | `!`/`do_task` 行为必须逐字节等价（用现有 52/37/25 等套件证明） | Q3 消除；`control:test` 改走新执行器 |
 | **S3 接提案 + 授权** | `proposals.js` + A25 冷却/不答/拒绝 + 常驻授权；摘掉 `slowLoop` 的执行权 | `!`/`do_task` 不变 | A25；需要 P1 §1.4.4 事件面才能接 harness |
@@ -94,6 +94,21 @@ src/brain.js               // 只留 fastLoop（反射）+ 调度器；
 - `!` / `do_task` 行为不变（逐字节等价，用现有套件 + 真机抽测证明）；
 - 空闲行为按 P1 §2.4 的授权口径（未获准不执行）；
 - 重启后提案/失败账本可恢复（A17/A29）。
+
+> **本轮不执行任何真机项**：以上判据与 P1 的全部客户端测试统一登记在
+> [`P1-CLIENT-TESTS.md`](P1-CLIENT-TESTS.md)，状态均为「未执行」；执行需单独批准。
+
+## 9. 实施进展
+
+| 日期 | 阶段 | 内容 | 证据 |
+| --- | --- | --- | --- |
+| 2026-10-17 | S0 | 1) `scripts/planner-retirement-test.js`：progress 值域（11 个任务通过 + `mine_ore` 作为**已知违规**登记，修好后测试会要求删除该条目）、`decide()` 可注入夹具 3 条、`task:quarantined` 两条路径各一条断言；2) `brain.js` 在两处 quarantine 补 emit（`reason=strikes` / `reason=no-progress`）；3) `npm run planner:test` 入 `package.json` | `planner:test` 17/17；`p0:verify` 8/8；`plan:audit` 29/29 |
+
+**S0 的边界**：只新增事件与测试，不改任务执行、不改规则选择、不改退避窗口。
+`mine_ore` 的对象返回值是**已知违规**而不是被容忍——S2 改成值域/单调性契约时，测试会失败并提示更新条目。
+
+下一步（S1）：把规则表搬进 `src/planner/evaluator.js`（纯函数、可注入），`brain.decide()` 变薄壳；
+同时按 P1 §3.3 的冻结规则改 `plan-audit.js:93-98`（删除旧断言必须同提交新增替代断言）。
 
 ## 8. 不做
 
