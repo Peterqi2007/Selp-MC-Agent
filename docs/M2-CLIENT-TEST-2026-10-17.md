@@ -1,11 +1,13 @@
 # M2 客户端测试记录（2026-10-17 首轮）
 
 > 阶段：M2（A01–A03、A09–A12、H1a/H1b）
-> 结论：**A01 PASS；A02 PASS（20 条，timeout 子项未触发）；A03 PASS；H1a/H1b PASS。
-> M2 阶段仍未整体通过，因为 A09–A12 未执行。**
+> 结论：**A01 PASS；A02 PASS（20 条，timeout 子项未触发）；A03 PASS；A09 PASS；
+> A10 FAIL（未实现 stale 标记）；A11 FAIL（无事件唤醒路径）；H1a/H1b PASS。
+> M2 阶段未通过；A12 未执行。**
 > 原始证据：`runtime/logs/agent-m2-a01-2026-10-17.log`、
 > `runtime/logs/agent-a02-final2-2026-10-17.log`、`runtime/logs/a02-gate-2026-10-17.json`、
-> `runtime/logs/dsh-h1-live-run-2026-10-17.log`。
+> `runtime/logs/a09-idle-2026-10-17.json`、`runtime/logs/a10-disconnect-2026-10-17.json`、
+> `runtime/logs/a11-events-2026-10-17.json`、`runtime/logs/dsh-h1-live-run-2026-10-17.log`。
 
 ## 1. 环境
 
@@ -146,11 +148,59 @@ overlap : []
 
 **A03 判定：PASS（工具面/say/silence/persona；口头执行声称不构成执行证据）。**
 
-## 7. 未执行
+## 7. A09：空闲 10 分钟 —— PASS
 
-- A09 空闲 10 分钟（模型 0 调用）、A10 新鲜度、A11 感知/模型分离、A12 威胁与性能。
+从 14:19 到 14:29（`elapsedMs=600021`），planner off、languageAgent off、无游戏输入：
+
+| 指标 | 结果 |
+| --- | --- |
+| `/llm` tokens | **0 → 0**（delta 0） |
+| TaskEvents subscribers | **1 → 1**（delta 0；HarnessAdapter 的既有订阅） |
+| TaskEvents seq | **0 → 0** |
+| mod `/state` 请求 | **+2164**（500ms 轮询；快照刷新按判定口径不算违规） |
+| current / queue | null / 0 |
+| 位置 / 血量 / 食物 | 不变 / 20 / 17 |
+| hostiles | 0 |
+
+随后补测“任务结束停订阅”：
+
+- `mine dirt 1` 无模型执行；
+- 任务未完成时 `stop` 取消，`task:failed` 进入事件环（seq 1）；
+- `subscribers` 仍为 **1**，`current=null`、`queue=0`，无订阅泄漏；
+- 保命数据（health/position/food）仍可读。
+
+**A09 判定：PASS。** 边界：只证明 10 分钟，不证明更长空闲。
+
+## 8. A10：新鲜度/断连 —— FAIL（未实现 stale 标记）
+
+- `/status` 的 `world` 摘要**没有** `observedAt` / `fieldAge` / `staleFields`；
+- 代码审计：`staleFields()` / `planRefresh()` 只有离线 contract 调用，**没有运行时调用者**；
+- 真机注入：空闲时杀掉 Forge 客户端，2 秒后 `/status` 仍返回
+  `world.ready=true`、最后位置 `(53.7,63,90.3)`、health 20，**没有 stale 标记**；
+- 因此“旧值标 stale、不据过期位置攻击/拾取”无法成立；跨维度/部分刷新本轮未测，
+  但不影响该项已失败。
+
+**A10 判定：FAIL（实现缺口，不是环境问题）。**
+
+## 9. A11：感知/模型分离 —— FAIL（无事件唤醒路径）
+
+- **空闲子项通过**：A09 的 10 分钟 tokens 0、无新订阅、无事件；
+- 普通聊天注入 `今天天气怎么样`（无 `@`/`!`）：无回复、无 LLM 输入日志、无事件唤醒；
+  聊天被 listener 当 other 忽略；
+- 静态审计：`ThreatObserver` 没有实例化，天气/消息/阶段变化没有“按类唤醒”路径；
+- 期间 `tokens=5194` 来自 **任务失败后的 proactive 发言**，不是这条聊天事件；
+- 重复 `/status` 观察不触发模型（纯采样 0 调用子项通过），但“有意义事件各唤醒一次”失败。
+
+**A11 判定：FAIL（仅 idle-zero-model 子项通过；事件唤醒未实现）。**
+
+## 10. 未执行
+
+- A12 威胁与性能（怪物接近/伤害各 ≥5 次、p50/p95）。
 - A02 的真机 timeout 子项（本轮未触发；离线 contract 覆盖）。
+- A10 的跨维度/部分刷新子场景；A11 的天气/阶段变化注入。
 
-## 8. 下一步
+## 11. 下一步
 
-1. **A09–A12**：A09 需 10 分钟安全空闲；A10/A11 需故障/事件注入；A12 需怪物环境。
+1. **A10**：把 `observedAt/staleFields` 接到 `/status` 与动作入口，断连/超时拒绝旧位置。
+2. **A11**：实例化 `ThreatObserver`，给天气/消息/阶段事件建立按类唤醒与去重。
+3. **A12**：需要怪物环境，另排时段。
