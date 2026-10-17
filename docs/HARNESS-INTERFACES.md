@@ -183,6 +183,26 @@ DSH 里 = **按 order 组合 section，或用一个 `complete:true` section 独�
 本机 `disabled: true`，且本机 `.dsh` 下没有任何地方启用它。
 **要用必须先确认 provider 从哪来（云端？企业包？还是需要自己实现 `registerProvider`）——这是待验证项。**
 
+### 2.6 2026-10-17 裁决（P1 采用，只列与本文接口判断直接相关的）
+
+| 事项 | 裁决 | 对本文的影响 |
+| --- | --- | --- |
+| 接入路线 | **先接 DSH**，Codex 备选；只有 P1 §1.9.2 判定成立才做 A/B | 本文的"两侧对照"降为参考，不再驱动路线选择 |
+| 模型 | 两个接入模型均为 **deepseek-flash（DeepSeek V4.1 Flash）** | 端点/模型兼容的验证按此固定 |
+| 用量 | **不做代码级 token 限制**；监控动作脑用量、停机后复盘 | §7 不得写成"每请求上限"，A30 已改写 |
+| CU | **复用现有 `dsh-computer-use` 插件**、限游戏窗口；做不到则放弃 CU | 新增可行性闸门 F1（§五 #8） |
+| 动作脑工具面 | 关 bash/pwsh；fs 只读工作区 + 写 `agent-data/`；web 只经 Node 检索代理；游戏动作全来自 Node | `standard` preset 不能直接用，需单开 preset |
+
+### 2.7 尚未证明、但裁决已默认成立的三件事
+
+1. **`agent/turn-stopping` + `steer()` 对第三方插件开放**——随包文档里它是第一方 hook 桥的用法；
+   第三方插件能否拿到同一扩展点，**未验证**（§五 #6）。
+2. **per-turn usage 可取**——DSH 有 token-meter 插件，但"每个模型请求的 usage 是否可归到我们的 turn"未验证（§五 #7）。
+3. **`dsh-computer-use` 能否把操作/截图限制到游戏窗口**——它的既有能力是桌面级；限窗是否可配置未验证（§五 #8）。
+
+> 这三条任一为否，就落进 P1 §1.9.2 的降级判定（#1 判"接口不稳定"，#2 判"预算边界不满足"），
+> 而不是靠"约定"绕过去。
+
 ---
 
 ## 三、把两侧放在一张表里（P1 决策要用的那几行）
@@ -220,6 +240,9 @@ DSH 里 = **按 order 组合 section，或用一个 `complete:true` section 独�
 | 3 | MC 工具面接进 DSH 的实感 | 装 `whale_craft`（它自带 preset），跑一句 "obtain an iron pickaxe" | 中（要重启 DSH + 一个 MC 账号） |
 | 4 | 无人值守下的唤醒语义 | 用 `dsh-agent-instructions` + `hooks` 组合做一次"事件推模型"的端到端 | 中 |
 | 5 | Codex 当被调用方 | 用 `codex exec` 非交互模式跑"给状态 → 出计划"的最小子集 | 中（官方文档此前取不到，需以实测为准） |
+| 6 | `agent/turn-stopping` + `steer()` 对第三方插件是否开放 | 写一个最小插件挂监听并在异步任务完成时 `steer()`，观察是否续轮 | 低-中（决定 Q0 的接口稳定性判定） |
+| 7 | per-turn usage 是否可归到我们的 turn | 在插件侧读 usage，与供应商侧计量对账 | 中（决定 Q0 的预算边界判定） |
+| 8 | `dsh-computer-use` 能否限游戏窗口 | 独立 profile 里验证操作/截图范围，F1 闸门 | 中（不通过则放弃 CU） |
 
 ---
 
@@ -228,4 +251,5 @@ DSH 里 = **按 order 组合 section，或用一个 `complete:true` section 独�
 - **未修改**任何 `~/.codex/*` 与 `~/.dsh/profiles/*` 配置（取证全为只读）。
 - 未逐包通读 289 个 `@deepseek-ai` 包，只读了与"提示词 / 工具 / 子代理 / 钩子 / MCP"直接相关的 11 份随包文档。
 - 未验证 `codex` / `claude-code` provider 的可用性（见 §2.5、§五 #2）。
+- 未验证第三方插件对 `agent/turn-stopping` / `steer()` 的可用性、per-turn usage 可归属性、`dsh-computer-use` 的限窗能力（见 §2.7、§五 #6–#8）。
 - 开源 MC agent 项目的工具面数字（34 工具 / ≤11 秒 / ≤18000 字符）来自对方 README 自述（E10），未 clone 复核。
