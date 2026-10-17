@@ -96,7 +96,12 @@ class AnswerMemory {
       'how', 'do', 'does', 'did', 'i', 'you', 'we', 'me', 'my', 'your', 'it', 'this', 'that',
       'to', 'of', 'in', 'on', 'at', 'and', 'or', 'for', 'can', 'could', 'should', 'would'
     ]);
-    const tokens = (text) => text.split(/\s+/).filter((token) => token && !stop.has(token));
+    const tokens = (text) =>
+      text
+        .toLowerCase()
+        .replace(/[^\p{L}\p{N}\s]/gu, ' ')
+        .split(/\s+/)
+        .filter((token) => token && !stop.has(token));
     const wanted = new Set(tokens(query));
     if (!wanted.size) return 0;
     const overlap = tokens(known).filter((token) => wanted.has(token)).length;

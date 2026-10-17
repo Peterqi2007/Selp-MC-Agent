@@ -2010,6 +2010,48 @@ function makeBrain() {
     });
   }
 
+  // --------------------------------------------- local knowledge retrieval
+  process.stdout.write('\n34. local knowledge retrieval\n');
+  {
+    const brain = makeBrain();
+    const best = brain.methods.add({
+      goal: 'get iron',
+      method: 'dig at y=16',
+      conditions: { biome: 'plains' }
+    });
+    brain.methods.add({ goal: 'get iron', method: 'find a cave', conditions: { biome: 'mountains' } });
+    brain.methods.recordOutcome(best.id, true);
+    brain.answers.remember({
+      question: 'where is the iron?',
+      answer: 'north cave',
+      conditions: { dimension: 'overworld' }
+    });
+    const suggestion = brain.suggestMethod('get iron', {
+      biome: 'plains',
+      dimension: 'overworld'
+    });
+    check('suggestMethod returns the best method and remembered answer', () => {
+      assert.strictEqual(suggestion.method.method, 'dig at y=16');
+      assert.strictEqual(suggestion.method.success, 1);
+      assert.strictEqual(suggestion.answer.answer, 'north cave');
+    });
+
+    const { ChatController } = require('../src/chat/commands');
+    const replies = [];
+    brain.ctx.reply = async (text) => replies.push(text);
+    const chat = new ChatController(brain.ctx);
+    await chat.handlers.method(['get', 'iron']);
+    check('!method reports the method and the remembered answer', () => {
+      assert.match(replies[replies.length - 1], /dig at y=16/);
+      assert.match(replies[replies.length - 1], /north cave/);
+    });
+    const usage = await chat.handlers.method([]);
+    check('!method without a goal explains its usage', () => {
+      assert.strictEqual(usage.ok, false);
+      assert.match(replies[replies.length - 1], /用法/);
+    });
+  }
+
   // summary
   const failed = results.filter((result) => !result.ok);
   process.stdout.write(`\nP1 contract test: ${results.length - failed.length}/${results.length} checks passed\n`);

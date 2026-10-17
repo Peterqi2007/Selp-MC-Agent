@@ -738,6 +738,40 @@ class Brain {
     this.log.info(`proposed ${outcome.proposal.target} - waiting for the player (!proposal accept)`);
   }
 
+  /**
+   * Local knowledge for a goal: best method + best remembered answer (P1 §1.6.2).
+   *
+   * Retrieval only - it never executes anything and never calls a model. The planner,
+   * the language brain and `!method` all read the same result shape.
+   */
+  suggestMethod(goal, context = {}) {
+    const matches = this.methods ? this.methods.search(goal, context, { limit: 1 }) : [];
+    const answer = this.answers ? this.answers.recall(goal, context) : null;
+    return {
+      goal,
+      method: matches[0]
+        ? {
+            id: matches[0].method.id,
+            goal: matches[0].method.goal,
+            method: matches[0].method.method,
+            conditions: matches[0].method.conditions,
+            success: matches[0].method.success,
+            failure: matches[0].method.failure,
+            score: matches[0].score
+          }
+        : null,
+      answer: answer
+        ? {
+            question: answer.fact.question,
+            answer: answer.fact.answer,
+            conditions: answer.fact.conditions,
+            at: answer.fact.at,
+            score: answer.score
+          }
+        : null
+    };
+  }
+
   /** Run a plan; a question step becomes a proposal instead of a second question system. */
   async runPlan(planId, options = {}) {
     const result = await this.planRunner.run(planId, options);

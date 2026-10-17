@@ -1060,6 +1060,18 @@ if (STAGE === 'p1') {
     return 'step.methodId -> success/failure evidence, not self-report';
   });
 
+  check('P1: local knowledge has a read-only retrieval entry', () => {
+    const brain = read('src/brain.js');
+    const commands = read('src/chat/commands.js');
+    if (!/suggestMethod\(goal, context/.test(brain)) throw new Error('suggestMethod is missing');
+    if (!/methods\.search/.test(brain) || !/answers\.recall/.test(brain)) {
+      throw new Error('retrieval does not read both stores');
+    }
+    if (!/method: \(args\)/.test(commands) || !/!method <goal>/.test(commands)) throw new Error('!method is missing');
+    if (!/suggestMethod\(goal/.test(commands)) throw new Error('!method does not use the retrieval entry');
+    return 'method + answer; read-only; command surface';
+  });
+
   check('P1: proposals are wired with an offline answer surface', () => {
     const brain = read('src/brain.js');
     const commands = read('src/chat/commands.js');

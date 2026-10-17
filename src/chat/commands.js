@@ -70,6 +70,7 @@ const HELP = [
   '!task status|stop - the background task slot',
   '!proposal status|accept [always]|reject - answer the planner\'s proposal',
   '!state status|save - persisted session state (off by default)',
+  '!method <goal> - look up a local method and remembered answer',
   '!area add|list|show|delete - named areas (permission rules can point at them)',
   '!route add|plan|go|list|show|delete - named routes; plan first, go walks it',
   '!rule list|allow|deny|ask|remove|mode - permission rules',
@@ -476,6 +477,32 @@ class ChatController {
             : '持久化未启用（config state.enabled=false）'
         );
         return status;
+      },
+
+      /**
+       * Local knowledge lookup (P1 §1.6.2): best method + remembered answer.
+       * Read-only; it never starts work.
+       */
+      method: (args) => {
+        const goal = args.join(' ').trim();
+        if (!goal) {
+          this.say('用法：!method <目标>');
+          return { ok: false, reason: 'goal-required' };
+        }
+        if (!ctx.brain || typeof ctx.brain.suggestMethod !== 'function') {
+          this.say('现在还没有本地方法库');
+          return { ok: false, reason: 'no-method-library' };
+        }
+        const suggestion = ctx.brain.suggestMethod(goal, {});
+        const lines = [];
+        if (suggestion.method) {
+          lines.push(
+            `方法「${suggestion.method.method}」（${suggestion.method.success} 成 / ${suggestion.method.failure} 败）`
+          );
+        }
+        if (suggestion.answer) lines.push(`记得：${suggestion.answer.answer}`);
+        this.say(lines.length ? lines.join('；') : `没有关于「${goal}」的本地方法或回答`);
+        return suggestion;
       },
 
       area: (args) => {
