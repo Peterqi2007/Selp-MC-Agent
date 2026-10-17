@@ -6,6 +6,7 @@
 > [`CLIENT-TEST-2026-10-17.md`](CLIENT-TEST-2026-10-17.md)；其余真机/模型项仍以
 > [`P1-CLIENT-TESTS.md`](P1-CLIENT-TESTS.md) 为唯一权威，状态「未执行」。
 > 本文是交接入口；逐项证据见 [`P1-M7.md`](P1-M7.md) 的 A01–A31 矩阵。
+> **客户端阶段验证与审阅**以 [`P1-CLIENT-VERIFICATION.md`](P1-CLIENT-VERIFICATION.md) 为准。
 
 ## 1. 一键复验
 

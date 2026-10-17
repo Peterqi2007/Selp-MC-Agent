@@ -60,6 +60,7 @@
 | [`docs/P1-GAP-AUDIT.md`](docs/P1-GAP-AUDIT.md) | **P1 全文差距审计**：§1.4–§1.9 逐节“已落地/部分/仅契约/未开始”，离线待办优先级与需批准项 |
 | [`docs/P1-HANDOFF.md`](docs/P1-HANDOFF.md) | **P1 离线交接**：一键复验、已交付清单、客户端窗口实测、默认配置、未交付原因、客户端窗口顺序、代码地图与风险 |
 | [`docs/CLIENT-TEST-2026-10-17.md`](docs/CLIENT-TEST-2026-10-17.md) | **客户端窗口实测记录**：协议 23/23、登录+寻路 7/7、采集 9/10（挖石 noPath 失败）、Agent 自动登录修复、`/state` 空闲成本、F1 未授权 |
+| [`docs/P1-CLIENT-VERIFICATION.md`](docs/P1-CLIENT-VERIFICATION.md) | **P1 客户端阶段验证计划（M1–M7）**：阶段闸门、可证伪主张、正/反证据、有效性边界、当前 0/7 通过；待用户逐阶段审阅 |
 | [`docs/PLANNER-RETIREMENT.md`](docs/PLANNER-RETIREMENT.md) | **自主规划器退役**：`slowLoop` 拆为 GoalEvaluator + 提案 + TaskSlot。**S0–S4 已全部离线交付**（`planner:test` 32/32、`plan:audit --stage p1` 95/95），真机判据仍登记在客户端清单 |
 | [`docs/P1-CLIENT-TESTS.md`](docs/P1-CLIENT-TESTS.md) | **客户端/真机测试清单**：P1 与退役判据里所有需要真实客户端/服务器的项，**当前全部未执行**（本分支只跑离线套件） |
 | [`docs/PLANNER-AB-EXPERIMENT.md`](docs/PLANNER-AB-EXPERIMENT.md) | **选型 A/B 实验设计**（**条件触发**：仅当 P1 §1.9.2 降级判定成立才执行）：24 次计分运行的场景与门槛；成本审计按时间 / token / 模块复用三项（§6–§7），§10 是决策闸门，**不做经济性评估**（§8.4） |
