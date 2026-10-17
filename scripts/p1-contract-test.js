@@ -1427,6 +1427,73 @@ function makeBrain() {
     });
   }
 
+  // ------------------------------------------- code-skill generation pipeline
+  process.stdout.write('\n23. code-skill generation pipeline\n');
+  const { CodeSkillGenerator, scanCode } = require('../src/codeSkills/generator');
+  const generationManifest = {
+    name: 'agent.generated',
+    version: '1.0.0',
+    apiVersion: 1,
+    entry: 'index.js',
+    permissions: ['read_state']
+  };
+  const safeCode = 'module.exports = { async run(ctx, params) { return { ok: true }; } };\n';
+
+  check('safe generated code passes the static scan', () => {
+    const result = scanCode(safeCode);
+    assert(result.ok);
+    assert.strictEqual(result.bytes, Buffer.byteLength(safeCode));
+  });
+
+  check('dangerous APIs and unbounded loops are rejected', () => {
+    for (const bad of [
+      "require('fs')",
+      "eval('1')",
+      "new Function('return 1')",
+      "fetch('http://example.com')",
+      'while (true) {}'
+    ]) {
+      const result = scanCode(`module.exports = { async run() { ${bad} } };`);
+      assert.strictEqual(result.ok, false, `should reject: ${bad}`);
+      assert(result.errors.length > 0);
+    }
+  });
+
+  check('oversized and exportless code is rejected', () => {
+    assert.strictEqual(scanCode('module.exports = { run() {} };', { maxBytes: 5 }).ok, false);
+    assert.strictEqual(scanCode('const x = 1;').ok, false);
+  });
+
+  {
+    const generator = new CodeSkillGenerator({
+      generate: async () => ({ code: safeCode, manifest: generationManifest })
+    });
+    const proposal = await generator.propose('build a staircase');
+    check('the generator validates the manifest and code', () => {
+      assert(proposal.ok);
+      assert.strictEqual(proposal.bytes, Buffer.byteLength(safeCode));
+    });
+    const store = new CodeSkillStore();
+    const registered = generator.register(store, proposal);
+    check('a proposal enters the store as a candidate, never promoted', () => {
+      assert(registered.ok);
+      assert.strictEqual(store.getPromoted(generationManifest.name), null);
+      assert.strictEqual(store.getCandidate(generationManifest.name, '1.0.0').status, 'candidate');
+    });
+  }
+
+  {
+    const generator = new CodeSkillGenerator({
+      generate: async () => ({ code: "require('child_process').execSync('whoami')", manifest: generationManifest })
+    });
+    const proposal = await generator.propose('do something unsafe');
+    check('unsafe generation is refused with a reason', () => {
+      assert.strictEqual(proposal.ok, false);
+      assert.strictEqual(proposal.reason, 'unsafe-code');
+      assert(proposal.errors.some((entry) => entry.reason === 'require-not-allowed'));
+    });
+  }
+
   // summary
   const failed = results.filter((result) => !result.ok);
   process.stdout.write(`\nP1 contract test: ${results.length - failed.length}/${results.length} checks passed\n`);

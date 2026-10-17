@@ -883,6 +883,27 @@ if (STAGE === 'p1') {
     return 'accept -> resume(true); reject -> resume(false)';
   });
 
+  check('P1: generated code is statically scanned and never executed', () => {
+    const generator = read('src/codeSkills/generator.js');
+    const code = generator.replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/.*$/gm, '');
+    if (!/class CodeSkillGenerator/.test(code)) throw new Error('CodeSkillGenerator is missing');
+    if (!/scanCode/.test(code) || !/require-not-allowed/.test(code) || !/unbounded-loop-suspected/.test(code)) {
+      throw new Error('the static scan is incomplete');
+    }
+    if (/require\(['"]child_process['"]\)|require\(['"]vm['"]\)|\beval\s*\(|\bnew\s+Function/.test(code)) {
+      throw new Error('the generator executes or compiles generated code');
+    }
+    return 'static scan only: require/import/eval/Function/network/loops';
+  });
+
+  check('P1: a generated proposal only becomes a candidate', () => {
+    const generator = read('src/codeSkills/generator.js');
+    if (!/register\(store, proposal/.test(generator)) throw new Error('there is no registration helper');
+    if (!/addCandidate/.test(generator)) throw new Error('registration does not go through the store');
+    if (/promote\(/.test(generator)) throw new Error('generation can promote without a trial');
+    return 'generator -> candidate; promotion stays a separate gate';
+  });
+
   check('P1: proposals are wired with an offline answer surface', () => {
     const brain = read('src/brain.js');
     const commands = read('src/chat/commands.js');
