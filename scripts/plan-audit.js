@@ -1049,6 +1049,17 @@ if (STAGE === 'p1') {
     return 'staleFields + budget + critical, no I/O';
   });
 
+  check('P1: plan outcomes feed the method library', () => {
+    const runner = read('src/core/planRunner.js');
+    const brain = read('src/brain.js');
+    if (!/step\.methodId/.test(runner)) throw new Error('plan steps cannot name a method');
+    if (!/recordMethod/.test(runner)) throw new Error('the runner never records an outcome');
+    if (!/recordMethod: \(step, ok\) => this\.methods\.recordOutcome/.test(brain)) {
+      throw new Error('brain does not connect the runner to MethodLibrary');
+    }
+    return 'step.methodId -> success/failure evidence, not self-report';
+  });
+
   check('P1: proposals are wired with an offline answer surface', () => {
     const brain = read('src/brain.js');
     const commands = read('src/chat/commands.js');

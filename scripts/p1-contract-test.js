@@ -1969,6 +1969,47 @@ function makeBrain() {
     });
   }
 
+  // ------------------------------------------- method outcome from plan steps
+  process.stdout.write('\n33. method outcome feedback\n');
+  {
+    const brain = makeBrain();
+    const method = brain.methods.add({ goal: 'get iron', method: 'dig', conditions: {} });
+    brain.planRunner.createTask = (step, ids) => ({ name: step.id, ids, cancel() {} });
+    brain.planRunner.runTask = async () => ({ ok: true, status: 'succeeded' });
+    brain.plans.applyDraft({
+      planId: 'pm',
+      steps: [
+        { id: 'a', type: 'mine', methodId: method.id },
+        { id: 'b', type: 'mine', methodId: method.id }
+      ]
+    });
+    await brain.runPlan('pm');
+    check('successful plan steps update the method outcome', () => {
+      const stored = brain.methods.toJSON().methods.find((entry) => entry.id === method.id);
+      assert.strictEqual(stored.success, 2);
+      assert.strictEqual(stored.failure, 0);
+    });
+  }
+
+  {
+    const brain = makeBrain();
+    const method = brain.methods.add({ goal: 'get iron', method: 'dig', conditions: {} });
+    brain.planRunner.createTask = (step) => ({ name: step.id, cancel() {} });
+    brain.planRunner.runTask = async () => ({ ok: true, status: 'succeeded' });
+    brain.planRunner.verify = () => ({ ok: false, stage: 'postcondition', failures: [] });
+    brain.plans.applyDraft({
+      planId: 'pf',
+      steps: [{ id: 'a', type: 'mine', methodId: method.id }]
+    });
+    const outcome = await brain.runPlan('pf');
+    check('a failed postcondition records a method failure', () => {
+      assert.strictEqual(outcome.ok, false);
+      const stored = brain.methods.toJSON().methods.find((entry) => entry.id === method.id);
+      assert.strictEqual(stored.failure, 1);
+      assert.strictEqual(stored.success, 0);
+    });
+  }
+
   // summary
   const failed = results.filter((result) => !result.ok);
   process.stdout.write(`\nP1 contract test: ${results.length - failed.length}/${results.length} checks passed\n`);

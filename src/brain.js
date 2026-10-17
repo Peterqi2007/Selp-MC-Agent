@@ -119,6 +119,7 @@ class Brain {
       runTask: (task) => this.runTask(task),
       verify: (step, observation) => verifyStep(step, observation),
       observe: () => (this.ctx.world.snapshot ? this.ctx.world.snapshot(true) : null),
+      recordMethod: (step, ok) => this.methods.recordOutcome(step.methodId, ok),
       log: this.log
     });
     ctx.planRunner = this.planRunner;

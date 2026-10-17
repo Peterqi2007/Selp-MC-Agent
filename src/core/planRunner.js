@@ -33,6 +33,7 @@ class PlanRunner {
     this.runTask = deps.runTask;
     this.verify = deps.verify || null;
     this.observe = deps.observe || null;
+    this.recordMethod = deps.recordMethod || null;
     this.log = deps.log || { info() {}, warn() {}, debug() {} };
     if (!this.plans || typeof this.plans.applyDraft !== 'function') {
       throw new Error('PlanRunner needs a PlanStore');
@@ -139,6 +140,18 @@ class PlanRunner {
           step.id,
           finalStatus === 'succeeded' || finalStatus === 'partial' ? 'done' : 'failed'
         );
+        /**
+         * Learning feedback: a step that names a method updates that method's outcome record.
+         * The evidence is the step result (including a failed postcondition), not the model's
+         * self-report.
+         */
+        if (step.methodId && typeof this.recordMethod === 'function') {
+          try {
+            this.recordMethod(step, finalStatus === 'succeeded' || finalStatus === 'partial');
+          } catch (err) {
+            this.log.warn(`method outcome not recorded for ${step.methodId}: ${err.message}`);
+          }
+        }
         if (finalStatus === 'cancelled') {
           this.active.cancelled = true;
           break;
