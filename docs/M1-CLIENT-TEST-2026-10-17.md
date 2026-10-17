@@ -90,16 +90,36 @@
 | 零矿不得 `ok` | `src/skills/mining.js` | `mining-collection-test 25/25`（新增 C04b） |
 | 完整门禁 | — | `npm run p1:verify` 结果见下 |
 
-**当前 M1 判定：未通过（修复待真机复验）。** A06 的修复还需在真实客户端确认
-`mine 0` 变为 `task:failed`；A04 的终态重复问题（重试每次发布）尚未修改，仍是开放项。
+**当前 M1 判定：未通过（核心可测子集复验通过，仍有未覆盖子项）。** A06 的修复已在真机
+确认：零矿变 `task:failed`；A04 的同名任务 ID/终态标记已确认；A08 运行中停止 816ms；
+F3 token/重放通过。剩余覆盖见 §4。
 
-## 4. 下一轮 M1 复验清单
+## 4. 复验（2026-10-17 11:29，day 749 / timeOfDay 575）
 
-1. 白天、存活、无界面；有可达床或在不跨夜窗口内完成。
-2. A06：`mine diamond_ore` 无目标 → 必须 `task:failed`/partial，不是 `task:done`。
-3. A04：两个同名任务 → `taskId/attemptId` 不同；失败事件带 `retrying/terminal`，
-   只有最终尝试 `terminal:true`；需复验。
-4. A08：用真正运行的任务（`mine dirt` 或可达 `goto`）测 stop ≤3s、按键释放、无迟到动作。
-5. A31/F3：带 `Last-Event-ID` 重放更早事件；临时设置 `web.eventsToken` 测 401/token；
-   `planVersion` 旧草案拒绝需宿主接口。
+| 项 | 结果 | 证据 |
+| --- | --- | --- |
+| A06 零矿 | **PASS（修复后）**：`mine diamond_ore` 无目标 → `task:failed`（`terminal:true`），不再 `task:done` | `m1-client-retest-2026-10-17.json` |
+| A04 身份/终态 | **PASS（可测子集）**：两个 go-to 为 `task-1`/`task-2`；attempt `#0/#1/#2` 各自唯一；仅最终尝试 `terminal:true`，重试为 `retrying:true, terminal:false` | 同上 |
+| A08 停止 | **PASS（停止子集）**：`mine dirt 64` 运行中发 stop，**816ms** 后 `current=null`，任务 `cancelled`；未验按键释放/死亡/断线 | 同上 + `agent-m1-retest-2026-10-17.log` |
+| F3 token | **PASS**：无 token `401`；`?token=m1-test-token` `200` | `m1-sse-token-2026-10-17.log` |
+| A31 重放 | **PASS（重放子集）**：`lastEventId=0` 收到 seq 1–10；`lastEventId=5` 只收到 6–10 | `m1-sse-replay-2026-10-17.json` |
+| A05 命令 | 已过（missing diamond 拒绝）；NL/规划入口未测 | 首轮记录 |
+| A07 计划互斥 | 只验证了替换/排队；父计划/子步骤未测 | 首轮记录 |
+
+**仍未覆盖（不能据此宣布 M1 全通过）**：
+- A04 的重复/乱序/取消后回调/迟到模型输出注入；
+- A05 的自然语言与规划入口；
+- A07 的父计划/子步骤替换与停止超时；
+- A08 的死亡/断线/人工接管与按键释放；
+- A31 的双 emitter、`planVersion` 旧草案拒绝。
+
+## 5. 下一轮 M1 复验清单
+
+1. 白天、存活、无界面；有可达床或在白天窗口内完成。
+2. A04：两个同名任务 → `taskId/attemptId` 不同；`terminal:true` 每任务一次；
+   重试只带 `retrying:true`。**已通过可测子集**。
+3. A06：`mine diamond_ore` 无目标 → `task:failed`/partial，不是 `task:done`。**已通过**。
+4. A08：运行中停止 ≤3s、按键释放、无迟到动作；死亡/断线/接管另测。**停止子集已通过**。
+5. A31/F3：带 `Last-Event-ID` 重放（已过）、token 401/200（已过）；`planVersion` 旧草案拒绝
+   与双 emitter 需宿主接口。
 6. 记录：每次测试前确认 `screenOpen=false`、白天/床、背包/工具；入夜停止。
