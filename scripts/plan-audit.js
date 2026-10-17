@@ -1032,6 +1032,23 @@ if (STAGE === 'p1') {
     return 'current.json {version, previous}; rollback/retire; containment';
   });
 
+  check('P1: the language agent receives the persona text', () => {
+    const index = read('src/index.js');
+    const agent = read('src/llm/languageAgent.js');
+    if (!/persona\.body/.test(index)) throw new Error('the dialogue channel only passes the persona name');
+    if (!/Persona: \$\{persona\}/.test(agent)) throw new Error('the prompt does not carry the persona');
+    if (!/must not plan or execute/.test(agent)) throw new Error('the execution boundary is not in the prompt');
+    return 'name + style text; boundary still stated';
+  });
+
+  check('P1: the refresh plan is pure and budgeted', () => {
+    const refresh = read('src/world/refreshPlan.js');
+    if (!/planRefresh/.test(refresh) || !/staleFields/.test(refresh)) throw new Error('the refresh plan is missing');
+    if (!/maxFields/.test(refresh) || !/criticalStale/.test(refresh)) throw new Error('budgets/critical fields are missing');
+    if (/require\(['"](fs|http|https|net|child_process)['"]\)/.test(refresh)) throw new Error('the plan performs I/O');
+    return 'staleFields + budget + critical, no I/O';
+  });
+
   check('P1: proposals are wired with an offline answer surface', () => {
     const brain = read('src/brain.js');
     const commands = read('src/chat/commands.js');

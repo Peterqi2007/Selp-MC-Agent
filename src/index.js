@@ -427,7 +427,8 @@ async function main() {
     const { LanguageDialogue } = require('./chat/languageDialogue');
     const agent = new LanguageAgent({
       ctx,
-      persona: persona && persona.name ? persona.name : null,
+      persona:
+        [persona.name, persona.body].filter(Boolean).join('\n').slice(0, 1500) || null,
       complete: async ({ system, messages, maxTokens }) => {
         const result = await llm.client.complete({
           system,

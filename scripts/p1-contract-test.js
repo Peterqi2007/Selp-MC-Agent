@@ -1930,6 +1930,45 @@ function makeBrain() {
     fs.rmSync(dir, { recursive: true, force: true });
   }
 
+  // --------------------------------------------- language persona + refresh plan
+  process.stdout.write('\n32. persona + refresh plan\n');
+  {
+    let captured = null;
+    const agent = new LanguageAgent({
+      persona: '大肥鱼，说话简短，不主动执行',
+      complete: async ({ system }) => {
+        captured = system;
+        return '{"tool":"silence"}';
+      }
+    });
+    await agent.respond({ text: 'hi' });
+    check('the language agent carries the persona into its prompt', () => {
+      assert.match(captured, /大肥鱼/);
+      assert.match(captured, /must not plan or execute/i);
+    });
+  }
+
+  {
+    const { planRefresh } = require('../src/world/refreshPlan');
+    const snapshot = stampSnapshot(
+      { position: { x: 0, y: 64, z: 0 }, inventory: {} },
+      { now: 9000, fields: ['position', 'inventory'] }
+    );
+    snapshot.observedAt.position = 9400; // 600ms old at now=10000, over the 500ms budget
+    const plan = planRefresh(snapshot, {
+      now: 10000,
+      maxFields: 2,
+      budgets: { position: 500, inventory: 2000, hostiles: 750 }
+    });
+    check('the refresh plan picks stale fields and flags critical ones', () => {
+      assert(plan.needsRefresh);
+      assert(plan.refresh.includes('hostiles'), 'a never-observed field is stale');
+      assert(plan.refresh.includes('position'));
+      assert(plan.criticalStale.some((entry) => entry.field === 'hostiles'));
+      assert(!plan.refresh.includes('inventory'), 'inventory is still fresh at 1000ms < 2000ms');
+    });
+  }
+
   // summary
   const failed = results.filter((result) => !result.ok);
   process.stdout.write(`\nP1 contract test: ${results.length - failed.length}/${results.length} checks passed\n`);
