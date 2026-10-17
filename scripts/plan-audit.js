@@ -690,6 +690,25 @@ if (STAGE === 'p1') {
     return 'adapter -> bridge -> deliver -> resume; retry on failure';
   });
 
+  check('P1: methods are ranked by goal, conditions and outcomes', () => {
+    const library = read('src/learning/methodLibrary.js');
+    const brain = read('src/brain.js');
+    if (!/class MethodLibrary/.test(library)) throw new Error('MethodLibrary is missing');
+    if (!/search\(/.test(library) || !/recordOutcome/.test(library)) throw new Error('retrieval/outcome tracking is missing');
+    if (!/conditions/.test(library)) throw new Error('methods do not carry conditions');
+    if (!/new MethodLibrary/.test(brain)) throw new Error('brain does not create the method library');
+    return 'goal + conditions + Laplace success ranking';
+  });
+
+  check('P1: answers are remembered with conditions and restored', () => {
+    const memory = read('src/learning/answerMemory.js');
+    const session = read('src/core/sessionState.js');
+    if (!/class AnswerMemory/.test(memory)) throw new Error('AnswerMemory is missing');
+    if (!/_conditionsCompatible/.test(memory)) throw new Error('answers ignore their conditions');
+    if (!/methods/.test(session) || !/answers/.test(session)) throw new Error('methods/answers are not persisted');
+    return 'conditional facts; saved with the session';
+  });
+
   check('P1: proposals are wired with an offline answer surface', () => {
     const brain = read('src/brain.js');
     const commands = read('src/chat/commands.js');

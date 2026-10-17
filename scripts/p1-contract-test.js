@@ -738,6 +738,59 @@ function makeBrain() {
     });
   }
 
+  // -------------------------------------------------- methods + answer memory
+  process.stdout.write('\n12. methods + answer memory\n');
+  const { MethodLibrary } = require('../src/learning/methodLibrary');
+  const { AnswerMemory } = require('../src/learning/answerMemory');
+
+  {
+    const library = new MethodLibrary({ now: () => 1000 });
+    const plains = library.add({
+      goal: 'get iron',
+      method: 'dig at y=16',
+      conditions: { biome: 'plains' }
+    });
+    library.add({ goal: 'get iron', method: 'find a cave', conditions: { biome: 'mountains' } });
+    check('methods are ranked by matching conditions', () => {
+      assert.strictEqual(library.search('get iron', { biome: 'plains' })[0].method.method, 'dig at y=16');
+      assert.strictEqual(library.search('get iron', { biome: 'mountains' })[0].method.method, 'find a cave');
+    });
+    for (let i = 0; i < 5; i += 1) library.recordOutcome(plains.id, true);
+    check('a proven method outranks an unproven one', () => {
+      const ranked = library.search('get iron', {});
+      assert.strictEqual(ranked[0].method.id, plains.id);
+      assert(ranked[0].method.success === 5);
+    });
+  }
+
+  {
+    const memory = new AnswerMemory({ now: () => 1000 });
+    memory.remember({
+      question: 'where is the iron?',
+      answer: 'north cave',
+      conditions: { dimension: 'overworld', biome: 'plains' }
+    });
+    check('an answer is recalled only under compatible conditions', () => {
+      assert.strictEqual(memory.recall('where is the iron?', { dimension: 'overworld' }).fact.answer, 'north cave');
+      assert.strictEqual(memory.recall('where is the iron?', { dimension: 'nether' }), null);
+      assert.strictEqual(memory.recall('what time is it?', { dimension: 'overworld' }), null);
+    });
+  }
+
+  {
+    const brain = makeBrain();
+    brain.methods.add({ goal: 'get iron', method: 'dig', conditions: { biome: 'plains' } });
+    brain.answers.remember({ question: 'where is iron?', answer: 'north', conditions: { biome: 'plains' } });
+    const saved = brain.captureState();
+    const restored = makeBrain();
+    const result = restored.restoreState(saved);
+    check('methods and answers are restored with the session', () => {
+      assert(result.restored.methods && result.restored.answers);
+      assert.strictEqual(restored.methods.search('get iron', { biome: 'plains' })[0].method.method, 'dig');
+      assert.strictEqual(restored.answers.recall('where is iron?', { biome: 'plains' }).fact.answer, 'north');
+    });
+  }
+
   // summary
   const failed = results.filter((result) => !result.ok);
   process.stdout.write(`\nP1 contract test: ${results.length - failed.length}/${results.length} checks passed\n`);

@@ -37,6 +37,8 @@ const { TurnLifecycle } = require('./core/turnLifecycle');
 const { HarnessAdapter } = require('./harness/adapter');
 const { StateStore } = require('./core/stateStore');
 const { captureState, restoreState } = require('./core/sessionState');
+const { MethodLibrary } = require('./learning/methodLibrary');
+const { AnswerMemory } = require('./learning/answerMemory');
 const nodePath = require('path');
 const { bare } = require('./world/items');
 /**
@@ -118,6 +120,11 @@ class Brain {
     ctx.turns = this.turns;
     this.harness = new HarnessAdapter({ turns: this.turns, events: this.events });
     ctx.harness = this.harness;
+    /** M3: local methods and remembered player answers (both persisted when state is on). */
+    this.methods = new MethodLibrary();
+    ctx.methods = this.methods;
+    this.answers = new AnswerMemory();
+    ctx.answers = this.answers;
     /**
      * Holds: the single table of "why is the brain not working" (src/core/holds.js).
      *
@@ -916,6 +923,8 @@ class Brain {
       planRunner: this.planRunner ? { busy: this.planRunner.busy } : null,
       turns: this.turns ? { activeId: this.turns.activeId } : null,
       harness: this.harness ? this.harness.status() : null,
+      methods: this.methods ? this.methods.status() : null,
+      answers: this.answers ? this.answers.status() : null,
       completedGoals: this.completedGoals.slice(-10),
       memory: this.ctx.memory.summary()
     };
