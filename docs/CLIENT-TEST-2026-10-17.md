@@ -143,7 +143,22 @@ FAIL  dig stone：32 个 stone/cobblestone 目标全部 noPath，库存 +0
 - 没有用其他方式（PowerShell/SendKeys）绕过授权；**本轮没有执行任何 GUI 自动化**。
 - F1 仍未验证；CU 部分继续保持默认拒绝（`cu-unproven`）。
 
-## 7. 结论与下一步
+## 8. 持久化重启（A17/A29 部分，2026-10-17 09:34）
+
+- 临时配置：`state.enabled=true`、`state.path=runtime/p1-state-client.json`、`planner.mode=off`；
+  测试后已恢复默认（`enabled=false`、`runtime/p1-state.json`、`planner.mode=legacy`）。
+- 第一次启动 Agent 后：`state status` 显示 enabled；执行 `goto 63 61 32` 产生
+  `task:done` 事件；`state save` 写出文件。
+- 文件内容（`runtime/p1-state-client.json`）：`events.seq=1`，含一条 `task:done`
+  （`go-to`、requestId=null、eventId/seq/at 齐全）；`plans/proposals/methods/answers/
+  conversation/memoryStore` 均为空结构。
+- 停止 Agent 并重启：日志 `state restored: {"plans":true,...,"memoryStore":true}`；
+  `state status` 显示 **eventSeq=1**，File 指向同一路径。
+- 重启后日志没有自动任务/移动；未观察到“自动恢复动作”。
+- **未覆盖**：有内容的对话/待答计划问题/方法/回答/分类记忆、未完成计划的恢复，以及
+  “不重放动作”的强验证。A17/A29 只能记为**部分通过**。
+
+## 9. 结论与下一步
 
 **已验证**：模组协议、AuthMe 登录（含 Agent 自动登录修复）、谨慎寻路、砍树采集、
 **石头采集（独立 mine 2/2，库存 +2）**、`!` 面板命令与零模型调用、`/state` 空闲成本。
