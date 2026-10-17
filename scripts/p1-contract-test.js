@@ -1109,6 +1109,41 @@ function makeBrain() {
     });
   }
 
+  // ------------------------------------------------ outbound conversation guard
+  process.stdout.write('\n17. outbound conversation guard\n');
+  {
+    const { reply } = require('../src/chat/reply');
+    const { ConversationState } = require('../src/chat/conversation');
+    let clock = 1000;
+    const sent = [];
+    const ctx = {
+      body: { chat: async (text) => sent.push(text) },
+      cfg: { agent: { chat: { maxChars: 100, replyInGame: true, minReplyGapMs: 0 } } },
+      log: { info() {}, warn() {}, debug() {} },
+      chatListener: { noteOwnSpeech() {} },
+      conversation: new ConversationState({ now: () => clock, minGapMs: 1500, dedupeMs: 30000 })
+    };
+    await reply(ctx, 'first answer', { conversation: true });
+    clock += 500;
+    const tooSoon = await reply(ctx, 'second answer', { conversation: true });
+    check('a guarded reply too soon after the previous one is dropped', () => {
+      assert.strictEqual(sent.length, 1);
+      assert.strictEqual(tooSoon, false);
+    });
+    clock += 2000;
+    await reply(ctx, 'second answer', { conversation: true });
+    const duplicate = await reply(ctx, 'second answer', { conversation: true });
+    check('the guard allows a later reply but not an identical one', () => {
+      assert.deepStrictEqual(sent, ['first answer', 'second answer']);
+      assert.strictEqual(duplicate, false);
+    });
+    const unguarded = await reply(ctx, 'command ack', {});
+    check('command replies that do not opt in keep their path', () => {
+      assert.strictEqual(unguarded, true);
+      assert.strictEqual(sent[sent.length - 1], 'command ack');
+    });
+  }
+
   // summary
   const failed = results.filter((result) => !result.ok);
   process.stdout.write(`\nP1 contract test: ${results.length - failed.length}/${results.length} checks passed\n`);

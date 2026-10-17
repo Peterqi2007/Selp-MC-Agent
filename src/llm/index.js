@@ -826,7 +826,14 @@ class LlmCore {
   /** Speak, via the single output path. */
   async say(text, options = {}) {
     if (!this.ctx.reply) return false;
-    return this.ctx.reply(text, options);
+    /**
+     * M6: opt-in conversation guard. Default off in config until the client window; forced
+     * lines (proactive/ack paths that already made their own decision) never opt in.
+     */
+    const chatCfg = (this.ctx.cfg && this.ctx.cfg.agent && this.ctx.cfg.agent.chat) || {};
+    const guard =
+      chatCfg.conversationGuard === true && options.force !== true && options.conversation !== false;
+    return this.ctx.reply(text, guard ? { ...options, conversation: true } : options);
   }
 
   /** Short chat memory per speaker, for prompt context. */

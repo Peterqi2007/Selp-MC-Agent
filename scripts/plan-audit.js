@@ -460,7 +460,7 @@ check('every config key the plan adds is actually consumed', () => {
   const sections = {
     clientMod: ['host', 'port', 'timeoutMs', 'directRange'],
     pathfinding: ['maxPathLength', 'replanEvery', 'nodeTimeoutMs', 'tickTimeoutMs', 'allowSwim', 'allowDig', 'waypointRange', 'stuckThreshold', 'jumpStreakLimit', 'maxSidesteps', 'trace'],
-    chat: ['prefix', 'dialogueTrigger', 'pollIntervalMs', 'ignoreOtherChat', 'replyInGame', 'maxChars', 'minReplyGapMs'],
+    chat: ['prefix', 'dialogueTrigger', 'pollIntervalMs', 'ignoreOtherChat', 'replyInGame', 'maxChars', 'minReplyGapMs', 'conversationGuard'],
     proactive: ['enabled', 'intervalMs'],
     death: ['detectIntervalMs', 'alertConsole', 'alertPanel', 'alertStateFile'],
     web: ['bind', 'port', 'eventsToken'],
@@ -783,6 +783,16 @@ if (STAGE === 'p1') {
     if (!/conversation/.test(session)) throw new Error('conversation is not captured');
     if (!/conversation\.restore|brain\.conversation/.test(session)) throw new Error('conversation is not restored');
     return 'seen lines + last reply + active request survive restart';
+  });
+
+  check('P1: LLM replies can opt into the conversation guard', () => {
+    const reply = read('src/chat/reply.js');
+    const llm = read('src/llm/index.js');
+    const cfg = JSON.parse(read('config/agent.json'));
+    if (!/options\.conversation/.test(reply)) throw new Error('the reply path has no opt-in guard');
+    if (!/conversationGuard/.test(llm)) throw new Error('the LLM does not read conversationGuard');
+    if (!cfg.chat || cfg.chat.conversationGuard !== false) throw new Error('the guard must default off');
+    return 'opt-in conversation guard; default off';
   });
 
   check('P1: proposals are wired with an offline answer surface', () => {

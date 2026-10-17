@@ -67,8 +67,23 @@ async function reply(ctx, text, options = {}) {
     return false;
   }
 
-  const clean = sanitize(text, { maxChars: policy.maxChars || 100 });
+  let clean = sanitize(text, { maxChars: policy.maxChars || 100 });
   if (!clean) return false;
+
+  /**
+   * M6 wiring: only callers that opt in (`options.conversation`) go through the
+   * ConversationState guard. Command acks, task follow-ups and forced/proactive lines keep
+   * their existing path until the client window proves the new chat rhythm. With the guard
+   * off (the default), this block is a no-op and the P0 behaviour is unchanged.
+   */
+  if (options.conversation && ctx.conversation) {
+    const verdict = ctx.conversation.approve({ text: clean, requestId: options.requestId });
+    if (!verdict.ok) {
+      log.debug(`conversation guard dropped reply (${verdict.reason}): ${clean}`);
+      return false;
+    }
+    clean = verdict.text;
+  }
 
   /**
    * Debounce only *acknowledgements*.
@@ -100,6 +115,9 @@ async function reply(ctx, text, options = {}) {
 
   try {
     await ctx.body.chat(clean);
+    if (options.conversation && ctx.conversation && typeof ctx.conversation.markSent === 'function') {
+      ctx.conversation.markSent(clean);
+    }
     log.info(`said: ${clean}`);
     return true;
   } catch (err) {
