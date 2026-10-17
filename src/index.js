@@ -416,9 +416,48 @@ async function main() {
   const { resolveTrigger, personaForConfig } = require('./llm/persona');
   const persona = personaForConfig(ctx, { log: new Logger('persona') });
   const dialogueTrigger = resolveTrigger(ctx, { log });
+  /**
+   * P1 M2h: optional language-brain dialogue channel. Default off; when on, plain dialogue
+   * goes to LanguageAgent (read/say/silence only). Execution requests inside it are refused
+   * and do NOT fall back to the action path; only a model outage falls back.
+   */
+  let languageDialogue = null;
+  if (dialogueTrigger && chatCfg.languageAgent && llm && llm.client) {
+    const { LanguageAgent } = require('./llm/languageAgent');
+    const { LanguageDialogue } = require('./chat/languageDialogue');
+    const agent = new LanguageAgent({
+      ctx,
+      persona: persona && persona.name ? persona.name : null,
+      complete: async ({ system, messages, maxTokens }) => {
+        const result = await llm.client.complete({
+          system,
+          messages,
+          timeoutMs: 4000,
+          maxTokens: maxTokens || 400
+        });
+        if (!result || !result.ok) throw new Error((result && result.reason) || 'model-failed');
+        return result.text;
+      }
+    });
+    languageDialogue = new LanguageDialogue({
+      agent,
+      fallback: async (text) => {
+        const snap = ctx.body.snapshot();
+        return llm.handle(text, {
+          source: 'chat',
+          speaker: '玩家',
+          speakerPosition: snap ? snap.position : null
+        });
+      }
+    });
+    ctx.languageDialogue = languageDialogue;
+  }
   if (dialogueTrigger) {
     log.info(`dialogue trigger: "${dialogueTrigger}" (character: ${persona.name}${persona.loaded ? '' : ' [default]'})`);
     chatListener.onDialogue = async (text, line) => {
+      if (languageDialogue) {
+        return languageDialogue.handle(text, line, { source: 'chat' });
+      }
       const snap = ctx.body.snapshot();
       await llm.handle(text, {
         source: 'chat',

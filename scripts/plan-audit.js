@@ -460,7 +460,7 @@ check('every config key the plan adds is actually consumed', () => {
   const sections = {
     clientMod: ['host', 'port', 'timeoutMs', 'directRange'],
     pathfinding: ['maxPathLength', 'replanEvery', 'nodeTimeoutMs', 'tickTimeoutMs', 'allowSwim', 'allowDig', 'waypointRange', 'stuckThreshold', 'jumpStreakLimit', 'maxSidesteps', 'trace'],
-    chat: ['prefix', 'dialogueTrigger', 'pollIntervalMs', 'ignoreOtherChat', 'replyInGame', 'maxChars', 'minReplyGapMs', 'conversationGuard', 'addressedPrefix', 'gateTimeoutMs'],
+    chat: ['prefix', 'dialogueTrigger', 'pollIntervalMs', 'ignoreOtherChat', 'replyInGame', 'maxChars', 'minReplyGapMs', 'conversationGuard', 'addressedPrefix', 'gateTimeoutMs', 'languageAgent'],
     proactive: ['enabled', 'intervalMs'],
     death: ['detectIntervalMs', 'alertConsole', 'alertPanel', 'alertStateFile'],
     web: ['bind', 'port', 'eventsToken'],
@@ -931,6 +931,25 @@ if (STAGE === 'p1') {
     }
     if (!/registry\.call/.test(agent)) throw new Error('the agent does not use the tool registry');
     return 'language surface only; execution refused before any call';
+  });
+
+  check('P1: language dialogue falls back only on an outage', () => {
+    const dialogue = read('src/chat/languageDialogue.js');
+    if (!/class LanguageDialogue/.test(dialogue)) throw new Error('LanguageDialogue is missing');
+    if (!/availabilityFailure = reason === 'model-error' \|\| reason === 'no-model' \|\| reason === 'agent-error'/.test(dialogue)) {
+      throw new Error('the fallback condition is not limited to availability failures');
+    }
+    if (!/!availabilityFailure/.test(dialogue)) throw new Error('non-availability results are not kept out of the fallback path');
+    return 'silence/refusal stay; only model-error/no-model/agent-error fall back';
+  });
+
+  check('P1: the language dialogue channel is opt-in', () => {
+    const index = read('src/index.js');
+    const cfg = JSON.parse(read('config/agent.json'));
+    if (!cfg.chat || cfg.chat.languageAgent !== false) throw new Error('the language dialogue must default off');
+    if (!/chatCfg\.languageAgent/.test(index)) throw new Error('the config switch is not read');
+    if (!/new LanguageDialogue/.test(index)) throw new Error('the dialogue wrapper is not wired');
+    return 'default off; wired when enabled';
   });
 
   check('P1: proposals are wired with an offline answer surface', () => {

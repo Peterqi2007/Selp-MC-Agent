@@ -1590,6 +1590,87 @@ function makeBrain() {
     });
   }
 
+  // ------------------------------------------- language dialogue + fallback
+  process.stdout.write('\n25. language dialogue fallback rules\n');
+  const { LanguageDialogue } = require('../src/chat/languageDialogue');
+  {
+    let fallbackCalls = 0;
+    const dialogue = new LanguageDialogue({
+      agent: { respond: async () => ({ ok: true, spoke: true, tool: 'say', text: 'hi' }) },
+      fallback: async () => {
+        fallbackCalls += 1;
+      }
+    });
+    const result = await dialogue.handle('hello');
+    check('a spoken language reply does not fall back', () => {
+      assert(result.ok && result.spoke);
+      assert.strictEqual(fallbackCalls, 0);
+    });
+  }
+
+  {
+    let fallbackCalls = 0;
+    const dialogue = new LanguageDialogue({
+      agent: { respond: async () => ({ ok: true, spoke: false, reason: 'malformed' }) },
+      fallback: async () => {
+        fallbackCalls += 1;
+      }
+    });
+    const result = await dialogue.handle('hello');
+    check('silence and malformed output are outcomes, not fallbacks', () => {
+      assert(result.ok);
+      assert.strictEqual(result.spoke, false);
+      assert.strictEqual(fallbackCalls, 0);
+    });
+  }
+
+  {
+    let fallbackCalls = 0;
+    const dialogue = new LanguageDialogue({
+      agent: { respond: async () => ({ ok: false, spoke: false, reason: 'not-language-tool', tool: 'do_task' }) },
+      fallback: async () => {
+        fallbackCalls += 1;
+      }
+    });
+    const result = await dialogue.handle('帮我挖矿');
+    check('a refused execution request never falls back to the action brain', () => {
+      assert.strictEqual(result.ok, false);
+      assert.strictEqual(result.reason, 'not-language-tool');
+      assert.strictEqual(fallbackCalls, 0);
+    });
+  }
+
+  {
+    let fallbackCalls = 0;
+    const dialogue = new LanguageDialogue({
+      agent: { respond: async () => ({ ok: false, spoke: false, reason: 'model-error' }) },
+      fallback: async () => {
+        fallbackCalls += 1;
+        return { ok: true };
+      }
+    });
+    const result = await dialogue.handle('hello');
+    check('a model outage falls back to the existing dialogue path', () => {
+      assert(result.ok);
+      assert.strictEqual(result.fellBack, true);
+      assert.strictEqual(fallbackCalls, 1);
+    });
+  }
+
+  {
+    const dialogue = new LanguageDialogue({
+      agent: { respond: async () => ({ ok: false, spoke: false, reason: 'model-error' }) },
+      fallback: async () => {
+        throw new Error('action brain down');
+      }
+    });
+    const result = await dialogue.handle('hello');
+    check('a failing fallback is reported, not swallowed', () => {
+      assert.strictEqual(result.ok, false);
+      assert.strictEqual(result.reason, 'fallback-error');
+    });
+  }
+
   // summary
   const failed = results.filter((result) => !result.ok);
   process.stdout.write(`\nP1 contract test: ${results.length - failed.length}/${results.length} checks passed\n`);
