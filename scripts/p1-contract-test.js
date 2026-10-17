@@ -2151,6 +2151,50 @@ function makeBrain() {
     });
   }
 
+  // --------------------------------------- memory consumed read-only
+  process.stdout.write('\n37. classified memory in read paths\n');
+  {
+    const brain = makeBrain();
+    brain.memoryStore.remember('semantic', {
+      text: 'iron is common at y=16',
+      tags: ['iron'],
+      source: 'test'
+    });
+    brain.methods.add({ goal: 'get iron', method: 'dig', conditions: {} });
+    const suggestion = brain.suggestMethod('get iron', {});
+    check('suggestMethod includes relevant classified memory', () => {
+      assert(suggestion.memories.length >= 1);
+      assert.strictEqual(suggestion.memories[0].category, 'semantic');
+      assert.match(suggestion.memories[0].text, /y=16/);
+    });
+
+    const replies = [];
+    brain.ctx.reply = async (text) => replies.push(text);
+    const { ChatController } = require('../src/chat/commands');
+    const chat = new ChatController(brain.ctx);
+    await chat.handlers.method(['get', 'iron']);
+    check('!method surfaces the memory line', () => {
+      assert.match(replies[replies.length - 1], /记忆：/);
+    });
+  }
+
+  {
+    let captured = null;
+    const agent = new LanguageAgent({
+      memoryFor: () => [{ category: 'semantic', text: 'iron is common at y=16' }],
+      complete: async ({ system }) => {
+        captured = system;
+        return '{"tool":"silence"}';
+      }
+    });
+    await agent.respond({ text: 'where is iron?' });
+    check('the language prompt carries relevant memory', () => {
+      assert.match(captured, /Relevant memory/);
+      assert.match(captured, /iron is common at y=16/);
+      assert.match(captured, /\[semantic\]/);
+    });
+  }
+
   // summary
   const failed = results.filter((result) => !result.ok);
   process.stdout.write(`\nP1 contract test: ${results.length - failed.length}/${results.length} checks passed\n`);

@@ -501,6 +501,9 @@ class ChatController {
           );
         }
         if (suggestion.answer) lines.push(`记得：${suggestion.answer.answer}`);
+        if (suggestion.memories && suggestion.memories.length) {
+          lines.push(`记忆：${suggestion.memories[0].text}`);
+        }
         this.say(lines.length ? lines.join('；') : `没有关于「${goal}」的本地方法或回答`);
         return suggestion;
       },

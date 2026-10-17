@@ -19,13 +19,18 @@
 const registry = require('./tools/registry');
 const { SURFACES } = require('./toolSurface');
 
-function languagePrompt(persona) {
+function languagePrompt(persona, memories = []) {
   return [
     'You are the language half of a Minecraft agent.',
     'You may read state, retrieve/search, say one short line, or stay silent.',
     'You must not plan or execute actions: tasks, skills, movement and stopping belong to the action brain.',
     'Answer with exactly one JSON object and nothing else:',
     '  {"tool":"say","args":{"text":"..."}} or {"tool":"silence"} or {"tool":"observe"}',
+    memories.length
+      ? `Relevant memory:\n${memories
+          .map((memory) => `- [${memory.category || 'memory'}] ${memory.text}`)
+          .join('\n')}`
+      : null,
     persona ? `Persona: ${persona}` : null
   ]
     .filter(Boolean)
@@ -55,6 +60,7 @@ class LanguageAgent {
     this.complete = deps.complete || null;
     this.ctx = deps.ctx || {};
     this.persona = deps.persona || null;
+    this.memoryFor = deps.memoryFor || null;
     this.maxTokens = deps.maxTokens || 400;
     this.log = deps.log || { info() {}, warn() {}, debug() {} };
   }
@@ -74,8 +80,9 @@ class LanguageAgent {
     ];
     let raw;
     try {
+      const memories = typeof this.memoryFor === 'function' ? this.memoryFor(text) || [] : [];
       raw = await this.complete({
-        system: languagePrompt(this.persona),
+        system: languagePrompt(this.persona, memories),
         messages,
         maxTokens: this.maxTokens
       });

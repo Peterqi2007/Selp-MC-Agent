@@ -1100,6 +1100,16 @@ if (STAGE === 'p1') {
     return 'episodic/semantic/relational survive restart';
   });
 
+  check('P1: classified memory is read without acting', () => {
+    const brain = read('src/brain.js');
+    const agent = read('src/llm/languageAgent.js');
+    const index = read('src/index.js');
+    if (!/memoryStore\.recall/.test(brain)) throw new Error('suggestMethod ignores classified memory');
+    if (!/memoryFor/.test(agent) || !/Relevant memory/.test(agent)) throw new Error('the language prompt ignores memory');
+    if (!/memoryFor:/.test(index)) throw new Error('the dialogue channel does not inject memory');
+    return 'retrieval + language context; never executes';
+  });
+
   check('P1: proposals are wired with an offline answer surface', () => {
     const brain = read('src/brain.js');
     const commands = read('src/chat/commands.js');

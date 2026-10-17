@@ -751,6 +751,16 @@ class Brain {
   suggestMethod(goal, context = {}) {
     const matches = this.methods ? this.methods.search(goal, context, { limit: 1 }) : [];
     const answer = this.answers ? this.answers.recall(goal, context) : null;
+    const memories = this.memoryStore
+      ? this.memoryStore.recall(goal, { limit: 2 }).map(({ entry, score }) => ({
+          category: entry.category,
+          text: entry.text,
+          tags: entry.tags,
+          source: entry.source,
+          at: entry.at,
+          score
+        }))
+      : [];
     return {
       goal,
       method: matches[0]
@@ -772,7 +782,8 @@ class Brain {
             at: answer.fact.at,
             score: answer.score
           }
-        : null
+        : null,
+      memories
     };
   }
 

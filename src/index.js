@@ -429,6 +429,13 @@ async function main() {
       ctx,
       persona:
         [persona.name, persona.body].filter(Boolean).join('\n').slice(0, 1500) || null,
+      memoryFor: (text) =>
+        ctx.memoryStore
+          ? ctx.memoryStore.recall(text, { limit: 3 }).map(({ entry }) => ({
+              category: entry.category,
+              text: entry.text
+            }))
+          : [],
       complete: async ({ system, messages, maxTokens }) => {
         const result = await llm.client.complete({
           system,
