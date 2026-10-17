@@ -1215,6 +1215,59 @@ function makeBrain() {
     });
   }
 
+  // ------------------------------------------------------ instruction judge
+  process.stdout.write('\n19. instruction judge\n');
+  const { InstructionJudge, parseVerdict } = require('../src/llm/judge');
+
+  check('the judge accepts only allow/deny and drops rewrite fields', () => {
+    assert.deepStrictEqual(parseVerdict('{"verdict":"allow"}'), { verdict: 'allow' });
+    assert.deepStrictEqual(parseVerdict('deny'), { verdict: 'deny' });
+    assert.deepStrictEqual(parseVerdict({ verdict: 'allow', text: 'cut 3 trees' }), { verdict: 'allow' });
+    assert.throws(() => parseVerdict('allow because it is safe'), /malformed-verdict/);
+    assert.throws(() => parseVerdict('{"verdict":"maybe"}'), /malformed-verdict/);
+    assert.throws(() => parseVerdict(['allow']), /malformed-verdict/);
+  });
+
+  {
+    const judge = new InstructionJudge({ complete: async () => '{"verdict":"allow"}' });
+    const verdict = await judge.judge('帮我砍树');
+    check('the judge uses the injected completion', () => {
+      assert.deepStrictEqual(verdict, { verdict: 'allow' });
+    });
+  }
+
+  {
+    let timeoutError = null;
+    try {
+      await new InstructionJudge({ complete: () => new Promise(() => {}), timeoutMs: 20 }).judge('x');
+    } catch (err) {
+      timeoutError = err.message;
+    }
+    let missingError = null;
+    try {
+      await new InstructionJudge({}).judge('x');
+    } catch (err) {
+      missingError = err.message;
+    }
+    check('a hanging or missing completion refuses the instruction', () => {
+      assert.strictEqual(timeoutError, 'judge-timeout');
+      assert.strictEqual(missingError, 'no-complete');
+    });
+  }
+
+  {
+    const judge = new InstructionJudge({
+      complete: async () => '{"verdict":"allow","text":"rewrite me"}'
+    });
+    const gate = new CommandGate({ judge: (text) => judge.judge(text) });
+    const verdict = await gate.decide('原始指令');
+    check('the gate still dispatches the original after a rewriting model', () => {
+      assert(verdict.ok);
+      assert.strictEqual(verdict.dispatch, '原始指令');
+      assert.strictEqual(verdict.rewritten, null);
+    });
+  }
+
   // summary
   const failed = results.filter((result) => !result.ok);
   process.stdout.write(`\nP1 contract test: ${results.length - failed.length}/${results.length} checks passed\n`);

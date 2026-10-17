@@ -323,7 +323,12 @@ async function main() {
     const { CommandGate } = require('./chat/commandGate');
     const { AddressedHandler } = require('./chat/addressedHandler');
     const gate = new CommandGate({
-      judge: typeof ctx.judgeInstruction === 'function' ? ctx.judgeInstruction : null,
+      judge:
+        typeof ctx.judgeInstruction === 'function'
+          ? ctx.judgeInstruction
+          : ctx.llm && typeof ctx.llm.judgeInstruction === 'function'
+            ? (text) => ctx.llm.judgeInstruction(text)
+            : null,
       timeoutMs: chatCfg.gateTimeoutMs || 1500
     });
     const addressed = new AddressedHandler({

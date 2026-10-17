@@ -836,6 +836,31 @@ class LlmCore {
     return this.ctx.reply(text, guard ? { ...options, conversation: true } : options);
   }
 
+  /**
+   * Binary judgement for the addressed channel (P1 M2).
+   *
+   * A low-level model call, not a dialogue turn: no tools, no dispatch, a tiny token budget.
+   * Throwing is intentional - CommandGate turns the error into "dispatch nothing".
+   */
+  async judgeInstruction(text) {
+    const { InstructionJudge } = require('./judge');
+    const judge = new InstructionJudge({
+      complete: async (prompt) => {
+        if (!this.client || typeof this.client.complete !== 'function') throw new Error('no-client');
+        const result = await this.client.complete({
+          system: prompt.system,
+          messages: [{ role: 'user', content: prompt.user }],
+          timeoutMs: 2000,
+          maxTokens: 200
+        });
+        if (!result || !result.ok) throw new Error((result && result.reason) || 'model-failed');
+        return result.text;
+      },
+      timeoutMs: 2000
+    });
+    return judge.judge(text);
+  }
+
   /** Short chat memory per speaker, for prompt context. */
   historyFor(speaker) {
     const limit = (this.cfg.history && this.cfg.history.perPlayer) || 6;

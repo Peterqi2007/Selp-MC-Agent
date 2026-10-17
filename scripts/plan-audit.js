@@ -825,6 +825,24 @@ if (STAGE === 'p1') {
     return 'channel plumbed; judge injected; default off';
   });
 
+  check('P1: the instruction judge is strict and cannot rewrite the text', () => {
+    const judge = read('src/llm/judge.js');
+    if (!/class InstructionJudge/.test(judge) || !/parseVerdict/.test(judge)) throw new Error('InstructionJudge is missing');
+    if (!/malformed-verdict/.test(judge)) throw new Error('malformed verdicts are accepted');
+    if (!/return \{ verdict: data\.verdict \}/.test(judge)) throw new Error('the judge returns more than the verdict');
+    if (/require\(['"](http|https|net|ws)['"]\)/.test(judge)) throw new Error('the judge owns a transport');
+    return 'allow/deny only; rewrite fields dropped; injected completion';
+  });
+
+  check('P1: the LLM exposes a dedicated binary judge for the addressed channel', () => {
+    const llm = read('src/llm/index.js');
+    const index = read('src/index.js');
+    if (!/async judgeInstruction/.test(llm)) throw new Error('LlmCore has no judgeInstruction()');
+    if (!/maxTokens: 200/.test(llm)) throw new Error('the judge budget is not tiny');
+    if (!/judgeInstruction/.test(index)) throw new Error('the addressed channel does not use the LLM judge');
+    return 'low-level call, no tools, wired to the gate';
+  });
+
   check('P1: proposals are wired with an offline answer surface', () => {
     const brain = read('src/brain.js');
     const commands = read('src/chat/commands.js');
