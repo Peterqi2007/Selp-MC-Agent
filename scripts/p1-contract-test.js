@@ -303,6 +303,122 @@ function makeBrain() {
     assert.match(res.chunks.join(''), /unauthorized/);
   });
 
+  // ------------------------------------------------- PlanRunner + TurnLifecycle
+  process.stdout.write('\n6. parent plan + turn lifecycle\n');
+  const { PlanRunner } = require('../src/core/planRunner');
+  const { TurnLifecycle } = require('../src/core/turnLifecycle');
+
+  {
+    const plans = new PlanStore();
+    plans.applyDraft({
+      planId: 'pl1',
+      goal: 'g',
+      steps: [
+        { id: 's1', type: 'a', args: {} },
+        { id: 's2', type: 'b', args: {} },
+        { id: 's3', type: 'c', args: {} }
+      ]
+    });
+    const ran = [];
+    const runner = new PlanRunner({
+      plans,
+      createTask: (step, ids) => ({ name: step.id, ids, cancel() {} }),
+      runTask: async (task) => {
+        ran.push(task.name);
+        return { ok: true, status: 'succeeded', reason: 'ok' };
+      }
+    });
+    const outcome = await runner.run('pl1');
+    check('PlanRunner runs steps in order and writes each one back', () => {
+      assert.deepStrictEqual(ran, ['s1', 's2', 's3']);
+      assert.strictEqual(outcome.ok, true);
+      const plan = plans.get('pl1');
+      assert.strictEqual(plan.version, 4, 'three step write-backs bump the version');
+      assert(plan.steps.every((step) => step.status === 'done'));
+    });
+    ran.length = 0;
+    await runner.run('pl1');
+    check('PlanRunner skips steps already done (resume)', () => {
+      assert.deepStrictEqual(ran, []);
+    });
+  }
+
+  {
+    const plans = new PlanStore();
+    plans.applyDraft({ planId: 'pl2', steps: [{ id: 's1', type: 'a' }, { id: 's2', type: 'b' }] });
+    const ran = [];
+    const runner = new PlanRunner({
+      plans,
+      createTask: (step) => ({ name: step.id, cancel() {} }),
+      runTask: async (task) => {
+        ran.push(task.name);
+        return { ok: false, status: 'blocked', reason: 'no path' };
+      }
+    });
+    const outcome = await runner.run('pl2');
+    check('PlanRunner stops at the first failed step', () => {
+      assert.deepStrictEqual(ran, ['s1']);
+      assert.strictEqual(outcome.ok, false);
+      assert.strictEqual(plans.get('pl2').steps[0].status, 'failed');
+    });
+  }
+
+  {
+    const plans = new PlanStore();
+    plans.applyDraft({ planId: 'pl3', steps: [{ id: 's1', type: 'a' }, { id: 's2', type: 'b' }] });
+    const ran = [];
+    let runner = null;
+    runner = new PlanRunner({
+      plans,
+      createTask: (step) => ({ name: step.id, cancel() {} }),
+      runTask: async (task) => {
+        ran.push(task.name);
+        if (task.name === 's1') runner.cancel('player stop');
+        return { ok: true, status: 'succeeded' };
+      }
+    });
+    const outcome = await runner.run('pl3');
+    check('PlanRunner cancel stops between steps', () => {
+      assert.deepStrictEqual(ran, ['s1']);
+      assert.strictEqual(outcome.cancelled, true);
+      assert.strictEqual(outcome.ok, false);
+    });
+  }
+
+  {
+    const turns = new TurnLifecycle({ now: () => 1000 });
+    const begun = turns.begin({ requestId: 'r1' });
+    assert(begun.ok);
+    const turnId = begun.turn.id;
+    assert.strictEqual(turns.begin({}).ok, false, 'one turn at a time');
+    assert(turns.wait(turnId, 't1').ok);
+    assert.strictEqual(turns.ingest(turnId, { taskId: 't2', type: 'task:done' }).ok, false);
+    assert(turns.ingest(turnId, { taskId: 't1', type: 'task:done' }).ok);
+    assert.strictEqual(turns.ingest(turnId, { taskId: 't1', type: 'task:done' }).ok, false);
+    const resumed = turns.resume(turnId);
+    check('a parked turn resumes exactly once from the matching task', () => {
+      assert(resumed.ok);
+      assert.strictEqual(resumed.event.taskId, 't1');
+      assert.strictEqual(turns.resume(turnId).ok, false, 'the same event cannot resume twice');
+    });
+    turns.finish(turnId);
+    check('finishing the turn frees the session for the next one', () => {
+      assert.strictEqual(turns.get(turnId).state, 'done');
+      assert(turns.begin({}).ok);
+    });
+  }
+
+  {
+    const turns = new TurnLifecycle();
+    const turnId = turns.begin({}).turn.id;
+    turns.wait(turnId, 't1');
+    turns.cancel(turnId, 'player said stop');
+    check('a cancelled turn ignores late task events', () => {
+      assert.strictEqual(turns.ingest(turnId, { taskId: 't1' }).ok, false);
+      assert.strictEqual(turns.resume(turnId).ok, false);
+    });
+  }
+
   // summary
   const failed = results.filter((result) => !result.ok);
   process.stdout.write(`\nP1 contract test: ${results.length - failed.length}/${results.length} checks passed\n`);
@@ -310,5 +426,5 @@ function makeBrain() {
     process.stdout.write('FAILED\n');
     process.exit(1);
   }
-  process.stdout.write('M1 offline contracts hold (events hub + plan store + SSE replay)\n');
+  process.stdout.write('M1 offline contracts hold (events hub + plan store + SSE + plan/turn)\n');
 })();

@@ -489,7 +489,7 @@ check('every config key the plan adds is actually consumed', () => {
 
 // ------------------------------------------------- P1 additions (RETIREMENT)
 if (STAGE === 'p1') {
-  process.stdout.write('\nP1 additions (RETIREMENT S0-S4 wiring)\n');
+  process.stdout.write('\nP1 additions (RETIREMENT S0-S4 + M1 wiring)\n');
 
   check('P1: the planner mode is config-driven and consumed', () => {
     const cfg = JSON.parse(read('config/agent.json'));
@@ -577,6 +577,27 @@ if (STAGE === 'p1') {
     }
     if (!/status: resultStatus\(base\)/.test(task)) throw new Error('normalizeResult does not set status');
     return 'succeeded/partial/blocked/failed/cancelled/unknown';
+  });
+
+  check('P1: parent plan steps run internally, not through TaskHub', () => {
+    const runner = read('src/core/planRunner.js');
+    const brain = read('src/brain.js');
+    if (!/class PlanRunner/.test(runner)) throw new Error('PlanRunner is missing');
+    if (/hub\.submit/.test(runner)) throw new Error('plan steps must not be submitted to TaskHub');
+    if (!/applyDraft/.test(runner)) throw new Error('PlanRunner does not write step state back to PlanStore');
+    if (!/new PlanRunner/.test(brain)) throw new Error('brain does not create the plan runner');
+    return 'steps run through the executor; one plan version writer';
+  });
+
+  check('P1: a parked turn resumes once from its own task', () => {
+    const turns = read('src/core/turnLifecycle.js');
+    const brain = read('src/brain.js');
+    if (!/class TurnLifecycle/.test(turns)) throw new Error('TurnLifecycle is missing');
+    if (!/task-mismatch/.test(turns)) throw new Error('events are not identity-checked');
+    if (!/already-resumable/.test(turns)) throw new Error('duplicate events are not dropped');
+    if (!/turn-cancelled/.test(turns)) throw new Error('a cancelled turn can still resume');
+    if (!/new TurnLifecycle/.test(brain)) throw new Error('brain does not create the turn lifecycle');
+    return 'waiting -> resumable -> resume once; cancelled stays cancelled';
   });
 
   check('P1: proposals are wired with an offline answer surface', () => {

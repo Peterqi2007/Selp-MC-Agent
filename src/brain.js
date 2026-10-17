@@ -32,6 +32,8 @@ const { TaskSlot } = require('./core/taskSlot');
 const { ProposalDesk } = require('./planner/proposals');
 const { TaskEvents } = require('./core/taskEvents');
 const { PlanStore } = require('./core/planStore');
+const { PlanRunner } = require('./core/planRunner');
+const { TurnLifecycle } = require('./core/turnLifecycle');
 const { bare } = require('./world/items');
 /**
  * The skill layer, for reflex work on bodies without a mineflayer instance.
@@ -96,6 +98,20 @@ class Brain {
     ctx.events = this.events;
     this.plans = new PlanStore();
     ctx.plans = this.plans;
+    /**
+     * M1c: steps of a parent plan run through the same executor (never a second TaskHub
+     * submit), and each LLM turn has one lifecycle (wait -> one matching event -> resume).
+     */
+    this.planRunner = new PlanRunner({
+      plans: this.plans,
+      createTask: (step, ids) =>
+        buildTask(this.ctx, { type: step.type, args: { ...(step.args || {}), ...ids } }),
+      runTask: (task) => this.runTask(task),
+      log: this.log
+    });
+    ctx.planRunner = this.planRunner;
+    this.turns = new TurnLifecycle();
+    ctx.turns = this.turns;
     /**
      * Holds: the single table of "why is the brain not working" (src/core/holds.js).
      *
@@ -859,6 +875,8 @@ class Brain {
       proposals: this.proposals ? this.proposals.status() : null,
       events: this.events ? this.events.status() : null,
       plans: this.plans ? this.plans.status() : null,
+      planRunner: this.planRunner ? { busy: this.planRunner.busy } : null,
+      turns: this.turns ? { activeId: this.turns.activeId } : null,
       completedGoals: this.completedGoals.slice(-10),
       memory: this.ctx.memory.summary()
     };

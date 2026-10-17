@@ -208,13 +208,13 @@ class TaskSlot {
       this.queue.push(task);
       const behind = held ? held.name : this.current ? this.current.kind : 'another owner';
       brain.log.debug(`${task.name} queued behind ${behind}`);
-      return;
+      return { ok: false, status: 'blocked', reason: 'queued behind another owner' };
     }
     const acquired = this.acquire({ kind: 'brain', task, id: task.name, note: `task ${task.name}` });
     if (!acquired.ok) {
       this.queue.push(task);
       brain.log.debug(`${task.name} queued: the body slot is held by ${this.current && this.current.kind}`);
-      return;
+      return { ok: false, status: 'blocked', reason: 'body-busy' };
     }
     const owner = acquired.owner;
     try {
@@ -249,6 +249,8 @@ class TaskSlot {
         });
         this.maybeRetry(task);
       }
+      /** M1c: the parent plan runner reads the normalized result to classify the step. */
+      return res;
     } finally {
       this.release(owner);
       /**
