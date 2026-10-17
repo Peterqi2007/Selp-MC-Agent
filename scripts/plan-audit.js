@@ -752,6 +752,22 @@ if (STAGE === 'p1') {
     return 'validated dry-run only; no child_process/vm/import';
   });
 
+  check('P1: only promoted code skills reach retrieval', () => {
+    const catalog = read('src/codeSkills/catalog.js');
+    if (!/listPromoted/.test(catalog) || !/findPromoted/.test(catalog)) throw new Error('promoted catalogue is missing');
+    if (!/status !== 'promoted'/.test(catalog)) throw new Error('the catalogue does not filter by promoted status');
+    if (/require\(['"].*entry|import\(/.test(catalog)) throw new Error('the catalogue must not load the entry file');
+    return 'promoted-only metadata; no import';
+  });
+
+  check('P1: computer use is denied until the window limit is verified', () => {
+    const policy = read('src/computer/windowPolicy.js');
+    if (!/cu-unproven/.test(policy)) throw new Error('unverified CU is not denied');
+    if (!/outside-window/.test(policy) || !/outside-bounds/.test(policy)) throw new Error('the window/bounds checks are missing');
+    if (!/verify\(/.test(policy) || !/verified/.test(policy)) throw new Error('there is no explicit verification step');
+    return 'default deny; verified window + bounds only';
+  });
+
   check('P1: proposals are wired with an offline answer surface', () => {
     const brain = read('src/brain.js');
     const commands = read('src/chat/commands.js');

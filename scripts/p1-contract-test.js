@@ -992,6 +992,63 @@ function makeBrain() {
     });
   }
 
+  // ---------------------------------------------- promoted catalogue + CU policy
+  process.stdout.write('\n15. promoted catalogue + CU window policy\n');
+  const { listPromoted, findPromoted, toToolDescriptor } = require('../src/codeSkills/catalog');
+  const { WindowPolicy } = require('../src/computer/windowPolicy');
+
+  {
+    const store = new CodeSkillStore();
+    const base = {
+      name: 'agent.staircase',
+      version: '1.0.0',
+      apiVersion: 1,
+      entry: 'index.js',
+      permissions: ['read_state'],
+      description: 'builds a staircase'
+    };
+    store.addCandidate(base);
+    store.recordTrial(base.name, base.version, { ok: true, report: 'ok' });
+    store.promote(base.name, base.version);
+    store.addCandidate({ ...base, version: '1.0.1' });
+    check('only promoted code skills are visible to retrieval', () => {
+      const list = listPromoted(store);
+      assert.strictEqual(list.length, 1);
+      assert.strictEqual(list[0].version, '1.0.0');
+      assert.strictEqual(findPromoted(store, base.name, { version: '1.0.1' }), null);
+      const tool = toToolDescriptor(list[0]);
+      assert.match(tool.description, /code skill v1\.0\.0/);
+    });
+    store.retire(base.name, base.version);
+    check('retiring removes a skill from retrieval', () => {
+      assert.strictEqual(listPromoted(store).length, 0);
+      assert.strictEqual(findPromoted(store, base.name), null);
+    });
+  }
+
+  {
+    const policy = new WindowPolicy();
+    check('computer use is denied until the window limit is proven', () => {
+      const result = policy.check({ kind: 'click', windowId: 'mc', x: 10, y: 10 });
+      assert.strictEqual(result.ok, false);
+      assert.strictEqual(result.reason, 'cu-unproven');
+    });
+    policy.verify({
+      gameWindowId: 'mc',
+      bounds: { x: 0, y: 0, width: 800, height: 600 },
+      evidence: 'F1 pending'
+    });
+    check('an action inside the verified window is allowed, outside is not', () => {
+      assert(policy.check({ kind: 'click', windowId: 'mc', x: 100, y: 100 }).ok);
+      assert.strictEqual(policy.check({ kind: 'click', windowId: 'mc', x: 900, y: 100 }).reason, 'outside-bounds');
+      assert.strictEqual(policy.check({ kind: 'click', windowId: 'other', x: 100, y: 100 }).reason, 'outside-window');
+    });
+    check('screenshots are limited to the configured window', () => {
+      assert(policy.check({ kind: 'screenshot', windowId: 'mc' }).ok);
+      assert.strictEqual(policy.check({ kind: 'screenshot', windowId: 'other' }).reason, 'outside-window');
+    });
+  }
+
   // summary
   const failed = results.filter((result) => !result.ok);
   process.stdout.write(`\nP1 contract test: ${results.length - failed.length}/${results.length} checks passed\n`);
@@ -999,5 +1056,5 @@ function makeBrain() {
     process.stdout.write('FAILED\n');
     process.exit(1);
   }
-  process.stdout.write('P1 offline contracts hold (M1-M4: events, plans, SSE, turn, routing, state, skills)\n');
+  process.stdout.write('P1 offline contracts hold (M1-M5: events, plans, SSE, turn, routing, state, skills, CU policy)\n');
 })();
