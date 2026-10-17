@@ -58,6 +58,7 @@
 | [`docs/P1-M6.md`](docs/P1-M6.md) | **P1 M6 记录（聊天并发 + 按需接线）**：未读去重、过时回复拒绝、自回声拒绝、限速/重复/截断、随会话持久化；LLM 回复可 opt-in 守卫（默认关闭）。真实多人 A23/A24、状态发言、A25 聊天侧未完成 |
 | [`docs/P1-M7.md`](docs/P1-M7.md) | **P1 M7 记录（离线准备）**：`p1:verify` 一键离线验收、`p1:fault:test` 7/7、A01–A31 验收矩阵（无一项标通过）、发布清单与残余风险。**P1 未发布**，客户端/模型项全部未执行 |
 | [`docs/P1-GAP-AUDIT.md`](docs/P1-GAP-AUDIT.md) | **P1 全文差距审计**：§1.4–§1.9 逐节“已落地/部分/仅契约/未开始”，离线待办优先级与需批准项 |
+| [`docs/P1-HANDOFF.md`](docs/P1-HANDOFF.md) | **P1 离线交接**：一键复验、已交付清单、默认配置、未交付原因、客户端窗口顺序、代码地图与风险 |
 | [`docs/PLANNER-RETIREMENT.md`](docs/PLANNER-RETIREMENT.md) | **自主规划器退役**：`slowLoop` 拆为 GoalEvaluator + 提案 + TaskSlot。**S0–S4 已全部离线交付**（`planner:test` 32/32、`plan:audit --stage p1` 91/91），真机判据仍登记在客户端清单 |
 | [`docs/P1-CLIENT-TESTS.md`](docs/P1-CLIENT-TESTS.md) | **客户端/真机测试清单**：P1 与退役判据里所有需要真实客户端/服务器的项，**当前全部未执行**（本分支只跑离线套件） |
 | [`docs/PLANNER-AB-EXPERIMENT.md`](docs/PLANNER-AB-EXPERIMENT.md) | **选型 A/B 实验设计**（**条件触发**：仅当 P1 §1.9.2 降级判定成立才执行）：24 次计分运行的场景与门槛；成本审计按时间 / token / 模块复用三项（§6–§7），§10 是决策闸门，**不做经济性评估**（§8.4） |
