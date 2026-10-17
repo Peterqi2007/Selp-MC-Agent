@@ -32,17 +32,6 @@ function check(name, fn) {
 process.stdout.write('planner retirement test (S0 hooks, offline)\n\n');
 
 // ---------------------------------------------------------------- 1. progress()
-/**
- * Known violations of the progress() value-domain contract.
- *
- * Keep this list small and referenced: an entry here is a *documented* defect, not a
- * permission. Each one names the PLANNER-REFACTOR item that will remove it.
- */
-const KNOWN_PROGRESS_VIOLATIONS = {
-  'mine_ore':
-    'P3: progress() returns a fresh object every call; brain compares by identity, so the zero-progress park never fires for ore runs'
-};
-
 function baseCtx() {
   return {
     cfg: { agent: { survival: { targetWood: 16 } } },
@@ -72,8 +61,6 @@ const taskMakers = [
 
 process.stdout.write('1. progress() value domain\n');
 for (const [key, make] of taskMakers) {
-  const known = KNOWN_PROGRESS_VIOLATIONS[key];
-  if (known) continue; // handled below, with the object check
   check(`${key}: progress() is null | number | string`, () => {
     const task = make();
     const value = task.progress();
@@ -83,17 +70,17 @@ for (const [key, make] of taskMakers) {
   });
 }
 
-check('mine_ore: KNOWN violation is still an object with equal values but a new identity (P3)', () => {
-  const note = KNOWN_PROGRESS_VIOLATIONS['mine_ore'];
-  assert(note, 'the mine_ore violation must stay documented until S2 fixes it');
+check('mine_ore: progress() is a stable comparable value (P3 fixed)', () => {
   const task = new (require('../src/tasks/mineOre').MineOreTask)(baseCtx(), { block: 'iron_ore', count: 1 });
   assert.strictEqual(task.progress(), null, 'a task that has not run should report null');
-  task.result = { mined: 1, minedAt: 123, skipped: 0 };
+  task.result = { mined: 1, minedAt: 123, skipped: [] };
   const a = task.progress();
   const b = task.progress();
-  assert.strictEqual(typeof a, 'object', 'the known violation is an object return');
-  assert.deepStrictEqual(a, b, 'the two reads describe the same progress');
-  assert.notStrictEqual(a, b, 'a fresh identity each call is exactly what breaks the identity compare');
+  assert.strictEqual(typeof a, 'string', 'ore progress must be a comparable value, not an object');
+  assert.strictEqual(a, '1/0');
+  assert.strictEqual(a, b, 'two reads of the same result must compare equal');
+  task.result = { mined: 2, minedAt: 124, skipped: [{ reason: 'blocked' }] };
+  assert.strictEqual(task.progress(), '2/1', 'both mined and skipped are represented');
 });
 
 // ---------------------------------------------------------------- 2. decide()

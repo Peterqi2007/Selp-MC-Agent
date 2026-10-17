@@ -10,7 +10,7 @@
 > | --- | --- | --- |
 > | **P1** shelter 死规则 | ✅ 已修（S1） | 规则移入 evaluator，去掉未定义 `bot`；无 mineflayer 实例时显式跳过 |
 > | **P2** light 无能力门 | ✅ 已修（S1） | `requiresBody:'mineflayer'`，跳过带原因 |
-> | **P3** 矿石零进展无刹车 | ⏭ 转 P1 M1 | `mine_ore.progress()` 仍返回新对象；`planner:test` 以**已知违规**钉住，S2 的值域契约未改任务 |
+> | **P3** 矿石零进展无刹车 | ✅ 已修（M1b） | `mine_ore.progress()` 改为稳定字符串 `mined/skipped`，B1 停牌对矿石路径生效 |
 > | **P4** 零收获返回 `ok:true` | ⏭ 转 P1 M1 | 同上，属于结果语义统一（P1 §1.4.1） |
 > | **P5** 停牌粒度=任务名 / 黑名单死代码 | ⏭ 转 P1 M1 | 提案已带 target；quarantine 仍按任务名，目标级账本未做 |
 > | **P6** 30s 字面量 / 计数不重置 | ⏭ 转 P1 M1 | 提案冷却/TTL 已可配；B1/B2 窗口尚未提配置 |

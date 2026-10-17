@@ -135,7 +135,7 @@ class Task {
       return normalized;
     } catch (err) {
       this.state = 'failed';
-      this.result = { ok: false, reason: `throw: ${err.message}` };
+      this.result = normalizeResult({ ok: false, reason: `throw: ${err.message}` });
       this.log.debug(`task threw: ${err.stack || err.message}`);
       return this.result;
     } finally {
@@ -205,23 +205,49 @@ function safeProgress(task) {
   }
 }
 
+/**
+ * P1 §1.4.1 result statuses. `ok` stays for existing callers; `status` carries the finer
+ * distinction the planner and acceptance need:
+ *
+ *     succeeded / partial / blocked / failed / cancelled / unknown
+ *
+ * An explicit `res.status` wins. Otherwise ok:true is `succeeded` (or `partial` when the task
+ * said so), and a failure is classified from its reason: cancellation is never a retryable
+ * failure, a missing route is `blocked` (retrying it unchanged is pointless), and an
+ * unconfirmed effect is `unknown` rather than a silent success. Anything else is `failed`.
+ */
+const RESULT_STATUSES = new Set(['succeeded', 'partial', 'blocked', 'failed', 'cancelled', 'unknown']);
+
+function resultStatus(res) {
+  if (res && RESULT_STATUSES.has(res.status)) return res.status;
+  if (!res || res.ok !== false) {
+    return res && (res.partial || res.pending || res.unresolved) ? 'partial' : 'succeeded';
+  }
+  const reason = String((res && (res.reason || res.message)) || '');
+  if (/cancel/i.test(reason)) return 'cancelled';
+  if (/timeout|timed out/i.test(reason)) return 'failed';
+  if (/blocked|no ?path|unreachable|refus|not allowed|denied/i.test(reason)) return 'blocked';
+  if (/unknown|unconfirmed|not confirmed|cannot confirm/i.test(reason)) return 'unknown';
+  return 'failed';
+}
+
 function normalizeResult(res) {
-  if (res === undefined || res === null) return { ok: true, reason: 'completed' };
-  if (typeof res === 'string') return { ok: true, reason: res };
-  if (typeof res === 'boolean') return { ok: res, reason: res ? 'completed' : 'returned false' };
+  let base;
+  if (res === undefined || res === null) base = { ok: true, reason: 'completed' };
+  else if (typeof res === 'string') base = { ok: true, reason: res };
+  else if (typeof res === 'boolean') base = { ok: res, reason: res ? 'completed' : 'returned false' };
   /**
    * Objects keep their fields.
    *
    * The old shape kept only ok/reason, which threw away `mined`/`ledger`/`minedAt` from
    * the mine_ore adapter and made the planner unable to report what a mining task
-   * actually produced (plan §5.6.3: "修正 Task.normalizeResult 当前只保留 ok/reason
-   * 的行为"). `ok` and `reason` are still normalised here so every caller keeps the
-   * same contract.
+   * actually produced (plan §5.6.3). `ok` and `reason` are still normalised here so every
+   * caller keeps the same contract.
    */
-  if (typeof res === 'object') {
-    return { ...res, ok: res.ok !== false, reason: res.reason || res.message || 'completed' };
-  }
-  return { ok: true, reason: String(res) };
+  else if (typeof res === 'object') base = { ...res, ok: res.ok !== false, reason: res.reason || res.message || 'completed' };
+  else base = { ok: true, reason: String(res) };
+
+  return { ...base, status: resultStatus(base) };
 }
 
 module.exports = { Task, normalizeResult };

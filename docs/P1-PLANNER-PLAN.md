@@ -592,11 +592,12 @@ A12 的周期、时延与资源阈值由 M0/M2 测量后填入部署记录，未
 
 **交付与出口**：契约、适配器、事件日志与乱序/取消/停止失败验证。A04–A08 的契约夹具和现有后端场景、相关命令/采矿回归通过；新规划器与 GUI 子场景分别在 M3/M5 补齐，此时不把对应整项标为全部通过。先保持玩家现有行为，不靠新模型掩盖旧执行问题。
 
-> **实施进展（2026-10-17，M1a）**：`TaskEvents` 唯一汇聚点（单调 seq/幂等/环形重放/订阅）、
+> **实施进展（2026-10-17，M1a + M1b）**：`TaskEvents` 唯一汇聚点（单调 seq/幂等/环形重放/订阅）、
 > 任务身份字段、`PlanStore` 单一写者（`stale` 拒绝、已完成步骤保留）、同端口 `GET /events`
-> （`Last-Event-ID` + token）、`p1:contract:test` 10/10、`plan:audit --stage p1` 36/36，
-> 详见 [`P1-M1.md`](P1-M1.md)。**未完成**：Capability 统一、Progress 值域、TaskResult 状态、
-> 父/子步骤与 harness 回放；M1 **不得整体标为通过**。
+> （`Last-Event-ID` + token）、Capability 表（`crafting/deposit/hunting/light/shelter`）、
+> TaskResult 六态、`mine_ore.progress()` 值域修复（P3 关闭）；`p1:contract:test` 13/13、
+> `plan:audit --stage p1` 38/38，详见 [`P1-M1.md`](P1-M1.md)。**未完成**：父/子步骤、
+> harness 回放、持久化；M1 **不得整体标为通过**。
 
 ### M2：双脑路由、persona 与分层感知
 

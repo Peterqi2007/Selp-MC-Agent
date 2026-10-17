@@ -111,8 +111,56 @@ check('a replan preserves done steps and only changes the unfinished part', () =
   assert.strictEqual(step1.status, 'done', 'a finished step must not be reopened by a replan');
 });
 
+// ------------------------------------------------------- capabilities + result
+process.stdout.write('\n3. capabilities + result status\n');
+
+check('capabilities distinguish body support from host requirements', () => {
+  const { capabilities } = require('../src/core/capabilities');
+  const table = capabilities({
+    body: { supportsCrafting: true, supportsDeposit: false, supportsHunting: true },
+    controller: { bot: null }
+  });
+  assert.strictEqual(table.crafting.supported, true);
+  assert.strictEqual(table.deposit.supported, false);
+  assert.match(table.deposit.reason, /container/);
+  assert.strictEqual(table.light.supported, false, 'a body without mineflayer cannot place torches');
+  assert.match(table.light.reason, /mineflayer/);
+  const withBot = capabilities({ body: {}, controller: { bot: {} } });
+  assert.strictEqual(withBot.shelter.supported, true);
+});
+
+check('normalizeResult assigns the P1 status vocabulary', () => {
+  const { normalizeResult } = require('../src/tasks/task');
+  assert.strictEqual(normalizeResult({ ok: true }).status, 'succeeded');
+  assert.strictEqual(normalizeResult({ ok: true, partial: true }).status, 'partial');
+  assert.strictEqual(normalizeResult({ ok: false, reason: 'cancelled by player' }).status, 'cancelled');
+  assert.strictEqual(normalizeResult({ ok: false, reason: 'no path to target' }).status, 'blocked');
+  assert.strictEqual(normalizeResult({ ok: false, reason: 'timeout after 5ms' }).status, 'failed');
+  assert.strictEqual(normalizeResult({ ok: false, reason: 'unknown effect' }).status, 'unknown');
+  assert.strictEqual(normalizeResult({ ok: true, status: 'blocked' }).status, 'blocked', 'explicit status wins');
+});
+
+check('the evaluator reads capabilities from the one table', () => {
+  const { evaluate } = require('../src/planner/evaluator');
+  const ctx = {
+    cfg: loadConfig({ profile: null }),
+    body: { supportsCrafting: false, supportsDeposit: false, supportsHunting: false },
+    world: {
+      snapshot: () => ({ inventory: {}, emptySlots: 36, health: 20, food: 20 }),
+      isNight: () => false
+    },
+    controller: { bot: null },
+    memory: { landmark: () => null },
+    nav: {},
+    log: silent
+  };
+  const candidates = evaluate(ctx, {});
+  assert(!candidates.some((candidate) => candidate.rule === 'craft'), 'a body without crafting must not get craft rules');
+  assert(!candidates.some((candidate) => candidate.rule === 'hunt'), 'a body without hunting must not get the hunt rule');
+});
+
 // ------------------------------------------------------------- brain wiring
-process.stdout.write('\n3. executor wiring\n');
+process.stdout.write('\n4. executor wiring\n');
 
 function makeBrain() {
   const cfg = loadConfig({ profile: null });
@@ -189,7 +237,7 @@ function makeBrain() {
   });
 
   // ------------------------------------------------------------------- SSE
-  process.stdout.write('\n4. SSE helper\n');
+  process.stdout.write('\n5. SSE helper\n');
 
   function fakeRequest({ url = '/events', headers = {} } = {}) {
     const handlers = {};

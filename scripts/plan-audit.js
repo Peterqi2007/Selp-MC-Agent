@@ -422,13 +422,14 @@ check('no Java change is required for P0 (the M3 cancellation holds)', () => {
 check('the P0 exclusions are still exclusions', () => {
   const brain = read('src/brain.js');
   const evaluator = read('src/planner/evaluator.js');
+  const capabilities = read('src/core/capabilities.js');
   // Fishing was cancelled; hunting/light/store are capability-gated per body.
   if (exists('src/tasks/fish.js')) throw new Error('FishingTask should not exist (cancelled in P0)');
-  // S1 moved the capability gates with the rule table; check the combined planner surface.
-  const plannerSource = brain + evaluator;
+  // M1b moved the flags into the one capability table; check the whole planner surface.
+  const plannerSource = brain + evaluator + capabilities;
   if (!/supportsHunting/.test(plannerSource)) throw new Error('hunting is not capability-gated');
   if (!/supportsDeposit/.test(plannerSource)) throw new Error('storing is not capability-gated');
-  return 'no fishing; hunt/store gated on body capability (evaluator)';
+  return 'no fishing; hunt/store gated on body capability (capabilities table)';
 });
 
 check('every config key the plan adds is actually consumed', () => {
@@ -556,6 +557,26 @@ if (STAGE === 'p1') {
     if (!/reason: 'stale'/.test(store)) throw new Error('stale drafts are not refused');
     if (!/new PlanStore/.test(brain)) throw new Error('brain does not create the plan store');
     return 'PlanStore increments version and refuses stale drafts';
+  });
+
+  check('P1: capabilities have one table and the evaluator reads it', () => {
+    const caps = read('src/core/capabilities.js');
+    const evaluator = read('src/planner/evaluator.js');
+    if (!/function capabilities\(/.test(caps)) throw new Error('capabilities() is missing');
+    if (!/supportsCrafting/.test(caps) || !/supportsHunting/.test(caps)) {
+      throw new Error('the capability table does not cover the body flags');
+    }
+    if (!/capabilities\(ctx\)/.test(evaluator)) throw new Error('the evaluator does not use the table');
+    return 'one capability table, used by the evaluator';
+  });
+
+  check('P1: task results carry the six-state status', () => {
+    const task = read('src/tasks/task.js');
+    for (const status of ['succeeded', 'partial', 'blocked', 'failed', 'cancelled', 'unknown']) {
+      if (!new RegExp(status).test(task)) throw new Error(`result status "${status}" is missing`);
+    }
+    if (!/status: resultStatus\(base\)/.test(task)) throw new Error('normalizeResult does not set status');
+    return 'succeeded/partial/blocked/failed/cancelled/unknown';
   });
 
   check('P1: proposals are wired with an offline answer surface', () => {

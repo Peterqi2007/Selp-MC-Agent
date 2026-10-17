@@ -76,13 +76,16 @@ class MineOreTask extends Task {
     super.cancel();
   }
 
+  /**
+   * A comparable progress value (P3). `brain._noteProgress` compares with `===`, so this
+   * used to return a fresh object and the zero-progress park never fired for ore runs.
+   * String form keeps both halves of the story - blocks actually mined and blocks the
+   * planner had to skip - and stays monotonic as long as either changes.
+   */
   progress() {
     if (!this.result) return null;
-    return {
-      mined: this.result.mined,
-      minedAt: this.result.minedAt,
-      blocked: this.result.skipped
-    };
+    const skipped = Array.isArray(this.result.skipped) ? this.result.skipped.length : Number(this.result.blocked || 0);
+    return `${this.result.mined || 0}/${skipped}`;
   }
 }
 

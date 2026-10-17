@@ -31,6 +31,7 @@
 
 const { countItem, countMatching, isFood, isLog, bestTool, TOOL_TIERS } = require('../world/items');
 const { SnapshotInventory } = require('../world/snapshotInventory');
+const { capabilities } = require('../core/capabilities');
 
 /**
  * Order matters: the first candidate whose task name is not quarantined wins.
@@ -298,8 +299,10 @@ function buildView(ctx, options = {}) {
   const planks = countMatching(view, (n) => /_planks$/.test(n));
   const logs = countMatching(view, isLog);
   const pick = bestTool(view, 'pickaxe');
+  const caps = capabilities(ctx);
   Object.assign(view, {
     has,
+    capabilities: caps,
     planks,
     logs,
     wood: logs + planks,
@@ -315,10 +318,14 @@ function buildView(ctx, options = {}) {
       (n) => /_planks$/.test(n) || ['cobblestone', 'stone', 'dirt', 'sand'].includes(n)
     ),
     mayChop: cfg.survival ? cfg.survival.allowWoodChopping !== false : false,
-    canCraft: !!(ctx.body && ctx.body.supportsCrafting),
+    /**
+     * Capability support comes from the one table (A05); `canX` stays as the rule-facing
+     * name so the rule conditions above read unchanged.
+     */
+    canCraft: caps.crafting.supported,
     hasPick: pick ? pick.rank >= 0 : false,
-    canDeposit: !!(ctx.body && ctx.body.supportsDeposit),
-    canHunt: !!(ctx.body && ctx.body.supportsHunting)
+    canDeposit: caps.deposit.supported,
+    canHunt: caps.hunting.supported
   });
   return view;
 }
@@ -347,11 +354,15 @@ function evaluate(ctx, options = {}) {
       continue;
     }
     if (!applicable) continue;
-    if (rule.requiresBody === 'mineflayer' && !view.hasMineflayerBody) {
-      if (options.onRuleSkip) {
-        options.onRuleSkip({ rule: rule.rule, reason: 'this body has no mineflayer instance' });
+    if (rule.requiresBody === 'mineflayer') {
+      const host = view.capabilities && view.capabilities[rule.rule];
+      const supported = host ? host.supported : view.hasMineflayerBody;
+      if (!supported) {
+        if (options.onRuleSkip) {
+          options.onRuleSkip({ rule: rule.rule, reason: (host && host.reason) || 'this body has no mineflayer instance' });
+        }
+        continue;
       }
-      continue;
     }
     candidates.push({
       rule: rule.rule,
