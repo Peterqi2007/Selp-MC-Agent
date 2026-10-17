@@ -92,9 +92,17 @@ check('B: the three primitives exist as tasks', () => {
 
 check('B: the planner uses the primitive tasks, not the legacy ones', () => {
   const brain = read('src/brain.js');
-  if (/new GatherWoodTask\(|new MineTask\(/.test(brain)) throw new Error('the rule table still builds legacy tasks');
-  if (!/new ChopWoodTask\(/.test(brain) || !/new MineBlockTask\(/.test(brain)) throw new Error('the primitive tasks are not used');
-  return 'rule table builds ChopWoodTask / MineBlockTask';
+  const evaluator = read('src/planner/evaluator.js');
+  if (/new GatherWoodTask\(|new MineTask\(/.test(brain)) throw new Error('the task factory still builds legacy tasks');
+  if (!/new ChopWoodTask\(/.test(brain) || !/new MineBlockTask\(/.test(brain)) throw new Error('the primitive tasks are not built by the factory');
+  /**
+   * RETIREMENT S1: the rule table moved to evaluator.js and must stay declarative.
+   * This replaces the part of the old check that looked for the rule table in brain.js -
+   * the behaviour being protected (primitive tasks, no legacy ones) is unchanged.
+   */
+  if (/new \w+Task\(/.test(evaluator)) throw new Error('the evaluator must return data, not Task instances (S1)');
+  if (!/module\.exports = \{ evaluate/.test(evaluator)) throw new Error('the evaluator is not exported');
+  return 'factory builds ChopWoodTask / MineBlockTask; evaluator stays declarative';
 });
 
 check('B: an inventory-full check exists (fail early, with a reason)', () => {
@@ -394,11 +402,14 @@ check('no Java change is required for P0 (the M3 cancellation holds)', () => {
 
 check('the P0 exclusions are still exclusions', () => {
   const brain = read('src/brain.js');
+  const evaluator = read('src/planner/evaluator.js');
   // Fishing was cancelled; hunting/light/store are capability-gated per body.
   if (exists('src/tasks/fish.js')) throw new Error('FishingTask should not exist (cancelled in P0)');
-  if (!/supportsHunting/.test(brain)) throw new Error('hunting is not capability-gated');
-  if (!/supportsDeposit/.test(brain)) throw new Error('storing is not capability-gated');
-  return 'no fishing; hunt/store gated on body capability';
+  // S1 moved the capability gates with the rule table; check the combined planner surface.
+  const plannerSource = brain + evaluator;
+  if (!/supportsHunting/.test(plannerSource)) throw new Error('hunting is not capability-gated');
+  if (!/supportsDeposit/.test(plannerSource)) throw new Error('storing is not capability-gated');
+  return 'no fishing; hunt/store gated on body capability (evaluator)';
 });
 
 check('every config key the plan adds is actually consumed', () => {

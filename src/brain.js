@@ -24,11 +24,11 @@ const { HuntTask } = require('./tasks/hunt');
 const { LightTask } = require('./tasks/light');
 const { DepositTask } = require('./tasks/deposit');
 const { Logger } = require('./util/logger');
-const { countItem, countMatching, isFood, isLog, bestTool, TOOL_TIERS } = require('./world/items');
-const { SnapshotInventory } = require('./world/snapshotInventory');
 const { sleep } = require('./core/movement');
 const { Holds } = require('./core/holds');
 const { needsRescue, escapeToGround, hideUnderground, isDaytime } = require('./core/recovery');
+const { evaluate } = require('./planner/evaluator');
+const { bare } = require('./world/items');
 /**
  * The skill layer, for reflex work on bodies without a mineflayer instance.
  *
@@ -41,7 +41,6 @@ const { needsRescue, escapeToGround, hideUnderground, isDaytime } = require('./c
 const skills = require('./skills');
 const combatSkills = require('./skills/combat');
 const combatState = require('./world/combatState');
-const { bare } = require('./world/items');
 
 /** Priority levels for `enqueue` (P0-PLAN §5.7). Lower number wins. */
 const LEVELS = { urgent: 0, directive: 1, autonomous: 2 };
@@ -503,127 +502,34 @@ class Brain {
    * @returns {import('../tasks/task').Task|null}
    */
   decide() {
-    const world = this.ctx.world;
-    const ctx = this.ctx;
     /**
-     * Whether the planner may fell trees on its own.
+     * RETIREMENT S1: the rule table now lives in `src/planner/evaluator.js` and returns
+     * declarative candidates. This method is the thin shell that (a) drops candidates whose
+     * TASK name is quarantined and (b) hands the first survivor to the legacy task factory.
      *
-     * Off means the agent still chops when told to (`!chop`) - an explicit instruction is an
-     * explicit instruction - but it will not go looking for trees while idle. That matters on
-     * a shared server, where a tree is often part of the scenery rather than a resource.
+     * Guardrails preserved from the inline version:
+     *   - quarantine is keyed on the constructed task's name, never the rule's (A10);
+     *   - a rule whose precondition throws is skipped (`onRuleError`) but now logged at
+     *     warn, so a dead rule cannot hide at debug level again (P1);
+     *   - a rule whose task needs a mineflayer instance is skipped with a reason on the
+     *     client-mod body (P1/P2) instead of being selected and failing forever.
      */
-    const mayChop = this.cfg.survival.allowWoodChopping !== false;
-
-    // Perception comes from the body. `view` is a plain object with the two things the
-    // rule table needs: `inventory` (mineflayer-shaped) and `health`/`food`.
-    const snap = world.snapshot ? world.snapshot(true) : null;
-    const inventory = new SnapshotInventory((snap && snap.inventory) || {}, {
-      emptySlots: snap ? snap.emptySlots : undefined
+    const candidates = evaluate(this.ctx, {
+      cfg: this.cfg,
+      onRuleError: ({ rule, error }) => this.log.warn(`rule ${rule} threw: ${error}`),
+      onRuleSkip: ({ rule, reason }) => this.log.debug(`rule ${rule} skipped: ${reason}`)
     });
-    const view = {
-      inventory,
-      health: snap ? snap.health : 20,
-      food: snap ? snap.food : 20,
-      registry: this.bot && this.bot.registry ? this.bot.registry : null
-    };
-
-    const has = (name, n = 1) => countItem(view, name) >= n;
-    const planks = countMatching(view, (n) => /_planks$/.test(n));
-    const logs = countMatching(view, isLog);
-    const wood = logs + planks;
-    const pick = bestTool(view, 'pickaxe');
-    const pickRank = pick ? pick.rank : -1;
-    const hasSword = !!bestTool(view, 'sword');
-    const food = countMatching(view, (n) => isFood(n, view.registry));
-    const emptySlots = inventory.emptySlotCount();
-    const cobble = countItem(view, 'cobblestone');
-    const stoneRank = TOOL_TIERS.indexOf('stone');
-    /**
-     * What this body can actually do, asked once per planning tick.
-     *
-     * These two flags are the difference between a planner that adapts and one that spins:
-     * under the client-mod body `craft()` always fails ("no recipe support" - the mod exposes
-     * no crafting UI), and mining stone without a pickaxe always fails by design. Without the
-     * guards below the rule table retried those two forever and everything after them was
-     * unreachable. The plan's §5.4 capability list is the same idea applied to the LLM; this is
-     * its counterpart in the rule table.
-     */
-    const canCraft = !!(ctx.body && ctx.body.supportsCrafting);
-    const hasPick = pickRank >= 0;
-    const canDeposit = !!(ctx.body && ctx.body.supportsDeposit);
-    /** The control mod cannot see passive animals, so hunting is not a goal it can meet. */
-    const canHunt = !!(ctx.body && ctx.body.supportsHunting);
-
-    // Each entry is a lazy rule: the first one that produces a task wins. Keeping
-    // them as thunks means the cheap checks (counts) always run but expensive
-    // construction only happens for the chosen branch.
-    const rules = [
-      { name: 'deposit', when: () => canDeposit && emptySlots <= 2, make: () => new DepositTask(ctx, { priority: 5 }) },
-      {
-        // Low health does not regenerate without food, so hunting becomes urgent
-        // well before the hunger bar is empty.
-        name: 'hunt',
-        when: () => canHunt && food === 0 && (view.food < 17 || view.health < 12),
-        make: () => new HuntTask(ctx, { count: 3, priority: 10 })
-      },
-      { name: 'gather-wood', when: () => mayChop && wood < 4, make: () => new ChopWoodTask(ctx, { count: 8, priority: 20 }) },
-      { name: 'craft', when: () => canCraft && !has('crafting_table'), make: () => new CraftTask(ctx, { item: 'crafting_table', count: 1, requireTable: false, priority: 25 }) },
-      { name: 'craft', when: () => canCraft && pickRank < 0 && planks < 3 && logs > 0, make: () => new CraftTask(ctx, { item: plankName(view), count: 4, requireTable: false, priority: 27 }) },
-      { name: 'gather-wood', when: () => mayChop && pickRank < 0 && planks < 3, make: () => new ChopWoodTask(ctx, { count: 8, priority: 27 }) },
-      { name: 'craft', when: () => canCraft && pickRank < 0 && planks >= 3 && !has('stick', 2), make: () => new CraftTask(ctx, { item: 'stick', count: 4, requireTable: false, priority: 28 }) },
-      { name: 'craft', when: () => canCraft && pickRank < 0, make: () => new CraftTask(ctx, { item: 'wooden_pickaxe', count: 1, priority: 30 }) },
-      {
-        name: 'shelter',
-        when: () =>
-          this.cfg.survival.shelterAtNight &&
-          world.isNight() &&
-          !ctx.memory.landmark('shelter') &&
-          countMatching(bot, (n) => /_planks$/.test(n) || ['cobblestone', 'stone', 'dirt', 'sand'].includes(n)) >= 16,
-        make: () => new ShelterTask(ctx, { priority: 35 })
-      },
-      { name: 'mine', when: () => hasPick && (pickRank < stoneRank || !hasSword) && cobble < 3, make: () => new MineBlockTask(ctx, { block: ['stone', 'cobblestone', 'deepslate'], count: 8, priority: 40 }) },
-      { name: 'craft', when: () => canCraft && (pickRank < stoneRank || !hasSword) && !has('stick', 2) && planks >= 2, make: () => new CraftTask(ctx, { item: 'stick', count: 4, requireTable: false, priority: 41 }) },
-      { name: 'craft', when: () => canCraft && pickRank < stoneRank, make: () => new CraftTask(ctx, { item: 'stone_pickaxe', count: 1, priority: 42 }) },
-      { name: 'craft', when: () => canCraft && !hasSword, make: () => new CraftTask(ctx, { item: 'stone_sword', count: 1, priority: 43 }) },
-      { name: 'light', when: () => !has('torch') && (has('coal') || has('charcoal')), make: () => new LightTask(ctx, { count: 4, priority: 45 }) },
-      { name: 'mine', when: () => hasPick && !has('furnace') && cobble < 8, make: () => new MineBlockTask(ctx, { block: ['stone', 'cobblestone', 'deepslate'], count: 8, priority: 47 }) },
-      { name: 'craft', when: () => canCraft && !has('furnace'), make: () => new CraftTask(ctx, { item: 'furnace', count: 1, priority: 48 }) },
-      { name: 'hunt', when: () => canHunt && food < 3, make: () => new HuntTask(ctx, { count: 3, priority: 50 }) },
-      {
-        name: 'craft',
-        when: () => canCraft && pickRank >= stoneRank && !has('iron_ingot', 3) && countItem(view, 'raw_iron') + countItem(view, 'iron_ore') >= 3,
-        make: () => new CraftTask(ctx, { item: 'iron_pickaxe', count: 1, priority: 55 })
-      },
-      {
-        name: 'mine',
-        when: () => hasPick && pickRank >= stoneRank && !has('iron_ingot', 3),
-        /**
-         * The autonomous iron run uses the ore executor through the MineOreTask adapter:
-         * it runs inside the planner's own ownership (no second TaskHub submission) and
-         * shares the alias/variant normalization with every explicit entry (plan §5.6.1).
-         */
-        make: () => new MineOreTask(ctx, { block: ['iron_ore'], count: 3, priority: 56, timeoutMs: 240000 })
-      },
-      { name: 'gather-wood', when: () => mayChop && wood < 16, make: () => new ChopWoodTask(ctx, { count: 16, priority: 60 }) },
-      { name: 'light', when: () => has('coal') || has('charcoal'), make: () => new LightTask(ctx, { count: 6, priority: 62 }) },
-      { name: 'mine', when: () => hasPick, make: () => new MineBlockTask(ctx, { block: ['stone', 'cobblestone', 'deepslate'], count: 16, priority: 70 }) }
-      /**
-       * There is deliberately no always-true fallback rule here.
-       *
-       * The last entry used to be `dig-dirt` with `when: () => true` (gated only on a
-       * `allowDirtDigging` switch): it was the "keep busy" goal, justified because dirt needs no
-       * tool and is never valuable. The operator removed it - an idle planner is better than a
-       * bot that rearranges the ground to look occupied, and on a shared server the hillside is
-       * scenery rather than a resource.
-       *
-       * Idling is a supported state, not a failure: `slowLoop` records
-       * `lastDecision.decision = 'idle'`, and warns every 20th tick so a genuinely stuck planner
-       * is still visible. Explicit requests are unaffected - `!mine dirt 8` and "挖点土" both
-       * still work, because an instruction is an instruction.
-       */
-    ];
-
-    return this.pickRule(rules);
+    for (const candidate of candidates) {
+      if (this.isQuarantined(candidate.name)) {
+        this.log.debug(`skipping quarantined goal ${candidate.name} (rule ${candidate.rule})`);
+        continue;
+      }
+      const task = buildTask(this.ctx, candidate);
+      /** A rule that produces nothing ends the search, exactly as it did before. */
+      if (!task) return task;
+      return task;
+    }
+    return null;
   }
 
   /**
@@ -642,6 +548,8 @@ class Brain {
    * constructor in `src/tasks/` is a pure field assignment, so constructing a task that is
    * then discarded for being quarantined costs nothing.
    *
+   * @deprecated RETIREMENT S1 - `decide()` now goes through the evaluator; this is kept
+   * until S4 removes the legacy path. Synthetic-rule tests moved to `evaluate()`.
    * @param {Array<{name:string,when:Function,make:Function}>} rules
    * @returns {import('../tasks/task').Task|null}
    */
@@ -1060,17 +968,27 @@ class Brain {
 }
 
 /**
- * Which plank type should we craft? Derived from the logs in hand, so it works from a
- * Body snapshot (`view.inventory`) rather than a mineflayer instance.
+ * The legacy task factory for evaluator candidates (RETIREMENT S1).
+ *
+ * The evaluator speaks in data (`{type, name, args}`); building a Task is still this
+ * module's job until S4 retires the legacy task classes. Keeping the factory here also
+ * preserves the P0 audit's "the planner uses primitive tasks, not legacy ones" check.
  */
-function plankName(view) {
-  const logItem = view.inventory.find((name) => isLog(name));
-  if (!logItem) return 'oak_planks';
-  const base = logItem.name.replace(/_log$/, '').replace(/_stem$/, '').replace(/^stripped_/, '');
-  const candidate = `${base}_planks`;
-  const registry = view.registry;
-  if (!registry || !registry.itemsByName) return candidate;
-  return registry.itemsByName[candidate] ? candidate : 'oak_planks';
+const TASK_BUILDERS = {
+  deposit: (ctx, args) => new DepositTask(ctx, args),
+  hunt: (ctx, args) => new HuntTask(ctx, args),
+  'chop-wood': (ctx, args) => new ChopWoodTask(ctx, args),
+  craft: (ctx, args) => new CraftTask(ctx, args),
+  shelter: (ctx, args) => new ShelterTask(ctx, args),
+  mine: (ctx, args) => new MineBlockTask(ctx, args),
+  'mine-ore': (ctx, args) => new MineOreTask(ctx, args),
+  light: (ctx, args) => new LightTask(ctx, args)
+};
+
+function buildTask(ctx, candidate) {
+  const build = TASK_BUILDERS[candidate.type];
+  if (!build) throw new Error(`evaluator returned an unknown task type: ${candidate.type}`);
+  return build(ctx, candidate.args || {});
 }
 
 module.exports = { Brain };

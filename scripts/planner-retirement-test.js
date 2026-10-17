@@ -1,24 +1,12 @@
 'use strict';
 
 /**
- * `npm run planner:test` - RETIREMENT S0 hooks.
+ * `npm run planner:test` - RETIREMENT S0/S1 hooks.
  *
- * S0 is deliberately behaviour-free: it installs the regression hooks that the later
- * stages (S1 evaluator, S2 TaskSlot) will be judged against, without changing what the
- * planner does. Three hooks:
- *
- *   1. **progress() value domain.** A task's `progress()` must return a comparable
- *      value (`null | number | string`). `brain._noteProgress()` compares with `===`,
- *      so a fresh object silently disables the zero-progress park (PLANNER-REFACTOR
- *      P3). `MineOreTask` violates this today; it is listed as a KNOWN violation so
- *      the suite stays green while still failing the day it is fixed (the entry must
- *      then be deleted).
- *   2. **decide() injectable fixture.** A hand-built ctx/world drives rule selection
- *      deterministically, with no game client (P9: the rule table had almost no tests).
- *   3. **`task:quarantined` is emitted** for both park paths (P8: the docs advertised
- *      the event for over a year while the code never emitted it).
- *
- * No client, no network, no model calls.
+ * S0 installed the regression hooks (progress domain, decide() fixture, quarantined event).
+ * S1 adds the evaluator section: the rule table must return declarative candidates, skip
+ * rules the body cannot run (with a reason), and report a throwing precondition instead of
+ * hiding it at debug level. Still no client, no network, no model calls.
  */
 
 const assert = require('assert');
@@ -198,6 +186,57 @@ check('strike-based park emits task:quarantined (reason=strikes)', () => {
   assert(events[0].strikes >= 1);
 });
 
+// ---------------------------------------------------------------- 4. evaluator
+process.stdout.write('\n4. evaluator (S1)\n');
+
+const { evaluate } = require('../src/planner/evaluator');
+
+check('evaluate() returns declarative candidates (no task instances)', () => {
+  const brain = makeBrain({ 'minecraft:wooden_pickaxe': 1 });
+  const candidates = evaluate(brain.ctx, { cfg: brain.cfg });
+  assert(candidates.length > 0, 'expected at least one candidate');
+  for (const candidate of candidates) {
+    assert.strictEqual(typeof candidate.run, 'undefined', 'a candidate is data, not a task');
+    assert(candidate.args && typeof candidate.args === 'object', 'a candidate carries constructor args');
+    assert.strictEqual(typeof candidate.name, 'string', 'a candidate carries the eventual task name');
+    assert.strictEqual(typeof candidate.rule, 'string', 'a candidate keeps the rule name for diagnostics');
+  }
+});
+
+check('the first applicable candidate is the stone-tool rule and carries the task name', () => {
+  const brain = makeBrain({ 'minecraft:wooden_pickaxe': 1 });
+  const [first] = evaluate(brain.ctx, { cfg: brain.cfg });
+  assert.strictEqual(first.rule, 'mine');
+  assert.strictEqual(first.name, 'mine');
+  assert.strictEqual(first.type, 'mine');
+});
+
+check('a body without mineflayer skips shelter/light with a reason (P1/P2)', () => {
+  const brain = makeBrain({ 'minecraft:oak_planks': 20, 'minecraft:coal': 4 }, { isNight: true });
+  const skips = [];
+  evaluate(brain.ctx, { cfg: brain.cfg, onRuleSkip: (skip) => skips.push(skip) });
+  const rules = skips.map((skip) => skip.rule);
+  assert(rules.includes('shelter'), 'shelter must be skipped explicitly, not silently dead (P1)');
+  assert(rules.includes('light'), 'light must be skipped explicitly on a body that cannot place torches (P2)');
+  assert(skips.every((skip) => /mineflayer/.test(skip.reason)), 'the skip reason names the missing capability');
+});
+
+check('a throwing rule is reported and does not stop later rules', () => {
+  const brain = makeBrain({});
+  const errors = [];
+  const throwing = { rule: 'boom', type: 'x', name: 'never', when: () => { throw new Error('nope'); } };
+  const later = { rule: 'later', type: 'x', name: 'later-task', when: () => true, args: () => ({ priority: 1 }) };
+  const candidates = evaluate(brain.ctx, {
+    cfg: brain.cfg,
+    rules: [throwing, later],
+    onRuleError: (failure) => errors.push(failure)
+  });
+  assert.strictEqual(candidates.length, 1);
+  assert.strictEqual(candidates[0].name, 'later-task');
+  assert.strictEqual(errors.length, 1);
+  assert.strictEqual(errors[0].rule, 'boom');
+});
+
 // ------------------------------------------------------------------- summary
 const failed = results.filter((r) => !r.ok);
 process.stdout.write(`\nplanner retirement test: ${results.length - failed.length}/${results.length} checks passed\n`);
@@ -205,4 +244,4 @@ if (failed.length) {
   process.stdout.write('FAILED\n');
   process.exit(1);
 }
-process.stdout.write('S0 hooks are in place (no behaviour change beyond the new event)\n');
+process.stdout.write('S0 hooks + S1 evaluator are in place (offline only)\n');

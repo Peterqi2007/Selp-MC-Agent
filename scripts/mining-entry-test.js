@@ -28,6 +28,7 @@ const { loadConfig } = require('../src/util/config');
 const { MockBody } = require('../src/body/mockBody');
 const { BodyWorldView } = require('../src/world/bodyWorldView');
 const { Brain } = require('../src/brain');
+const { evaluate } = require('../src/planner/evaluator');
 const { TaskHub } = require('../src/core/taskHub');
 const { ChatController } = require('../src/chat/commands');
 const skills = require('../src/skills');
@@ -446,26 +447,33 @@ async function main() {
         return `mine_ore parked -> fell through to ${parked.name}; expiry restored mine_ore`;
       });
 
-      await check('A10: the park key is the task name only, never the rule name', () => {
-        const rules = [{ name: 'gather-wood', when: () => true, make: () => ({ name: 'chop-wood' }) }];
-        agent.brain.quarantine.set('gather-wood', Date.now() + 60000);
-        const byRuleName = agent.brain.pickRule(rules);
-        assert(byRuleName && byRuleName.name === 'chop-wood', 'the rule name parked a task that does not carry it');
-        agent.brain.quarantine.set('chop-wood', Date.now() + 60000);
-        assert.strictEqual(agent.brain.pickRule(rules), null, 'a quarantined task name did not park its rule');
-        agent.brain.quarantine.delete('gather-wood');
-        agent.brain.quarantine.delete('chop-wood');
-        return 'gather-wood/chop-wood: parked by the task name, not the rule name';
+      await check('A10: evaluator candidates carry the TASK name, not the rule name', () => {
+        const candidates = evaluate(agent.ctx, { cfg: agent.brain.cfg, bot: agent.brain.bot });
+        const ore = candidates.find((candidate) => candidate.type === 'mine-ore');
+        assert(ore, 'the ore rule should apply to this inventory');
+        assert.strictEqual(ore.rule, 'mine', `the ore candidate should come from the mine rule, got ${ore.rule}`);
+        assert.strictEqual(ore.name, 'mine_ore', 'the candidate name must be the task name (the quarantine key)');
+        assert.strictEqual(typeof ore.run, 'undefined', 'a candidate is data, not a task');
+        assert(ore.args && typeof ore.args === 'object', 'a candidate carries constructor args');
+        return 'rule mine -> candidate name mine_ore (data only)';
       });
 
-      await check('A10: pickRule keeps its edge contracts (throwing when(), empty make())', () => {
-        const throwing = { name: 'boom', when: () => { throw new Error('nope'); }, make: () => ({ name: 'never' }) };
-        const empty = { name: 'empty', when: () => true, make: () => null };
-        const later = { name: 'later', when: () => true, make: () => ({ name: 'later-task' }) };
-        assert.strictEqual(agent.brain.pickRule([throwing, empty, later]), null, 'a rule that makes nothing must end the search');
-        const skipped = agent.brain.pickRule([throwing, later]);
-        assert(skipped && skipped.name === 'later-task', 'a throwing when() was not skipped');
-        return 'throwing when() skipped; make()=null ends the search';
+      await check('A10: the evaluator skips a throwing rule and reports it', () => {
+        const throwing = { rule: 'boom', type: 'x', name: 'never', when: () => { throw new Error('nope'); } };
+        const later = { rule: 'later', type: 'x', name: 'later-task', when: () => true, args: () => ({ priority: 1 }) };
+        const errors = [];
+        const candidates = evaluate(agent.ctx, {
+          cfg: agent.brain.cfg,
+          bot: agent.brain.bot,
+          rules: [throwing, later],
+          onRuleError: (failure) => errors.push(failure)
+        });
+        assert.strictEqual(candidates.length, 1, `expected only the later candidate, got ${candidates.length}`);
+        assert.strictEqual(candidates[0].name, 'later-task');
+        assert.strictEqual(errors.length, 1, 'the throwing rule must be reported once');
+        assert.strictEqual(errors[0].rule, 'boom');
+        assert(/nope/.test(errors[0].error));
+        return 'throwing rule skipped and reported; the later rule still evaluated';
       });
     } finally {
       agent.restore();
