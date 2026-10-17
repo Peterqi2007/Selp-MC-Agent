@@ -68,10 +68,19 @@ async function goal(goalText, timeoutMs = 180000) {
   const b = await goal(impossible);
   console.log(JSON.stringify(b, null, 2));
 
-  const okA = a.body && a.body.ok && Array.isArray(a.body.steps) && a.body.steps.length >= 2;
-  const okB = b.body && b.body.ok && Array.isArray(b.body.steps) && b.body.steps.length === 0 && b.body.finish && b.body.finish.achieved === false;
-  console.log(`\nH1a steps>=2: ${okA ? 'PASS' : 'FAIL'}`);
-  console.log(`H1b no steps + achieved=false: ${okB ? 'PASS' : 'FAIL'}`);
+  const mutating = (res) => {
+    const steps = res.body && Array.isArray(res.body.steps) ? res.body.steps : [];
+    return steps
+      .map((step) => String(step.command || '').trim())
+      .filter((command) => !/^(status|observe)(\s|$)/i.test(command));
+  };
+  const okA = a.body && a.body.ok && Array.isArray(a.body.steps) && a.body.steps.length >= 2
+    && a.body.finish && a.body.finish.achieved === true;
+  const okB = b.body && b.body.ok && mutating(b).length === 0
+    && b.body.finish && b.body.finish.achieved === false;
+  console.log(`\nH1a steps>=2 + achieved=true: ${okA ? 'PASS' : 'FAIL'}`);
+  console.log(`H1b no mutating steps + achieved=false: ${okB ? 'PASS' : 'FAIL'}`);
+  if (b.body && Array.isArray(b.body.steps)) console.log('H1b steps:', JSON.stringify(b.body.steps));
   process.exitCode = okA && okB ? 0 : 1;
 })().catch((error) => {
   console.error(error.stack || error.message);

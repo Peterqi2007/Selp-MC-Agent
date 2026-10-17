@@ -82,17 +82,17 @@
 
 ## 5. H1a/H1b：已实现接入，待重启 DSH 验证
 
-- 已新增真实 DSH 插件 `dsh-plugin-mc-harness`：注册 `mc_observe` / `mc_step` / `mc_finish`，
-  并提供 `127.0.0.1:8770` 的 `POST /goal`。
-- 重启后 `mc_observe` / `mc_step` / `mc_finish` 真机工具面可用：
-  H1a `mc_observe → mine dirt 2 → stop → mc_finish(true)`；任务 `collected 4/2`；
-  H1b 无 `mc_step`，`mc_finish(false)`，说明缺钻石/工作台。
-- `POST /goal` 仍失败：200 但 `messageCount=0`、`final=""`，DSH session 只有 header；
-  `followup` 未提交 user message。因此 `npm run dsh:h1` 仍 FAIL。
-- **判定**：H1a/H1b **工具面通过**；自动化 `/goal` 未通过，H1 不能标“完整通过”。
+- 已新增真实 DSH 插件 `dsh-plugin-mc-harness`：`mc_observe` / `mc_step` / `mc_finish`
+  与 `127.0.0.1:8770` 的 `POST /goal`。
+- **H1a PASS（live `/goal`）**：3 次 `mc_observe` + 2 条 `mc_step`（`mine dirt 2`、`stop`），
+  `finish.achieved=true`，背包 `dirt 39→41`（+2）。
+- **H1b PASS（live `/goal`）**：0 条 mutating `mc_step`，`finish.achieved=false`，实测说明
+  缺钻石/工作台/craft。
+- 官方脚本（`DSH_AGENT_ID=<live-id>`）：H1a PASS、H1b PASS。
+- 隐藏 agent 路径仍失败（host 无 provider transport）；H1 自动化必须指向 live 对话。
 - **H1 不需要 Full Access Ask**：那是每个 DSH 对话自己的模式预设（每个对话独立，不是启动参数）；
   只有 M5 的 CU 对话需要选择它，并由用户审批。
-- 证据：`runtime/logs/dsh-h1-tool-results-2026-10-17.json`；详见 [`DSH-HARNESS.md`](DSH-HARNESS.md)。
+- 证据：`runtime/logs/dsh-h1-live-run-2026-10-17.log`；详见 [`DSH-HARNESS.md`](DSH-HARNESS.md)。
 
 ## 6. 未执行
 

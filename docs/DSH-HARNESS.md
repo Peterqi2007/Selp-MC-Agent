@@ -90,49 +90,44 @@ npm run dsh:h1
 | DSH 加载插件 | ✅ `GET 8770/health` 返回 `plugin: dsh-mc-harness` |
 | `mc_step` | ✅ 真机可用：手动 `mine dirt 2` 经 8766 执行，任务完成 |
 | `mc_observe` | ✅ 真机可用：返回位置/血量/时间/当前任务；对象输出已改 JSON 字符串 |
-| `POST /goal` | ⚠️ 隐藏 agent 路径失败：source 修正后 `messageCount=3`，但 provider 报 `LlmError TRANSPORT`；同一 profile 的 live 会话正常。已支持 `/goal {agentId}` 指向 live 对话 |
-| H1a | ✅ **工具面通过**：`mc_observe` → `mine dirt 2` → `stop` → `mc_finish(achieved=true)`；任务日志 `collected 4/2` |
-| H1b | ✅ **工具面通过**：无 `mc_step`，`mc_finish(achieved=false)`，说明缺钻石/工作台；`/health steps=2` 未增加 |
+| `POST /goal` | ⚠️ **隐藏 agent 路径失败，live 路径通过**：隐藏 agent 报 `LlmError TRANSPORT`（host 无桌面会话 provider 上下文）；`/goal {agentId}` 指向 live 对话已跑通 |
+| H1a | ✅ **PASS（live `/goal`）**：3 次 `mc_observe` + 2 条 `mc_step`（`mine dirt 2`、`stop`），`finish.achieved=true`；背包 `dirt 39→41`（+2） |
+| H1b | ✅ **PASS（live `/goal`）**：0 条 mutating `mc_step`，`finish.achieved=false`，实测说明缺钻石/工作台/craft 能力 |
 
-**判定边界**：H1a/H1b 的**真实 DSH 工具面**已经通过；`/goal` 的新建隐藏 agent 因 host 无
-provider transport 上下文而失败，现在改用 `agentId` 指向 live 对话。live `/goal` 尚未验证，
-不能把 H1 标为“自动化完整通过”。
+**判定边界**：H1a/H1b 已通过真实 live DSH 对话 + `/goal` 自动入口；官方脚本
+`DSH_AGENT_ID=<live-id> node scripts/dsh-h1-test.js` 输出 H1a PASS / H1b PASS。
+隐藏 agent 路径仍失败（host 无 provider transport 上下文），不作为 H1 自动化路径。
 
-证据：`runtime/logs/dsh-h1-tool-results-2026-10-17.json`、`runtime/logs/agent-h1-tools-2026-10-17.log`。
-`/goal` 的空会话证据：`~/.dsh/sessions/_no-cwd/mc-harness-*/session.v4.jsonl.zstd` 仅含 header。
+证据：`runtime/logs/dsh-h1-live-run-2026-10-17.log`、
+`runtime/logs/agent-h1-live-2026-10-17.log`；工具面早期证据
+`runtime/logs/dsh-h1-tool-results-2026-10-17.json`。
 
-### 待修：/goal 的 followup 未提交
-
-- `/goal` 创建出的 agent 能返回 handle，但 `followup()` 后 session 仍只有 header；
-  `whenIdle()` 立即返回。
-- 已尝试：`ctx.get('agents')`、显式 `deepseek-official/deepseek-flash`、每次新建会话、
-  `await followup`、`messageCount` 诊断；仍未解决。
-- 结论：host 里程序化新建的 agent 没有当前桌面会话的 provider transport 上下文；
-  这不是 driver 契约问题。正确做法是用 `agentId` 指向一个已存在的 live 对话。
-- 复验：重启后开第二个 DSH 对话（保持 idle），用 `DSH_AGENT_ID=<id> npm run dsh:h1`。
-
-### 重启后复验
+### `/goal` 的正确用法（live 对话）
 
 ```powershell
-# 1. 重启 DeepSeek Harness（H1 无需 Full Access Ask；模式预设是对话级）
-# 2. 启动 Minecraft client + Node agent
+# 1. 在 DSH 新建一个对话并发一句你好（让它成为 live agent）
+# 2. 取 id
+curl http://127.0.0.1:8770/agents
+# 3. 发送 H1
+$env:DSH_AGENT_ID="session-..."
 npm run dsh:h1
 ```
 
-期望：
+隐藏 agent 路径（不传 `agentId`）仍会创建 session，但 host 没有桌面会话的 provider
+transport 上下文，会报 `LlmError TRANSPORT`；不要用它做 H1。`/goal` 一次一个目标，
+H1a/H1b 会进入同一个 live 对话。
 
-- `GET 8770/health` OK；
-- H1a `steps >= 2`，`finish.achieved=true`；
-- H1b `steps = 0`，`finish.achieved=false`，最终文本说明缺钻石/工作台。
+### H1 结果（2026-10-17）
 
+- H1a：3 次 `mc_observe` + 2 条 `mc_step`（`mine dirt 2`、`stop`），
+  `finish.achieved=true`，背包 `dirt 39→41`（+2）；
+- H1b：0 条 mutating `mc_step`，`finish.achieved=false`，实测说明缺钻石/工作台/craft；
+- 官方脚本输出：`H1a steps>=2 + achieved=true: PASS`、`H1b no mutating steps + achieved=false: PASS`。
 
+### 边界
 
-- 插件默认创建**独立 DSH agent session**，不驱动桌面 UI；`/goal` 一次一个。
-- 模型与 provider 使用 DSH profile 默认（`deepseek-official/deepseek-flash`）；
-  如要覆盖，在插件 config 加 `agentOptions`。
-- 插件工具注册在全局 tools 上；H1 测试只使用独立 session。若后续要限制到单 agent，
-  改用 `agent.ctx.tools` 的 scoped registration（需要 DSH agent setup 回调）。
-- 本文件记录的是**实现与安装**；DSH 重启后的真实 H1a/H1b 结果尚未执行，
-  不能把接入本身当作 H1 通过。
+- 隐藏 agent 不做 H1；live `/goal` 要求预先存在一个 DSH 对话。
+- H1b 允许只读 `status`/`observe`，不允许 `mine`/`chop`/`goto`/`stop` 等 body 动作。
+- 插件工具注册在全局 tools 上；H1 使用 live 对话，不创建独立测试 session。
 - Full Access Ask 是**对话级模式预设**，不是启动参数；插件自身不提升权限，`mc_step` 只调用
   8766 命令表。H1 不使用它；M5 的 CU 对话才需要选择。
