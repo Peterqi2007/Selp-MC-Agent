@@ -166,22 +166,32 @@ export function apply(ctx, config = {}) {
   let busy = false;
 
   const ensureAgent = async () => {
-    if (handle) return handle;
     /**
-     * Cordis only exposes an injected service through the inject scope. `/goal` runs from
-     * the HTTP handler, outside that scope, so read the registry with ctx.get() instead of
-     * the ctx.agents property (live H1 2026-10-17: "cannot get property agents without inject").
+     * Programmatic agents do not inherit the profile's declarative default model reliably:
+     * the first H1 retry created a session with no provider/model and whenIdle() returned
+     * immediately with an empty transcript. Use the profile's default route explicitly;
+     * config.agentOptions may override it.
      */
+    const agentOptions = config.agentOptions || {
+      provider: 'deepseek-official',
+      model: 'deepseek-flash',
+      reasoningEffort: 'max'
+    };
     const agents = typeof ctx.get === 'function' ? ctx.get('agents') : null;
     if (!agents || typeof agents.create !== 'function') {
       throw new Error('dsh-mc-harness needs the agents service (dsh-agent + dsh-agent-loop)');
     }
+    if (handle) {
+      try {
+        await handle.dispose();
+      } catch {
+        /* already gone */
+      }
+      handle = null;
+    }
     const sessionId = `mc-harness-${Date.now()}`;
-    handle = await agents.create({
-      sessionId,
-      agentOptions: config.agentOptions || {}
-    });
-    log(`agent ${sessionId} created`);
+    handle = await agents.create({ sessionId, agentOptions });
+    log(`agent ${sessionId} created (${agentOptions.provider}/${agentOptions.model})`);
     return handle;
   };
 
@@ -227,16 +237,18 @@ export function apply(ctx, config = {}) {
           '',
           `GOAL: ${goal}`
         ].join('\n');
-        agent.agent.followup({
+        await agent.agent.followup({
           content: [{ type: 'text', text: prompt }],
           source: { kind: 'plugin', plugin: name }
         });
         await agent.agent.whenIdle();
+        const history = agent.agent.session.deriveMessages();
         const final = lastAssistantText(agent.agent.session);
         return jsonReply(res, 200, {
           ok: true,
           goal,
           sessionId: agent.agent.id || null,
+          messageCount: history.length,
           steps: record.steps,
           receipts: record.receipts,
           observations: record.observations,
