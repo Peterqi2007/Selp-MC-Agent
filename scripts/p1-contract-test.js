@@ -1804,6 +1804,30 @@ function makeBrain() {
     });
   }
 
+  // --------------------------------------------- snapshot field timestamps
+  process.stdout.write('\n29. snapshot field timestamps\n');
+  {
+    const { ClientModBody } = require('../src/body/clientModBody');
+    const body = new ClientModBody(loadConfig({ profile: null }), { log: silent });
+    body._snapshot = {
+      ready: true,
+      position: { x: 0, y: 64, z: 0 },
+      health: 20,
+      food: 20,
+      inventory: {},
+      hostiles: [],
+      blocks: null,
+      time: { isDay: true }
+    };
+    body._snapshotAt = 5000;
+    const snap = body.snapshot();
+    check('the client body stamps fields with the refresh time, not the read time', () => {
+      assert.strictEqual(snap.observedAt.position, 5000);
+      assert.strictEqual(fieldAge(snap, 'hostiles', 5500), 500);
+      assert.strictEqual(fieldAge(snap, 'blocks', 5500), 500);
+    });
+  }
+
   // summary
   const failed = results.filter((result) => !result.ok);
   process.stdout.write(`\nP1 contract test: ${results.length - failed.length}/${results.length} checks passed\n`);

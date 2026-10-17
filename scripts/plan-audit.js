@@ -993,6 +993,14 @@ if (STAGE === 'p1') {
     return 'task ok + postcondition fail -> step failed, plan stops';
   });
 
+  check('P1: the client body reports per-field freshness', () => {
+    const body = read('src/body/clientModBody.js');
+    if (!/stampSnapshot/.test(body)) throw new Error('the body never stamps its snapshot');
+    if (!/this\._snapshotAt \|\| Date\.now\(\)/.test(body)) throw new Error('the stamp is not tied to the refresh time');
+    if (!/OBSERVED_FIELDS/.test(body)) throw new Error('the observed field list is missing');
+    return 'observedAt comes from the last refresh, not from the read';
+  });
+
   check('P1: proposals are wired with an offline answer surface', () => {
     const brain = read('src/brain.js');
     const commands = read('src/chat/commands.js');

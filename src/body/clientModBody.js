@@ -23,6 +23,7 @@
  */
 
 const { Body, BodyUnavailableError } = require('./body');
+const { stampSnapshot } = require('../world/freshness');
 const { Logger } = require('../util/logger');
 const { chooseTool } = require('../world/toolPolicy');
 
@@ -56,6 +57,46 @@ function fullItemName(name) {
   if (!text) return '';
   return text.includes(':') ? text : `minecraft:${text}`;
 }
+
+/**
+ * Fields whose freshness is reported with the snapshot (P1 §1.5.3).
+ *
+ * They all come from the same `/state` response, so they share one timestamp - but the
+ * timestamp is the **refresh** time, not the read time. A caller that re-reads a cached
+ * snapshot must see the field age correctly, not "0 ms because I just called snapshot()".
+ */
+const OBSERVED_FIELDS = [
+  'position',
+  'yaw',
+  'pitch',
+  'dimension',
+  'health',
+  'food',
+  'onGround',
+  'dead',
+  'screenOpen',
+  'screen',
+  'mouseGrabbed',
+  'windowFocused',
+  'target',
+  'time',
+  'weather',
+  'inventory',
+  'emptySlots',
+  'heldItem',
+  'standingOn',
+  'lightLevel',
+  'blockLight',
+  'hostiles',
+  'entities',
+  'guns',
+  'nearbyItems',
+  'crops',
+  'fishing',
+  'heldDurability',
+  'players',
+  'blocks'
+];
 
 class ClientModBody extends Body {
   /**
@@ -303,7 +344,7 @@ class ClientModBody extends Body {
   snapshot() {
     const state = this._snapshot;
     if (!state || !state.ready) return null;
-    return {
+    const snap = {
       ready: true,
       body: this.kind,
       position: state.position,
@@ -385,6 +426,15 @@ class ClientModBody extends Body {
        */
       blocks: state.blocks || null
     };
+    /**
+     * Stamp with the last successful refresh, not `Date.now()`: mapping is cheap, but the
+     * underlying data is as old as `_snapshotAt`. When the mod has not answered yet, fall
+     * back to "now" (the snapshot is still the only data we have).
+     */
+    return stampSnapshot(snap, {
+      now: this._snapshotAt || Date.now(),
+      fields: OBSERVED_FIELDS
+    });
   }
 
   /**
