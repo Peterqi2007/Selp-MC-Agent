@@ -34,6 +34,7 @@ const { TaskEvents } = require('./core/taskEvents');
 const { PlanStore } = require('./core/planStore');
 const { PlanRunner } = require('./core/planRunner');
 const { PlanQuestionBridge } = require('./planner/planQuestions');
+const { verifyStep } = require('./planner/verifier');
 const { TurnLifecycle } = require('./core/turnLifecycle');
 const { HarnessAdapter } = require('./harness/adapter');
 const { StateStore } = require('./core/stateStore');
@@ -116,6 +117,8 @@ class Brain {
       createTask: (step, ids) =>
         buildTask(this.ctx, { type: step.type, args: { ...(step.args || {}), ...ids } }),
       runTask: (task) => this.runTask(task),
+      verify: (step, observation) => verifyStep(step, observation),
+      observe: () => (this.ctx.world.snapshot ? this.ctx.world.snapshot(true) : null),
       log: this.log
     });
     ctx.planRunner = this.planRunner;

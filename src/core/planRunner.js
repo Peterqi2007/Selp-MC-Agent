@@ -31,6 +31,8 @@ class PlanRunner {
     this.plans = deps.plans;
     this.createTask = deps.createTask;
     this.runTask = deps.runTask;
+    this.verify = deps.verify || null;
+    this.observe = deps.observe || null;
     this.log = deps.log || { info() {}, warn() {}, debug() {} };
     if (!this.plans || typeof this.plans.applyDraft !== 'function') {
       throw new Error('PlanRunner needs a PlanStore');
@@ -109,13 +111,39 @@ class PlanRunner {
           this.currentTask = null;
         }
         const status = (result && result.status) || (result && result.ok ? 'succeeded' : 'failed');
-        results.push({ stepId: step.id, status, reason: result ? result.reason || null : null });
-        this._writeStep(planId, step.id, status === 'succeeded' || status === 'partial' ? 'done' : 'failed');
-        if (status === 'cancelled') {
+        let finalStatus = status;
+        let reason = result ? result.reason || null : null;
+        /**
+         * A task saying "ok" is not the same as the step's postcondition holding (A06).
+         * When a verifier is injected, a failed postcondition turns the step into `failed`
+         * and stops the plan - the caller can then replan instead of assuming progress.
+         */
+        if ((status === 'succeeded' || status === 'partial') && typeof this.verify === 'function') {
+          let verdict;
+          try {
+            const observation = typeof this.observe === 'function' ? this.observe() : null;
+            verdict = this.verify(step, observation);
+          } catch (err) {
+            verdict = { ok: false, stage: 'verify-error', failures: [{ reason: err.message }] };
+          }
+          if (!verdict || verdict.ok !== true) {
+            finalStatus = 'failed';
+            reason = `postcondition: ${(verdict && verdict.stage) || 'unknown'} ${JSON.stringify(
+              (verdict && verdict.failures) || []
+            )}`;
+          }
+        }
+        results.push({ stepId: step.id, status: finalStatus, reason });
+        this._writeStep(
+          planId,
+          step.id,
+          finalStatus === 'succeeded' || finalStatus === 'partial' ? 'done' : 'failed'
+        );
+        if (finalStatus === 'cancelled') {
           this.active.cancelled = true;
           break;
         }
-        if (status !== 'succeeded' && status !== 'partial') break;
+        if (finalStatus !== 'succeeded' && finalStatus !== 'partial') break;
       }
       const completed = results.every(
         (result) => result.skipped || result.status === 'succeeded' || result.status === 'partial'

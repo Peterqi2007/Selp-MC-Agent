@@ -1748,6 +1748,62 @@ function makeBrain() {
     fs.rmSync(dir, { recursive: true, force: true });
   }
 
+  // --------------------------------------------- step postconditions in plans
+  process.stdout.write('\n28. plan step postconditions\n');
+  {
+    const plans = new PlanStore();
+    plans.applyDraft({
+      planId: 'pv',
+      steps: [
+        { id: 'a', type: 'mine' },
+        { id: 'b', type: 'mine', postconditions: { inventoryAtLeast: { 'minecraft:iron_ore': 1 } } },
+        { id: 'c', type: 'mine' }
+      ]
+    });
+    const ran = [];
+    const runner = new PlanRunner({
+      plans,
+      createTask: (step) => ({ name: step.id, cancel() {} }),
+      runTask: async (task) => {
+        ran.push(task.name);
+        return { ok: true, status: 'succeeded' };
+      },
+      verify: (step) => ({ ok: step.id !== 'b' }),
+      observe: () => ({})
+    });
+    const outcome = await runner.run('pv');
+    check('a failed postcondition stops the plan even when the task said ok', () => {
+      assert.deepStrictEqual(ran, ['a', 'b']);
+      assert.strictEqual(outcome.ok, false);
+      const plan = plans.get('pv');
+      assert.strictEqual(plan.steps.find((step) => step.id === 'b').status, 'failed');
+      assert.match(outcome.results.find((entry) => entry.stepId === 'b').reason, /postcondition/);
+      assert.strictEqual(plan.steps.find((step) => step.id === 'c').status, 'pending');
+    });
+  }
+
+  {
+    const plans = new PlanStore();
+    plans.applyDraft({
+      planId: 'pw2',
+      steps: [
+        { id: 'only', type: 'mine', postconditions: { inventoryAtLeast: { 'minecraft:iron_ore': 1 } } }
+      ]
+    });
+    const runner = new PlanRunner({
+      plans,
+      createTask: (step) => ({ name: step.id, cancel() {} }),
+      runTask: async () => ({ ok: true, status: 'succeeded' }),
+      verify: (step, observation) => verifyStep(step, observation),
+      observe: () => ({ inventory: {} })
+    });
+    const outcome = await runner.run('pw2');
+    check('the real verifier reads the observation and fails the empty inventory', () => {
+      assert.strictEqual(outcome.ok, false);
+      assert.match(outcome.results[0].reason, /postcondition/);
+    });
+  }
+
   // summary
   const failed = results.filter((result) => !result.ok);
   process.stdout.write(`\nP1 contract test: ${results.length - failed.length}/${results.length} checks passed\n`);

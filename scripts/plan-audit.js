@@ -983,6 +983,16 @@ if (STAGE === 'p1') {
     return '!state status|save; cannot enable persistence';
   });
 
+  check('P1: plan steps verify their postconditions', () => {
+    const runner = read('src/core/planRunner.js');
+    const brain = read('src/brain.js');
+    if (!/typeof this\.verify === 'function'/.test(runner)) throw new Error('the runner never verifies');
+    if (!/postcondition:/.test(runner)) throw new Error('a failed postcondition is not reported');
+    if (!/finalStatus = 'failed'/.test(runner)) throw new Error('a failed postcondition does not stop the plan');
+    if (!/verify: \(step, observation\) => verifyStep/.test(brain)) throw new Error('brain does not inject the verifier');
+    return 'task ok + postcondition fail -> step failed, plan stops';
+  });
+
   check('P1: proposals are wired with an offline answer surface', () => {
     const brain = read('src/brain.js');
     const commands = read('src/chat/commands.js');
