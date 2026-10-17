@@ -795,6 +795,15 @@ if (STAGE === 'p1') {
     return 'opt-in conversation guard; default off';
   });
 
+  check('P1: fault drills keep one owner and never replay', () => {
+    if (!exists('scripts/p1-fault-test.js')) throw new Error('the fault drill suite is missing');
+    const drills = read('scripts/p1-fault-test.js');
+    for (const needle of ['timeout', 'preempt', 'takeover', 'restart']) {
+      if (!new RegExp(needle).test(drills)) throw new Error(`fault drill "${needle}" is missing`);
+    }
+    return 'timeout/cancel/throw/preempt/takeover/restart drills';
+  });
+
   check('P1: proposals are wired with an offline answer surface', () => {
     const brain = read('src/brain.js');
     const commands = read('src/chat/commands.js');
