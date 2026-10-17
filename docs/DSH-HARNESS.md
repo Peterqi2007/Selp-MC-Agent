@@ -44,11 +44,13 @@ npm run dsh:install -- --apply
 2. 在 `cordis.patch.yml` 末尾追加一条 `insert`（`id: dsh-mc-harness`，端口 8770），
    并生成 `cordis.patch.yml.bak-mc-harness-*` 备份。
 
-然后**重启 DeepSeek Harness**（不重启不会加载插件）。
+然后**重启 DeepSeek Harness**（不重启不会加载插件）。重启只需加载插件，**H1 不需要
+Full Access Ask**。
 
-启动 DSH 时按约定使用 **Full Access Ask** 权限预设（profile 已有
-`full-access-ask`：`sandbox: danger-full-access`、`approval: ask`）；审批由用户完成。
-CU 仍只允许 Minecraft 窗口内动作，这一条不因 Full Access Ask 放开。
+`Full Access Ask` 是**每个 DSH 对话自己的模式预设**（每个对话独立，不是启动 DSH 的参数）。
+只有 M5 的 CU 对话需要在该对话里选择 `full-access-ask`（profile 已有：`sandbox:
+danger-full-access`、`approval: ask`），审批由用户完成；CU 仍只允许 Minecraft 窗口内动作，
+这一条不因 Full Access Ask 放开。
 
 检查：
 
@@ -97,7 +99,7 @@ npm run dsh:h1
 ### 重启后复验
 
 ```powershell
-# 1. 重启 DeepSeek Harness（选择 full-access-ask 预设）
+# 1. 重启 DeepSeek Harness（H1 无需 Full Access Ask；模式预设是对话级）
 # 2. 启动 Minecraft client + Node agent
 npm run dsh:h1
 ```
@@ -117,4 +119,5 @@ npm run dsh:h1
   改用 `agent.ctx.tools` 的 scoped registration（需要 DSH agent setup 回调）。
 - 本文件记录的是**实现与安装**；DSH 重启后的真实 H1a/H1b 结果尚未执行，
   不能把接入本身当作 H1 通过。
-- Full Access Ask 是 DSH 权限预设；插件自身不提升权限，`mc_step` 只调用 8766 命令表。
+- Full Access Ask 是**对话级模式预设**，不是启动参数；插件自身不提升权限，`mc_step` 只调用
+  8766 命令表。H1 不使用它；M5 的 CU 对话才需要选择。

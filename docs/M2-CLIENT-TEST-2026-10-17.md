@@ -89,8 +89,9 @@
 - 首版 `/goal` 报 `cannot get property "agents" without inject`（已改 `ctx.get('agents')`）；
   `mc_observe` 对象输出被 DSH 拒绝（已改 JSON 字符串）。这两处**需要重启 DSH 才加载**。
 - 因此 H1a/H1b **尚未通过**；不能把“插件加载 + mc_step 可用”当作 H1 通过。
+- **H1 不需要 Full Access Ask**：那是每个 DSH 对话自己的模式预设（每个对话独立，不是启动参数）；
+  只有 M5 的 CU 对话需要选择它，并由用户审批。
 - 重启后运行 `npm run dsh:h1`；详见 [`DSH-HARNESS.md`](DSH-HARNESS.md)。
-- Full Access Ask：DSH 重启时使用 profile 的 `full-access-ask` 预设；审批由用户完成。
 
 ## 6. 未执行
 
@@ -102,6 +103,6 @@
 
 1. **A02 重跑**：`addressedPrefix=@gate`（与 `dialogueTrigger=@大肥鱼` 不同），
    20 条输入改前缀 `@gate`；会再次消耗模型 token，需用户确认。
-2. H1：先接真实 harness，再按 `Full Access Ask` 启动；否则 M2 阻塞。
+2. H1：真实 DSH 插件已接入，重启 DSH 后复验 `/goal`；H1 不需要 Full Access Ask。
 3. A03：需 `chat.languageAgent=true` + 真实模型 + 操作员输入；单独配置。
 4. A09/A10/A11：可在白天/床可达时安排。

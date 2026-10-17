@@ -5,7 +5,7 @@
  * Prereqs:
  *   1. DSH restarted with dsh-mc-harness installed (http://127.0.0.1:8770/health).
  *   2. Minecraft agent running on http://127.0.0.1:8766.
- *   3. DSH started in the requested Full Access Ask mode (user approves).
+ *   3. H1 does NOT require Full Access Ask (that is a per-conversation preset, only for M5 CU).
  *
  * Usage:
  *   node scripts/dsh-h1-test.js
