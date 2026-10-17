@@ -1706,6 +1706,48 @@ function makeBrain() {
     });
   }
 
+  // ----------------------------------------------------- !state operator surface
+  process.stdout.write('\n27. persistence operator surface\n');
+  {
+    const { ChatController } = require('../src/chat/commands');
+    const brain = makeBrain();
+    const replies = [];
+    brain.ctx.reply = async (text) => replies.push(text);
+    const chat = new ChatController(brain.ctx);
+
+    const disabled = await chat.handlers.state(['status']);
+    check('!state reports persistence disabled by default', () => {
+      assert.strictEqual(disabled.enabled, false);
+      assert.match(replies[replies.length - 1], /未启用/);
+    });
+    const denied = await chat.handlers.state(['save']);
+    check('!state save cannot enable persistence by itself', () => {
+      assert.strictEqual(denied.ok, false);
+      assert.strictEqual(denied.enabled, false);
+      assert.strictEqual(denied.reason, 'state-disabled');
+    });
+
+    const dir = fs.mkdtempSync(nodePath.join(os.tmpdir(), 'p1-state-cmd-'));
+    const file = nodePath.join(dir, 'state.json');
+    brain.stateStore = new StateStore({ file });
+    brain.plans.applyDraft({ planId: 'ps', steps: [{ id: 's1' }] });
+    const saved = await chat.handlers.state(['save']);
+    check('!state save writes one atomic snapshot', () => {
+      assert(saved.ok);
+      assert(fs.existsSync(file));
+      const data = JSON.parse(fs.readFileSync(file, 'utf8'));
+      assert.strictEqual(data.version, 1);
+      assert.strictEqual(data.plans.plans.length, 1);
+    });
+    const status = await chat.handlers.state(['status']);
+    check('!state status reports the file and current counts', () => {
+      assert.strictEqual(status.enabled, true);
+      assert.strictEqual(status.plans, 1);
+      assert.match(replies[replies.length - 1], /持久化开启/);
+    });
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+
   // summary
   const failed = results.filter((result) => !result.ok);
   process.stdout.write(`\nP1 contract test: ${results.length - failed.length}/${results.length} checks passed\n`);

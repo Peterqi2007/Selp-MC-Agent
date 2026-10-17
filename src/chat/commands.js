@@ -69,6 +69,7 @@ const HELP = [
   '!store - deposit loot in a chest',
   '!task status|stop - the background task slot',
   '!proposal status|accept [always]|reject - answer the planner\'s proposal',
+  '!state status|save - persisted session state (off by default)',
   '!area add|list|show|delete - named areas (permission rules can point at them)',
   '!route add|plan|go|list|show|delete - named routes; plan first, go walks it',
   '!rule list|allow|deny|ask|remove|mode - permission rules',
@@ -434,6 +435,46 @@ class ChatController {
         } else {
           this.say('现在没有待答的提案');
         }
+        return status;
+      },
+
+      /**
+       * Persistence operator surface (P1 M3, A17).
+       *
+       * Persistence is opt-in (`state.enabled=false` by default); this command makes that
+       * visible and gives a deterministic "save now" action. It never enables persistence.
+       */
+      state: async (args) => {
+        const brain = ctx.brain;
+        if (!brain) return { ok: false, reason: 'no brain' };
+        const sub = (args[0] || 'status').toLowerCase();
+        if (sub === 'save') {
+          if (!brain.stateStore) {
+            this.say('持久化未启用（config state.enabled=false）');
+            return { ok: false, enabled: false, reason: 'state-disabled' };
+          }
+          const saved = brain.saveStateNow();
+          this.say(saved ? `状态已保存：${brain.stateStore.file}` : '状态保存失败，见日志');
+          return { ok: saved, enabled: true, file: brain.stateStore.file };
+        }
+        if (sub !== 'status') {
+          this.say('用法：!state status 或 !state save');
+          return { ok: false, reason: 'bad-subcommand' };
+        }
+        const status = {
+          enabled: !!brain.stateStore,
+          file: brain.stateStore ? brain.stateStore.file : null,
+          plans: brain.plans ? brain.plans.status().plans : 0,
+          pendingProposal: brain.proposals ? brain.proposals.pending() !== null : false,
+          eventSeq: brain.events ? brain.events.status().seq : 0,
+          methods: brain.methods ? brain.methods.status().methods : 0,
+          answers: brain.answers ? brain.answers.status().facts : 0
+        };
+        this.say(
+          status.enabled
+            ? `持久化开启：${status.file}（事件 ${status.eventSeq}，计划 ${status.plans}，待答 ${status.pendingProposal ? 1 : 0}）`
+            : '持久化未启用（config state.enabled=false）'
+        );
         return status;
       },
 

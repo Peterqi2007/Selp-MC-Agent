@@ -974,6 +974,15 @@ if (STAGE === 'p1') {
     return 'no answer -> step failed, plan stops; never stays parked';
   });
 
+  check('P1: persistence has an operator surface', () => {
+    const commands = read('src/chat/commands.js');
+    if (!/state: async/.test(commands)) throw new Error('!state is missing');
+    if (!/!state status\|save/.test(commands)) throw new Error('!state is not documented in help');
+    if (!/state-disabled/.test(commands)) throw new Error('the command can pretend persistence is enabled');
+    if (!/saveStateNow/.test(commands)) throw new Error('the command does not trigger a save');
+    return '!state status|save; cannot enable persistence';
+  });
+
   check('P1: proposals are wired with an offline answer surface', () => {
     const brain = read('src/brain.js');
     const commands = read('src/chat/commands.js');

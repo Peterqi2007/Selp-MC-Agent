@@ -52,12 +52,12 @@
 | [`docs/P1-M0.md`](docs/P1-M0.md) | **P1 M0 记录**：基线（提交/指纹/套件）、问题复核、P0→P1 审计迁移清单、评测集 v1、测量模板与版本登记。离线项已完成，**客户端三项未执行** |
 | [`docs/P1-M1.md`](docs/P1-M1.md) | **P1 M1 记录（离线 M1a–M1d）**：`TaskEvents` 汇聚/重放、身份字段、`PlanStore` 单一写者、同端口 SSE、Capability 表、TaskResult 六态、`mine_ore` progress 值域、PlanRunner、TurnLifecycle、HarnessAdapter；`p1:contract:test` 22/22。真实 DSH 插件接线与持久化未完成 |
 | [`docs/P1-M2.md`](docs/P1-M2.md) | **P1 M2 记录（离线契约 + 地址通道）**：二值闸门、`@` 通道默认关闭、严格 LLM 判定器、双脑工具清单、语言专用 `say`/`silence`、离线 `LanguageAgent`、可选语言对话通道（默认关闭）、字段新鲜度；`p1:contract:test` 106/106。真实模型判定、感知刷新未完成 |
-| [`docs/P1-M3.md`](docs/P1-M3.md) | **P1 M3 记录（离线持久化/等待/续轮/学习/预算）**：原子状态、计划/问题/事件/方法/回答恢复、`wait_for_player`、计划问题复用提案（拒绝/过期停步）、`ResumeBridge`、`MethodLibrary`、`AnswerMemory`、`Budget`、`verifier`、`draftGuard`；默认关闭。真实 harness 传输、联网学习、A17/A29 真机未完成 |
+| [`docs/P1-M3.md`](docs/P1-M3.md) | **P1 M3 记录（离线持久化/等待/续轮/学习/预算）**：原子状态、计划/问题/事件/方法/回答恢复、`wait_for_player`、计划问题复用提案（拒绝/过期停步）、`!state`、`ResumeBridge`、`MethodLibrary`、`AnswerMemory`、`Budget`、`verifier`、`draftGuard`；默认关闭。真实 harness 传输、联网学习、A17/A29 真机未完成 |
 | [`docs/P1-M4.md`](docs/P1-M4.md) | **P1 M4 记录（离线安全子集）**：manifest 校验、生成管线（静态扫描、不执行）、候选→试运行→晋升状态机（隔离/回退/下线）、runner dry-run、promoted-only 检索。真实编码后端、受限执行、A18–A20 未完成 |
 | [`docs/P1-M5.md`](docs/P1-M5.md) | **P1 M5 记录（窗口策略离线契约）**：CU 默认拒绝（F1 未验证）、窗口/边界/截图限窗、显式 verify+证据。GUI 中断、截图成本、A21/A22 未完成 |
 | [`docs/P1-M6.md`](docs/P1-M6.md) | **P1 M6 记录（聊天并发 + 按需接线）**：未读去重、过时回复拒绝、自回声拒绝、限速/重复/截断、随会话持久化；LLM 回复可 opt-in 守卫（默认关闭）。真实多人 A23/A24、状态发言、A25 聊天侧未完成 |
 | [`docs/P1-M7.md`](docs/P1-M7.md) | **P1 M7 记录（离线准备）**：`p1:verify` 一键离线验收、`p1:fault:test` 7/7、A01–A31 验收矩阵（无一项标通过）、发布清单与残余风险。**P1 未发布**，客户端/模型项全部未执行 |
-| [`docs/PLANNER-RETIREMENT.md`](docs/PLANNER-RETIREMENT.md) | **自主规划器退役**：`slowLoop` 拆为 GoalEvaluator + 提案 + TaskSlot。**S0–S4 已全部离线交付**（`planner:test` 32/32、`plan:audit --stage p1` 76/76），真机判据仍登记在客户端清单 |
+| [`docs/PLANNER-RETIREMENT.md`](docs/PLANNER-RETIREMENT.md) | **自主规划器退役**：`slowLoop` 拆为 GoalEvaluator + 提案 + TaskSlot。**S0–S4 已全部离线交付**（`planner:test` 32/32、`plan:audit --stage p1` 77/77），真机判据仍登记在客户端清单 |
 | [`docs/P1-CLIENT-TESTS.md`](docs/P1-CLIENT-TESTS.md) | **客户端/真机测试清单**：P1 与退役判据里所有需要真实客户端/服务器的项，**当前全部未执行**（本分支只跑离线套件） |
 | [`docs/PLANNER-AB-EXPERIMENT.md`](docs/PLANNER-AB-EXPERIMENT.md) | **选型 A/B 实验设计**（**条件触发**：仅当 P1 §1.9.2 降级判定成立才执行）：24 次计分运行的场景与门槛；成本审计按时间 / token / 模块复用三项（§6–§7），§10 是决策闸门，**不做经济性评估**（§8.4） |
 | [`docs/HARNESS-INTERFACES.md`](docs/HARNESS-INTERFACES.md) | **两侧接口事实**：Codex（`base_instructions` 可整段替换 / `tool_mode` / hooks / MCP）与 DSH（0.2.0-rc.2、cordis 插件契约、system-prompt 装配、preset）的一手机器取证，含待验证项 |
