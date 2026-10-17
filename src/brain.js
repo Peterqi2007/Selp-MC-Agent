@@ -164,6 +164,16 @@ class Brain {
     this.deathDetail = null;
     /** Task lifecycle listeners, used by the LLM for event-driven follow-ups (§5.6). */
     this.listeners = new Map();
+    /**
+     * A plan question that expires unanswered must not leave the plan parked forever.
+     * Only the expired event is handled here; accept/reject already resume explicitly.
+     */
+    this.on('proposal:expired', (proposal) => {
+      if (!proposal || proposal.type !== 'plan_question' || !proposal.planId) return;
+      this.planRunner.resume(proposal.planId, false).catch((err) => {
+        this.log.warn(`expired plan question could not resume ${proposal.planId}: ${err.message}`);
+      });
+    });
 
     /**
      * P1 M3/A17/A29: opt-in persistence. Off by default until the client window; when on,

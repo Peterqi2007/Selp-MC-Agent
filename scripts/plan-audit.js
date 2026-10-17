@@ -963,6 +963,17 @@ if (STAGE === 'p1') {
     return 'planner + contract + fault + audit p1 + P0 regression';
   });
 
+  check('P1: an expired plan question stops the plan', () => {
+    const brain = read('src/brain.js');
+    const proposals = read('src/planner/proposals.js');
+    if (!/proposal:expired/.test(brain)) throw new Error('expiry is not observed');
+    if (!/planRunner\.resume\(proposal\.planId, false\)/.test(brain)) {
+      throw new Error('an expired question does not fail the waiting step');
+    }
+    if (!/type: candidate\.type/.test(proposals)) throw new Error('proposal events do not carry their type');
+    return 'no answer -> step failed, plan stops; never stays parked';
+  });
+
   check('P1: proposals are wired with an offline answer surface', () => {
     const brain = read('src/brain.js');
     const commands = read('src/chat/commands.js');

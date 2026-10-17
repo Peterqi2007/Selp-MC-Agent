@@ -201,9 +201,14 @@ class ProposalDesk {
   }
 
   _view(proposal) {
+    const candidate = proposal.candidate || {};
+    const args = candidate.args || {};
     return {
       id: proposal.id,
       target: proposal.target,
+      type: candidate.type || null,
+      planId: args.planId || null,
+      stepId: args.stepId || null,
       status: proposal.status,
       reason: proposal.reason,
       createdAt: proposal.createdAt,

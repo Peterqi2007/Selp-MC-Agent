@@ -1671,6 +1671,41 @@ function makeBrain() {
     });
   }
 
+  // ------------------------------------------- unanswered plan questions expire
+  process.stdout.write('\n26. unanswered plan questions expire\n');
+  {
+    const brain = makeBrain();
+    let clock = 1000;
+    brain.proposals.now = () => clock;
+    const ran = [];
+    brain.planRunner.createTask = (step, ids) => ({ name: step.id, ids, cancel() {} });
+    brain.planRunner.runTask = async (task) => {
+      ran.push(task.name);
+      return { ok: true, status: 'succeeded' };
+    };
+    brain.plans.applyDraft({
+      planId: 'pe',
+      steps: [
+        { id: 'a', type: 'mine' },
+        { id: 'w', type: 'wait_for_player', args: { question: '继续执行吗？' } },
+        { id: 'c', type: 'mine' }
+      ]
+    });
+    await brain.runPlan('pe');
+    assert.strictEqual(brain.proposals.pending().candidate.type, 'plan_question');
+    clock += brain.proposals.ttlMs + 1;
+    const expired = brain.proposals.sweep();
+    await new Promise((resolve) => setTimeout(resolve, 10));
+    check('an unanswered plan question fails the step and stops the plan', () => {
+      assert(expired && expired.status === 'expired');
+      assert.deepStrictEqual(ran, ['a']);
+      const plan = brain.plans.get('pe');
+      assert.strictEqual(plan.steps.find((step) => step.id === 'w').status, 'failed');
+      assert.strictEqual(plan.steps.find((step) => step.id === 'c').status, 'pending');
+      assert.strictEqual(brain.proposals.pending(), null);
+    });
+  }
+
   // summary
   const failed = results.filter((result) => !result.ok);
   process.stdout.write(`\nP1 contract test: ${results.length - failed.length}/${results.length} checks passed\n`);
