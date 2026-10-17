@@ -46,6 +46,7 @@
     "planner:test": "node scripts/planner-retirement-test.js",
     "llm:dry": "node scripts/llm-dry.js",
     "p0:verify": "node scripts/p0-verify.js",
+    "p1:baseline": "node scripts/p1-baseline.js",
     "personal:test": "node scripts/personal-test.js",
     "plan:audit": "node scripts/plan-audit.js",
     "doctor": "node scripts/agent-doctor.js",
