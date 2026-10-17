@@ -1072,6 +1072,15 @@ if (STAGE === 'p1') {
     return 'method + answer; read-only; command surface';
   });
 
+  check('P1: threats are observed by edges, not on every poll', () => {
+    const observer = read('src/world/threatObserver.js');
+    if (!/class ThreatObserver/.test(observer)) throw new Error('ThreatObserver is missing');
+    if (!/threat:enter/.test(observer) || !/threat:leave/.test(observer)) throw new Error('enter/leave edges are missing');
+    if (!/subscribe\(/.test(observer) || !/active\.has\(key\)/.test(observer)) throw new Error('dedupe/unsubscribe is missing');
+    if (/runTask|\.submit\(|ctx\.reply/.test(observer)) throw new Error('the observer acts instead of reporting');
+    return 'enter/leave once; re-enter after leave; no action';
+  });
+
   check('P1: proposals are wired with an offline answer surface', () => {
     const brain = read('src/brain.js');
     const commands = read('src/chat/commands.js');

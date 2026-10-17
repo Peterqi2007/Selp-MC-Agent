@@ -2052,6 +2052,47 @@ function makeBrain() {
     });
   }
 
+  // ------------------------------------------------- threat observer contract
+  process.stdout.write('\n35. threat observer\n');
+  {
+    const { ThreatObserver } = require('../src/world/threatObserver');
+    const observed = [];
+    const observer = new ThreatObserver({ radius: 8, now: () => 1000 });
+    const off = observer.subscribe((event) => observed.push(event));
+    const zombie = { id: 'z1', name: 'zombie', position: { x: 2, y: 64, z: 0 } };
+    const farSkeleton = { id: 's1', name: 'skeleton', position: { x: 30, y: 64, z: 0 } };
+    const snapshot = { ready: true, position: { x: 0, y: 64, z: 0 }, hostiles: [zombie, farSkeleton] };
+    const first = observer.observe(snapshot);
+    observer.observe(snapshot);
+    check('a hostile entering the radius emits once, a far one none', () => {
+      assert.strictEqual(first.length, 1);
+      assert.strictEqual(first[0].type, 'threat:enter');
+      assert.strictEqual(first[0].threat.name, 'zombie');
+      assert.strictEqual(observed.length, 1, 'the second poll must not repeat the enter event');
+      assert.strictEqual(observer.status().active.length, 1);
+    });
+    const left = observer.observe({ ...snapshot, hostiles: [farSkeleton] });
+    check('leaving the radius emits a leave event', () => {
+      assert.strictEqual(left.length, 1);
+      assert.strictEqual(left[0].type, 'threat:leave');
+      assert.strictEqual(left[0].threat.id, 'z1');
+      assert.strictEqual(observer.status().active.length, 0);
+    });
+    const again = observer.observe(snapshot);
+    check('re-entering emits a new event', () => {
+      assert.strictEqual(again.length, 1);
+      assert.strictEqual(again[0].type, 'threat:enter');
+    });
+    off();
+    observer.observe({ ready: false });
+    check('unsubscribe stops delivery and a non-ready snapshot clears threats', () => {
+      assert.strictEqual(observer.status().active.length, 0);
+      const before = observed.length;
+      observer.observe(snapshot);
+      assert.strictEqual(observed.length, before, 'no delivery after unsubscribe');
+    });
+  }
+
   // summary
   const failed = results.filter((result) => !result.ok);
   process.stdout.write(`\nP1 contract test: ${results.length - failed.length}/${results.length} checks passed\n`);
