@@ -83,6 +83,22 @@ class PlanStore {
     return { plans: this.plans.size, last: this.list().slice(-1)[0] || null };
   }
 
+  /** Persist every plan with its version and steps (A29: restore goal/version/steps). */
+  toJSON() {
+    return { plans: this.list() };
+  }
+
+  /** Restore plans; entries without a planId/version/steps are ignored. */
+  restore(data) {
+    if (!data || !Array.isArray(data.plans)) return false;
+    this.plans.clear();
+    for (const plan of data.plans) {
+      if (!plan || !plan.planId || !Number.isFinite(plan.version) || !Array.isArray(plan.steps)) continue;
+      this.plans.set(plan.planId, this.view(plan));
+    }
+    return true;
+  }
+
   stepKey(step, index) {
     return step && (step.id || step.stepId) ? step.id || step.stepId : `s${(index || 0) + 1}`;
   }

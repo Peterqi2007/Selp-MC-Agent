@@ -35,6 +35,9 @@ const { PlanStore } = require('./core/planStore');
 const { PlanRunner } = require('./core/planRunner');
 const { TurnLifecycle } = require('./core/turnLifecycle');
 const { HarnessAdapter } = require('./harness/adapter');
+const { StateStore } = require('./core/stateStore');
+const { captureState, restoreState } = require('./core/sessionState');
+const nodePath = require('path');
 const { bare } = require('./world/items');
 /**
  * The skill layer, for reflex work on bodies without a mineflayer instance.
@@ -143,6 +146,37 @@ class Brain {
     this.deathDetail = null;
     /** Task lifecycle listeners, used by the LLM for event-driven follow-ups (§5.6). */
     this.listeners = new Map();
+
+    /**
+     * P1 M3/A17/A29: opt-in persistence. Off by default until the client window; when on,
+     * plans/proposals/events are restored on construction and saved atomically (debounced).
+     * In-flight tasks and LLM turns are never restored - a restart must not replay actions.
+     */
+    const stateCfg = (ctx.cfg.agent && ctx.cfg.agent.state) || {};
+    this.stateStore = null;
+    this.stateDebounceMs = stateCfg.debounceMs || 1000;
+    this._stateTimer = null;
+    if (stateCfg.enabled) {
+      this.stateStore = new StateStore({
+        file: nodePath.resolve(__dirname, '..', stateCfg.path || 'runtime/p1-state.json')
+      });
+      const saved = this.stateStore.load();
+      if (saved) {
+        const restored = this.restoreState(saved);
+        this.log.info(`state restored: ${JSON.stringify(restored.restored || {})}`);
+      }
+      for (const event of [
+        'task:done',
+        'task:failed',
+        'proposal:new',
+        'proposal:accepted',
+        'proposal:rejected',
+        'proposal:expired',
+        'proposal:superseded'
+      ]) {
+        this.on(event, () => this.scheduleStateSave());
+      }
+    }
     this.lastDecision = null;
     this.completedGoals = [];
     this.lastRescueAt = 0;
@@ -259,6 +293,7 @@ class Brain {
     if (this.slowTimer) clearInterval(this.slowTimer);
     if (this.currentTask) this.currentTask.cancel();
     this.proposals.supersede('brain stopped');
+    this.saveStateNow();
     this.log.info('brain offline');
   }
 
@@ -884,6 +919,36 @@ class Brain {
       completedGoals: this.completedGoals.slice(-10),
       memory: this.ctx.memory.summary()
     };
+  }
+
+  captureState() {
+    return captureState(this);
+  }
+
+  restoreState(data) {
+    return restoreState(this, data);
+  }
+
+  /** Debounced atomic save; no-op when persistence is disabled. */
+  scheduleStateSave() {
+    if (!this.stateStore) return;
+    if (this._stateTimer) clearTimeout(this._stateTimer);
+    this._stateTimer = setTimeout(() => {
+      this._stateTimer = null;
+      this.saveStateNow();
+    }, this.stateDebounceMs);
+    if (this._stateTimer.unref) this._stateTimer.unref();
+  }
+
+  saveStateNow() {
+    if (!this.stateStore) return false;
+    try {
+      this.stateStore.save(this.captureState());
+      return true;
+    } catch (err) {
+      this.log.warn(`state save failed: ${err.message}`);
+      return false;
+    }
   }
 
   // ------------------------------------------------------------- task events

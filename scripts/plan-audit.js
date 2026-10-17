@@ -464,6 +464,7 @@ check('every config key the plan adds is actually consumed', () => {
     proactive: ['enabled', 'intervalMs'],
     death: ['detectIntervalMs', 'alertConsole', 'alertPanel', 'alertStateFile'],
     web: ['bind', 'port', 'eventsToken'],
+    state: ['enabled', 'path', 'debounceMs'],
     safety: ['avoidManMade', 'requireNaturalTrees', 'requireLeaves', 'strictMining'],
     survival: ['allowWoodChopping'],
     planner: ['mode', 'proposalCooldownMs', 'proposalTtlMs']
@@ -642,6 +643,31 @@ if (STAGE === 'p1') {
     if (mod.fieldAge(snapshot, 'entities', 20) !== Infinity) throw new Error('missing fields must be Infinity old');
     if (mod.fieldAge(snapshot, 'position', 20) !== 10) throw new Error('stamped fields must report their age');
     return 'per-field observedAt + stale schedule';
+  });
+
+  check('P1: session state is written atomically and survives corruption', () => {
+    const store = read('src/core/stateStore.js');
+    if (!/class StateStore/.test(store)) throw new Error('StateStore is missing');
+    if (!/renameSync/.test(store)) throw new Error('writes are not atomic');
+    if (!/quarantine/.test(store)) throw new Error('a corrupt file is not quarantined');
+    if (!/\.corrupt-/.test(store)) throw new Error('the corrupt copy has no distinguishable name');
+    return 'temp+rename; corrupt -> .corrupt-<ts>';
+  });
+
+  check('P1: restart restores plans/questions but never replays actions', () => {
+    const session = read('src/core/sessionState.js');
+    const brain = read('src/brain.js');
+    if (!/captureState/.test(session) || !/restoreState/.test(session)) throw new Error('session capture/restore is missing');
+    if (!/plans/.test(session) || !/proposals/.test(session) || !/events/.test(session)) {
+      throw new Error('not all resumable state is captured');
+    }
+    if (/runTask|\.execute\(/.test(session)) throw new Error('restore must not execute or replay anything');
+    if (!/captureState\(this\)/.test(brain) || !/restoreState\(this, data\)/.test(brain)) {
+      throw new Error('brain does not expose capture/restore');
+    }
+    const cfg = JSON.parse(read('config/agent.json'));
+    if (!cfg.state || cfg.state.enabled !== false) throw new Error('persistence must stay opt-in until client acceptance');
+    return 'plans + pending questions + event seq; no action replay; opt-in';
   });
 
   check('P1: proposals are wired with an offline answer surface', () => {

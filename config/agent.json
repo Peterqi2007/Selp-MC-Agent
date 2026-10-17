@@ -57,6 +57,12 @@
     "proposalCooldownMs": 180000,
     "proposalTtlMs": 300000
   },
+  "_comment_state": "P1 M3/A17/A29. enabled=false keeps the current in-memory-only behaviour until the client acceptance window. When enabled, plans/proposals/event ring are written atomically to path (temp+rename); a corrupt file is renamed to .corrupt-<ts> and ignored. In-flight tasks/turns are never restored.",
+  "state": {
+    "enabled": false,
+    "path": "runtime/p1-state.json",
+    "debounceMs": 1000
+  },
   "_comment_chat": "Two input channels: prefix '!' is the deterministic command fast-path, dialogueTrigger goes to the LLM. Everything else in chat is ignored (ignoreOtherChat). Output is reactive PLUS three role-play triggers (see the proactive section below). dialogueTrigger is left null so the persona file's own frontmatter decides - that keeps a character swap from silently killing the in-game channel.",
   "chat": {
     "prefix": "!",

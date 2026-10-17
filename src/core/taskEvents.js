@@ -100,6 +100,31 @@ class TaskEvents {
       last: last ? { seq: last.seq, type: last.type, taskId: last.taskId || null } : null
     };
   }
+
+  /** Persist the sequence and the ring (A17/A29: replay must survive a restart). */
+  toJSON() {
+    return { seq: this.seq, events: this.log.slice(-this.limit) };
+  }
+
+  /** Restore a persisted snapshot. Invalid entries are dropped rather than trusted. */
+  restore(data) {
+    if (!data || !Array.isArray(data.events)) return false;
+    this.log = [];
+    this.seen.clear();
+    let maxSeq = Number(data.seq) || 0;
+    for (const event of data.events) {
+      if (!event || typeof event.seq !== 'number' || !event.eventId) continue;
+      this.log.push(event);
+      this.seen.set(event.eventId, event.seq);
+      if (event.seq > maxSeq) maxSeq = event.seq;
+    }
+    this.seq = maxSeq;
+    while (this.log.length > this.limit) {
+      const dropped = this.log.shift();
+      this.seen.delete(dropped.eventId);
+    }
+    return true;
+  }
 }
 
 module.exports = { TaskEvents };

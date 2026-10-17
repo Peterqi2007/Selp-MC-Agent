@@ -163,6 +163,31 @@ class ProposalDesk {
     };
   }
 
+  /** Persist the pending question, recent history, standing authorization and cooldowns (A29). */
+  toJSON() {
+    return {
+      seq: this.seq,
+      current: this.current,
+      history: this.history.slice(-this.maxLog),
+      authorized: [...this.authorized],
+      cooldownUntil: [...this.cooldownUntil.entries()]
+    };
+  }
+
+  /**
+   * Restore persisted state. A restored pending proposal is **awaiting an answer**, not
+   * consent: nothing executes on restore, and an expired one is swept on the next propose.
+   */
+  restore(data) {
+    if (!data) return false;
+    this.seq = Number(data.seq) || 0;
+    this.current = data.current && data.current.id ? data.current : null;
+    this.history = Array.isArray(data.history) ? data.history.slice(-this.maxLog) : [];
+    this.authorized = new Set(Array.isArray(data.authorized) ? data.authorized : []);
+    this.cooldownUntil = new Map(Array.isArray(data.cooldownUntil) ? data.cooldownUntil : []);
+    return true;
+  }
+
   _match(id) {
     const proposal = this.current;
     if (!proposal) return null;

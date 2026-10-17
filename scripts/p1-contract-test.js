@@ -511,6 +511,80 @@ function makeBrain() {
     assert.deepStrictEqual(stale.map((entry) => entry.field), ['entities', 'position']);
   });
 
+  // ------------------------------------------------------------ persistence
+  process.stdout.write('\n9. persistence\n');
+  const { StateStore } = require('../src/core/stateStore');
+  const fs = require('fs');
+  const os = require('os');
+  const nodePath = require('path');
+
+  {
+    const dir = fs.mkdtempSync(nodePath.join(os.tmpdir(), 'p1-state-'));
+    const file = nodePath.join(dir, 'state.json');
+    const store = new StateStore({ file });
+    assert.strictEqual(store.load(), null, 'no file means nothing to restore');
+    store.save({ version: 1, ok: true });
+    assert.deepStrictEqual(store.load(), { version: 1, ok: true });
+    fs.writeFileSync(file, '{broken');
+    check('StateStore is atomic and quarantines a corrupt file', () => {
+      assert.strictEqual(store.load(), null);
+      assert(
+        fs.readdirSync(dir).some((name) => name.includes('.corrupt-')),
+        'the corrupt file is moved aside instead of crashing the agent'
+      );
+    });
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+
+  {
+    const brain = makeBrain();
+    brain.plans.applyDraft({ planId: 'p9', goal: 'iron', steps: [{ id: 's1' }, { id: 's2' }] });
+    brain.plans.applyDraft({
+      planId: 'p9',
+      baseVersion: 1,
+      steps: [{ id: 's1', status: 'done' }, { id: 's2' }]
+    });
+    brain.proposals.propose({ name: 'mine', reason: 'test', type: 'mine', args: {} });
+    brain.events.publish({ type: 'task:done', taskId: 'tx', attemptId: 'tx', reason: 'ok' });
+    const saved = brain.captureState();
+
+    const restored = makeBrain();
+    const outcome = restored.restoreState(saved);
+    check('plans, the pending question and the event sequence survive a restart', () => {
+      assert(outcome.ok);
+      assert.strictEqual(restored.plans.get('p9').version, 2);
+      assert.strictEqual(restored.plans.get('p9').steps[0].status, 'done');
+      assert.strictEqual(restored.proposals.pending().target, 'mine');
+      assert.strictEqual(restored.proposals.pending().status, 'awaiting');
+      assert.strictEqual(restored.events.status().seq, 1);
+    });
+
+    const runs = [];
+    restored.runTask = async (task) => runs.push(task);
+    check('restore never replays an action', () => {
+      assert.strictEqual(runs.length, 0, 'nothing may execute just because state was restored');
+    });
+
+    check('a restored plan still refuses a stale draft', () => {
+      const stale = restored.plans.applyDraft({ planId: 'p9', baseVersion: 1, steps: [{ id: 's1' }] });
+      assert.strictEqual(stale.reason, 'stale');
+    });
+
+    check('a restored question can be answered but is not consent by itself', () => {
+      assert.strictEqual(restored.proposals.pending().status, 'awaiting');
+      const accepted = restored.proposals.accept(null, { by: 'player' });
+      assert(accepted.ok);
+      assert.strictEqual(restored.proposals.pending(), null);
+    });
+
+    check('the restored event ring still drops duplicates', () => {
+      assert.strictEqual(
+        restored.events.publish({ type: 'task:done', taskId: 'tx', attemptId: 'tx', reason: 'ok' }),
+        null
+      );
+    });
+  }
+
   // summary
   const failed = results.filter((result) => !result.ok);
   process.stdout.write(`\nP1 contract test: ${results.length - failed.length}/${results.length} checks passed\n`);
@@ -518,5 +592,5 @@ function makeBrain() {
     process.stdout.write('FAILED\n');
     process.exit(1);
   }
-  process.stdout.write('M1/M2 offline contracts hold (events + plans + SSE + turn + routing)\n');
+  process.stdout.write('M1-M3 offline contracts hold (events + plans + SSE + turn + routing + state)\n');
 })();
