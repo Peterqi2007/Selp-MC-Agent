@@ -41,6 +41,8 @@ class LlmCore {
     this.ctx = ctx;
     this.cfg = cfg;
     this.log = options.log || new Logger('llm');
+    /** Optional tool surface for a split brain; null keeps the P0 all-tools behaviour. */
+    this.brain = options.brain || null;
     this.enabled = false;
     this.disabledReason = null;
     this.trace = tracer((cfg.trace && cfg.trace.file) || 'runtime/llm-trace.jsonl', { component: 'llm' });
@@ -384,7 +386,7 @@ class LlmCore {
 
       const first = await callModel(
         baseMessages,
-        this.toolsEnabled ? toolRegistry.toOpenAiTools(this.ctx) : undefined
+        this.toolsEnabled ? toolRegistry.toOpenAiTools(this.ctx, this.brain) : undefined
       );
       const res = first.res;
       const ms = Date.now() - started;

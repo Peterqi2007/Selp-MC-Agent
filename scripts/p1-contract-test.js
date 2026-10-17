@@ -1268,6 +1268,27 @@ function makeBrain() {
     });
   }
 
+  // --------------------------------------------------- dual-brain tool lists
+  process.stdout.write('\n20. dual-brain tool lists\n');
+  const toolRegistry = require('../src/llm/tools/registry');
+
+  {
+    const all = toolRegistry.toOpenAiTools(null).map((tool) => tool.function.name);
+    const language = toolRegistry.toOpenAiTools(null, 'language').map((tool) => tool.function.name);
+    const action = toolRegistry.toOpenAiTools(null, 'action').map((tool) => tool.function.name);
+    check('the registry splits the P0 tool list into two disjoint surfaces', () => {
+      assert.strictEqual(all.length, 8, `expected the 8 P0 tools, got ${all.join(',')}`);
+      assert.deepStrictEqual(language, ['observe', 'find_blocks', 'lookup_item', 'scan_around']);
+      assert.deepStrictEqual(action.slice().sort(), ['do_skill', 'do_task', 'go_to', 'stop'].sort());
+      assert(!language.some((name) => action.includes(name)), 'a tool may not be on both surfaces');
+    });
+    check('the language surface never contains an execution tool', () => {
+      assert(!language.some((name) => EXECUTION_TOOLS.includes(name)));
+      assert(language.every((name) => SURFACES.language.includes(name)));
+      assert(action.every((name) => SURFACES.action.includes(name)));
+    });
+  }
+
   // summary
   const failed = results.filter((result) => !result.ok);
   process.stdout.write(`\nP1 contract test: ${results.length - failed.length}/${results.length} checks passed\n`);

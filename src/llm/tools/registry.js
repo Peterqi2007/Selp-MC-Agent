@@ -359,7 +359,15 @@ function describeForPrompt() {
  * live skill registry - the model sees exactly the skills this body can run, generated from
  * the same declarations the skills validate against (no second hand-written list).
  */
-function toOpenAiTools(ctx) {
+/**
+ * OpenAI tool list, optionally filtered to one brain's surface (P1 M2/M3).
+ *
+ * `brain = null` keeps the P0 behaviour (all eight tools). `'language'` exposes only the
+ * read/say surface and can never include `do_task`/`do_skill`/`go_to`/`stop`; `'action'`
+ * exposes only the execution tools. The filter reads the single surface table so the two
+ * lists cannot drift apart.
+ */
+function toOpenAiTools(ctx, brain = null) {
   let available = null;
   if (ctx) {
     try {
@@ -371,7 +379,7 @@ function toOpenAiTools(ctx) {
       available = null;
     }
   }
-  return TOOLS.map((tool) => {
+  const list = TOOLS.map((tool) => {
     let description = tool.description;
     let parameters = tool.parameters;
     if (tool.name === 'do_skill' && available && available.length) {
@@ -386,6 +394,10 @@ function toOpenAiTools(ctx) {
     }
     return { type: 'function', function: { name: tool.name, description, parameters } };
   });
+  if (!brain) return list;
+  const { SURFACES } = require('../toolSurface');
+  const allowed = new Set(SURFACES[brain] || []);
+  return list.filter((tool) => allowed.has(tool.function.name));
 }
 
 module.exports = {

@@ -608,12 +608,12 @@ A12 的周期、时延与资源阈值由 M0/M2 测量后填入部署记录，未
 
 **交付与出口**：A01–A03、A09–A11 通过，A12 先验空闲/现有任务场景，GUI 场景留到 M5；回填周期、时延/资源阈值、部署配置与实测结果。不达标先优化或保留旧反射采集，不宣称完成。搜索/代码技能未接不影响 `!`。
 
-> **实施进展（2026-10-17，M2 离线契约 + 地址通道 + 判定器）**：二值闸门（`CommandGate`）、
-> `@` 地址通道（`AddressedHandler` + `chatListener`，**默认关闭**）、严格判定器
-> （`InstructionJudge` + `LlmCore.judgeInstruction`，只接受 allow/deny、丢弃改写、超时拒绝）、
-> 双脑工具面、字段新鲜度；`p1:contract:test` 80/80、`plan:audit --stage p1` 64/64，详见
-> [`P1-M2.md`](P1-M2.md)。**未完成**：真实模型判定（客户端窗口）、双 agent/registry 拆分、
-> persona 同步、感知刷新；M2 **不得整体标为通过**。
+> **实施进展（2026-10-17，M2 离线契约 + 地址通道 + 判定器 + 工具清单）**：二值闸门
+> （`CommandGate`）、`@` 地址通道（默认关闭）、严格判定器（`InstructionJudge` +
+> `LlmCore.judgeInstruction`）、双脑工具面（`toOpenAiTools(ctx, brain)` 两面不重叠、
+> `LlmCore({brain})` 可选且默认 null）、字段新鲜度；`p1:contract:test` 82/82、
+> `plan:audit --stage p1` 66/66，详见 [`P1-M2.md`](P1-M2.md)。**未完成**：真实模型判定、
+> 双 agent 实例/persona 指令、感知刷新；M2 **不得整体标为通过**。
 
 ### M3：可恢复规划、方法学习与玩家求助
 

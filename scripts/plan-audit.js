@@ -843,6 +843,24 @@ if (STAGE === 'p1') {
     return 'low-level call, no tools, wired to the gate';
   });
 
+  check('P1: the tool registry can expose two disjoint surfaces', () => {
+    const registry = read('src/llm/tools/registry.js');
+    if (!/toOpenAiTools\(ctx, brain = null\)/.test(registry)) throw new Error('the registry has no brain filter');
+    if (!/SURFACES\[brain\]/.test(registry)) throw new Error('the filter does not read the surface table');
+    const { SURFACES, EXECUTION_TOOLS } = require(path.join(ROOT, 'src/llm/toolSurface.js'));
+    if (SURFACES.language.some((name) => EXECUTION_TOOLS.includes(name))) {
+      throw new Error('the language surface contains an execution tool');
+    }
+    return 'default all tools; language/action filtered by one table';
+  });
+
+  check('P1: the LLM can be constructed for one brain surface', () => {
+    const llm = read('src/llm/index.js');
+    if (!/this\.brain = options\.brain \|\| null/.test(llm)) throw new Error('LlmCore has no brain option');
+    if (!/toOpenAiTools\(this\.ctx, this\.brain\)/.test(llm)) throw new Error('the brain is not passed to the registry');
+    return 'brain=null keeps P0 all-tools; language/action are opt-in';
+  });
+
   check('P1: proposals are wired with an offline answer surface', () => {
     const brain = read('src/brain.js');
     const commands = read('src/chat/commands.js');
