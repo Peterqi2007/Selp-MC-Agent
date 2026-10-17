@@ -126,6 +126,8 @@ class ChatListener {
     this.addressedPrefix = options.addressedPrefix || null;
     this.onAddressed = null;
     this.onDialogue = null;
+    /** Plain player chat (not `!`/dialogue/addressed), for A11 edge wake. */
+    this.onOther = null;
     /** Every non-command line, for the panel and for prompt history. */
     this.heard = [];
     /** Last few accepted commands, for the control panel ("did it hear me?"). */
@@ -327,6 +329,13 @@ class ChatListener {
         this.heard.push({ at: new Date().toISOString(), line: text, kind: 'other' });
         if (this.heard.length > 20) this.heard.shift();
         this.stats.ignored += 1;
+        if (this.onOther) {
+          try {
+            await this.onOther(text);
+          } catch (err) {
+            this.log.debug(`other-chat hook failed: ${err.message}`);
+          }
+        }
         continue;
       }
 

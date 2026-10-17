@@ -163,10 +163,20 @@ final class ClientStateSnapshot {
         }
 
         // ---- time / weather ------------------------------------------------
+        /**
+         * Do NOT use level.isDay() here. On a client it is derived from sky-darken /
+         * client light state, which can disagree with the server's dayTime: live
+         * 2026-10-17 timeOfDay=14175 (night) still reported isDay=true and the agent
+         * answered "天亮了". The server time packet is the authoritative clock; compute
+         * the window from getDayTime() instead. Vanilla night is [13000, 23000).
+         */
+        long dayTime = level.getDayTime();
+        long timeOfDay = Math.floorMod(dayTime, 24000L);
+        boolean isDay = timeOfDay < 13000L || timeOfDay >= 23000L;
         out.put("time", Json.obj(new LinkedHashMap<>(Map.of(
-                "timeOfDay", Json.num(level.getDayTime() % 24000L),
-                "day", Json.num(level.getDayTime() / 24000L),
-                "isDay", Json.bool(level.isDay())
+                "timeOfDay", Json.num(timeOfDay),
+                "day", Json.num(dayTime / 24000L),
+                "isDay", Json.bool(isDay)
         ))));
         out.put("weather", Json.obj(new LinkedHashMap<>(Map.of(
                 "raining", Json.bool(level.isRaining()),

@@ -23,7 +23,8 @@
  */
 
 const { Body, BodyUnavailableError } = require('./body');
-const { stampSnapshot } = require('../world/freshness');
+const { stampSnapshot, staleFields } = require('../world/freshness');
+const { DEFAULT_BUDGET } = require('../world/refreshPlan');
 const { Logger } = require('../util/logger');
 const { chooseTool } = require('../world/toolPolicy');
 
@@ -118,6 +119,15 @@ class ClientModBody extends Body {
     this._snapshot = null;
     this._snapshotAt = 0;
     this._snapshotTtlMs = options.snapshotTtlMs || 400;
+    /**
+     * A10: actions must not be driven by an old position. The panel/state poll may lag
+     * by one 500ms tick; 1500ms leaves room for that while rejecting a disconnected body.
+     */
+    this.actionFreshnessMs = options.actionFreshnessMs || cfgSection.actionFreshnessMs || 1500;
+    this.freshnessBudget = options.freshnessBudget || cfgSection.freshnessBudget || DEFAULT_BUDGET;
+    this._snapshotVersion = 0;
+    this._lastRefreshErrorAt = null;
+    this._lastRefreshError = null;
     /**
      * Keep that snapshot genuinely fresh while the agent is idle.
      *
@@ -326,10 +336,15 @@ class ClientModBody extends Body {
       const state = await this.request('/state', { timeoutMs: 4000 });
       this._snapshot = state;
       this._snapshotAt = Date.now();
+      this._snapshotVersion += 1;
       this.connected = true;
+      this._lastRefreshErrorAt = null;
+      this._lastRefreshError = null;
       return state;
     } catch (err) {
       this.lastError = err;
+      this._lastRefreshErrorAt = Date.now();
+      this._lastRefreshError = err.message;
       return this._snapshot; // keep serving the last known state rather than nothing
     }
   }
@@ -435,6 +450,48 @@ class ClientModBody extends Body {
       now: this._snapshotAt || Date.now(),
       fields: OBSERVED_FIELDS
     });
+  }
+
+  /**
+   * A10: per-field freshness as the HTTP layer and action guards consume it.
+   *
+   * `stale` is derived from age, not from `connected`: the poller keeps retrying after a
+   * disconnect, but the snapshot must still be marked stale rather than silently fresh.
+   */
+  freshness(now = Date.now()) {
+    const snap = this.snapshot();
+    const stale = snap ? staleFields(snap, this.freshnessBudget, now) : [];
+    return {
+      observedAt: (snap && snap.observedAt) || null,
+      staleFields: stale,
+      stale: stale.length > 0,
+      connected: this.connected,
+      degraded: !!(this._lastRefreshErrorAt && (!this._snapshotAt || this._lastRefreshErrorAt > this._snapshotAt)),
+      lastRefreshAt: this._snapshotAt || null,
+      version: this._snapshotVersion,
+      lastError: this._lastRefreshError || null
+    };
+  }
+
+  /** Stale position/health fields under the action budget. */
+  actionStaleFields(now = Date.now()) {
+    const snap = this.snapshot();
+    if (!snap) {
+      return [{ field: 'snapshot', ageMs: Infinity, budgetMs: this.actionFreshnessMs }];
+    }
+    return staleFields(
+      snap,
+      { position: this.actionFreshnessMs, health: this.actionFreshnessMs },
+      now
+    );
+  }
+
+  /** Human-readable reason, or null when the cached state is fresh enough to act on. */
+  staleActionReason(now = Date.now()) {
+    const stale = this.actionStaleFields(now);
+    if (!stale.length) return null;
+    const fields = stale.map((entry) => `${entry.field} age=${Number.isFinite(entry.ageMs) ? Math.round(entry.ageMs) : 'inf'}ms>${entry.budgetMs}ms`);
+    return `stale state: ${fields.join(', ')}`;
   }
 
   /**
@@ -550,6 +607,12 @@ class ClientModBody extends Body {
    */
   async moveTo(position, options = {}) {
     if (!position) return false;
+    const stale = this.staleActionReason();
+    if (stale) {
+      this.lastMove = { ok: false, reason: stale, target: { ...position }, from: null, ms: 0 };
+      this.log.warn(`moveTo refused: ${stale}`);
+      return false;
+    }
 
     /**
      * A game screen that is open swallows every movement key.
@@ -920,6 +983,12 @@ class ClientModBody extends Body {
 
   async dig(block, options = {}) {
     if (!block || !block.position) return false;
+    const stale = this.staleActionReason();
+    if (stale) {
+      this.lastError = stale;
+      this.log.warn(`dig refused: ${stale}`);
+      return false;
+    }
     const timeoutMs = options.timeoutMs || 20000;
     const started = await this.command(
       `dig ${Math.floor(block.position.x)} ${Math.floor(block.position.y)} ${Math.floor(block.position.z)}`
@@ -951,6 +1020,10 @@ class ClientModBody extends Body {
     }));
     if (!list.length) {
       return { ok: false, reason: 'no waypoints', cell: null, block: null, dugCells: [], ms: 0 };
+    }
+    const stale = this.staleActionReason();
+    if (stale) {
+      return { ok: false, reason: stale, cell: null, block: null, dugCells: [], ms: 0 };
     }
     const started = Date.now();
     const timeoutMs = options.timeoutMs || Math.min(240000, 20000 * list.length);
@@ -998,6 +1071,10 @@ class ClientModBody extends Body {
     const steps = Math.max(1, Math.min(64, Math.floor(Number(count) || 1)));
     const started = Date.now();
     const timeoutMs = options.timeoutMs || Math.min(90000, 6000 * steps + 8000);
+    const stale = this.staleActionReason();
+    if (stale) {
+      return { ok: false, reason: stale, steps: 0, requested: steps, cell: null, ms: 0 };
+    }
     /**
      * Never let a previous action's verdict stand in for this one's (plan §5.4.1): the
      * old code read whatever `lastAction` happened to hold and, worse, reported the
@@ -1108,6 +1185,12 @@ class ClientModBody extends Body {
   async place(itemName, referenceBlock, faceVector) {
     const reference = referenceBlock && referenceBlock.position ? referenceBlock.position : referenceBlock;
     if (!reference) return false;
+    const stale = this.staleActionReason();
+    if (stale) {
+      this.lastError = stale;
+      this.log.warn(`place refused: ${stale}`);
+      return false;
+    }
     const face = faceName(faceVector);
     const res = await this.command(
       `place ${Math.floor(reference.x)} ${Math.floor(reference.y)} ${Math.floor(reference.z)} ${face} ${fullItemName(itemName)}`
@@ -1126,6 +1209,12 @@ class ClientModBody extends Body {
    */
   async useOn(position, options = {}) {
     if (!position) return false;
+    const stale = this.staleActionReason();
+    if (stale) {
+      this.lastError = stale;
+      this.log.warn(`useOn refused: ${stale}`);
+      return false;
+    }
     const face = faceName(options.face || { x: 0, y: 1, z: 0 });
     const res = await this.command(
       `useon ${Math.floor(position.x)} ${Math.floor(position.y)} ${Math.floor(position.z)} ${face}`
@@ -1370,6 +1459,12 @@ class ClientModBody extends Body {
     if (!entity) return false;
     const id = entity.id !== undefined ? entity.id : entity._entity && entity._entity.id;
     if (id === undefined) return false;
+    const stale = this.staleActionReason();
+    if (stale) {
+      this.lastAction = { action: 'attack', ok: false, reason: stale };
+      this.log.warn(`attack refused: ${stale}`);
+      return false;
+    }
     const timeoutMs = options.timeoutMs || 15000;
     const res = await this.command(`attack ${id} ${timeoutMs}`);
     return !!(res && res.ok);
@@ -1388,6 +1483,12 @@ class ClientModBody extends Body {
     if (!entity) return false;
     const id = entity.id !== undefined ? entity.id : entity._entity && entity._entity.id;
     if (id === undefined) return false;
+    const stale = this.staleActionReason();
+    if (stale) {
+      this.lastAction = { action: 'shoot', ok: false, reason: stale, shots: null, blocked: false };
+      this.log.warn(`shoot refused: ${stale}`);
+      return false;
+    }
     const ms = Math.floor(options.ms || options.maxMs || 8000);
     const maxShots = Math.floor(options.maxShots || 6);
     const res = await this.command(`shoot ${id} ${ms} ${maxShots}`);

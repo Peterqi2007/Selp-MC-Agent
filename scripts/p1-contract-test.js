@@ -1826,6 +1826,25 @@ function makeBrain() {
       assert.strictEqual(fieldAge(snap, 'hostiles', 5500), 500);
       assert.strictEqual(fieldAge(snap, 'blocks', 5500), 500);
     });
+
+    body._snapshotVersion = 1;
+    body.connected = true;
+    const freshness = body.freshness(7000);
+    check('the client body exposes per-field freshness and a version', () => {
+      assert.strictEqual(freshness.version, 1);
+      assert.strictEqual(freshness.connected, true);
+      assert(freshness.stale, 'a 2s-old snapshot must be stale at the default budgets');
+      assert(freshness.staleFields.some((entry) => entry.field === 'position'));
+      assert.match(body.staleActionReason(7000), /stale state: position/);
+    });
+
+    body._lastRefreshErrorAt = 6500;
+    check('a failed refresh is reported as degraded without pretending the data is fresh', () => {
+      const degraded = body.freshness(7000);
+      assert.strictEqual(degraded.degraded, true);
+      assert.strictEqual(degraded.lastError, null, 'this fixture has no error message');
+      assert(degraded.stale);
+    });
   }
 
   // --------------------------------------------- request identity propagation
@@ -2093,6 +2112,47 @@ function makeBrain() {
     });
   }
 
+  // ------------------------------------------------- perception wake contract
+  process.stdout.write('\n35b. perception wake\n');
+  {
+    const { PerceptionWake } = require('../src/world/perceptionWake');
+    let clock = 1000;
+    const wake = new PerceptionWake({ now: () => clock, radius: 8, chatCooldownMs: 5000 });
+    const seen = [];
+    wake.subscribe((event) => seen.push(event));
+    const base = {
+      ready: true,
+      position: { x: 0, y: 64, z: 0 },
+      weather: { raining: false },
+      time: { isDay: true },
+      hostiles: [{ id: 'z1', name: 'zombie', position: { x: 2, y: 64, z: 0 } }]
+    };
+    const first = wake.observe(base);
+    const second = wake.observe(base);
+    check('perception wake emits an edge once and not on repeated samples', () => {
+      assert.strictEqual(first.length, 1);
+      assert.strictEqual(first[0].type, 'threat:enter');
+      assert.strictEqual(second.length, 0);
+      assert.strictEqual(seen.length, 1);
+    });
+    const weather = wake.observe({ ...base, weather: { raining: true }, hostiles: [] });
+    const phase = wake.observe({ ...base, weather: { raining: true }, time: { isDay: false }, hostiles: [] });
+    check('weather and phase changes each emit once', () => {
+      assert.deepStrictEqual(weather.map((e) => e.type), ['threat:leave', 'weather:change']);
+      assert.deepStrictEqual(phase.map((e) => e.type), ['phase:change']);
+    });
+    const chat = wake.noteChat('今天天气怎么样');
+    const repeat = wake.noteChat('今天天气怎么样');
+    clock += 6000;
+    const later = wake.noteChat('今天天气怎么样');
+    check('chat wake is deduped inside the cooldown and becomes a new event after it', () => {
+      assert.strictEqual(chat.type, 'chat:message');
+      assert.strictEqual(repeat, null);
+      assert.strictEqual(later.type, 'chat:message');
+      assert.strictEqual(wake.status().counts['chat:message'], 2);
+    });
+  }
+
   // ------------------------------------------------------ classified memory
   process.stdout.write('\n36. classified memory\n');
   {
@@ -2257,12 +2317,14 @@ function makeBrain() {
   process.stdout.write('\n39. day/night\n');
   {
     const { isDaytime } = require('../src/world/daytime');
-    check('isDay wins over a shifted timeOfDay', () => {
-      assert.strictEqual(isDaytime({ isDay: true, timeOfDay: 13233 }), true);
-      assert.strictEqual(isDaytime({ isDay: false, timeOfDay: 6000 }), false);
+    check('timeOfDay is authoritative over a conflicting isDay flag', () => {
+      assert.strictEqual(isDaytime({ isDay: true, timeOfDay: 13233 }), false);
+      assert.strictEqual(isDaytime({ isDay: true, timeOfDay: 14175 }), false);
+      assert.strictEqual(isDaytime({ isDay: false, timeOfDay: 6000 }), true);
     });
-    check('timeOfDay is only the fallback', () => {
-      assert.strictEqual(isDaytime({ timeOfDay: 6000 }), true);
+    check('isDay is only the fallback when timeOfDay is absent', () => {
+      assert.strictEqual(isDaytime({ isDay: true }), true);
+      assert.strictEqual(isDaytime({ isDay: false }), false);
       assert.strictEqual(isDaytime({ timeOfDay: 18000 }), false);
       assert.strictEqual(isDaytime(null), null);
     });

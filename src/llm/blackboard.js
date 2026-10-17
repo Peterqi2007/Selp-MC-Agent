@@ -370,6 +370,13 @@ function proactiveNote(event) {
       );
     case 'respawn':
       return head + 'You have just died and respawned. Say something short about it.' + tail;
+    case 'perception':
+      return (
+        head +
+        `You noticed a meaningful change: ${event.detail || 'the surroundings changed'}. ` +
+        'Say one short line about it, without inventing work or claiming a request.' +
+        tail
+      );
     case 'taskDone':
     default:
       return (

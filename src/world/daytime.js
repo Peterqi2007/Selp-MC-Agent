@@ -3,18 +3,20 @@
 /**
  * Is it daytime?
  *
- * The client snapshot carries both `isDay` and `timeOfDay`. Trust `isDay` first: live
- * 2026-10-17 the server reported `timeOfDay=13233` together with `isDay=true` (daylight
- * offset), so the vanilla timeOfDay window alone called it night and the sleep gate refused
- * to run tests in daylight. Fall back to the vanilla window only when `isDay` is absent.
+ * `timeOfDay` is the server-synced clock and is authoritative. Do not trust the old
+ * `isDay` boolean first: live 2026-10-17 the mod reported timeOfDay=14175 (vanilla night)
+ * together with isDay=true, and the agent answered "天亮了" at night. `isDay` is retained
+ * only as a fallback for older mods that omit timeOfDay.
+ *
+ * Vanilla night is [13000, 23000); the remaining window is day.
  */
 function isDaytime(time) {
   if (!time) return null;
-  if (typeof time.isDay === 'boolean') return time.isDay;
   if (typeof time.timeOfDay === 'number' && Number.isFinite(time.timeOfDay)) {
     const t = ((time.timeOfDay % 24000) + 24000) % 24000;
-    return !(t >= 12542 && t <= 23458);
+    return t < 13000 || t >= 23000;
   }
+  if (typeof time.isDay === 'boolean') return time.isDay;
   return null;
 }
 

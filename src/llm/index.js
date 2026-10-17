@@ -700,6 +700,8 @@ class LlmCore {
         return cut(`${name}快撑不住了，血量只剩 ${snap && snap.health !== undefined ? snap.health : '?'}，我在 ${at}，救命！`);
       case 'respawn':
         return cut(`${name}刚刚死掉了，现在在 ${at} 复活了。`);
+      case 'perception':
+        return cut(`${name}注意到：${event.detail || '周围有变化'}。`);
       case 'taskDone':
       default:
         return cut(

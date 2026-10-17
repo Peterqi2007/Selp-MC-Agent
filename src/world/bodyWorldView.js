@@ -237,7 +237,8 @@ class BodyWorldView {
       screenOpen: snap.screenOpen === true,
       screen: snap.screen || null,
       mouseGrabbed: snap.mouseGrabbed !== false,
-      body: snap.body
+      body: snap.body,
+      freshness: this.body && typeof this.body.freshness === 'function' ? this.body.freshness() : null
     };
   }
 }

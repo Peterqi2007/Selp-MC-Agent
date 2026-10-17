@@ -1,13 +1,13 @@
 # M2 客户端测试记录（2026-10-17 首轮）
 
 > 阶段：M2（A01–A03、A09–A12、H1a/H1b）
-> 结论：**A01 PASS；A02 PASS（20 条，timeout 子项未触发）；A03 PASS；A09 PASS；
-> A10 FAIL（未实现 stale 标记）；A11 FAIL（无事件唤醒路径）；H1a/H1b PASS。
-> M2 阶段未通过；A12 未执行。**
+> 结论：**A01/A02/A03/A09/A10/A11/H1a/H1b 均 PASS；A12 未执行。
+> 时间判定 bug 已修（server dayTime 优先）。**
 > 原始证据：`runtime/logs/agent-m2-a01-2026-10-17.log`、
 > `runtime/logs/agent-a02-final2-2026-10-17.log`、`runtime/logs/a02-gate-2026-10-17.json`、
-> `runtime/logs/a09-idle-2026-10-17.json`、`runtime/logs/a10-disconnect-2026-10-17.json`、
-> `runtime/logs/a11-events-2026-10-17.json`、`runtime/logs/dsh-h1-live-run-2026-10-17.log`。
+> `runtime/logs/a09-idle-2026-10-17.json`、`runtime/logs/a10-stale-2026-10-17.json`、
+> `runtime/logs/a11-wake-2026-10-17.json`、`runtime/logs/agent-a10-a11c-2026-10-17.log`、
+> `runtime/logs/dsh-h1-live-run-2026-10-17.log`。
 
 ## 1. 环境
 
@@ -171,36 +171,80 @@ overlap : []
 
 **A09 判定：PASS。** 边界：只证明 10 分钟，不证明更长空闲。
 
-## 8. A10：新鲜度/断连 —— FAIL（未实现 stale 标记）
+## 8. A10：新鲜度/断连 —— PASS
 
-- `/status` 的 `world` 摘要**没有** `observedAt` / `fieldAge` / `staleFields`；
-- 代码审计：`staleFields()` / `planRefresh()` 只有离线 contract 调用，**没有运行时调用者**；
-- 真机注入：空闲时杀掉 Forge 客户端，2 秒后 `/status` 仍返回
-  `world.ready=true`、最后位置 `(53.7,63,90.3)`、health 20，**没有 stale 标记**；
-- 因此“旧值标 stale、不据过期位置攻击/拾取”无法成立；跨维度/部分刷新本轮未测，
-  但不影响该项已失败。
+实现：
 
-**A10 判定：FAIL（实现缺口，不是环境问题）。**
+- `ClientModBody.freshness(now)` 返回 `observedAt / staleFields / stale / degraded / lastRefreshAt / version / lastError`；
+- `BodyWorldView.summary()` 与 `/status` 暴露 `world.freshness`；
+- `staleActionReason()` 按 1500ms 动作预算检查 position/health；`moveTo/dig/place/useOn/attack/shoot/tunnel/pillar` 在 stale 时拒绝；
+- `refresh()` 失败记录 `degraded/lastError`，但仍保留旧快照供观察，不把它伪装成新鲜。
 
-## 9. A11：感知/模型分离 —— FAIL（无事件唤醒路径）
+真机注入（杀 Forge 客户端后 ≥2s）：
 
-- **空闲子项通过**：A09 的 10 分钟 tokens 0、无新订阅、无事件；
-- 普通聊天注入 `今天天气怎么样`（无 `@`/`!`）：无回复、无 LLM 输入日志、无事件唤醒；
-  聊天被 listener 当 other 忽略；
-- 静态审计：`ThreatObserver` 没有实例化，天气/消息/阶段变化没有“按类唤醒”路径；
-- 期间 `tokens=5194` 来自 **任务失败后的 proactive 发言**，不是这条聊天事件；
-- 重复 `/status` 观察不触发模型（纯采样 0 调用子项通过），但“有意义事件各唤醒一次”失败。
+```text
+freshness.stale = true, degraded = true, lastError = "fetch failed"
+position: age 6561ms > 500ms; health: age 6561ms > 500ms
+```
 
-**A11 判定：FAIL（仅 idle-zero-model 子项通过；事件唤醒未实现）。**
+`goto 70 64 32` 被接受后，body 侧连续拒绝：
 
-## 10. 未执行
+```text
+moveTo refused: stale state: position age=10567ms>1500ms, health age=10567ms>1500ms
+```
+
+重试 3 次后 `task:quarantined`，没有移动。跨维度/部分字段刷新本轮未注入，但 stale 标记与动作拒绝已实测。
+
+**A10 判定：PASS。**
+
+## 9. A11：感知/模型分离 —— PASS
+
+实现：
+
+- `PerceptionWake` 组合 `ThreatObserver` 与天气/昼夜/聊天边沿；相同快照返回 `[]`，不调用模型；
+- 聊天按内容指纹 + 5s 冷却去重；边沿通过 `subscribe()` 交给唤醒策略；
+- `Brain.fastLoop` 每次只 `observe(snapshot)`；`index.js` 只对 `chat/weather/phase` 唤醒 `llm.speakUp('perception')`；
+- 威胁边沿只记录，交给反射，不唤醒模型。
+
+真机普通聊天：
+
+```text
+input: 今天天气怎么样 (no @/!)
+perceptionWake: chat:message count=1, seq=1
+tokens: 5177
+reply: 唔…天黑了呀，外面看不见咯，主人那边天气怎么样呢
+timeOfDay=17818, isDay=false
+```
+
+- 无事件 10 分钟 0 tokens（A09）；
+- 事件 1 次唤醒 1 次，回复事实正确；
+- 重复聊天/重复天气/重复阶段去重见 `p1:contract`（158/158）。
+
+**A11 判定：PASS。** 边界：天气/阶段边沿是离线注入验证，真机本轮只注入聊天事件。
+
+## 10. 时间判定修复（A10/A11 复验中发现）
+
+真机在 `timeOfDay=14175`（vanilla 夜）时，mod 返回 `isDay=true`，语言脑回复“天亮啦”。根因：
+
+- mod 用 `level.isDay()`，它依赖客户端 sky-darken，而不是服务器 `dayTime`；
+- Node `isDaytime()` 又优先信任这个布尔，导致夜晚被当白天；
+- 服务器时间在下线期间继续流动，旧缓存/旧布尔不能跨会话复用。
+
+修复：
+
+- mod 用 `getDayTime()` 计算：`timeOfDay < 13000 || timeOfDay >= 23000`；
+- Node `isDaytime()` 优先 `timeOfDay`，`isDay` 只作旧 mod 回退；
+- 重新构建/安装 `agent-client-1.0.0.jar`。
+
+复验：`timeOfDay=17818` → `isDay=false`，A11 回复改为“天黑了”。
+
+## 11. 未执行
 
 - A12 威胁与性能（怪物接近/伤害各 ≥5 次、p50/p95）。
 - A02 的真机 timeout 子项（本轮未触发；离线 contract 覆盖）。
-- A10 的跨维度/部分刷新子场景；A11 的天气/阶段变化注入。
+- A10 的跨维度/部分刷新子场景；A11 的天气/阶段真机注入。
 
-## 11. 下一步
+## 12. 下一步
 
-1. **A10**：把 `observedAt/staleFields` 接到 `/status` 与动作入口，断连/超时拒绝旧位置。
-2. **A11**：实例化 `ThreatObserver`，给天气/消息/阶段事件建立按类唤醒与去重。
-3. **A12**：需要怪物环境，另排时段。
+1. **A12**：需要怪物环境，按 5 次接近/伤害记录 p50/p95；GUI 场景留 M5。
+2. 之后回填 M2 阶段结果；A10/A11 的故障注入边界保持记录。

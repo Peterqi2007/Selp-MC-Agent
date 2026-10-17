@@ -406,6 +406,29 @@ async function main() {
   llm.attachTo(brain);
 
   /**
+   * A11: only edges reach the model; the 500ms snapshot sample does not. Threat edges are
+   * recorded for status but handled by the reflex, so only chat/weather/phase wake the
+   * language model (one short unprompted line per edge).
+   */
+  if (ctx.perceptionWake) {
+    ctx.perceptionWake.subscribe((event) => {
+      log.info(`perception wake: ${event.type}${event.detail ? ` - ${event.detail}` : ''}`);
+      if (event.type !== 'chat:message' && event.type !== 'weather:change' && event.type !== 'phase:change') return;
+      if (typeof llm.speakUp !== 'function') return;
+      llm.speakUp('perception', { detail: event.detail }).catch((err) => {
+        log.debug(`perception wake speech failed: ${err.message}`);
+      });
+    });
+    chatListener.onOther = (line) => {
+      const match = String(line).match(/^\s*<[^<>]{1,32}>\s+(.+)$/);
+      if (!match) return; // server notices without a player sender are not chat messages
+      const content = match[1].trim();
+      if (!content || content.startsWith('!') || content.startsWith('@')) return;
+      ctx.perceptionWake.noteChat(content);
+    };
+  }
+
+  /**
    * Channel B: the natural-language trigger.
    *
    * Deliberately a *second* poller over the same chat log rather than a second code path

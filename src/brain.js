@@ -31,6 +31,7 @@ const { evaluate } = require('./planner/evaluator');
 const { TaskSlot } = require('./core/taskSlot');
 const { ProposalDesk } = require('./planner/proposals');
 const { TaskEvents } = require('./core/taskEvents');
+const { PerceptionWake } = require('./world/perceptionWake');
 const { PlanStore } = require('./core/planStore');
 const { PlanRunner } = require('./core/planRunner');
 const { PlanQuestionBridge } = require('./planner/planQuestions');
@@ -130,6 +131,15 @@ class Brain {
     ctx.turns = this.turns;
     this.harness = new HarnessAdapter({ turns: this.turns, events: this.events });
     ctx.harness = this.harness;
+    /**
+     * A11: sampling produces no wake; only an edge does. The model consumer subscribes in
+     * index.js, keeping this class independent of the LLM and safe to run offline.
+     */
+    this.perceptionWake = new PerceptionWake({
+      radius: this.cfg.behaviour && this.cfg.behaviour.perceptionRadius,
+      log: this.log
+    });
+    ctx.perceptionWake = this.perceptionWake;
     /** M3: local methods and remembered player answers (both persisted when state is on). */
     this.methods = new MethodLibrary();
     ctx.methods = this.methods;
@@ -357,6 +367,14 @@ class Brain {
      */
     if (this.ctx.body && typeof this.ctx.body.refresh === 'function') {
       await this.ctx.body.refresh(false).catch(() => null);
+    }
+    if (this.perceptionWake && this.ctx.body && typeof this.ctx.body.snapshot === 'function') {
+      try {
+        // Edge detection only: no model call happens here; subscribers own that policy.
+        this.perceptionWake.observe(this.ctx.body.snapshot());
+      } catch (err) {
+        this.log.debug(`perception wake failed: ${err.message}`);
+      }
     }
 
     // ---- safe mode: stop feeding the mobs -------------------------------------
@@ -1022,6 +1040,7 @@ class Brain {
       plannerMode: this.plannerMode,
       proposals: this.proposals ? this.proposals.status() : null,
       events: this.events ? this.events.status() : null,
+      perceptionWake: this.perceptionWake ? this.perceptionWake.status() : null,
       plans: this.plans ? this.plans.status() : null,
       planRunner: this.planRunner ? { busy: this.planRunner.busy } : null,
       turns: this.turns ? { activeId: this.turns.activeId } : null,
