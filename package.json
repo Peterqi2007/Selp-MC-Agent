@@ -13,6 +13,8 @@
     "server": "node scripts/run-all.js --no-server",
     "pcl:client": "node scripts/launch-client.js",
     "pcl:info": "node scripts/pcl-info.js",
+    "dsh:install": "node scripts/install-dsh-plugin.js",
+    "dsh:h1": "node scripts/dsh-h1-test.js",
     "selftest": "node scripts/selftest.js",
     "verify:roleplay": "node scripts/verify-roleplay.js",
     "clientmod:test": "node scripts/clientmod-test.js",

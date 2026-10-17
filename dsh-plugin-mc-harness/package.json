@@ -1,0 +1,15 @@
+{
+  "name": "dsh-mc-harness",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "DSH plugin bridge: let a real DeepSeek Harness agent decompose Minecraft goals into mc_step calls served by the local Node agent.",
+  "main": "lib/index.js",
+  "exports": {
+    ".": "./lib/index.js",
+    "./package.json": "./package.json"
+  },
+  "dsh": {
+    "plugin": true
+  }
+}

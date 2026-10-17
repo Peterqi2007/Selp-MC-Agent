@@ -80,12 +80,17 @@
 - LLM intent 输出 `count=3`；这是模型补默认值，不是闸门放行/拒绝问题（本轮未走闸门）。
 - 记为 **待复验的模型行为**：A02 重跑时若走闸门，应观察原文是否被保留、是否生成替代参数。
 
-## 5. H1a/H1b：阻塞
+## 5. H1a/H1b：已实现接入，待重启 DSH 验证
 
-- 仓库只有 `src/harness/adapter.js` 的离线 `HarnessAdapter` 与 `ResumeBridge`；
-  没有真实 DSH/Codex harness 的启动/传输入口，也没有指定 Full Access Ask 的启动命令。
-- 因此 H1a（可执行拆解）与 H1b（不可实现退回）**无法执行**，M2 不能整体通过。
-- 不会用离线 adapter 冒充 H1；需先接真实 harness。
+- 已新增真实 DSH 插件 `dsh-plugin-mc-harness`：注册 `mc_observe` / `mc_step` / `mc_finish`，
+  并提供 `127.0.0.1:8770` 的 `POST /goal`。
+- 已安装到 DSH desktop profile 并加载：`GET /health` 返回插件；
+  `mc_step` 真机可用（手动 `mine dirt 2` 经 8766 执行完成）。
+- 首版 `/goal` 报 `cannot get property "agents" without inject`（已改 `ctx.get('agents')`）；
+  `mc_observe` 对象输出被 DSH 拒绝（已改 JSON 字符串）。这两处**需要重启 DSH 才加载**。
+- 因此 H1a/H1b **尚未通过**；不能把“插件加载 + mc_step 可用”当作 H1 通过。
+- 重启后运行 `npm run dsh:h1`；详见 [`DSH-HARNESS.md`](DSH-HARNESS.md)。
+- Full Access Ask：DSH 重启时使用 profile 的 `full-access-ask` 预设；审批由用户完成。
 
 ## 6. 未执行
 
