@@ -2093,6 +2093,64 @@ function makeBrain() {
     });
   }
 
+  // ------------------------------------------------------ classified memory
+  process.stdout.write('\n36. classified memory\n');
+  {
+    const { MemoryStore } = require('../src/memory/store');
+    const memory = new MemoryStore({ now: () => 1000 });
+    memory.remember('episodic', {
+      text: 'found iron at y=16',
+      tags: ['iron', 'mining'],
+      source: 'agent'
+    });
+    memory.remember('semantic', {
+      text: 'iron ore drops raw iron',
+      tags: ['iron', 'recipe'],
+      source: 'wiki'
+    });
+    memory.remember('relational', {
+      text: 'Steve prefers building',
+      tags: ['steve'],
+      source: 'chat'
+    });
+    check('classified memory keeps the three categories apart', () => {
+      const counts = memory.status().counts;
+      assert.strictEqual(counts.episodic, 1);
+      assert.strictEqual(counts.semantic, 1);
+      assert.strictEqual(counts.relational, 1);
+    });
+    const hits = memory.recall('iron', { category: 'episodic' });
+    check('recall filters by category and scores tokens', () => {
+      assert.strictEqual(hits.length, 1);
+      assert.match(hits[0].entry.text, /found iron/);
+    });
+    const tagged = memory.recall('', { tags: ['iron'] });
+    check('tag recall works without a query', () => {
+      assert.strictEqual(tagged.length, 2);
+    });
+    check('an unknown category is refused', () => {
+      assert.strictEqual(memory.remember('dream', { text: 'x' }).reason, 'unknown-category');
+    });
+  }
+
+  {
+    const brain = makeBrain();
+    brain.memoryStore.remember('semantic', {
+      text: 'diamonds need an iron pick',
+      tags: ['diamond'],
+      source: 'test'
+    });
+    const saved = brain.captureState();
+    const restored = makeBrain();
+    const outcome = restored.restoreState(saved);
+    check('classified memory survives the session', () => {
+      assert(outcome.restored.memoryStore);
+      const hits = restored.memoryStore.recall('diamonds');
+      assert.strictEqual(hits.length, 1);
+      assert.match(hits[0].entry.text, /iron pick/);
+    });
+  }
+
   // summary
   const failed = results.filter((result) => !result.ok);
   process.stdout.write(`\nP1 contract test: ${results.length - failed.length}/${results.length} checks passed\n`);

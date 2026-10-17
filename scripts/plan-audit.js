@@ -1081,6 +1081,25 @@ if (STAGE === 'p1') {
     return 'enter/leave once; re-enter after leave; no action';
   });
 
+  check('P1: memory is classified and searchable', () => {
+    const store = read('src/memory/store.js');
+    const brain = read('src/brain.js');
+    if (!/class MemoryStore/.test(store)) throw new Error('MemoryStore is missing');
+    for (const category of ['episodic', 'semantic', 'relational']) {
+      if (!new RegExp(category).test(store)) throw new Error(`category ${category} is missing`);
+    }
+    if (!/recall\(/.test(store) || !/tags/.test(store)) throw new Error('retrieval/tags are missing');
+    if (!/new MemoryStore/.test(brain)) throw new Error('brain does not create the classified store');
+    return 'three categories; lexical+tag recall; bounded';
+  });
+
+  check('P1: classified memory is persisted with the session', () => {
+    const session = read('src/core/sessionState.js');
+    if (!/memoryStore/.test(session)) throw new Error('memoryStore is not captured');
+    if (!/memoryStore\.restore|brain\.memoryStore/.test(session)) throw new Error('memoryStore is not restored');
+    return 'episodic/semantic/relational survive restart';
+  });
+
   check('P1: proposals are wired with an offline answer surface', () => {
     const brain = read('src/brain.js');
     const commands = read('src/chat/commands.js');

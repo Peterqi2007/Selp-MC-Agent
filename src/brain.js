@@ -43,6 +43,7 @@ const { MethodLibrary } = require('./learning/methodLibrary');
 const { AnswerMemory } = require('./learning/answerMemory');
 const { Budget } = require('./planner/budget');
 const { ConversationState } = require('./chat/conversation');
+const { MemoryStore } = require('./memory/store');
 const nodePath = require('path');
 const { bare } = require('./world/items');
 /**
@@ -140,6 +141,9 @@ class Brain {
     /** M6: deterministic chat dedupe/rate-limit/stale-request state (persisted). */
     this.conversation = new ConversationState();
     ctx.conversation = this.conversation;
+    /** M3: classified memory (episodic/semantic/relational); ctx.memory is untouched. */
+    this.memoryStore = new MemoryStore();
+    ctx.memoryStore = this.memoryStore;
     /**
      * Holds: the single table of "why is the brain not working" (src/core/holds.js).
      *
@@ -1015,6 +1019,7 @@ class Brain {
       answers: this.answers ? this.answers.status() : null,
       budget: this.budget ? this.budget.status() : null,
       conversation: this.conversation ? this.conversation.status() : null,
+      memoryStore: this.memoryStore ? this.memoryStore.status() : null,
       completedGoals: this.completedGoals.slice(-10),
       memory: this.ctx.memory.summary()
     };
