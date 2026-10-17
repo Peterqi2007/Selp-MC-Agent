@@ -323,9 +323,10 @@ class TaskHub {
 
     /** The same events the brain's own tasks emit; the LLM/proactive wiring consumes them. */
     try {
-      if (this.ctx.brain && typeof this.ctx.brain.emit === 'function') {
-        this.ctx.brain.emit(ok ? 'task:done' : 'task:failed', info);
-      }
+      /** S2b: one event exit for both planner tasks and hub jobs. */
+      const slot = this._slot();
+      if (slot && typeof slot.publish === 'function') slot.publish(ok ? 'task:done' : 'task:failed', info);
+      else if (this.ctx.brain && typeof this.ctx.brain.emit === 'function') this.ctx.brain.emit(ok ? 'task:done' : 'task:failed', info);
     } catch {}
   }
 

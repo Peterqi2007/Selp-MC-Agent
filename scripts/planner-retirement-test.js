@@ -1,12 +1,14 @@
 'use strict';
 
 /**
- * `npm run planner:test` - RETIREMENT S0/S1 hooks.
+ * `npm run planner:test` - RETIREMENT S0/S1/S2 hooks.
  *
  * S0 installed the regression hooks (progress domain, decide() fixture, quarantined event).
  * S1 adds the evaluator section: the rule table must return declarative candidates, skip
  * rules the body cannot run (with a reason), and report a throwing precondition instead of
- * hiding it at debug level. Still no client, no network, no model calls.
+ * hiding it at debug level. S2 adds the slot: one owner, hub-only hold, and the executor
+ * (runTask) releasing the body and publishing exactly one completion event.
+ * Still no client, no network, no model calls.
  */
 
 const assert = require('assert');
@@ -279,11 +281,39 @@ check('TaskSlot: only the owner can release the slot', () => {
   assert.strictEqual(slot.release(owner.owner), true);
 });
 
-// ------------------------------------------------------------------- summary
-const failed = results.filter((r) => !r.ok);
-process.stdout.write(`\nplanner retirement test: ${results.length - failed.length}/${results.length} checks passed\n`);
-if (failed.length) {
-  process.stdout.write('FAILED\n');
-  process.exit(1);
-}
-process.stdout.write('S0 hooks + S1 evaluator + S2a slot are in place (offline only)\n');
+// ------------------------------------------------------- 6. S2b execution
+process.stdout.write('\n6. TaskSlot execution (S2b)\n');
+
+(async () => {
+  const brain = makeBrain({});
+  const events = [];
+  brain.on('task:done', (event) => events.push(event));
+  const task = {
+    name: 'probe-run',
+    description: 'walk to 1,2,3',
+    source: 'test',
+    state: 'pending',
+    result: null,
+    async execute() {
+      this.state = 'done';
+      this.result = { ok: true, reason: 'arrived' };
+    }
+  };
+  await brain.runTask(task);
+  check('TaskSlot.runTask executes, releases the body and publishes one event', () => {
+    assert.strictEqual(brain.slot.busy, false, 'the slot must be free after execution');
+    assert.strictEqual(brain.activeTask, null);
+    assert.strictEqual(events.length, 1, `expected one completion event, got ${events.length}`);
+    assert.strictEqual(events[0].name, 'probe-run');
+    assert.strictEqual(events[0].source, 'test');
+  });
+
+  // ----------------------------------------------------------------- summary
+  const failed = results.filter((r) => !r.ok);
+  process.stdout.write(`\nplanner retirement test: ${results.length - failed.length}/${results.length} checks passed\n`);
+  if (failed.length) {
+    process.stdout.write('FAILED\n');
+    process.exit(1);
+  }
+  process.stdout.write('S0 hooks + S1 evaluator + S2 slot (ownership + execution) are in place (offline only)\n');
+})();

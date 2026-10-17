@@ -98,13 +98,7 @@ class Brain {
     /** Task lifecycle listeners, used by the LLM for event-driven follow-ups (§5.6). */
     this.listeners = new Map();
     this.lastDecision = null;
-    this.blockedGoal = null;
     this.completedGoals = [];
-    this.quarantine = new Map();
-    this.failCounts = new Map();
-    /** Per-goal last-seen progress, used to detect goals that spin without effect. */
-    this._progressSeen = new Map();
-    this._stalls = new Map();
     this.lastRescueAt = 0;
     /** Set when repeated deaths show the current strategy is losing. */
     this.safeMode = false;
@@ -156,6 +150,27 @@ class Brain {
 
   get currentTask() {
     return this.slot.brainTask;
+  }
+
+  /** B1/B2 state lives in the slot (S2b); these views keep callers and tests working. */
+  get blockedGoal() {
+    return this.slot.blockedGoal;
+  }
+
+  get quarantine() {
+    return this.slot.quarantine;
+  }
+
+  get failCounts() {
+    return this.slot.failCounts;
+  }
+
+  get _progressSeen() {
+    return this.slot._progressSeen;
+  }
+
+  get _stalls() {
+    return this.slot._stalls;
   }
 
   /** The live mineflayer instance (may be null while reconnecting). */
@@ -599,134 +614,17 @@ class Brain {
 
   // ------------------------------------------------------------- task runner
 
+  /** Task execution, settlement and lifecycle events live in the slot (S2b). */
   async runTask(task) {
-    // Serialise execution: exactly one task may drive the bot at a time. Without
-    // this, a slow loop, a retry timer and a reflex can all call runTask() and end
-    // up fighting over the pathfinder (every goto instantly cancelled by the other).
-    /**
-     * S2: ask the slot, not a private field. A brain task does not hold the brain, so
-     * directives can still queue behind it; a hub job does hold it, so a planner task is
-     * queued rather than run alongside.
-     */
-    const held = this.slot.brainTask;
-    if (this.slot.busy && held !== task) {
-      this.queue.push(task);
-      const behind = held ? held.name : this.slot.current ? this.slot.current.kind : 'another owner';
-      this.log.debug(`${task.name} queued behind ${behind}`);
-      return;
-    }
-    const acquired = this.slot.acquire({ kind: 'brain', task, id: task.name, note: `task ${task.name}` });
-    if (!acquired.ok) {
-      this.queue.push(task);
-      this.log.debug(`${task.name} queued: the body slot is held by ${this.slot.current && this.slot.current.kind}`);
-      return;
-    }
-    const slotOwner = acquired.owner;
-    try {
-      await task.execute();
-      const res = task.result || { ok: false, reason: 'no result' };
-      if (res.ok) {
-        this.log.info(`done ${task.name}: ${res.reason}`);
-        this.completedGoals.push({ name: task.name, reason: res.reason, at: Date.now() });
-        if (this.completedGoals.length > 50) this.completedGoals.shift();
-        if (task.name === 'shelter') {
-          const pos = this.ctx.body.snapshot();
-          if (pos && pos.position) this.ctx.memory.rememberLandmark('shelter', { ...pos.position });
-        }
-        this.ctx.memory.bump(`task:${task.name}:ok`);
-        this._noteProgress(task);
-        /**
-         * Task lifecycle events (P0-PLAN §5.6). The LLM subscribes so it can finish a
-         * request *after* a long task - "go chop some wood and tell me when you're done" -
-         * without ever polling or blocking. Only tasks it dispatched itself wake it; the
-         * payload carries `source` so that decision stays with the listener.
-         */
-        this.emit('task:done', {
-          name: task.name,
-          reason: res.reason,
-          description: task.description,
-          source: task.source || 'autonomous',
-          level: task.level || null
-        });
-      } else {
-        this.log.warn(`failed ${task.name}: ${res.reason}`);
-        this.ctx.memory.bump(`task:${task.name}:fail`);
-        this.emit('task:failed', {
-          name: task.name,
-          reason: res.reason,
-          description: task.description,
-          source: task.source || 'autonomous',
-          level: task.level || null
-        });
-        this.maybeRetry(task);
-      }
-    } finally {
-      this.slot.release(slotOwner);
-      /**
-       * Pick up anything that was queued while this task ran.
-       *
-       * Without this, a chat command issued during a long task waits for the *next planning
-       * tick* - up to `idleThinkIntervalMs` after a three-minute job already finished. The
-       * user sees "nothing happened" and sends the command again. Chaining through
-       * `setTimeout(0)` keeps the stack flat when a long queue drains in one go.
-       */
-      if (this.queue.length && this.running && !this.paused && !this.stopped) {
-        setTimeout(() => {
-          this.drainQueue().catch((err) => this.log.debug(`drain after task: ${err.message}`));
-        }, 0);
-      }
-    }
+    return this.slot.runTask(task);
   }
 
+
+  /** B2 (strike backoff) lives in the slot (S2b). */
   maybeRetry(task) {
-    const reason = task.result ? task.result.reason : null;
-    /**
-     * Never resurrect deliberate cancellation.
-     *
-     * `preempt()`, `pause()` and the post-death stop all cancel the running task, and a retry
-     * would quietly undo exactly what the user just asked for - "stop" would be followed by
-     * the same job starting again 1.5s later, which is how a stop button loses its meaning.
-     */
-    if (reason && /cancel/i.test(reason)) {
-      this.log.debug(`${task.name} was cancelled - not retrying`);
-      this.drainQueue();
-      return;
-    }
-    if (task.retries >= task.maxRetries) {
-      this.log.warn(`${task.name} exhausted retries`);
-      this.blockedGoal = { name: task.name, at: Date.now(), reason: task.result ? task.result.reason : null };
-      // Quarantine the goal so a permanently impossible task cannot spin the
-      // planner, but keep the window short: on a real map "no trees nearby" is
-      // usually temporary (we simply wandered into a clearing).
-      this.failCounts.set(task.name, (this.failCounts.get(task.name) || 0) + 1);
-      const strikes = this.failCounts.get(task.name);
-      const windowMs = Math.min(120000, 20000 * strikes);
-      this.quarantine.set(task.name, Date.now() + windowMs);
-      this.log.debug(`${task.name} quarantined for ${Math.round(windowMs / 1000)}s (strike ${strikes})`);
-      /**
-       * P8: the docs advertised `task:quarantined` for well over a year while the code
-       * only ever emitted `task:done` / `task:failed`. Emitting here is what lets the
-       * follow-up ("could not do X, here is why") become event-driven instead of polled.
-       * `reason` distinguishes this strike-based park from the zero-progress one.
-       */
-      this.emit('task:quarantined', {
-        name: task.name,
-        reason: 'strikes',
-        strikes,
-        until: this.quarantine.get(task.name),
-        source: task.source || 'autonomous'
-      });
-      this.drainQueue();
-      return;
-    }
-    task.retries += 1;
-    task.state = 'pending';
-    this.log.info(`retrying ${task.name} (attempt ${task.retries + 1})`);
-    // Short delay so the world can change (night -> day, mobs wander off...).
-    setTimeout(() => {
-      if (this.running && !this.paused && !this.stopped) this.runTask(task).catch((e) => this.log.debug(`retry failed: ${e.message}`));
-    }, 1500);
+    return this.slot.maybeRetry(task);
   }
+
 
   /** Run whatever is waiting in the queue, one task at a time. */
   async drainQueue() {
@@ -737,57 +635,17 @@ class Brain {
     await this.runTask(next);
   }
 
-  /**
-   * Track per-goal progress so a goal that "succeeds" without changing anything cannot
-   * spin the planner forever.
-   *
-   * Real example: on a map with two trees, `gather-wood` correctly reports success
-   * ("no trees nearby") but the wood count never reaches the target, so the rule table
-   * picks the same goal again - and again, every 2.5s, silently. Two stalls and the
-   * goal is parked for a while, which lets the planner do something else instead.
-   */
+  /** B1 (zero-progress park) lives in the slot (S2b). */
   _noteProgress(task) {
-    const value = typeof task.progress === 'function' ? safeCall(() => task.progress()) : null;
-    if (value === null || value === undefined) {
-      this._progressSeen && this._progressSeen.delete(task.name);
-      return;
-    }
-    if (!this._progressSeen) this._progressSeen = new Map();
-    const previous = this._progressSeen.get(task.name);
-    if (previous !== undefined && previous === value) {
-      const stalls = (this._stalls.get(task.name) || 0) + 1;
-      this._stalls.set(task.name, stalls);
-      if (stalls >= 2 && !this.isQuarantined(task.name)) {
-        this.log.warn(`${task.name} made no progress (${value}) for ${stalls} runs - parking it briefly`);
-        this.quarantine.set(task.name, Date.now() + 30000);
-        this._stalls.delete(task.name);
-        /** Same event as the strike-based park; `reason` tells them apart (P8). */
-        this.emit('task:quarantined', {
-          name: task.name,
-          reason: 'no-progress',
-          value,
-          stalls,
-          until: this.quarantine.get(task.name),
-          source: task.source || 'autonomous'
-        });
-      }
-    } else {
-      this._stalls && this._stalls.delete(task.name);
-    }
-    this._progressSeen.set(task.name, value);
+    return this.slot.noteProgress(task);
   }
 
-  /** True when a goal failed so recently that we should not immediately re-plan it. */
+
+  /** Quarantine lives in the slot (S2b). */
   isQuarantined(name) {
-    if (!this.quarantine) return false;
-    const until = this.quarantine.get(name);
-    if (!until) return false;
-    if (Date.now() > until) {
-      this.quarantine.delete(name);
-      return false;
-    }
-    return true;
+    return this.slot.isQuarantined(name);
   }
+
 
   /** Add an explicit goal (used by chat commands and the web API). */
   async push(task) {
@@ -1025,12 +883,3 @@ function buildTask(ctx, candidate) {
 }
 
 module.exports = { Brain };
-
-/** Call a function that might throw, returning null instead of propagating. */
-function safeCall(fn) {
-  try {
-    return fn();
-  } catch {
-    return null;
-  }
-}
