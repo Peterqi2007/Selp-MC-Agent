@@ -435,6 +435,9 @@ CU **复用现有 `dsh-computer-use` 插件**（本机 desktop profile 的 bundl
 `slowLoop` 的规则规划器退役，拆成三件可独立验收的东西：**GoalEvaluator**（规则表 → 声明式候选，纯函数可注入）、**proposals**（提案生命周期与授权）、**TaskSlot**（唯一执行器：合并 `brain.queue/activeTask` 与 `TaskHub.current`，承接 B1/B2、holds、超时与统一事件出口）。详见 [`PLANNER-RETIREMENT.md`](PLANNER-RETIREMENT.md)。
 
 - 开关 `planner.mode = legacy | proposals | off`，**默认 legacy**，按阶段验收后切换。
+- **实施进展（2026-10-17）**：S0–S4 已全部离线交付；`pickRule()` 已删除，`decide()/buildTask()` 保留为
+  legacy 后端、`slowLoop` 保留为按模式分派的调度器；`plan:audit` 已支持 `--stage p0|p1`。
+  默认模式切到 `proposals` 与删除 legacy 后端**待 M6 语言脑接管提案问答后进行**。
 - "退役执行权"与"退役代码"分开：先让 slowLoop 只提议（仍可 legacy 执行）跑一段真机，够用后再删代码。
 - 退役期间 `!`/`do_task` 行为必须逐字节等价，用现有套件证明。
 

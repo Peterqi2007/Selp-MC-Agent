@@ -1,5 +1,34 @@
 # 规划器（autonomous planner）专项审计与重构边界（2026-10-14）
 
+> ## 退休状态（2026-10-17，RETIREMENT S0–S4 已执行）
+>
+> 本文记录的问题已按 [`PLANNER-RETIREMENT.md`](PLANNER-RETIREMENT.md) 处理；下表是**关闭 / 迁移**的
+> 唯一权威。证据只列离线套件（`planner:test`、`plan:audit --stage p1`、`p0:verify` 等）；
+> 真机项仍登记在 [`P1-CLIENT-TESTS.md`](P1-CLIENT-TESTS.md)，**未执行**。
+>
+> | 项 | 状态 | 说明 |
+> | --- | --- | --- |
+> | **P1** shelter 死规则 | ✅ 已修（S1） | 规则移入 evaluator，去掉未定义 `bot`；无 mineflayer 实例时显式跳过 |
+> | **P2** light 无能力门 | ✅ 已修（S1） | `requiresBody:'mineflayer'`，跳过带原因 |
+> | **P3** 矿石零进展无刹车 | ⏭ 转 P1 M1 | `mine_ore.progress()` 仍返回新对象；`planner:test` 以**已知违规**钉住，S2 的值域契约未改任务 |
+> | **P4** 零收获返回 `ok:true` | ⏭ 转 P1 M1 | 同上，属于结果语义统一（P1 §1.4.1） |
+> | **P5** 停牌粒度=任务名 / 黑名单死代码 | ⏭ 转 P1 M1 | 提案已带 target；quarantine 仍按任务名，目标级账本未做 |
+> | **P6** 30s 字面量 / 计数不重置 | ⏭ 转 P1 M1 | 提案冷却/TTL 已可配；B1/B2 窗口尚未提配置 |
+> | **P7** 规则名≠任务名 | ✅ 已修（S1） | 候选同时带 `rule` 与 `name`，quarantine 用 `name` |
+> | **P8** `task:quarantined` 从未 emit | ✅ 已修（S0/S2b） | 两条停牌路径均经 `slot.publish` 发布 |
+> | **P9** 规则表几乎无测试 | ✅ 已修（S1） | `evaluator` 可注入，`planner:test` 覆盖候选/能力跳过/抛错上报；A10 改为 evaluator 断言 |
+> | **P10** 两套停牌并存 | ⚖ 口径统一，代码合并转 M1 | holds（全局）与 quarantine（目标）仍在两处；文档口径已统一 |
+> | **Q1** 规则表内联在 `decide()` | ✅ 已消除（S1） | 规则移至 `src/planner/evaluator.js` |
+> | **Q2** 每 tick 重建快照/全量计数 | ⏭ 转 M1 | 未改；M1 的观察契约处理 |
+> | **Q3** 两套所有权 | ✅ 已消除（S2a） | `TaskSlot` 是唯一 owner；brain/hub 只读视图 |
+> | **Q4** 规划器状态全内存 | ⏭ 转 M1 | 提案历史/冷却仍在内存；A17/A29 的持久化待 M1/M3 |
+> | **Q5** 无可观测状态机 | ⚖ 部分 | `lastDecision` + `proposals.status()` 可观测；完整状态机转 M1 |
+> | **Q6** tasks/skills 双轨 | ⏭ 转 M1/M3 | 未动 |
+> | **Q7** 三套停滞语义 | ⚖ 部分 | B1/B2 已统一进 slot；技能层 monitor 仍独立，转 M1 |
+>
+> **本文 §二 的代码地图与行号是 2026-10-14 快照**：S1 搬走了规则表、S2 搬走了执行/B1/B2/B3 状态，
+> `pickRule()` 已删除，`decide()` 只做"候选→legacy 任务"的薄转换。读旧章节时按此校正。
+>
 > **本文只记规划器自身的问题。** 规划器是下一阶段重点重构对象，因此这里把它的**目标选择、失败语义、
 > 退避与所有权**单独立账，不让它与 **`!` 命令回路**、**LLM `do_task`/`do_skill` 回路**的问题互相污染
 > （典型错误：把规划器的停牌问题当成技能 bug 去修，或反过来要求技能层为规划器的空转负责）。

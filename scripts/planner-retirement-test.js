@@ -419,5 +419,4 @@ process.stdout.write('\n6. TaskSlot execution (S2b)\n');
     process.stdout.write('FAILED\n');
     process.exit(1);
   }
-  process.stdout.write('S0 hooks + S1 evaluator + S2 slot + S3 proposals are in place (offline only)\n');
-})();
+  process.stdout.write('S0-S4 retirement is in place: evaluator + slot + proposals (offline only)\n');})();

@@ -73,7 +73,7 @@ src/brain.js               // 只留 fastLoop（反射）+ 调度器；
 | **S2a 所有权 ✅（离线）** | `src/core/taskSlot.js` 成为唯一身体所有者；brain 任务与 hub 作业都经 acquire/release；`activeTask`/`currentTask`/`hub.current` 变成视图；hub 从 brain 任务接管前等待其释放 | `!`/`do_task` 行为等价（52/37/176 等套件证明） | `control:test` 37/37、`selftest` 176/176；Q3 的"两套所有权"消除 |
 | **S2b 执行器 ✅（离线）** | B1/B2（停牌/罢工）、任务执行、结算与**统一事件出口**迁进 TaskSlot；`brain.runTask` 退化为委托；超时仍由 `Task.execute` 的 `timeoutMs` 承担（由 slot 调用） | `!`/`do_task` 行为等价（52/37/25/176 等套件证明） | `control:test` 37/37、`selftest` 176/176；事件只有 `slot.publish` 一个出口 |
 | **S3 提案 + 授权 ✅（离线）** | `src/planner/proposals.js`：提案生命周期、3 分钟冷却、无答过期（不等于同意）、显式任务取代、常驻授权；`planner.mode=proposals` 时 `slowLoop` 只提议不执行；确定性入口 `!proposal status\|accept [always]\|reject` | `!`/`do_task` 不变（默认 `legacy`） | A25 四条离线路径全过；语言脑措辞/解析仍在 P1 的 M3/M6，真机多人 A25 未执行 |
-| **S4 删代码** | 删 legacy 路径与降级开关（或保留只读）；`plan:audit` 改阶段感知；`PLANNER-REFACTOR.md` 标注"已退役/已迁移" | — | P1–P10 逐条关闭或转下阶段 |
+| **S4 删代码 ✅（离线）** | 删除无调用者的 `pickRule()`；`plan:audit` 改 `--stage p0\|p1`；`PLANNER-REFACTOR.md` 加退休状态表；`decide()/buildTask` 保留为 legacy 后端、`slowLoop` 保留为调度器 | — | p0 29/29、p1 34/34；P1–P10 全部关闭或转 M1 |
 
 **安全姿势**："退役执行权"和"退役代码"分开——S3 先把 `slowLoop` 变成"只提议 + `mode=legacy` 仍可执行"，跑一段真机；确认常驻授权够用后，S4 再删代码。这样任何一步出问题都能用开关退回。
 
@@ -108,6 +108,7 @@ src/brain.js               // 只留 fastLoop（反射）+ 调度器；
 | 2026-10-17 | S2a | 1) 新增 `src/core/taskSlot.js`：唯一所有者 `{kind:'brain'\|'hub'}`、共享队列、hold 只在 hub 上生效、`waitForRelease`；2) `brain.activeTask/currentTask` 变 slot 视图（getter），`runTask` 经 acquire/release；3) `TaskHub.current` 变 slot 视图，submit 在接管前等待被取消的 brain 任务释放（P1 §1.4.2 #4），settle 释放 slot；无 brain 的旧测试桩保留 `_current` 回退 | `planner:test` 24/24；`control:test` 37/37；`selftest` 176/176；`tasks:test` 52/52；`skills:test` 57/57；mining 三套 25/24/18；`p0:verify` 8/8 |
 | 2026-10-17 | S2b | 1) B1/B2 状态（quarantine/failCounts/progressSeen/stalls/blockedGoal）移到 TaskSlot；2) `slot.runTask()` 承接执行、结算、内存记账、`task:done/failed` 与 `task:quarantined` 发布；3) `slot.publish()` 成为唯一事件出口，hub settle 也走它；4) `brain.runTask/maybeRetry/_noteProgress/isQuarantined` 改成委托，状态字段改成 slot 视图（测试读写不变） | `planner:test` 25/25；`control:test` 37/37；`selftest` 176/176；`tasks:test` 52/52；`skills:test` 57/57；mining 三套 25/24/18；`plan:audit` 29/29；`p0:verify` 8/8 |
 | 2026-10-17 | S3 | 1) 新增 `src/planner/proposals.js`：`propose/accept/reject/sweep/supersede/revoke`，冷却与 TTL 可注入时钟；常驻授权让下一次同目标"生而通过"；事件 `proposal:new/accepted/rejected/expired/superseded`；2) brain 增加 `plannerMode`（legacy/proposals/off，默认 legacy）、`nextCandidate/proposeNext/_proposeOrRun/acceptProposal/rejectProposal`；`slowLoop` 在 proposals 模式只提议；显式任务/死亡/停机取代待答提案；3) `!proposal` 命令（语言脑接管前的确定性入口）；4) `config/agent.json` 增加 `planner.{mode,proposalCooldownMs,proposalTtlMs}`；5) `plan:audit` 的配置消费检查纳入 planner 三个键 | `planner:test` 31/31（A25 接受/拒绝冷却/过期/取代/常驻授权）；`control:test` 37/37；`selftest` 176/176；`tasks:test` 52/52；`skills:test` 57/57；mining 三套 25/24/18；`plan:audit` 29/29；`p0:verify` 8/8 |
+| 2026-10-17 | S4 | 1) 删除无调用者的 `pickRule()`（44 行）；2) `plan:audit` 支持 `--stage p0\|p1`，p1 = P0 全集 + 5 条 P1 断言（planner.mode 消费、evaluator 声明式、TaskSlot 单一 owner、统一事件出口、ProposalDesk + `!proposal`）；3) `PLANNER-REFACTOR.md` 增加 P1–P10/Q1–Q7 的关闭/迁移状态表；4) `decide()/buildTask` 与 `planner.mode` 保留为 legacy 后端与回退开关（待 M6） | `plan:audit` p0 **29/29**、p1 **34/34**；`planner:test` 31/31；`p0:verify` 8/8 |
 
 **S0 的边界**：只新增事件与测试，不改任务执行、不改规则选择、不改退避窗口。
 `mine_ore` 的对象返回值是**已知违规**而不是被容忍——S2 改成值域/单调性契约时，测试会失败并提示更新条目。
@@ -131,11 +132,24 @@ brain 任务释放身体（最多 `settleTimeoutMs`）；原实现是"取消后�
 措辞成问句、解析玩家回答，再调用同一组 `acceptProposal/rejectProposal`。A25 的"接受/拒绝/不答/另派"
 四条状态机已离线验收；**真机多人 A25 仍是未执行项**（见 [`P1-CLIENT-TESTS.md`](P1-CLIENT-TESTS.md)）。
 
-下一步（S4）：删 legacy 路径与降级开关（`pickRule`、`buildTask` 工厂按阶段决定去留、`planner.mode` 是否保留只读），
-`plan:audit` 改阶段感知；`PLANNER-REFACTOR.md` 标注"已退役/已迁移"；逐条关闭 P1–P10。
-S4 前建议先跑一轮真机抽测（`!`/`do_task` 等价、空闲授权口径），但那属于客户端测试，**本轮不执行**。
+**S4 的边界（删什么、留什么）**：删除 `pickRule()`——S1 之后它已无调用者，是纯 legacy 死代码；
+`decide()/buildTask()` **保留**为 `planner.mode=legacy` 的后端（默认模式，生产行为不变），
+`slowLoop` 保留为按模式分派的调度器。`planner.mode` 开关本身保留为回退手段：等 P1 M6 的语言脑
+接管提案问答、并把默认模式切到 `proposals` 后，再删除 legacy 后端。`plan:audit` 现在有
+`--stage p0|p1`：p1 跑 P0 全集 **加** 5 条 P1 断言，不做"整体放宽"。
 
-## 9. 不做
+## 9. 完成状态（2026-10-17）
+
+**RETIREMENT S0–S4 已全部离线交付**；`PLANNER-REFACTOR.md` 的 P1–P10/Q1–Q7 已逐条标注
+"关闭 / 转 P1 M1 / 口径统一"，见该文首的状态表。
+
+- **离线证据**：`planner:test` 31/31；`plan:audit` p0 29/29、**p1 34/34**；`p0:verify` 8/8；
+  `control:test` 37/37；`selftest` 176/176；`tasks` 52/52；`skills` 57/57；mining 25/24/18。
+- **未执行**：全部真机判据（`!`/`do_task` 真机等价、空闲授权口径、重启账本、A25 多人）——
+  统一登记在 [`P1-CLIENT-TESTS.md`](P1-CLIENT-TESTS.md)，执行需单独批准。
+- **下一步**：进入 P1 的 M0（冻结基线、复测、范围迁移登记、CU 可行性 F1、`/state` 字段成本表）。
+
+## 10. 不做
 
 - 不引入多 agent、树搜索或六个模型角色：GoalEvaluator 只是把现有规则表变纯函数，TaskSlot 只是合并两套所有权。
 - 不在本方案里改 persona、聊天、感知采集（那些在 P1 的 M2/M6）。

@@ -19,6 +19,25 @@ const fs = require('fs');
 const ROOT = path.resolve(__dirname, '..');
 const results = [];
 
+/**
+ * RETIREMENT S4: stage-aware audit.
+ *
+ * P1 §3.3 freezes the migration rule: P0 assertions stay unless replaced in the same
+ * commit, and the audit must not be deleted or made always-green. `--stage p0` (default)
+ * runs the P0 contract exactly as before; `--stage p1` runs it **plus** the P1 additions,
+ * so a stage cannot quietly drop the earlier guarantees.
+ */
+const STAGE = (() => {
+  const argv = process.argv.slice(2);
+  const index = argv.indexOf('--stage');
+  const value = index >= 0 ? argv[index + 1] : 'p0';
+  if (value !== 'p0' && value !== 'p1') {
+    process.stdout.write(`unknown stage "${value}" (use --stage p0|p1)\n`);
+    process.exit(2);
+  }
+  return value;
+})();
+
 function check(name, fn) {
   try {
     const detail = fn();
@@ -33,7 +52,7 @@ function check(name, fn) {
 const exists = (relative) => fs.existsSync(path.join(ROOT, relative));
 const read = (relative) => fs.readFileSync(path.join(ROOT, relative), 'utf8');
 
-process.stdout.write('P0 plan audit (docs/P0-PLAN.md §11 checklist)\n\n');
+process.stdout.write(`P0 plan audit (docs/P0-PLAN.md §11 checklist) [stage ${STAGE}]\n\n`);
 process.stdout.write('做 (must exist and be wired)\n');
 
 // ---------------------------------------------------------------- deliverable A
@@ -467,6 +486,62 @@ check('every config key the plan adds is actually consumed', () => {
   return `${Object.values(sections).flat().length + 5} declared keys, all read by code`;
 });
 
+// ------------------------------------------------- P1 additions (RETIREMENT)
+if (STAGE === 'p1') {
+  process.stdout.write('\nP1 additions (RETIREMENT S0-S4 wiring)\n');
+
+  check('P1: the planner mode is config-driven and consumed', () => {
+    const cfg = JSON.parse(read('config/agent.json'));
+    const planner = cfg.planner || {};
+    if (!('mode' in planner)) throw new Error('config/agent.json has no planner.mode');
+    if (!['legacy', 'proposals', 'off'].includes(planner.mode)) {
+      throw new Error(`planner.mode must be legacy|proposals|off, got ${planner.mode}`);
+    }
+    const brain = read('src/brain.js');
+    if (!/plannerCfg\.mode/.test(brain)) throw new Error('brain does not read planner.mode');
+    if (!/PlannerCfg\.proposalCooldownMs|proposalCooldownMs/.test(brain)) throw new Error('cooldown is not consumed');
+    return `mode=${planner.mode}`;
+  });
+
+  check('P1: the evaluator is the rule table and stays declarative', () => {
+    const evaluator = read('src/planner/evaluator.js');
+    if (!/module\.exports = \{ evaluate/.test(evaluator)) throw new Error('evaluate() is not exported');
+    if (/new \w+Task\(/.test(evaluator)) throw new Error('the evaluator constructs tasks (S1 violation)');
+    if (!/requiresBody/.test(evaluator)) throw new Error('the body-capability gate is gone');
+    return 'evaluate() returns candidates; body gates present';
+  });
+
+  check('P1: TaskSlot is the single body owner', () => {
+    const brain = read('src/brain.js');
+    const hub = read('src/core/taskHub.js');
+    if (!/this\.slot = new TaskSlot/.test(brain)) throw new Error('brain does not create the slot');
+    if (!/get activeTask\(\)/.test(brain) || !/return this\.slot\.brainTask/.test(brain)) {
+      throw new Error('activeTask is not a slot view');
+    }
+    if (!/slot\.hubHandle/.test(hub)) throw new Error('hub.current is not a slot view');
+    if (/this\.current = handle/.test(hub)) throw new Error('hub still keeps a private owner');
+    return 'brain + hub read one owner';
+  });
+
+  check('P1: planner tasks and hub jobs share one event exit', () => {
+    const slot = read('src/core/taskSlot.js');
+    const hub = read('src/core/taskHub.js');
+    if (!/publish\(event, payload\)/.test(slot)) throw new Error('slot.publish is missing');
+    if (!/slot\.publish\(/.test(hub)) throw new Error('hub does not use slot.publish');
+    return 'slot.publish is the only exit';
+  });
+
+  check('P1: proposals are wired with an offline answer surface', () => {
+    const brain = read('src/brain.js');
+    const commands = read('src/chat/commands.js');
+    if (!/new ProposalDesk/.test(brain)) throw new Error('brain does not create the ProposalDesk');
+    if (!/proposal: async/.test(commands)) throw new Error('!proposal is missing');
+    if (!/acceptProposal/.test(commands)) throw new Error('!proposal does not accept');
+    if (!/rejectProposal/.test(commands)) throw new Error('!proposal does not reject');
+    return 'ProposalDesk + !proposal accept/reject';
+  });
+}
+
 // ------------------------------------------------------------------- summary
 const failed = results.filter((r) => !r.ok);
 process.stdout.write(`\n${'='.repeat(64)}\n`);
@@ -475,5 +550,5 @@ if (failed.length) {
   for (const f of failed) process.stdout.write(`  FAILED: ${f.name} - ${f.detail}\n`);
   process.exitCode = 1;
 } else {
-  process.stdout.write('the implementation still matches docs/P0-PLAN.md §11\n');
+  process.stdout.write(`the implementation still matches docs/P0-PLAN.md §11 (stage ${STAGE})\n`);
 }
