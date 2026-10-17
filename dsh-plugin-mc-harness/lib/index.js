@@ -269,7 +269,9 @@ export function apply(ctx, config = {}) {
         ].join('\n');
         await agent.agent.followup({
           content: [{ type: 'text', text: prompt }],
-          source: { kind: 'plugin', plugin: name }
+          // DSH v4 message format accepts producer-owned source kinds; 'plugin' is
+          // rejected live with "format v4 message requires a producer-owned source kind".
+          source: { kind: 'user' }
         });
         const seqAfterFollowup = agent.agent.session.seq;
         await agent.agent.whenIdle();
