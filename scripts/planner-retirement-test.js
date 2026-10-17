@@ -237,6 +237,48 @@ check('a throwing rule is reported and does not stop later rules', () => {
   assert.strictEqual(errors[0].rule, 'boom');
 });
 
+// ---------------------------------------------------------------- 5. TaskSlot
+process.stdout.write('\n5. TaskSlot (S2a)\n');
+
+const { TaskSlot } = require('../src/core/taskSlot');
+
+check('TaskSlot: one owner at a time; a second acquire fails', () => {
+  const brain = makeBrain({});
+  const slot = brain.slot;
+  assert(slot instanceof TaskSlot);
+  assert.strictEqual(slot.busy, false);
+  const first = slot.acquire({ kind: 'brain', task: { name: 'a' }, id: 'a' });
+  assert(first.ok);
+  assert.strictEqual(brain.activeTask.name, 'a', 'activeTask is a view of the slot');
+  const second = slot.acquire({ kind: 'brain', task: { name: 'b' }, id: 'b' });
+  assert.strictEqual(second.ok, false, 'the body already has an owner');
+  assert.strictEqual(brain.activeTask.name, 'a');
+  assert.strictEqual(slot.release(first.owner), true);
+  assert.strictEqual(brain.activeTask, null);
+});
+
+check('TaskSlot: a hub owner holds the brain, a brain owner does not', () => {
+  const brain = makeBrain({});
+  const slot = brain.slot;
+  const brainOwner = slot.acquire({ kind: 'brain', task: { name: 'b' }, id: 'b' });
+  assert.strictEqual(brain.holds.has('task'), false, 'a planner task must not block directives');
+  slot.release(brainOwner.owner);
+  const hubOwner = slot.acquire({ kind: 'hub', handle: { name: 'h' }, id: 'h1', holdsBody: true });
+  assert.strictEqual(brain.holds.has('task'), true, 'a hub job holds the brain');
+  assert.strictEqual(slot.hubHandle, hubOwner.owner.handle);
+  slot.release(hubOwner.owner);
+  assert.strictEqual(brain.holds.has('task'), false, 'releasing the hub job frees the brain');
+});
+
+check('TaskSlot: only the owner can release the slot', () => {
+  const brain = makeBrain({});
+  const slot = brain.slot;
+  const owner = slot.acquire({ kind: 'brain', task: { name: 'x' }, id: 'x' });
+  assert.strictEqual(slot.release({ kind: 'brain' }), false, 'a foreign owner must not release');
+  assert(slot.busy, 'the slot stays owned');
+  assert.strictEqual(slot.release(owner.owner), true);
+});
+
 // ------------------------------------------------------------------- summary
 const failed = results.filter((r) => !r.ok);
 process.stdout.write(`\nplanner retirement test: ${results.length - failed.length}/${results.length} checks passed\n`);
@@ -244,4 +286,4 @@ if (failed.length) {
   process.stdout.write('FAILED\n');
   process.exit(1);
 }
-process.stdout.write('S0 hooks + S1 evaluator are in place (offline only)\n');
+process.stdout.write('S0 hooks + S1 evaluator + S2a slot are in place (offline only)\n');

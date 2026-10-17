@@ -41,13 +41,23 @@ class TaskHub {
     /** How long a stop is awaited before replacement is refused (tests shrink it). */
     this.settleTimeoutMs = options.settleTimeoutMs || SETTLE_TIMEOUT_MS;
     this.seq = 0;
-    /** @type {null|{id:string,name:string,description:string,source:string,startedAt:number}} */
-    this.current = null;
+    /** Fallback owner when no brain slot exists (stub contexts in older tests). */
+    this._current = null;
     this.history = [];
   }
 
   get busy() {
     return !!this.current;
+  }
+
+  /** The current hub handle comes from the body slot (RETIREMENT S2). */
+  get current() {
+    const slot = this._slot();
+    return slot ? slot.hubHandle : this._current;
+  }
+
+  _slot() {
+    return this.ctx.brain && this.ctx.brain.slot ? this.ctx.brain.slot : null;
   }
 
   /**
@@ -137,9 +147,49 @@ class TaskHub {
         this.ctx.brain.preempt();
       }
     } catch {}
-    this._hold(true, `${id} ${name}`);
-
-    this.current = handle;
+    /**
+     * S2: take the single body slot. The planner task we just cancelled may still be
+     * unwinding (cancellation is cooperative), so wait for it to release before starting
+     * a second executor (P1 §1.4.2 #4).
+     */
+    const slot = this._slot();
+    if (slot) {
+      const freed = await slot.waitForRelease('brain', this.settleTimeoutMs);
+      if (!freed) {
+        return {
+          ok: false,
+          accepted: false,
+          reason: 'busy',
+          taskId: null,
+          replaced,
+          detail: 'the planner task did not release the body in time',
+          note: 'the previous task still owns the body - stop it explicitly and retry'
+        };
+      }
+      const acquired = slot.acquire({
+        kind: 'hub',
+        handle,
+        id,
+        name,
+        holdsBody: true,
+        note: `${id} ${name}`
+      });
+      if (!acquired.ok) {
+        return {
+          ok: false,
+          accepted: false,
+          reason: 'body-busy',
+          taskId: null,
+          replaced,
+          detail: acquired.current ? `${acquired.current.kind} still owns the body` : null,
+          note: 'the body is still busy - stop it explicitly and retry'
+        };
+      }
+      handle.slotOwner = acquired.owner;
+    } else {
+      this._hold(true, `${id} ${name}`);
+      this._current = handle;
+    }
     this.log.info(`task ${id} accepted: ${name} (${handle.source})${replaced ? ` [replaced ${replaced}]` : ''}`);
     this.trace({ kind: 'task-accepted', id, name, source: handle.source, replaced });
 
@@ -241,8 +291,12 @@ class TaskHub {
       result: result || null
     };
 
-    if (this.current === handle) this.current = null;
-    this._hold(false, `${handle.id} settled`);
+    const slot = this._slot();
+    if (handle.slotOwner && slot) slot.release(handle.slotOwner);
+    else {
+      if (this._current === handle) this._current = null;
+      this._hold(false, `${handle.id} settled`);
+    }
     this.history.push({
       id: handle.id,
       name: handle.name,

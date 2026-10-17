@@ -28,6 +28,7 @@ const { sleep } = require('./core/movement');
 const { Holds } = require('./core/holds');
 const { needsRescue, escapeToGround, hideUnderground, isDaytime } = require('./core/recovery');
 const { evaluate } = require('./planner/evaluator');
+const { TaskSlot } = require('./core/taskSlot');
 const { bare } = require('./world/items');
 /**
  * The skill layer, for reflex work on bodies without a mineflayer instance.
@@ -58,8 +59,16 @@ class Brain {
     this.running = false;
     this.fastTimer = null;
     this.slowTimer = null;
-    this.currentTask = null;
-    this.queue = [];
+    /**
+     * RETIREMENT S2: one body, one owner - and the owner lives in the slot, not here.
+     *
+     * `queue` is the slot's queue (the same array, so existing call sites keep working);
+     * `activeTask` / `currentTask` are read-only views (getters below).
+     */
+    this.slot = new TaskSlot(ctx, { log: this.log });
+    this.slot.brain = this;
+    ctx.slot = this.slot;
+    this.queue = this.slot.queue;
     /**
      * Holds: the single table of "why is the brain not working" (src/core/holds.js).
      *
@@ -96,7 +105,6 @@ class Brain {
     /** Per-goal last-seen progress, used to detect goals that spin without effect. */
     this._progressSeen = new Map();
     this._stalls = new Map();
-    this.activeTask = null;
     this.lastRescueAt = 0;
     /** Set when repeated deaths show the current strategy is losing. */
     this.safeMode = false;
@@ -134,6 +142,20 @@ class Brain {
           '(no goals, hide underground, wait for daylight)'
       );
     }
+  }
+
+  /**
+   * Read-only views of the single owner (RETIREMENT S2).
+   *
+   * The authoritative state is `this.slot.current`; these names stay because the panel,
+   * the tests and `preempt()` have read them since P0.
+   */
+  get activeTask() {
+    return this.slot.brainTask;
+  }
+
+  get currentTask() {
+    return this.slot.brainTask;
   }
 
   /** The live mineflayer instance (may be null while reconnecting). */
@@ -581,13 +603,25 @@ class Brain {
     // Serialise execution: exactly one task may drive the bot at a time. Without
     // this, a slow loop, a retry timer and a reflex can all call runTask() and end
     // up fighting over the pathfinder (every goto instantly cancelled by the other).
-    if (this.activeTask && this.activeTask !== task) {
+    /**
+     * S2: ask the slot, not a private field. A brain task does not hold the brain, so
+     * directives can still queue behind it; a hub job does hold it, so a planner task is
+     * queued rather than run alongside.
+     */
+    const held = this.slot.brainTask;
+    if (this.slot.busy && held !== task) {
       this.queue.push(task);
-      this.log.debug(`${task.name} queued behind ${this.activeTask.name}`);
+      const behind = held ? held.name : this.slot.current ? this.slot.current.kind : 'another owner';
+      this.log.debug(`${task.name} queued behind ${behind}`);
       return;
     }
-    this.activeTask = task;
-    this.currentTask = task;
+    const acquired = this.slot.acquire({ kind: 'brain', task, id: task.name, note: `task ${task.name}` });
+    if (!acquired.ok) {
+      this.queue.push(task);
+      this.log.debug(`${task.name} queued: the body slot is held by ${this.slot.current && this.slot.current.kind}`);
+      return;
+    }
+    const slotOwner = acquired.owner;
     try {
       await task.execute();
       const res = task.result || { ok: false, reason: 'no result' };
@@ -627,8 +661,7 @@ class Brain {
         this.maybeRetry(task);
       }
     } finally {
-      if (this.currentTask === task) this.currentTask = null;
-      if (this.activeTask === task) this.activeTask = null;
+      this.slot.release(slotOwner);
       /**
        * Pick up anything that was queued while this task ran.
        *
