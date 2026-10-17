@@ -89,12 +89,25 @@ npm run dsh:h1
 | 插件安装到 desktop profile + `cordis.patch.yml` | ✅ 已安装（备份 `cordis.patch.yml.bak-mc-harness-*`） |
 | DSH 加载插件 | ✅ `GET 8770/health` 返回 `plugin: dsh-mc-harness` |
 | `mc_step` | ✅ 真机可用：手动 `mine dirt 2` 经 8766 执行，任务完成 |
-| `mc_observe` | ⚠️ 首版对象输出被 DSH 拒绝（`value is not lossless JSON`）；已改为 JSON 字符串，**待重启加载** |
-| `POST /goal` | ⚠️ 重启后已能创建会话并返回 200，但 `steps=[] / final=""`：程序化创建的 agent 没有 provider/model，`whenIdle()` 直接返回。已补默认 `deepseek-official/deepseek-flash`、每次 goal 新建会话、`messageCount` 诊断，**待重启加载** |
-| H1a/H1b | ❌ 尚未通过；需重启 DSH 后运行 `npm run dsh:h1` |
+| `mc_observe` | ✅ 真机可用：返回位置/血量/时间/当前任务；对象输出已改 JSON 字符串 |
+| `POST /goal` | ❌ 仍失败：返回 200 但 `messageCount=0`、`steps=[]`、`final=""`；DSH session 只有 header。程序化 agent 的 `followup` 未提交 user message（尝试默认模型/新建会话后仍如此） |
+| H1a | ✅ **工具面通过**：`mc_observe` → `mine dirt 2` → `stop` → `mc_finish(achieved=true)`；任务日志 `collected 4/2` |
+| H1b | ✅ **工具面通过**：无 `mc_step`，`mc_finish(achieved=false)`，说明缺钻石/工作台；`/health steps=2` 未增加 |
 
-**当前不能把 H1 标为通过**：插件已真实加载、`mc_step` 已通，但 `/goal` 的模型路由与
-`mc_observe` 修复尚未经过重启后的端到端验证。
+**判定边界**：H1a/H1b 的**真实 DSH 工具面**已经通过，但 `POST /goal` 自动入口仍未通过，
+因此 `npm run dsh:h1` 仍会 FAIL；不能把 H1 标为“自动化完整通过”。
+
+证据：`runtime/logs/dsh-h1-tool-results-2026-10-17.json`、`runtime/logs/agent-h1-tools-2026-10-17.log`。
+`/goal` 的空会话证据：`~/.dsh/sessions/_no-cwd/mc-harness-*/session.v4.jsonl.zstd` 仅含 header。
+
+### 待修：/goal 的 followup 未提交
+
+- `/goal` 创建出的 agent 能返回 handle，但 `followup()` 后 session 仍只有 header；
+  `whenIdle()` 立即返回。
+- 已尝试：`ctx.get('agents')`、显式 `deepseek-official/deepseek-flash`、每次新建会话、
+  `await followup`、`messageCount` 诊断；仍未解决。
+- 下一步需读 `dsh-agent-loop` 的 agent 创建/驱动契约，或改用“已存在的 DSH 对话”
+  作为 harness（当前 H1 工具面就是这样执行的），不再反复重启试错。
 
 ### 重启后复验
 

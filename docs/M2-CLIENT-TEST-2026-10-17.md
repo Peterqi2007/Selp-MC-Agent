@@ -84,15 +84,15 @@
 
 - 已新增真实 DSH 插件 `dsh-plugin-mc-harness`：注册 `mc_observe` / `mc_step` / `mc_finish`，
   并提供 `127.0.0.1:8770` 的 `POST /goal`。
-- 已安装到 DSH desktop profile 并加载：`GET /health` 返回插件；
-  `mc_step` 真机可用（手动 `mine dirt 2` 经 8766 执行完成）。
-- 重启后 `/goal` 已能创建会话并返回 200，但首轮 `steps=[] / final=""`：程序化 agent 没有
-  provider/model；已补默认 `deepseek-official/deepseek-flash`、每次 goal 新建会话和
-  `messageCount` 诊断，**待再次重启加载**。
-- 因此 H1a/H1b **尚未通过**；不能把“插件加载 + mc_step 可用”当作 H1 通过。
+- 重启后 `mc_observe` / `mc_step` / `mc_finish` 真机工具面可用：
+  H1a `mc_observe → mine dirt 2 → stop → mc_finish(true)`；任务 `collected 4/2`；
+  H1b 无 `mc_step`，`mc_finish(false)`，说明缺钻石/工作台。
+- `POST /goal` 仍失败：200 但 `messageCount=0`、`final=""`，DSH session 只有 header；
+  `followup` 未提交 user message。因此 `npm run dsh:h1` 仍 FAIL。
+- **判定**：H1a/H1b **工具面通过**；自动化 `/goal` 未通过，H1 不能标“完整通过”。
 - **H1 不需要 Full Access Ask**：那是每个 DSH 对话自己的模式预设（每个对话独立，不是启动参数）；
   只有 M5 的 CU 对话需要选择它，并由用户审批。
-- 重启后运行 `npm run dsh:h1`；详见 [`DSH-HARNESS.md`](DSH-HARNESS.md)。
+- 证据：`runtime/logs/dsh-h1-tool-results-2026-10-17.json`；详见 [`DSH-HARNESS.md`](DSH-HARNESS.md)。
 
 ## 6. 未执行
 
