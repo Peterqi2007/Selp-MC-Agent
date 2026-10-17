@@ -729,6 +729,29 @@ if (STAGE === 'p1') {
     return 'pre/post verification; done steps frozen; replans budgeted';
   });
 
+  check('P1: code-skill promotion needs a passing trial and can be rolled back', () => {
+    const store = read('src/codeSkills/store.js');
+    const manifest = read('src/codeSkills/manifest.js');
+    if (!/class CodeSkillStore/.test(store)) throw new Error('CodeSkillStore is missing');
+    if (!/not-trialled/.test(store) || !/quarantined/.test(store)) throw new Error('promotion does not require a trial');
+    if (!/rollback\(/.test(store) || !/previous/.test(store)) throw new Error('rollback is missing');
+    if (!/retired/.test(store)) throw new Error('retirement is missing');
+    if (!/entry-must-not-escape-directory/.test(manifest)) throw new Error('entry traversal is not rejected');
+    return 'generated -> trialled -> promoted; rollback/retire; no execution';
+  });
+
+  check('P1: the code-skill runner never executes generated code', () => {
+    const runner = read('src/codeSkills/runner.js');
+    const code = runner.replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/.*$/gm, '');
+    if (!/class RestrictedRunner/.test(code)) throw new Error('RestrictedRunner is missing');
+    if (/require\(['"]child_process['"]\)|require\(['"]vm['"]\)|\bimport\s*\(/.test(code)) {
+      throw new Error('the runner executes code');
+    }
+    if (!/executed: false/.test(code)) throw new Error('the contract does not report that nothing ran');
+    if (!/getPromoted/.test(code)) throw new Error('the runner bypasses promotion');
+    return 'validated dry-run only; no child_process/vm/import';
+  });
+
   check('P1: proposals are wired with an offline answer surface', () => {
     const brain = read('src/brain.js');
     const commands = read('src/chat/commands.js');

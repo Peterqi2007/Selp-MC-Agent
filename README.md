@@ -53,7 +53,8 @@
 | [`docs/P1-M1.md`](docs/P1-M1.md) | **P1 M1 记录（离线 M1a–M1d）**：`TaskEvents` 汇聚/重放、身份字段、`PlanStore` 单一写者、同端口 SSE、Capability 表、TaskResult 六态、`mine_ore` progress 值域、PlanRunner、TurnLifecycle、HarnessAdapter；`p1:contract:test` 22/22。真实 DSH 插件接线与持久化未完成 |
 | [`docs/P1-M2.md`](docs/P1-M2.md) | **P1 M2 记录（离线契约）**：二值闸门（原文派发）、双脑工具面（语言面无执行工具）、字段新鲜度；`p1:contract:test` 25/25。`@` 接线、双 agent 拆分、感知刷新与真机测量未完成 |
 | [`docs/P1-M3.md`](docs/P1-M3.md) | **P1 M3 记录（离线持久化/等待/续轮/学习/预算）**：原子状态、计划/问题/事件/方法/回答恢复、`wait_for_player`、`ResumeBridge`、`MethodLibrary`、`AnswerMemory`、`Budget`、`verifier`、`draftGuard`；默认关闭。真实 harness 传输、联网学习、A17/A29 真机未完成 |
-| [`docs/PLANNER-RETIREMENT.md`](docs/PLANNER-RETIREMENT.md) | **自主规划器退役**：`slowLoop` 拆为 GoalEvaluator + 提案 + TaskSlot。**S0–S4 已全部离线交付**（`planner:test` 32/32、`plan:audit --stage p1` 52/52），真机判据仍登记在客户端清单 |
+| [`docs/P1-M4.md`](docs/P1-M4.md) | **P1 M4 记录（离线安全子集）**：manifest 校验、候选→试运行→晋升状态机（隔离/回退/下线）、受限运行器 dry-run 契约；**不执行生成代码**。代码生成、真实受限执行、A18–A20 未完成 |
+| [`docs/PLANNER-RETIREMENT.md`](docs/PLANNER-RETIREMENT.md) | **自主规划器退役**：`slowLoop` 拆为 GoalEvaluator + 提案 + TaskSlot。**S0–S4 已全部离线交付**（`planner:test` 32/32、`plan:audit --stage p1` 54/54），真机判据仍登记在客户端清单 |
 | [`docs/P1-CLIENT-TESTS.md`](docs/P1-CLIENT-TESTS.md) | **客户端/真机测试清单**：P1 与退役判据里所有需要真实客户端/服务器的项，**当前全部未执行**（本分支只跑离线套件） |
 | [`docs/PLANNER-AB-EXPERIMENT.md`](docs/PLANNER-AB-EXPERIMENT.md) | **选型 A/B 实验设计**（**条件触发**：仅当 P1 §1.9.2 降级判定成立才执行）：24 次计分运行的场景与门槛；成本审计按时间 / token / 模块复用三项（§6–§7），§10 是决策闸门，**不做经济性评估**（§8.4） |
 | [`docs/HARNESS-INTERFACES.md`](docs/HARNESS-INTERFACES.md) | **两侧接口事实**：Codex（`base_instructions` 可整段替换 / `tool_mode` / hooks / MCP）与 DSH（0.2.0-rc.2、cordis 插件契约、system-prompt 装配、preset）的一手机器取证，含待验证项 |

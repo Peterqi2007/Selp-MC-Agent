@@ -893,6 +893,105 @@ function makeBrain() {
     });
   }
 
+  // --------------------------------------------------- code-skill lifecycle
+  process.stdout.write('\n14. code-skill manifest/lifecycle\n');
+  const { validateManifest } = require('../src/codeSkills/manifest');
+  const { CodeSkillStore } = require('../src/codeSkills/store');
+  const { RestrictedRunner } = require('../src/codeSkills/runner');
+
+  {
+    const good = {
+      name: 'agent.staircase',
+      version: '1.0.0',
+      apiVersion: 1,
+      entry: 'index.js',
+      permissions: ['read_state', 'submit_task']
+    };
+    check('a valid code-skill manifest passes and unsafe shapes fail', () => {
+      assert(validateManifest(good).ok);
+      assert(!validateManifest({ ...good, name: 'staircase' }).ok, 'namespace is required');
+      assert(!validateManifest({ ...good, version: '1.0' }).ok, 'version must be semver');
+      assert(!validateManifest({ ...good, entry: '../evil.js' }).ok, 'entry must not escape the skill directory');
+      assert(!validateManifest({ ...good, entry: '/etc/passwd.js' }).ok, 'entry must be relative');
+      assert(!validateManifest({ ...good, permissions: ['exec'] }).ok, 'exec is not an allowed permission');
+      assert(!validateManifest({ ...good, apiVersion: 2 }).ok);
+    });
+  }
+
+  {
+    const store = new CodeSkillStore({ now: () => 1000 });
+    const v1 = {
+      name: 'agent.staircase',
+      version: '1.0.0',
+      apiVersion: 1,
+      entry: 'index.js',
+      permissions: ['read_state', 'submit_task']
+    };
+    const v2 = { ...v1, version: '1.0.1' };
+    store.addCandidate(v1);
+    store.addCandidate(v2);
+    check('an untrialled candidate cannot be promoted', () => {
+      assert.strictEqual(store.promote(v1.name, v1.version).reason, 'not-trialled');
+    });
+    store.recordTrial(v1.name, v1.version, { ok: true, report: 'offline: 3/3' });
+    assert(store.promote(v1.name, v1.version).ok);
+    store.recordTrial(v2.name, v2.version, { ok: true, report: 'offline: 4/4' });
+    const promoted = store.promote(v2.name, v2.version);
+    check('promotion remembers the previous version for rollback', () => {
+      assert(promoted.ok);
+      assert.strictEqual(promoted.previous, '1.0.0');
+      assert.strictEqual(store.getPromoted(v1.name).version, '1.0.1');
+    });
+    const rolled = store.rollback(v1.name);
+    check('rollback returns to the previous promoted version', () => {
+      assert(rolled.ok);
+      assert.strictEqual(rolled.version, '1.0.0');
+      assert.strictEqual(store.getPromoted(v1.name).version, '1.0.0');
+    });
+    store.recordTrial(v1.name, '1.0.1', { ok: false, report: 'failed' });
+    check('a failed trial quarantines the candidate for good', () => {
+      assert.strictEqual(store.getCandidate(v1.name, '1.0.1').status, 'quarantined');
+      assert.strictEqual(store.promote(v1.name, '1.0.1').reason, 'quarantined');
+    });
+    store.retire(v1.name, '1.0.0');
+    check('retiring the promoted version removes it from distribution', () => {
+      assert.strictEqual(store.getPromoted(v1.name), null);
+      assert.strictEqual(store.getCandidate(v1.name, '1.0.0').status, 'retired');
+    });
+  }
+
+  {
+    const store = new CodeSkillStore({ now: () => 1000 });
+    const manifest = {
+      name: 'agent.tower',
+      version: '2.0.0',
+      apiVersion: 1,
+      entry: 'index.js',
+      permissions: ['read_state']
+    };
+    store.addCandidate(manifest);
+    store.recordTrial(manifest.name, manifest.version, { ok: true, report: 'ok' });
+    const runner = new RestrictedRunner({ maxTimeoutMs: 5000 });
+    check('the runner refuses an un-promoted skill', () => {
+      const result = runner.prepare({ store, name: manifest.name, timeoutMs: 1000 });
+      assert.strictEqual(result.ok, false);
+      assert.strictEqual(result.reason, 'not-promoted');
+    });
+    store.promote(manifest.name, manifest.version);
+    check('a promoted skill only gets a dry-run command and hard limits', () => {
+      const result = runner.prepare({ store, name: manifest.name, timeoutMs: 1000 });
+      assert(result.ok);
+      assert.strictEqual(result.executed, false);
+      assert.strictEqual(result.reason, 'dry-run-only');
+      assert.strictEqual(result.command.entry, 'index.js');
+      assert.strictEqual(result.limits.timeoutMs, 1000);
+    });
+    check('the runner refuses a version mismatch or an over-long timeout', () => {
+      assert.strictEqual(runner.prepare({ store, name: manifest.name, version: '1.0.0' }).reason, 'version-mismatch');
+      assert.strictEqual(runner.prepare({ store, name: manifest.name, timeoutMs: 60000 }).reason, 'timeout-out-of-range');
+    });
+  }
+
   // summary
   const failed = results.filter((result) => !result.ok);
   process.stdout.write(`\nP1 contract test: ${results.length - failed.length}/${results.length} checks passed\n`);
@@ -900,5 +999,5 @@ function makeBrain() {
     process.stdout.write('FAILED\n');
     process.exit(1);
   }
-  process.stdout.write('M1-M3 offline contracts hold (events + plans + SSE + turn + routing + state)\n');
+  process.stdout.write('P1 offline contracts hold (M1-M4: events, plans, SSE, turn, routing, state, skills)\n');
 })();
