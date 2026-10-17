@@ -462,7 +462,7 @@ check('every config key the plan adds is actually consumed', () => {
     chat: ['prefix', 'dialogueTrigger', 'pollIntervalMs', 'ignoreOtherChat', 'replyInGame', 'maxChars', 'minReplyGapMs'],
     proactive: ['enabled', 'intervalMs'],
     death: ['detectIntervalMs', 'alertConsole', 'alertPanel', 'alertStateFile'],
-    web: ['bind', 'port'],
+    web: ['bind', 'port', 'eventsToken'],
     safety: ['avoidManMade', 'requireNaturalTrees', 'requireLeaves', 'strictMining'],
     survival: ['allowWoodChopping'],
     planner: ['mode', 'proposalCooldownMs', 'proposalTtlMs']
@@ -529,6 +529,33 @@ if (STAGE === 'p1') {
     if (!/publish\(event, payload\)/.test(slot)) throw new Error('slot.publish is missing');
     if (!/slot\.publish\(/.test(hub)) throw new Error('hub does not use slot.publish');
     return 'slot.publish is the only exit';
+  });
+
+  check('P1: task events have one hub on the panel port', () => {
+    const hub = read('src/core/taskEvents.js');
+    const slot = read('src/core/taskSlot.js');
+    const brain = read('src/brain.js');
+    const server = read('src/web/statusServer.js');
+    const stream = read('src/web/eventStream.js');
+    if (!/class TaskEvents/.test(hub)) throw new Error('TaskEvents is missing');
+    if (!/since\(lastSeq/.test(hub)) throw new Error('TaskEvents.since is missing (SSE replay)');
+    if (!/new TaskEvents/.test(brain)) throw new Error('brain does not create the event hub');
+    if (!/brain\.events\.publish|events\.publish/.test(slot)) throw new Error('slot does not publish to the hub');
+    if (!/Last-Event-ID|last-event-id/.test(stream)) throw new Error('SSE replay ignores Last-Event-ID');
+    if (!/streamEvents/.test(server) || !/pathname === '\/events'/.test(server)) {
+      throw new Error('the /events route is missing from the panel server');
+    }
+    return 'TaskEvents + /events replay on the same port';
+  });
+
+  check('P1: plans have one writer and stale drafts are refused', () => {
+    const store = read('src/core/planStore.js');
+    const brain = read('src/brain.js');
+    if (!/class PlanStore/.test(store)) throw new Error('PlanStore is missing');
+    if (!/baseVersion/.test(store)) throw new Error('PlanStore ignores baseVersion');
+    if (!/reason: 'stale'/.test(store)) throw new Error('stale drafts are not refused');
+    if (!/new PlanStore/.test(brain)) throw new Error('brain does not create the plan store');
+    return 'PlanStore increments version and refuses stale drafts';
   });
 
   check('P1: proposals are wired with an offline answer surface', () => {

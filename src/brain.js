@@ -30,6 +30,8 @@ const { needsRescue, escapeToGround, hideUnderground, isDaytime } = require('./c
 const { evaluate } = require('./planner/evaluator');
 const { TaskSlot } = require('./core/taskSlot');
 const { ProposalDesk } = require('./planner/proposals');
+const { TaskEvents } = require('./core/taskEvents');
+const { PlanStore } = require('./core/planStore');
 const { bare } = require('./world/items');
 /**
  * The skill layer, for reflex work on bodies without a mineflayer instance.
@@ -85,6 +87,15 @@ class Brain {
       cooldownMs: plannerCfg.proposalCooldownMs,
       ttlMs: plannerCfg.proposalTtlMs
     });
+    /**
+     * P1 §1.4.4: task facts go to one hub (SSE/panel/ledger read it), and plans have a
+     * single writer - this process. Neither replaces the listener map yet; both exist so a
+     * second process can consume facts without polling.
+     */
+    this.events = new TaskEvents();
+    ctx.events = this.events;
+    this.plans = new PlanStore();
+    ctx.plans = this.plans;
     /**
      * Holds: the single table of "why is the brain not working" (src/core/holds.js).
      *
@@ -846,6 +857,8 @@ class Brain {
       blockedGoal: this.blockedGoal,
       plannerMode: this.plannerMode,
       proposals: this.proposals ? this.proposals.status() : null,
+      events: this.events ? this.events.status() : null,
+      plans: this.plans ? this.plans.status() : null,
       completedGoals: this.completedGoals.slice(-10),
       memory: this.ctx.memory.summary()
     };

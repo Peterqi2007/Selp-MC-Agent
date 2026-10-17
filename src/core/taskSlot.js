@@ -266,10 +266,29 @@ class TaskSlot {
   /**
    * The single event exit (S2b): both planner tasks and hub jobs publish through here, so
    * "two places emit the same completion" cannot come back.
+   *
+   * M1 (§1.4.4): the same call also appends to the `TaskEvents` hub with identity fields.
+   * SSE, the panel and the ledger read that hub; the listener map stays for the existing
+   * LLM/proactive consumers until they migrate.
    */
   publish(event, payload) {
     const brain = this.brain || (this.ctx && this.ctx.brain);
-    if (brain && typeof brain.emit === 'function') brain.emit(event, payload);
+    if (!brain) return;
+    if (brain.events && typeof brain.events.publish === 'function') {
+      const task = this.brainTask;
+      brain.events.publish({
+        ...payload,
+        type: event,
+        taskId: (payload && payload.taskId) || (task ? task.taskId || task.name : null),
+        requestId: (payload && payload.requestId) || (task ? task.requestId || null : null),
+        planId: (payload && payload.planId) || (task ? task.planId || null : null),
+        stepId: (payload && payload.stepId) || (task ? task.stepId || null : null),
+        attemptId:
+          (payload && payload.attemptId) ||
+          (task ? `${task.name}#${task.retries || 0}` : null)
+      });
+    }
+    if (typeof brain.emit === 'function') brain.emit(event, payload);
   }
 
   _hold(on, note) {

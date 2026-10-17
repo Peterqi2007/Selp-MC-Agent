@@ -278,6 +278,7 @@ class TaskHub {
     const ok = !!(result && result.ok !== false) && !interrupted;
     const info = {
       taskId: handle.id,
+      attemptId: handle.id,
       name: handle.name,
       description: handle.description,
       source: handle.source,

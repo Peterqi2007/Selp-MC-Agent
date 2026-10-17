@@ -1,0 +1,266 @@
+'use strict';
+
+/**
+ * `npm run p1:contract:test` - P1 M1 offline contracts (P1 §1.4.1/§1.4.4, A04/A31).
+ *
+ * Covers the pieces that do not need a client:
+ *   - TaskEvents: monotonic seq, idempotent publish, bounded replay, subscribers;
+ *   - PlanStore: one writer, version increment, stale drafts refused, done steps preserved;
+ *   - executor wiring: a planner task and a hub job both land in the event hub with the
+ *     identity fields the SSE consumers will read;
+ *   - the SSE helper: replay from `Last-Event-ID`, correct headers, token refusal.
+ *
+ * No client, no network, no model calls.
+ */
+
+const assert = require('assert');
+const { loadConfig } = require('../src/util/config');
+const { Brain } = require('../src/brain');
+const { TaskHub } = require('../src/core/taskHub');
+const { TaskEvents } = require('../src/core/taskEvents');
+const { PlanStore } = require('../src/core/planStore');
+const { streamEvents } = require('../src/web/eventStream');
+
+const silent = { info() {}, warn() {}, debug() {}, error() {} };
+const results = [];
+
+function check(name, fn) {
+  try {
+    fn();
+    results.push({ name, ok: true });
+    process.stdout.write(`  PASS  ${name}\n`);
+  } catch (err) {
+    results.push({ name, ok: false, detail: err.message });
+    process.stdout.write(`  FAIL  ${name} - ${err.message}\n`);
+  }
+}
+
+process.stdout.write('P1 contract test (M1 offline)\n\n');
+
+// ---------------------------------------------------------------- TaskEvents
+process.stdout.write('1. TaskEvents\n');
+check('publish assigns monotonic seq and drops duplicates', () => {
+  const events = new TaskEvents();
+  const first = events.publish({ type: 'task:done', taskId: 't1', attemptId: 't1', reason: 'ok' });
+  const again = events.publish({ type: 'task:done', taskId: 't1', attemptId: 't1', reason: 'ok' });
+  const second = events.publish({ type: 'task:failed', taskId: 't2', attemptId: 't2', reason: 'boom' });
+  assert.strictEqual(first.seq, 1);
+  assert.strictEqual(again, null, 'a duplicate eventId must be dropped');
+  assert.strictEqual(second.seq, 2);
+  assert.strictEqual(events.status().size, 2);
+});
+
+check('since() replays only newer events, and the ring stays bounded', () => {
+  const events = new TaskEvents({ limit: 2 });
+  events.publish({ type: 'a' });
+  events.publish({ type: 'b' });
+  events.publish({ type: 'c' });
+  assert.deepStrictEqual(events.since(0).map((e) => e.type), ['b', 'c'], 'the ring drops the oldest');
+  assert.deepStrictEqual(events.since(2).map((e) => e.type), ['c']);
+  assert.deepStrictEqual(events.since(9), []);
+});
+
+check('subscribers receive new events and stop after unsubscribe', () => {
+  const events = new TaskEvents();
+  const seen = [];
+  const off = events.subscribe((event) => seen.push(event.type));
+  events.publish({ type: 'x' });
+  off();
+  events.publish({ type: 'y' });
+  assert.deepStrictEqual(seen, ['x']);
+});
+
+// ----------------------------------------------------------------- PlanStore
+process.stdout.write('\n2. PlanStore\n');
+check('new plan starts at version 1 and keeps its steps', () => {
+  const plans = new PlanStore();
+  const result = plans.applyDraft({ planId: 'p1', goal: 'iron pickaxe', steps: [{ id: 's1' }, { id: 's2' }] });
+  assert(result.ok);
+  assert.strictEqual(result.plan.version, 1);
+  assert.deepStrictEqual(result.plan.steps.map((s) => s.id), ['s1', 's2']);
+  assert.strictEqual(plans.status().plans, 1);
+});
+
+check('a stale draft is refused and does not overwrite the plan', () => {
+  const plans = new PlanStore();
+  plans.applyDraft({ planId: 'p2', steps: [{ id: 's1' }] });
+  const updated = plans.applyDraft({ planId: 'p2', baseVersion: 1, steps: [{ id: 's1' }, { id: 's2' }] });
+  assert(updated.ok);
+  assert.strictEqual(updated.plan.version, 2);
+  const stale = plans.applyDraft({ planId: 'p2', baseVersion: 1, steps: [{ id: 's1' }] });
+  assert.strictEqual(stale.ok, false);
+  assert.strictEqual(stale.reason, 'stale');
+  assert.strictEqual(plans.get('p2').version, 2, 'the stored plan must not move backwards');
+});
+
+check('a replan preserves done steps and only changes the unfinished part', () => {
+  const plans = new PlanStore();
+  plans.applyDraft({ planId: 'p3', steps: [{ id: 's1' }, { id: 's2' }] });
+  plans.applyDraft({
+    planId: 'p3',
+    baseVersion: 1,
+    steps: [{ id: 's1', status: 'done' }, { id: 's2' }]
+  });
+  const replanned = plans.applyDraft({
+    planId: 'p3',
+    baseVersion: 2,
+    steps: [{ id: 's1', status: 'pending' }, { id: 's2', status: 'running' }]
+  });
+  assert(replanned.ok);
+  const step1 = replanned.plan.steps.find((step) => step.id === 's1');
+  assert.strictEqual(step1.status, 'done', 'a finished step must not be reopened by a replan');
+});
+
+// ------------------------------------------------------------- brain wiring
+process.stdout.write('\n3. executor wiring\n');
+
+function makeBrain() {
+  const cfg = loadConfig({ profile: null });
+  const ctx = {
+    cfg,
+    log: silent,
+    body: null,
+    bodyKind: 'test',
+    world: {
+      snapshot: () => ({ inventory: {}, emptySlots: 36, health: 20, food: 20, ready: false }),
+      isNight: () => false
+    },
+    nav: { stop() {}, interrupt() {} },
+    eat: { tick: async () => true },
+    combat: { defend: async () => true },
+    tools: { equipArmor: async () => true },
+    controller: { bot: null, isAlive: true, snapshot: () => ({ ready: true }), loadedPlugins: [] },
+    memory: {
+      bump() {},
+      recordTask() {},
+      save() {},
+      landmark: () => null,
+      summary: () => ({ deaths: 0 })
+    },
+    reply: () => true
+  };
+  const brain = new Brain(ctx);
+  ctx.brain = brain;
+  ctx.hub = new TaskHub(ctx, { log: silent });
+  return brain;
+}
+
+(async () => {
+  const brain = makeBrain();
+  const task = {
+    name: 'probe-task',
+    taskId: 'task-1',
+    requestId: 'req-1',
+    planId: 'plan-1',
+    stepId: 'step-1',
+    description: 'probe',
+    source: 'test',
+    retries: 0,
+    state: 'pending',
+    result: null,
+    async execute() {
+      this.result = { ok: true, reason: 'done' };
+    }
+  };
+  await brain.runTask(task);
+  check('a planner task publishes one event with the identity chain', () => {
+    const done = brain.events.since(0).filter((event) => event.type === 'task:done');
+    assert.strictEqual(done.length, 1, `expected one task:done, got ${done.length}`);
+    assert.strictEqual(done[0].taskId, 'task-1');
+    assert.strictEqual(done[0].requestId, 'req-1');
+    assert.strictEqual(done[0].planId, 'plan-1');
+    assert.strictEqual(done[0].stepId, 'step-1');
+    assert.strictEqual(done[0].attemptId, 'probe-task#0');
+  });
+
+  const hub = brain.ctx.hub;
+  const receipt = await hub.submit({
+    name: 'hub-probe',
+    description: 'hub probe',
+    source: 'test',
+    run: async () => ({ ok: true, reason: 'ok' })
+  });
+  assert(receipt.accepted, 'the hub should accept the job');
+  await new Promise((resolve) => setTimeout(resolve, 30));
+  check('a hub job publishes through the same hub with its task id', () => {
+    const done = brain.events.since(0).filter((event) => event.type === 'task:done' && event.taskId === receipt.taskId);
+    assert.strictEqual(done.length, 1, `expected the hub completion in the event hub, got ${done.length}`);
+    assert.strictEqual(done[0].attemptId, receipt.taskId);
+  });
+
+  // ------------------------------------------------------------------- SSE
+  process.stdout.write('\n4. SSE helper\n');
+
+  function fakeRequest({ url = '/events', headers = {} } = {}) {
+    const handlers = {};
+    return {
+      url,
+      headers,
+      on(event, handler) {
+        handlers[event] = handler;
+      },
+      close() {
+        if (handlers.close) handlers.close();
+      }
+    };
+  }
+  function fakeResponse() {
+    const chunks = [];
+    const handlers = {};
+    return {
+      statusCode: null,
+      headers: null,
+      chunks,
+      writeHead(code, headers) {
+        this.statusCode = code;
+        this.headers = headers;
+      },
+      write(chunk) {
+        chunks.push(String(chunk));
+      },
+      end(chunk) {
+        if (chunk) chunks.push(String(chunk));
+      },
+      on(event, handler) {
+        handlers[event] = handler;
+      }
+    };
+  }
+
+  check('a reconnect replays only the events after Last-Event-ID', () => {
+    const events = new TaskEvents();
+    events.publish({ type: 'a', taskId: 't1' });
+    events.publish({ type: 'b', taskId: 't2' });
+    events.publish({ type: 'c', taskId: 't3' });
+    const req = fakeRequest({ headers: { 'last-event-id': '1' } });
+    const res = fakeResponse();
+    const started = streamEvents(req, res, { events, token: '', heartbeatMs: 100000 });
+    assert.strictEqual(started, true);
+    assert.strictEqual(res.statusCode, 200);
+    assert.match(res.headers['content-type'], /text\/event-stream/);
+    const body = res.chunks.join('');
+    assert.match(body, /id: 2/);
+    assert.match(body, /id: 3/);
+    assert.doesNotMatch(body, /id: 1/);
+    req.close();
+  });
+
+  check('a configured token rejects an unauthenticated stream', () => {
+    const events = new TaskEvents();
+    const req = fakeRequest();
+    const res = fakeResponse();
+    const started = streamEvents(req, res, { events, token: 'secret' });
+    assert.strictEqual(started, false);
+    assert.strictEqual(res.statusCode, 401);
+    assert.match(res.chunks.join(''), /unauthorized/);
+  });
+
+  // summary
+  const failed = results.filter((result) => !result.ok);
+  process.stdout.write(`\nP1 contract test: ${results.length - failed.length}/${results.length} checks passed\n`);
+  if (failed.length) {
+    process.stdout.write('FAILED\n');
+    process.exit(1);
+  }
+  process.stdout.write('M1 offline contracts hold (events hub + plan store + SSE replay)\n');
+})();

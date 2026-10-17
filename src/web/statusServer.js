@@ -31,6 +31,7 @@ const { countTrace } = require('../util/trace');
 const { PANEL_HTML, PANEL_JS } = require('./panel');
 const { Logger } = require('../util/logger');
 const { resolveTrigger, personaForConfig } = require('../llm/persona');
+const { streamEvents } = require('./eventStream');
 
 function startStatusServer(ctx, options = {}) {
   const log = new Logger('http');
@@ -89,6 +90,17 @@ function startStatusServer(ctx, options = {}) {
       access(req, url);
     }
     try {
+      // ------------------------------------------------------- task events (SSE, P1 §1.4.4)
+      /**
+       * Same port, same token: the panel already owns :8766 and falls back to :8767 when it
+       * is busy, so a second listener here would race that fallback (Q1).
+       */
+      if (req.method === 'GET' && url.pathname === '/events') {
+        const web = (ctx.cfg && ctx.cfg.agent && ctx.cfg.agent.web) || {};
+        streamEvents(req, res, { events: ctx.events, token: web.eventsToken || '' });
+        return; // the stream owns the response until the client disconnects
+      }
+
       // ------------------------------------------------------------ panel
       if (req.method === 'GET' && (url.pathname === '/panel' || url.pathname === '/panel/')) {
         /**

@@ -42,6 +42,14 @@ class Task {
     this.retries = 0;
     this.state = 'pending'; // pending | running | done | failed | cancelled
     this.result = null;
+    /**
+     * P1 §1.4.1 identity chain. Optional so every existing caller keeps working; the
+     * executor fills what it has and the event hub records null for the rest.
+     */
+    this.taskId = options.taskId || null;
+    this.requestId = options.requestId || null;
+    this.planId = options.planId || null;
+    this.stepId = options.stepId || null;
     this.startedAt = null;
     this.finishedAt = null;
     this.cancelled = false;
