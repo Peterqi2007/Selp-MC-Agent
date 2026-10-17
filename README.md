@@ -48,7 +48,9 @@
 | --- | --- |
 | 本文件 | 现状、架构、快速开始、指令、进展、脚本、限制 |
 | 本文件 §3 | **想知道「现在到哪一步了」先读它**：批次表 + 当前状态 + 最新真机记录 |
-| [`docs/P1-PLANNER-PLAN.md`](docs/P1-PLANNER-PLAN.md) | **下一阶段方案**：规划器重构（语言/动作脑区解耦、分级自主感知、自主解题、自主学习、聊天扩展）。⚠️ **尚未提交入 git**，且其"P0 寻路仍待优化"一句已被 10-15 的寻路六修追平（见 §3） |
+| [`docs/P1-PLANNER-PLAN.md`](docs/P1-PLANNER-PLAN.md) | **下一阶段方案**：规划器重构（语言/动作脑区解耦、分级自主感知、自主解题、自主学习、聊天扩展）；§1.9 单列 coding harness 与自研动作脑的比较与接入边界。要求在**独立分支**实施 |
+| [`docs/PLANNER-AB-EXPERIMENT.md`](docs/PLANNER-AB-EXPERIMENT.md) | **选型 A/B 实验设计**（harness vs 自研动作脑）：24 次计分运行的场景与门槛；**成本审计按时间 / token / 模块复用三项**（§6–§7），§10 是「这套实验有没有必要做」的决策闸门，**不做经济性评估**（§8.4） |
+| [`docs/HARNESS-INTERFACES.md`](docs/HARNESS-INTERFACES.md) | **两侧接口事实**：Codex（`base_instructions` 可整段替换 / `tool_mode` / hooks / MCP）与 DSH（0.2.0-rc.2、cordis 插件契约、system-prompt 装配、preset）的一手机器取证，含待验证项 |
 | [`docs/PLANNER-REFACTOR.md`](docs/PLANNER-REFACTOR.md) | **规划器（自主决策）专项**：已核实问题 P1–P10、重构债 Q1–Q7，以及与 `!` 命令 / LLM `do_task`/`do_skill` 回路的边界 |
 | [`docs/MINING-LLM-PLAN.md`](docs/MINING-LLM-PLAN.md) | 挖矿方案与**一手真机记录**（附二 10-10 夜 / 附三 10-12 / 附四 10-13 / 附五 10-14）——采矿相关的最新依据 |
 | [`docs/MINING-COLLECTION-PLAN.md`](docs/MINING-COLLECTION-PLAN.md) | 掉落物收集方案与实机记录（§十一，10-10～10-12） |
@@ -137,8 +139,9 @@ LLM 层（`src/llm/`，生产配置已开启 `toolCalling`）：8 个工具 —�
 > 「做/不做」清单 `npm run plan:audit` **29/29 全过**；真机自 2026-10-08 首轮起多轮通过。
 > **`docs/P0-PLAN.md` 与 `docs/P0-STATUS.md` 因此转为历史文档**（只作验收证据与踩坑记录保留；
 > 其中仍活着的只有 §11 那条防回归边界）。下一阶段是 **P1 规划器重构**，方案见
-> [`docs/P1-PLANNER-PLAN.md`](docs/P1-PLANNER-PLAN.md)（**尚未提交入 git**；其"P0 寻路仍待优化"
-> 一句已被下方 10-15 的寻路六修追平，且该方案要求在**独立分支**上实施）。
+> [`docs/P1-PLANNER-PLAN.md`](docs/P1-PLANNER-PLAN.md)（其"P0 寻路仍待优化"一句已被下方 10-15 的寻路六修
+> 追平，且该方案要求在**独立分支**上实施；配套 [`docs/PLANNER-AB-EXPERIMENT.md`](docs/PLANNER-AB-EXPERIMENT.md)
+> 与 [`docs/HARNESS-INTERFACES.md`](docs/HARNESS-INTERFACES.md)，均已入库）。
 
 | 日期 | 批次 | 内容 | 验证 |
 | --- | --- | --- | --- |
@@ -412,7 +415,9 @@ P0 已于 2026-10-16 收官（`p0:verify` 8/8、`plan:audit` 29/29）；[`docs/P
 [`docs/MINING-LLM-PLAN.md`](docs/MINING-LLM-PLAN.md)（附二/附三）、
 [`docs/MINING-COLLECTION-PLAN.md`](docs/MINING-COLLECTION-PLAN.md)（§十一）与
 [`docs/COMBAT-PLAN.md`](docs/COMBAT-PLAN.md)；**下一阶段方案**见
-[`docs/P1-PLANNER-PLAN.md`](docs/P1-PLANNER-PLAN.md)（尚未提交入 git）。
+[`docs/P1-PLANNER-PLAN.md`](docs/P1-PLANNER-PLAN.md)（选型实验与接口事实见
+[`docs/PLANNER-AB-EXPERIMENT.md`](docs/PLANNER-AB-EXPERIMENT.md)、
+[`docs/HARNESS-INTERFACES.md`](docs/HARNESS-INTERFACES.md)）。
 
 ---
 
