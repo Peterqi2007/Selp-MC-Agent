@@ -68,6 +68,7 @@ const HELP = [
   '!light [n] - place torches',
   '!store - deposit loot in a chest',
   '!task status|stop - the background task slot',
+  '!proposal status|accept [always]|reject - answer the planner\'s proposal',
   '!area add|list|show|delete - named areas (permission rules can point at them)',
   '!route add|plan|go|list|show|delete - named routes; plan first, go walks it',
   '!rule list|allow|deny|ask|remove|mode - permission rules',
@@ -391,6 +392,47 @@ class ChatController {
           this.say(`后台任务 ${status.current.id}「${status.current.name}」跑了 ${Math.round(status.current.ms / 1000)} 秒`);
         } else {
           this.say('现在没有后台任务');
+        }
+        return status;
+      },
+
+      /**
+       * The deterministic surface for ProposalDesk (RETIREMENT S3).
+       *
+       * The language brain will phrase the question and parse the answer in M3/M6; until
+       * then this command is how a player answers, and the A25 offline tests drive the same
+       * brain methods directly.
+       */
+      proposal: async (args) => {
+        if (!ctx.brain || !ctx.brain.proposals) return { ok: false, reason: 'no proposal desk' };
+        const sub = (args[0] || 'status').toLowerCase();
+        if (sub === 'accept') {
+          const always = args.includes('always');
+          const result = await ctx.brain.acceptProposal(null, { by: 'player', always });
+          if (!result.ok) {
+            this.say(result.reason === 'no-such-proposal' ? '现在没有待答的提案' : `提案没能接受（${result.reason}）`);
+            return result;
+          }
+          this.say(`好，开始做 ${result.proposal.target}` + (always ? '（这类以后不用再问）' : ''));
+          return result;
+        }
+        if (sub === 'reject') {
+          const result = ctx.brain.rejectProposal(null, { by: 'player' });
+          this.say(
+            result.ok
+              ? `这次不做了（${result.proposal.target}，三分钟内不再提）`
+              : '现在没有待答的提案'
+          );
+          return result;
+        }
+        const status = ctx.brain.proposals.status();
+        if (status.pending) {
+          this.say(
+            `提案 ${status.pending.id}「${status.pending.target}」：${status.pending.reason || '（无说明）'}；` +
+              '发 !proposal accept 或 !proposal reject'
+          );
+        } else {
+          this.say('现在没有待答的提案');
         }
         return status;
       },

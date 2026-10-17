@@ -308,6 +308,110 @@ process.stdout.write('\n6. TaskSlot execution (S2b)\n');
     assert.strictEqual(events[0].source, 'test');
   });
 
+  // ------------------------------------------------------------ 7. proposals
+  process.stdout.write('\n7. proposals (S3)\n');
+  {
+    const brain = makeBrain({ 'minecraft:wooden_pickaxe': 1 });
+    brain.plannerMode = 'proposals';
+    brain.running = true; // the drain only runs while the brain is online
+    let clock = 1000;
+    brain.proposals.now = () => clock;
+    brain.ctx.controller.bot = {};
+    brain.ctx.world.snapshot = () => ({
+      inventory: { 'minecraft:wooden_pickaxe': 1 },
+      emptySlots: 36,
+      health: 20,
+      food: 20,
+      ready: true
+    });
+    const runs = [];
+    brain.runTask = async (task) => {
+      runs.push(task);
+      task.state = 'done';
+    };
+
+    await brain.slowLoop();
+    const pending = brain.proposals.pending();
+    check('proposals mode offers a goal but does not execute it', () => {
+      assert(pending, 'a proposal should be waiting');
+      assert.strictEqual(pending.target, 'mine');
+      assert.strictEqual(runs.length, 0, 'nothing may run before the player answers');
+      assert.strictEqual(brain.lastDecision.decision, 'propose:mine');
+    });
+
+    await brain.acceptProposal(pending.id, { by: 'player' });
+    await new Promise((resolve) => setTimeout(resolve, 10));
+    check('accepting a proposal executes exactly one directive task', () => {
+      assert.strictEqual(runs.length, 1);
+      assert.strictEqual(runs[0].name, 'mine');
+      assert.strictEqual(brain.proposals.pending(), null);
+    });
+
+    const second = brain.proposeNext();
+    assert(second && second.ok, 'a new proposal after the first was answered');
+    brain.rejectProposal(second.proposal.id);
+    check('a rejection starts a 3 minute cooldown for that target (A25)', () => {
+      const cooled = brain.proposeNext();
+      assert(cooled && cooled.ok === false && cooled.reason === 'cooldown');
+      assert(cooled.retryAt >= clock + 180000 - 1);
+      clock += 180001;
+      const again = brain.proposeNext();
+      assert(again && again.ok, 'after the cooldown the target may be proposed again');
+    });
+
+    check('an unanswered proposal expires and is never treated as consent (A25)', () => {
+      clock += brain.proposals.ttlMs + 1;
+      const expired = brain.proposals.sweep();
+      assert(expired && expired.status === 'expired');
+      assert.strictEqual(brain.proposals.pending(), null);
+      assert.strictEqual(
+        brain.proposals.history.filter((proposal) => proposal.status === 'accepted').length,
+        1,
+        'an expiry must not add an accepted proposal'
+      );
+      clock += brain.proposals.cooldownMs + 1;
+    });
+
+    const third = brain.proposeNext();
+    assert(third && third.ok);
+    brain.enqueue(
+      { name: 'explicit-test', describe: () => 'explicit test task', state: 'pending', execute: async () => {} },
+      { level: 'directive', source: 'test' }
+    );
+    check('an explicit task supersedes the pending question (A25)', () => {
+      assert.strictEqual(brain.proposals.pending(), null);
+      assert(brain.proposals.history.some((proposal) => proposal.status === 'superseded'));
+    });
+  }
+
+  {
+    const brain = makeBrain({ 'minecraft:wooden_pickaxe': 1 });
+    brain.plannerMode = 'proposals';
+    brain.running = true; // the drain only runs while the brain is online
+    brain.ctx.controller.bot = {};
+    brain.ctx.world.snapshot = () => ({
+      inventory: { 'minecraft:wooden_pickaxe': 1 },
+      emptySlots: 36,
+      health: 20,
+      food: 20,
+      ready: true
+    });
+    const runs = [];
+    brain.runTask = async (task) => {
+      runs.push(task);
+    };
+    const first = brain.proposeNext();
+    await brain.acceptProposal(first.proposal.id, { by: 'player', always: true });
+    await new Promise((resolve) => setTimeout(resolve, 10));
+    runs.length = 0;
+    await brain.slowLoop();
+    check('standing authorization auto-accepts the next same target', () => {
+      assert.deepStrictEqual(brain.proposals.status().authorized, ['mine']);
+      assert.strictEqual(runs.length, 1, 'the authorized target runs without asking');
+      assert.strictEqual(runs[0].name, 'mine');
+    });
+  }
+
   // ----------------------------------------------------------------- summary
   const failed = results.filter((r) => !r.ok);
   process.stdout.write(`\nplanner retirement test: ${results.length - failed.length}/${results.length} checks passed\n`);
@@ -315,5 +419,5 @@ process.stdout.write('\n6. TaskSlot execution (S2b)\n');
     process.stdout.write('FAILED\n');
     process.exit(1);
   }
-  process.stdout.write('S0 hooks + S1 evaluator + S2 slot (ownership + execution) are in place (offline only)\n');
+  process.stdout.write('S0 hooks + S1 evaluator + S2 slot + S3 proposals are in place (offline only)\n');
 })();

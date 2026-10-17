@@ -445,7 +445,8 @@ check('every config key the plan adds is actually consumed', () => {
     death: ['detectIntervalMs', 'alertConsole', 'alertPanel', 'alertStateFile'],
     web: ['bind', 'port'],
     safety: ['avoidManMade', 'requireNaturalTrees', 'requireLeaves', 'strictMining'],
-    survival: ['allowWoodChopping']
+    survival: ['allowWoodChopping'],
+    planner: ['mode', 'proposalCooldownMs', 'proposalTtlMs']
   };
 
   const dead = [];

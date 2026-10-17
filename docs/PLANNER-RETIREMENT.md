@@ -72,7 +72,7 @@ src/brain.js               // 只留 fastLoop（反射）+ 调度器；
 | **S1 抽 evaluator ✅（离线）** | 规则表搬进 `planner/evaluator.js`，输出声明式候选；`brain.decide()` 变薄壳 | 仍由 legacy 执行（`buildTask` 工厂留在 `brain.js`） | A10 改为直接测 evaluator；`plan:audit` 加"evaluator 不构造 Task 实例"；差分对照 28 组 |
 | **S2a 所有权 ✅（离线）** | `src/core/taskSlot.js` 成为唯一身体所有者；brain 任务与 hub 作业都经 acquire/release；`activeTask`/`currentTask`/`hub.current` 变成视图；hub 从 brain 任务接管前等待其释放 | `!`/`do_task` 行为等价（52/37/176 等套件证明） | `control:test` 37/37、`selftest` 176/176；Q3 的"两套所有权"消除 |
 | **S2b 执行器 ✅（离线）** | B1/B2（停牌/罢工）、任务执行、结算与**统一事件出口**迁进 TaskSlot；`brain.runTask` 退化为委托；超时仍由 `Task.execute` 的 `timeoutMs` 承担（由 slot 调用） | `!`/`do_task` 行为等价（52/37/25/176 等套件证明） | `control:test` 37/37、`selftest` 176/176；事件只有 `slot.publish` 一个出口 |
-| **S3 接提案 + 授权** | `proposals.js` + A25 冷却/不答/拒绝 + 常驻授权；摘掉 `slowLoop` 的执行权 | `!`/`do_task` 不变 | A25；需要 P1 §1.4.4 事件面才能接 harness |
+| **S3 提案 + 授权 ✅（离线）** | `src/planner/proposals.js`：提案生命周期、3 分钟冷却、无答过期（不等于同意）、显式任务取代、常驻授权；`planner.mode=proposals` 时 `slowLoop` 只提议不执行；确定性入口 `!proposal status\|accept [always]\|reject` | `!`/`do_task` 不变（默认 `legacy`） | A25 四条离线路径全过；语言脑措辞/解析仍在 P1 的 M3/M6，真机多人 A25 未执行 |
 | **S4 删代码** | 删 legacy 路径与降级开关（或保留只读）；`plan:audit` 改阶段感知；`PLANNER-REFACTOR.md` 标注"已退役/已迁移" | — | P1–P10 逐条关闭或转下阶段 |
 
 **安全姿势**："退役执行权"和"退役代码"分开——S3 先把 `slowLoop` 变成"只提议 + `mode=legacy` 仍可执行"，跑一段真机；确认常驻授权够用后，S4 再删代码。这样任何一步出问题都能用开关退回。
@@ -83,7 +83,7 @@ src/brain.js               // 只留 fastLoop（反射）+ 调度器；
 | --- | --- | --- |
 | S0 | M0 | 与基线复测、审计迁移清单同批交付 |
 | S1、S2 | M1 | 与身份/能力/进度/结果重构同批（统一执行权本来就在 M1） |
-| S3 | M3 | 需要 §1.4.4 事件面；A25 的聊天侧验收仍在 M6 |
+| S3 | M3 / M6 | 状态机与 `!proposal` 入口已离线完成；M3 接 harness 事件面，M6 由语言脑措辞与解析回答（替换 `!proposal`，不换状态机） |
 | S4 | M7 | 删代码与阶段感知审计收尾 |
 
 ## 7. 验收与回归（每阶段必跑）
@@ -107,6 +107,7 @@ src/brain.js               // 只留 fastLoop（反射）+ 调度器；
 | 2026-10-17 | S1 | 1) 新增 `src/planner/evaluator.js`：22 条规则改为声明式候选（`rule/type/name/args/weight/reason`），`evaluate()` 纯函数、可注入规则与回调；2) `brain.decide()` 变薄壳（evaluator → quarantine 过滤 → legacy 工厂），`pickRule` 标记 deprecated 保留到 S4；3) `shelter`/`light` 加 `requiresBody:'mineflayer'`，跳过时记录原因（P1/P2）；4) A10 两条合成规则断言改为 evaluator 断言；`plan:audit` 的 primitive-task 检查扩到 evaluator | `planner:test` 21/21；`mining:entry:test` 25/25；`plan:audit` 29/29；`p0:verify` 8/8；旧/新 `decide()` 差分 28 组仅两处有意修复不同 |
 | 2026-10-17 | S2a | 1) 新增 `src/core/taskSlot.js`：唯一所有者 `{kind:'brain'\|'hub'}`、共享队列、hold 只在 hub 上生效、`waitForRelease`；2) `brain.activeTask/currentTask` 变 slot 视图（getter），`runTask` 经 acquire/release；3) `TaskHub.current` 变 slot 视图，submit 在接管前等待被取消的 brain 任务释放（P1 §1.4.2 #4），settle 释放 slot；无 brain 的旧测试桩保留 `_current` 回退 | `planner:test` 24/24；`control:test` 37/37；`selftest` 176/176；`tasks:test` 52/52；`skills:test` 57/57；mining 三套 25/24/18；`p0:verify` 8/8 |
 | 2026-10-17 | S2b | 1) B1/B2 状态（quarantine/failCounts/progressSeen/stalls/blockedGoal）移到 TaskSlot；2) `slot.runTask()` 承接执行、结算、内存记账、`task:done/failed` 与 `task:quarantined` 发布；3) `slot.publish()` 成为唯一事件出口，hub settle 也走它；4) `brain.runTask/maybeRetry/_noteProgress/isQuarantined` 改成委托，状态字段改成 slot 视图（测试读写不变） | `planner:test` 25/25；`control:test` 37/37；`selftest` 176/176；`tasks:test` 52/52；`skills:test` 57/57；mining 三套 25/24/18；`plan:audit` 29/29；`p0:verify` 8/8 |
+| 2026-10-17 | S3 | 1) 新增 `src/planner/proposals.js`：`propose/accept/reject/sweep/supersede/revoke`，冷却与 TTL 可注入时钟；常驻授权让下一次同目标"生而通过"；事件 `proposal:new/accepted/rejected/expired/superseded`；2) brain 增加 `plannerMode`（legacy/proposals/off，默认 legacy）、`nextCandidate/proposeNext/_proposeOrRun/acceptProposal/rejectProposal`；`slowLoop` 在 proposals 模式只提议；显式任务/死亡/停机取代待答提案；3) `!proposal` 命令（语言脑接管前的确定性入口）；4) `config/agent.json` 增加 `planner.{mode,proposalCooldownMs,proposalTtlMs}`；5) `plan:audit` 的配置消费检查纳入 planner 三个键 | `planner:test` 31/31（A25 接受/拒绝冷却/过期/取代/常驻授权）；`control:test` 37/37；`selftest` 176/176；`tasks:test` 52/52；`skills:test` 57/57；mining 三套 25/24/18；`plan:audit` 29/29；`p0:verify` 8/8 |
 
 **S0 的边界**：只新增事件与测试，不改任务执行、不改规则选择、不改退避窗口。
 `mine_ore` 的对象返回值是**已知违规**而不是被容忍——S2 改成值域/单调性契约时，测试会失败并提示更新条目。
@@ -125,9 +126,14 @@ brain 任务释放身体（最多 `settleTimeoutMs`）；原实现是"取消后�
 窗口，现在符合 P1 §1.4.2 #4。**超时语义未改**：仍由 `Task.execute()` 的 `timeoutMs` 决定，slot 只负责
 调用与结算。`pickRule` 与 legacy 任务工厂仍在 brain，S4 删除。
 
-下一步（S3）：新建 `src/planner/proposals.js` + 常驻授权，`slowLoop` 变"只提议不执行"
-（`planner.mode = legacy | proposals | off`）；A25 的冷却/不答/拒绝与授权清单；
-需要 P1 §1.4.4 事件面才能接 harness。
+**S3 的边界**：`planner.mode` 默认 `legacy`，所以生产行为不变；`proposals` 模式下 `slowLoop` 只产出提案，
+**不**执行。`!proposal` 是语言脑接管（P1 M3/M6）前的确定性入口，不是最终交互形态：最终由语言脑把提案
+措辞成问句、解析玩家回答，再调用同一组 `acceptProposal/rejectProposal`。A25 的"接受/拒绝/不答/另派"
+四条状态机已离线验收；**真机多人 A25 仍是未执行项**（见 [`P1-CLIENT-TESTS.md`](P1-CLIENT-TESTS.md)）。
+
+下一步（S4）：删 legacy 路径与降级开关（`pickRule`、`buildTask` 工厂按阶段决定去留、`planner.mode` 是否保留只读），
+`plan:audit` 改阶段感知；`PLANNER-REFACTOR.md` 标注"已退役/已迁移"；逐条关闭 P1–P10。
+S4 前建议先跑一轮真机抽测（`!`/`do_task` 等价、空闲授权口径），但那属于客户端测试，**本轮不执行**。
 
 ## 9. 不做
 

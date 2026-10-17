@@ -470,6 +470,8 @@ CU **复用现有 `dsh-computer-use` 插件**（本机 desktop profile 的 bundl
 
 拒绝后该轮结束，至少等待原方案约定的 3 分钟，不原样反复推同一提案；无回答不视为同意。普通采样不重复触发提案；保命反射无需等待提案获准。
 
+> **实施进展（2026-10-17，RETIREMENT S3）**：提案状态机已落地为 `src/planner/proposals.js` + `planner.mode=proposals`（默认仍 `legacy`），并用确定性入口 `!proposal status|accept [always]|reject` 做离线验收（接受 / 拒绝冷却 / 无答过期 / 另派取代 / 常驻授权）。**语言脑的措辞与回答解析仍在 M3/M6**，届时替换该入口而不改变状态机；真机多人 A25 未执行。
+
 ## 三、验收标准
 
 ### 3.1 证据要求与总体判定

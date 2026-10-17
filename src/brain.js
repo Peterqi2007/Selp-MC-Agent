@@ -29,6 +29,7 @@ const { Holds } = require('./core/holds');
 const { needsRescue, escapeToGround, hideUnderground, isDaytime } = require('./core/recovery');
 const { evaluate } = require('./planner/evaluator');
 const { TaskSlot } = require('./core/taskSlot');
+const { ProposalDesk } = require('./planner/proposals');
 const { bare } = require('./world/items');
 /**
  * The skill layer, for reflex work on bodies without a mineflayer instance.
@@ -69,6 +70,21 @@ class Brain {
     this.slot.brain = this;
     ctx.slot = this.slot;
     this.queue = this.slot.queue;
+
+    /**
+     * RETIREMENT S3: `legacy` executes the selected goal (P0 behaviour), `proposals` only
+     * offers it for player approval, `off` plans nothing. Default legacy so nothing changes
+     * until the stage is accepted.
+     */
+    const plannerCfg = (ctx.cfg.agent && ctx.cfg.agent.planner) || {};
+    this.plannerMode =
+      plannerCfg.mode === 'proposals' || plannerCfg.mode === 'off' ? plannerCfg.mode : 'legacy';
+    this.proposals = new ProposalDesk(ctx, {
+      brain: this,
+      log: this.log,
+      cooldownMs: plannerCfg.proposalCooldownMs,
+      ttlMs: plannerCfg.proposalTtlMs
+    });
     /**
      * Holds: the single table of "why is the brain not working" (src/core/holds.js).
      *
@@ -212,6 +228,7 @@ class Brain {
     if (this.fastTimer) clearInterval(this.fastTimer);
     if (this.slowTimer) clearInterval(this.slowTimer);
     if (this.currentTask) this.currentTask.cancel();
+    this.proposals.supersede('brain stopped');
     this.log.info('brain offline');
   }
 
@@ -517,6 +534,14 @@ class Brain {
     // Don't plan before we can actually perceive anything.
     const snap = this.ctx.world.snapshot ? this.ctx.world.snapshot(true) : null;
     if (!snap || !snap.ready) return;
+    if (this.plannerMode === 'off') {
+      this.lastDecision = { at: Date.now(), decision: 'off', note: 'planner disabled by config (planner.mode=off)' };
+      return;
+    }
+    if (this.plannerMode === 'proposals') {
+      await this._proposeOrRun();
+      return;
+    }
 
     const task = this.decide();
     if (!task) {
@@ -538,19 +563,14 @@ class Brain {
    * planner drives mineflayer, a scripted mock world, or a real Forge client.
    * @returns {import('../tasks/task').Task|null}
    */
-  decide() {
-    /**
-     * RETIREMENT S1: the rule table now lives in `src/planner/evaluator.js` and returns
-     * declarative candidates. This method is the thin shell that (a) drops candidates whose
-     * TASK name is quarantined and (b) hands the first survivor to the legacy task factory.
-     *
-     * Guardrails preserved from the inline version:
-     *   - quarantine is keyed on the constructed task's name, never the rule's (A10);
-     *   - a rule whose precondition throws is skipped (`onRuleError`) but now logged at
-     *     warn, so a dead rule cannot hide at debug level again (P1);
-     *   - a rule whose task needs a mineflayer instance is skipped with a reason on the
-     *     client-mod body (P1/P2) instead of being selected and failing forever.
-     */
+  /**
+   * The next goal as a declarative candidate, or null (idle).
+   *
+   * RETIREMENT S1/S3: the rule table lives in `src/planner/evaluator.js`; this method picks
+   * the first candidate whose TASK name is not quarantined. `decide()` builds it (legacy),
+   * `proposeNext()` offers it to the ProposalDesk (proposals mode).
+   */
+  nextCandidate() {
     const candidates = evaluate(this.ctx, {
       cfg: this.cfg,
       onRuleError: ({ rule, error }) => this.log.warn(`rule ${rule} threw: ${error}`),
@@ -561,12 +581,78 @@ class Brain {
         this.log.debug(`skipping quarantined goal ${candidate.name} (rule ${candidate.rule})`);
         continue;
       }
-      const task = buildTask(this.ctx, candidate);
-      /** A rule that produces nothing ends the search, exactly as it did before. */
-      if (!task) return task;
-      return task;
+      return candidate;
     }
     return null;
+  }
+
+  /**
+   * The rule table as a Task. Order matters: earlier rules win. Reads everything through
+   * the Body snapshot, so the same planner drives mineflayer, mock and client-mod bodies.
+   * @returns {import('../tasks/task').Task|null}
+   */
+  decide() {
+    const candidate = this.nextCandidate();
+    if (!candidate) return null;
+    return buildTask(this.ctx, candidate);
+  }
+
+  /** Proposals mode: offer the next candidate, never execute it here. */
+  proposeNext() {
+    const candidate = this.nextCandidate();
+    if (!candidate) return null;
+    return this.proposals.propose(candidate);
+  }
+
+  /** Proposals mode step used by `slowLoop`: propose, or run a standing-authorized target. */
+  async _proposeOrRun() {
+    const outcome = this.proposeNext();
+    if (!outcome || !outcome.ok) {
+      if (outcome && outcome.reason === 'cooldown') {
+        this.lastDecision = {
+          at: Date.now(),
+          decision: 'proposal-cooling',
+          note: { target: outcome.target, retryAt: outcome.retryAt }
+        };
+      } else if (outcome && outcome.reason === 'pending') {
+        this.lastDecision = { at: Date.now(), decision: 'proposal-pending', note: outcome.proposal.id };
+      } else {
+        this.lastDecision = { at: Date.now(), decision: 'idle', note: 'no applicable rule (goals may be quarantined)' };
+        this._idleTicks = (this._idleTicks || 0) + 1;
+      }
+      return;
+    }
+    this._idleTicks = 0;
+    if (outcome.autoAccepted) {
+      const task = buildTask(this.ctx, outcome.proposal.candidate);
+      this.lastDecision = {
+        at: Date.now(),
+        decision: `proposal:${outcome.proposal.target}`,
+        description: 'standing authorization'
+      };
+      if (task) await this.runTask(task);
+      return;
+    }
+    this.lastDecision = {
+      at: Date.now(),
+      decision: `propose:${outcome.proposal.target}`,
+      description: outcome.proposal.reason
+    };
+    this.log.info(`proposed ${outcome.proposal.target} - waiting for the player (!proposal accept)`);
+  }
+
+  /** Player accepted a proposal: build the task and enqueue it as an explicit directive. */
+  async acceptProposal(id = null, options = {}) {
+    const result = this.proposals.accept(id, options);
+    if (!result.ok) return result;
+    const task = buildTask(this.ctx, result.proposal.candidate);
+    if (!task) return { ok: false, reason: 'unknown-task-type' };
+    const receipt = await this.enqueue(task, { level: 'directive', source: 'proposal' });
+    return { ...result, receipt };
+  }
+
+  rejectProposal(id = null, options = {}) {
+    return this.proposals.reject(id, options);
   }
 
   /**
@@ -677,6 +763,10 @@ class Brain {
     const source = options.source || 'unknown';
     task.source = source;
     task.level = levelName;
+    /** S3: an explicit task (or an urgent control verb) answers the pending question by replacing it. */
+    if (this.proposals && (level === LEVELS.directive || level === LEVELS.urgent)) {
+      this.proposals.supersede(`${levelName} task`);
+    }
 
     // While stopped for death, only URGENT work (i.e. resuming) is allowed through.
     if (this.stopped) {
@@ -761,6 +851,7 @@ class Brain {
    */
   stopForDeath(detail = null) {
     this.holds.hold('dead', detail ? String(detail) : null);
+    this.proposals.supersede('death');
     this.stoppedReason = 'death';
     this.queue.length = 0;
     if (this.currentTask && this.currentTask.state === 'running') this.currentTask.cancel();
@@ -796,6 +887,8 @@ class Brain {
       queueLength: this.queue.length,
       lastDecision: this.lastDecision,
       blockedGoal: this.blockedGoal,
+      plannerMode: this.plannerMode,
+      proposals: this.proposals ? this.proposals.status() : null,
       completedGoals: this.completedGoals.slice(-10),
       memory: this.ctx.memory.summary()
     };
