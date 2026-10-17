@@ -60,7 +60,7 @@
 | [`docs/P1-GAP-AUDIT.md`](docs/P1-GAP-AUDIT.md) | **P1 全文差距审计**：§1.4–§1.9 逐节“已落地/部分/仅契约/未开始”，离线待办优先级与需批准项 |
 | [`docs/P1-HANDOFF.md`](docs/P1-HANDOFF.md) | **P1 离线交接**：一键复验、已交付清单、客户端窗口实测、默认配置、未交付原因、客户端窗口顺序、代码地图与风险 |
 | [`docs/CLIENT-TEST-2026-10-17.md`](docs/CLIENT-TEST-2026-10-17.md) | **客户端窗口实测记录**：协议 23/23、登录+寻路 7/7、采集 9/10（挖石 noPath 失败）、Agent 自动登录修复、`/state` 空闲成本、F1 未授权 |
-| [`docs/PLANNER-RETIREMENT.md`](docs/PLANNER-RETIREMENT.md) | **自主规划器退役**：`slowLoop` 拆为 GoalEvaluator + 提案 + TaskSlot。**S0–S4 已全部离线交付**（`planner:test` 32/32、`plan:audit --stage p1` 94/94），真机判据仍登记在客户端清单 |
+| [`docs/PLANNER-RETIREMENT.md`](docs/PLANNER-RETIREMENT.md) | **自主规划器退役**：`slowLoop` 拆为 GoalEvaluator + 提案 + TaskSlot。**S0–S4 已全部离线交付**（`planner:test` 32/32、`plan:audit --stage p1` 95/95），真机判据仍登记在客户端清单 |
 | [`docs/P1-CLIENT-TESTS.md`](docs/P1-CLIENT-TESTS.md) | **客户端/真机测试清单**：P1 与退役判据里所有需要真实客户端/服务器的项，**当前全部未执行**（本分支只跑离线套件） |
 | [`docs/PLANNER-AB-EXPERIMENT.md`](docs/PLANNER-AB-EXPERIMENT.md) | **选型 A/B 实验设计**（**条件触发**：仅当 P1 §1.9.2 降级判定成立才执行）：24 次计分运行的场景与门槛；成本审计按时间 / token / 模块复用三项（§6–§7），§10 是决策闸门，**不做经济性评估**（§8.4） |
 | [`docs/HARNESS-INTERFACES.md`](docs/HARNESS-INTERFACES.md) | **两侧接口事实**：Codex（`base_instructions` 可整段替换 / `tool_mode` / hooks / MCP）与 DSH（0.2.0-rc.2、cordis 插件契约、system-prompt 装配、preset）的一手机器取证，含待验证项 |
@@ -186,8 +186,8 @@ LLM 层（`src/llm/`，生产配置已开启 `toolCalling`）：8 个工具 —�
 * 离线全绿（2026-10-16 实跑）：`selftest 176/176`、`skills:test 57/57`、`client:test 73/73`、`control:test 37/37`、
   `mining:entry:test 25/25`、`mining:collection:test 24/24`、`mining:recovery:test 18/18`、`tasks:test 52/52`、
   `path:test 35/35`、`clientmod:test 11/11`、`verify:roleplay 34/34`、`llm:dry` 路由 67/67 + 工具 43/43（明细见 §8）。
-* P1 离线（2026-10-17 实跑）：`p1:verify`（P0 8/8 + `planner:test 32/32` + `p1:contract:test 148/148` +
-  `p1:fault:test 7/7` + `plan:audit --stage p1 94/94`）；真机/模型项**部分执行**：
+* P1 离线（2026-10-17 实跑）：`p1:verify`（P0 8/8 + `planner:test 32/32` + `p1:contract:test 150/150` +
+  `p1:fault:test 7/7` + `plan:audit --stage p1 95/95`）；真机/模型项**部分执行**：
   `client:verify 23/23`、登录+寻路 7/7、砍树 PASS、独立 mine 一次 2/2 / 厚土柱 0/2、
   `--dig stone` 点位失败、持久化 save/重启恢复部分通过、夜间门禁会中止；
   其余未执行项见 `docs/P1-CLIENT-TESTS.md`。

@@ -12,6 +12,7 @@
 const { register } = require('./registry');
 const { bare } = require('../world/items');
 const { isDaytime } = require('../world/daytime');
+const { findBedNear } = require('../world/beds');
 const { RecoveryLadder } = require('../core/recoveryLadder');
 
 const GROUND = /^(dirt|coarse_dirt|rooted_dirt|grass_block|podzol|mycelium)$/;
@@ -444,8 +445,8 @@ register({
   description: 'Walk to a bed and sleep until morning.',
   params: {
     timeoutMs: { type: 'number', default: 120000, min: 10000, max: 600000 },
-    /** How far to look for a bed. Fishing at night may need to walk further than 12 blocks. */
-    radius: { type: 'number', default: 12, min: 4, max: 64 }
+    /** How far to look for a bed: 60 x 10 x 60 around the player (operator's rule). */
+    radius: { type: 'number', default: 60, min: 4, max: 64 }
   },
   available: (ctx) => (ctx.body && typeof ctx.body.useOn === 'function'
     ? { ok: true }
@@ -458,12 +459,15 @@ register({
       return { ok: true, slept: false, detail: 'it is already daytime' };
     }
     const world = ctx.world;
-    const bedRadius = params.radius === undefined ? 12 : params.radius;
-    const beds = world && typeof world.findBlocksMatching === 'function'
-      ? world.findBlocksMatching((name) => /_bed$/.test(bare(name)), { maxDistance: bedRadius, count: 1 })
-      : [];
-    if (!beds.length) return { ok: false, reason: `no bed within ${bedRadius} blocks` };
-    const bed = beds[0];
+    const bedRadius = params.radius === undefined ? 60 : params.radius;
+    const here = snap && snap.position ? snap.position : null;
+    const bed = findBedNear(world, here, {
+      halfX: Math.min(30, bedRadius),
+      halfY: 5,
+      halfZ: Math.min(30, bedRadius),
+      maxDistance: bedRadius
+    });
+    if (!bed) return { ok: false, reason: 'no bed within 60x10x60' };
     const reached = await body.moveTo(bed.position, { range: 3, timeoutMs: 20000 }).catch(() => false);
     if (!reached) return { ok: false, reason: 'could not reach the bed' };
     await body.useOn(bed.position, { face: { x: 0, y: 1, z: 0 } });

@@ -43,6 +43,7 @@ const { MineBlockTask } = require('../src/tasks/mineBlock');
  */
 const { manMadeReason: classify, assessStandability, looksLikeTree } = require('../src/world/safety');
 const { isDaytime } = require('../src/world/daytime');
+const { findBedNear } = require('../src/world/beds');
 
 const args = process.argv.slice(2);
 function valueOf(flag) {
@@ -483,21 +484,18 @@ function note(s) {
     if (!snap || !snap.time) snap = clientBody.snapshot();
     if (isDaytime(snap && snap.time) !== false) return true;
 
-    note('night fell: looking for a bed before continuing (safety rule)');
-    let beds = [];
-    try {
-      beds = clientBody.findBlocksMatching((name) => /_bed$/.test(String(name)), {
-        maxDistance: 32,
-        count: 1
-      });
-    } catch (err) {
-      note(`bed search failed: ${err.message}`);
-    }
-    if (!beds.length) {
-      note('night and no bed within 32 blocks - stopping instead of playing through the night');
+    note('night fell: looking for a bed within 60x10x60 before continuing (safety rule)');
+    const center = snap && snap.position ? snap.position : null;
+    const bed = findBedNear(clientBody, center, {
+      halfX: 30,
+      halfY: 5,
+      halfZ: 30,
+      maxDistance: 64
+    });
+    if (!bed) {
+      note('night and no bed within 60x10x60 - stopping instead of playing through the night');
       return false;
     }
-    const bed = beds[0];
     note(`sleeping in ${bed.name} at (${bed.position.x},${bed.position.y},${bed.position.z})`);
     const reached = await clientBody
       .moveTo(bed.position, { range: 3, timeoutMs: 30000 })

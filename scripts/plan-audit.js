@@ -1132,7 +1132,7 @@ if (STAGE === 'p1') {
   check('P1: live tests sleep at night or stop', () => {
     const real = read('scripts/client-real.js');
     if (!/ensureDaytime/.test(real)) throw new Error('live tests have no night gate');
-    if (!/_bed\$/.test(real)) throw new Error('the night gate never looks for a bed');
+    if (!/findBedNear/.test(real)) throw new Error('the night gate never looks for a bed');
     if (!/useOn\(bed\.position/.test(real)) throw new Error('the night gate never uses the bed');
     if (!/stopping instead of playing through the night/.test(real)) throw new Error('no-bed must stop, not continue');
     return 'day check -> bed -> sleep -> re-check; no bed = stop';
@@ -1148,6 +1148,20 @@ if (STAGE === 'p1') {
     }
     if (!/require\('\.\.\/src\/world\/daytime'\)/.test(live)) throw new Error('live tests do not use the shared daytime rule');
     return 'isDay first; timeOfDay fallback; one shared rule';
+  });
+
+  check('P1: night bed search is bounded to 60x10x60', () => {
+    const beds = read('src/world/beds.js');
+    const farm = read('src/skills/farming.js');
+    const live = read('scripts/client-real.js');
+    if (!/halfX: 30/.test(beds) || !/halfY: 5/.test(beds) || !/halfZ: 30/.test(beds)) {
+      throw new Error('the 60x10x60 box is not encoded');
+    }
+    if (!/findBedNear/.test(farm) || !/findBedNear/.test(live)) throw new Error('callers do not use the bounded search');
+    if (!/no bed within 60x10x60/.test(farm) && !/no bed within 60x10x60/.test(live)) {
+      throw new Error('the no-bed case is not reported');
+    }
+    return '+-30 x, +-5 y, +-30 z; nearest inside; stop when none';
   });
 
   check('P1: proposals are wired with an offline answer surface', () => {

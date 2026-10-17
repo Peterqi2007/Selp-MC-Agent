@@ -2268,6 +2268,28 @@ function makeBrain() {
     });
   }
 
+  // ------------------------------------------------------------ bed scan box
+  process.stdout.write('\n40. bed scan box\n');
+  {
+    const { findBedNear } = require('../src/world/beds');
+    const beds = [
+      { name: 'minecraft:white_bed', position: { x: 4, y: 64, z: 0 } },
+      { name: 'minecraft:red_bed', position: { x: 1, y: 64, z: 1 } },
+      { name: 'minecraft:blue_bed', position: { x: 0, y: 75, z: 0 } },
+      { name: 'minecraft:green_bed', position: { x: 45, y: 64, z: 0 } }
+    ];
+    const world = { findBlocksMatching: () => beds };
+    const found = findBedNear(world, { x: 0, y: 64, z: 0 });
+    check('the bed search is limited to 60x10x60 and picks the nearest', () => {
+      assert.strictEqual(found.name, 'minecraft:red_bed');
+    });
+    check('a bed outside the box is treated as absent', () => {
+      const onlyOutside = { findBlocksMatching: () => [beds[2], beds[3]] };
+      assert.strictEqual(findBedNear(onlyOutside, { x: 0, y: 64, z: 0 }), null);
+      assert.strictEqual(findBedNear(null, { x: 0, y: 64, z: 0 }), null);
+    });
+  }
+
   // summary
   const failed = results.filter((result) => !result.ok);
   process.stdout.write(`\nP1 contract test: ${results.length - failed.length}/${results.length} checks passed\n`);

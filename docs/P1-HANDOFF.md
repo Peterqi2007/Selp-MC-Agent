@@ -21,9 +21,9 @@ npm run p1:baseline -- --suites  # 记录提交/配置指纹/套件结果到 run
 | --- | --- |
 | P0 regression（8 suites） | **8/8** |
 | `planner:test` | **32/32** |
-| `p1:contract:test` | **148/148** |
+| `p1:contract:test` | **150/150** |
 | `p1:fault:test` | **7/7** |
-| `plan:audit --stage p1` | **94/94** |
+| `plan:audit --stage p1` | **95/95** |
 
 没有启动 Minecraft、没有调用模型、没有执行生成代码或 GUI 自动化。
 
@@ -53,9 +53,9 @@ npm run p1:baseline -- --suites  # 记录提交/配置指纹/套件结果到 run
 | F1 CU 限窗 | **未执行**：helper 无已授权应用，读取 java 窗口被拒 |
 | A17/A29 持久化重启 | **部分通过**：临时开启后 save/重启，`state restored` 全段 true、eventSeq=1；对话/待答问题未覆盖 |
 
-**夜间安全**：`client-real` 在寻路/采集前检查时间（优先 `isDay`），夜里找床睡觉；
-无床/走不到则中止。运行 Agent 时夜里用 `!sleep`。实测：门禁会中止；入夜入睡待床可达。
-`--dig stone` 的前置检查在无石点位会失败；独立 `mine` 已 2/2 通过。
+**夜间安全**：`client-real` 在寻路/采集前检查时间（优先 `isDay`），夜里在 **60×10×60**
+内找最近的床睡觉；无床/走不到则中止。运行 Agent 时夜里用 `!sleep`。实测：门禁会中止；
+入夜入睡待床可达。`--dig stone` 的前置检查在无石点位会失败；独立 `mine` 已 2/2 通过。
 
 证据：`runtime/logs/client-verify-2026-10-17.log`、`client-real-login-2026-10-17.log`、
 `client-real-primitives-2026-10-17.log`、`agent-authme-final-2026-10-17.log`、
