@@ -465,6 +465,52 @@ function makeBrain() {
     });
   }
 
+  // ------------------------------------------------------ M2 routing/perception
+  process.stdout.write('\n8. M2 routing + perception contracts\n');
+  const { gateVerdict } = require('../src/chat/commandGate');
+  const { selectSurface, verifySeparation, toolName, SURFACES, EXECUTION_TOOLS } = require('../src/llm/toolSurface');
+  const { stampSnapshot, fieldAge, staleFields } = require('../src/world/freshness');
+
+  check('the addressed gate dispatches the original text and nothing else', () => {
+    const allowed = gateVerdict({ verdict: { verdict: 'allow', text: 'cut 3 trees' }, original: '帮我砍 3 棵树' });
+    assert(allowed.ok);
+    assert.strictEqual(allowed.dispatch, '帮我砍 3 棵树');
+    assert.strictEqual(allowed.rewritten, 'cut 3 trees', 'a rewritten field is reported but never dispatched');
+    assert.strictEqual(gateVerdict({ verdict: 'deny', original: '帮我砍树' }).ok, false);
+    assert.strictEqual(gateVerdict({ verdict: 'maybe', original: 'x' }).reason, 'malformed');
+    assert.strictEqual(gateVerdict({ verdict: 'allow', original: 'x', timedOut: true }).reason, 'timeout');
+    assert.strictEqual(gateVerdict({ verdict: 'allow', original: '   ' }).reason, 'empty');
+  });
+
+  check('the language tool surface cannot execute', () => {
+    const tools = [
+      { name: 'observe' },
+      { name: 'find_blocks' },
+      { name: 'say' },
+      { name: 'do_task' },
+      { name: 'do_skill' },
+      { name: 'go_to' },
+      { name: 'stop' }
+    ];
+    const language = selectSurface(tools, 'language').map(toolName);
+    assert.deepStrictEqual(language, ['observe', 'find_blocks', 'say']);
+    assert(!language.some((name) => EXECUTION_TOOLS.includes(name)));
+    const action = selectSurface(tools, 'action').map(toolName);
+    assert.deepStrictEqual(action, ['do_task', 'do_skill', 'go_to', 'stop']);
+    assert(verifySeparation(tools).ok);
+    assert(!SURFACES.language.some((name) => EXECUTION_TOOLS.includes(name)));
+  });
+
+  check('perception fields carry their own age and stale schedule', () => {
+    const snapshot = stampSnapshot({ position: { x: 1 }, inventory: {} }, { now: 1000 });
+    assert.strictEqual(snapshot.observedAt.position, 1000);
+    assert.strictEqual(snapshot.observedAt.entities, undefined, 'only fields that were refreshed get a stamp');
+    assert.strictEqual(fieldAge(snapshot, 'position', 1500), 500);
+    assert.strictEqual(fieldAge(snapshot, 'entities', 1500), Infinity, 'never observed means Infinity');
+    const stale = staleFields(snapshot, { position: 400, inventory: 1000, entities: 0 }, 1500);
+    assert.deepStrictEqual(stale.map((entry) => entry.field), ['entities', 'position']);
+  });
+
   // summary
   const failed = results.filter((result) => !result.ok);
   process.stdout.write(`\nP1 contract test: ${results.length - failed.length}/${results.length} checks passed\n`);
@@ -472,5 +518,5 @@ function makeBrain() {
     process.stdout.write('FAILED\n');
     process.exit(1);
   }
-  process.stdout.write('M1 offline contracts hold (events hub + plan store + SSE + plan/turn/adapter)\n');
+  process.stdout.write('M1/M2 offline contracts hold (events + plans + SSE + turn + routing)\n');
 })();

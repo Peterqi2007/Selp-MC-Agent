@@ -51,7 +51,8 @@
 | [`docs/P1-PLANNER-PLAN.md`](docs/P1-PLANNER-PLAN.md) | **下一阶段方案**：规划器重构（语言/动作脑区解耦、分级自主感知、自主解题、自主学习、聊天扩展）；§1.9 单列 coding harness 与自研动作脑的比较与接入边界。要求在**独立分支**实施；2026-10-17 裁决见 §1.1.1 |
 | [`docs/P1-M0.md`](docs/P1-M0.md) | **P1 M0 记录**：基线（提交/指纹/套件）、问题复核、P0→P1 审计迁移清单、评测集 v1、测量模板与版本登记。离线项已完成，**客户端三项未执行** |
 | [`docs/P1-M1.md`](docs/P1-M1.md) | **P1 M1 记录（离线 M1a–M1d）**：`TaskEvents` 汇聚/重放、身份字段、`PlanStore` 单一写者、同端口 SSE、Capability 表、TaskResult 六态、`mine_ore` progress 值域、PlanRunner、TurnLifecycle、HarnessAdapter；`p1:contract:test` 22/22。真实 DSH 插件接线与持久化未完成 |
-| [`docs/PLANNER-RETIREMENT.md`](docs/PLANNER-RETIREMENT.md) | **自主规划器退役**：`slowLoop` 拆为 GoalEvaluator + 提案 + TaskSlot。**S0–S4 已全部离线交付**（`planner:test` 32/32、`plan:audit --stage p1` 41/41），真机判据仍登记在客户端清单 |
+| [`docs/P1-M2.md`](docs/P1-M2.md) | **P1 M2 记录（离线契约）**：二值闸门（原文派发）、双脑工具面（语言面无执行工具）、字段新鲜度；`p1:contract:test` 25/25。`@` 接线、双 agent 拆分、感知刷新与真机测量未完成 |
+| [`docs/PLANNER-RETIREMENT.md`](docs/PLANNER-RETIREMENT.md) | **自主规划器退役**：`slowLoop` 拆为 GoalEvaluator + 提案 + TaskSlot。**S0–S4 已全部离线交付**（`planner:test` 32/32、`plan:audit --stage p1` 44/44），真机判据仍登记在客户端清单 |
 | [`docs/P1-CLIENT-TESTS.md`](docs/P1-CLIENT-TESTS.md) | **客户端/真机测试清单**：P1 与退役判据里所有需要真实客户端/服务器的项，**当前全部未执行**（本分支只跑离线套件） |
 | [`docs/PLANNER-AB-EXPERIMENT.md`](docs/PLANNER-AB-EXPERIMENT.md) | **选型 A/B 实验设计**（**条件触发**：仅当 P1 §1.9.2 降级判定成立才执行）：24 次计分运行的场景与门槛；成本审计按时间 / token / 模块复用三项（§6–§7），§10 是决策闸门，**不做经济性评估**（§8.4） |
 | [`docs/HARNESS-INTERFACES.md`](docs/HARNESS-INTERFACES.md) | **两侧接口事实**：Codex（`base_instructions` 可整段替换 / `tool_mode` / hooks / MCP）与 DSH（0.2.0-rc.2、cordis 插件契约、system-prompt 装配、preset）的一手机器取证，含待验证项 |

@@ -612,6 +612,38 @@ if (STAGE === 'p1') {
     return 'recorded stream -> turn actions; no transport';
   });
 
+  check('P1: the addressed gate is binary and keeps the raw text', () => {
+    const gate = read('src/chat/commandGate.js');
+    if (!/VERDICTS = new Set\(\['allow', 'deny'\]\)/.test(gate)) throw new Error('gate verdicts are not allow/deny');
+    if (!/dispatch: String\(original\)/.test(gate)) throw new Error('the gate does not dispatch the original text');
+    if (!/malformed/.test(gate) || !/timeout/.test(gate)) throw new Error('malformed/timeout are not refused');
+    return 'allow -> original text; deny/malformed/timeout -> nothing';
+  });
+
+  check('P1: the language tool surface has no execution tools', () => {
+    const surface = read('src/llm/toolSurface.js');
+    if (!/EXECUTION_TOOLS/.test(surface)) throw new Error('execution tools are not named');
+    const mod = require(path.join(ROOT, 'src/llm/toolSurface.js'));
+    const leaked = mod.SURFACES.language.filter((name) => mod.EXECUTION_TOOLS.includes(name));
+    if (leaked.length) throw new Error(`language surface leaks execution tools: ${leaked.join(', ')}`);
+    if (!mod.selectSurface([{ name: 'do_task' }, { name: 'say' }], 'language').every((tool) => tool.name === 'say')) {
+      throw new Error('selectSurface does not filter execution tools');
+    }
+    return 'language: state/retrieval/say; execution stays on the action brain';
+  });
+
+  check('P1: perception fields carry freshness and stale detection', () => {
+    const freshness = read('src/world/freshness.js');
+    if (!/stampSnapshot/.test(freshness) || !/staleFields/.test(freshness)) {
+      throw new Error('freshness helpers are missing');
+    }
+    const mod = require(path.join(ROOT, 'src/world/freshness.js'));
+    const snapshot = mod.stampSnapshot({ position: {} }, { now: 10 });
+    if (mod.fieldAge(snapshot, 'entities', 20) !== Infinity) throw new Error('missing fields must be Infinity old');
+    if (mod.fieldAge(snapshot, 'position', 20) !== 10) throw new Error('stamped fields must report their age');
+    return 'per-field observedAt + stale schedule';
+  });
+
   check('P1: proposals are wired with an offline answer surface', () => {
     const brain = read('src/brain.js');
     const commands = read('src/chat/commands.js');
