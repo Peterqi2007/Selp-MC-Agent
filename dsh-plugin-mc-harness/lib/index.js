@@ -290,7 +290,14 @@ export function apply(ctx, config = {}) {
           '',
           `GOAL: ${goal}`
         ].join('\n');
-        await agent.agent.followup({
+        const promptMessage = {
+          /**
+           * followup() forwards the object as a durable inbox message; it does not add a
+           * role. Live provider rejected the first attempt with "messages[2]: missing field
+           * role". Build the complete user message here.
+           */
+          id: `mc-h1-${crypto.randomUUID()}`,
+          role: 'user',
           content: [{ type: 'text', text: prompt }],
           // v4 rejects kind:'plugin'; a user message needs the same producer fields the
           // UI supplies, or pre-step can reject the turn before any model request.
@@ -299,7 +306,8 @@ export function apply(ctx, config = {}) {
             rpcId: `mc-h1-${Date.now()}`,
             clientTimeZone: 'UTC'
           }
-        });
+        };
+        await agent.agent.followup(promptMessage);
         const seqAfterFollowup = agent.agent.session.seq;
         await agent.agent.whenIdle();
         const history = agent.agent.session.deriveMessages();
