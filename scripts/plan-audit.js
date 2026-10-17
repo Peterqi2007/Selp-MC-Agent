@@ -679,6 +679,17 @@ if (STAGE === 'p1') {
     return 'question step parks; yes continues, no fails; nothing executes unseen';
   });
 
+  check('P1: a task completion wakes the harness turn exactly once', () => {
+    const bridge = read('src/harness/resumeBridge.js');
+    const adapter = read('src/harness/adapter.js');
+    if (!/class ResumeBridge/.test(bridge)) throw new Error('ResumeBridge is missing');
+    if (!/onResumable/.test(adapter)) throw new Error('the adapter never signals a resumable turn');
+    if (!/adapter\.resume/.test(bridge)) throw new Error('the bridge does not consume the parked event');
+    if (!/pending/.test(bridge)) throw new Error('a failed delivery is not retained for retry');
+    if (/require\(['"](http|https|net|ws)['"]\)/.test(bridge)) throw new Error('the bridge must not own a transport');
+    return 'adapter -> bridge -> deliver -> resume; retry on failure';
+  });
+
   check('P1: proposals are wired with an offline answer surface', () => {
     const brain = read('src/brain.js');
     const commands = read('src/chat/commands.js');

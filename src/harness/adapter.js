@@ -32,6 +32,8 @@ class HarnessAdapter {
     this.turns = deps.turns || null;
     this.events = deps.events || null;
     this.now = deps.now || (() => Date.now());
+    /** Called as (turn, event) once a matching task event makes the turn resumable. */
+    this.onResumable = deps.onResumable || null;
     /** taskId -> turnId, for events that arrive without a turn id */
     this.taskToTurn = new Map();
     this.actions = [];
@@ -69,6 +71,7 @@ class HarnessAdapter {
     const result = this.turns.ingest(turnId, event);
     if (result.ok) {
       this._record('resumable', { turnId, taskId: event.taskId, event: event.type || null });
+      this._notifyResumable(result.turn, event);
     } else if (result.reason === 'already-resumable') {
       this._record('ignored-duplicate', { turnId, taskId: event.taskId });
     } else {
@@ -138,6 +141,15 @@ class HarnessAdapter {
   _record(kind, data) {
     this.actions.push({ kind, at: new Date(this.now()).toISOString(), ...data });
     if (this.actions.length > 200) this.actions.shift();
+  }
+
+  _notifyResumable(turn, event) {
+    if (typeof this.onResumable !== 'function') return;
+    try {
+      this.onResumable(turn, event);
+    } catch {
+      /* the delivery layer must not break the adapter */
+    }
   }
 }
 

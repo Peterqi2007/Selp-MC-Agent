@@ -659,6 +659,85 @@ function makeBrain() {
     });
   }
 
+  // --------------------------------------------------------------- resume bridge
+  process.stdout.write('\n11. resume bridge\n');
+  const { ResumeBridge } = require('../src/harness/resumeBridge');
+
+  {
+    const events = new TaskEvents();
+    const turns = new TurnLifecycle();
+    const adapter = new HarnessAdapter({ events, turns });
+    const delivered = [];
+    const bridge = new ResumeBridge({
+      adapter,
+      turns,
+      deliver: async (turn, event) => delivered.push({ turnId: turn.id, taskId: event.taskId })
+    });
+    const started = adapter.start({ requestId: 'r1' });
+    adapter.toolCall({ turnId: started.turn.id, taskId: 't1' });
+    events.publish({ type: 'task:done', taskId: 't1', attemptId: 't1', reason: 'ok' });
+    events.publish({ type: 'task:done', taskId: 't1', attemptId: 't1', reason: 'ok' });
+    await new Promise((resolve) => setTimeout(resolve, 10));
+    check('a completion is delivered to the parked turn exactly once', () => {
+      assert.strictEqual(delivered.length, 1);
+      assert.strictEqual(delivered[0].taskId, 't1');
+      assert.strictEqual(turns.get(started.turn.id).state, 'running', 'delivery is followed by resume');
+      assert.strictEqual(bridge.status().pending, 0);
+    });
+  }
+
+  {
+    const events = new TaskEvents();
+    const turns = new TurnLifecycle();
+    const adapter = new HarnessAdapter({ events, turns });
+    const delivered = [];
+    const bridge = new ResumeBridge({
+      adapter,
+      turns,
+      deliver: async (turn, event) => delivered.push({ turnId: turn.id, taskId: event.taskId })
+    });
+    const started = adapter.start({ requestId: 'r2' });
+    adapter.toolCall({ turnId: started.turn.id, taskId: 't2' });
+    adapter.cancel(started.turn.id, 'player stop');
+    events.publish({ type: 'task:done', taskId: 't2', attemptId: 't2', reason: 'ok' });
+    await new Promise((resolve) => setTimeout(resolve, 10));
+    check('a cancelled turn is never woken by a late completion', () => {
+      assert.strictEqual(delivered.length, 0);
+      assert.strictEqual(bridge.status().pending, 0);
+      assert.strictEqual(turns.get(started.turn.id).state, 'cancelled');
+    });
+  }
+
+  {
+    const events = new TaskEvents();
+    const turns = new TurnLifecycle();
+    const adapter = new HarnessAdapter({ events, turns });
+    let attempts = 0;
+    const bridge = new ResumeBridge({
+      adapter,
+      turns,
+      deliver: async () => {
+        attempts += 1;
+        throw new Error('harness offline');
+      }
+    });
+    const started = adapter.start({ requestId: 'r3' });
+    adapter.toolCall({ turnId: started.turn.id, taskId: 't3' });
+    events.publish({ type: 'task:done', taskId: 't3', attemptId: 't3', reason: 'ok' });
+    await new Promise((resolve) => setTimeout(resolve, 10));
+    check('a failed delivery keeps the resume queued for a retry', () => {
+      assert.strictEqual(attempts, 1);
+      assert.strictEqual(bridge.status().pending, 1);
+      assert.strictEqual(turns.get(started.turn.id).state, 'resumable');
+    });
+    bridge.deliver = async () => {};
+    await bridge.flush();
+    check('a retry delivers once and resumes the turn', () => {
+      assert.strictEqual(bridge.status().pending, 0);
+      assert.strictEqual(turns.get(started.turn.id).state, 'running');
+    });
+  }
+
   // summary
   const failed = results.filter((result) => !result.ok);
   process.stdout.write(`\nP1 contract test: ${results.length - failed.length}/${results.length} checks passed\n`);
