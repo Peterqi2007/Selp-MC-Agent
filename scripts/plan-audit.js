@@ -952,6 +952,17 @@ if (STAGE === 'p1') {
     return 'default off; wired when enabled';
   });
 
+  check('P1: one offline verification command covers the P1 suites', () => {
+    if (!exists('scripts/p1-verify.js')) throw new Error('p1-verify is missing');
+    const verifier = read('scripts/p1-verify.js');
+    for (const needle of ['p0-verify.js', 'planner-retirement-test.js', 'p1-contract-test.js', 'p1-fault-test.js', '--stage', "'p1'"]) {
+      if (!verifier.includes(needle)) throw new Error(`p1-verify does not cover ${needle}`);
+    }
+    const pkg = JSON.parse(read('package.json'));
+    if (!pkg.scripts || !pkg.scripts['p1:verify']) throw new Error('package.json has no p1:verify script');
+    return 'planner + contract + fault + audit p1 + P0 regression';
+  });
+
   check('P1: proposals are wired with an offline answer surface', () => {
     const brain = read('src/brain.js');
     const commands = read('src/chat/commands.js');
