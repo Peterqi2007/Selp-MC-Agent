@@ -15,7 +15,7 @@
 
 | 节 | 要求 | 状态 | 证据 / 缺口 |
 | --- | --- | --- | --- |
-| §1.4.1 | 身份链 + 六态结果 | **部分** | Task 有 `taskId/requestId/planId/stepId`、`attemptId`、六态；**入口未普遍填 requestId**（命令/提案→任务） |
+| §1.4.1 | 身份链 + 六态结果 | **部分** | Task 有 `taskId/requestId/planId/stepId`、`attemptId`、六态；**提案→任务、hub→事件已带 requestId**；普通命令入口仍未普遍填 requestId |
 | §1.4.2 | 唯一身体执行权 | **已落地** | `TaskSlot` 单一 owner、hub 接管等待、`p1:fault:test` 7/7 |
 | §1.4.3 | 任务闭环/部分完成/后置验证 | **部分** | 六态、超时、事件；**步骤后置验证刚接入 PlanRunner**；TaskHub/长技能结果尚未统一 |
 | §1.4.4 | 事件汇聚/SSE/planVersion 单一写者 | **已落地（离线）** | `TaskEvents`、`/events` 重放、`PlanStore` stale；真机 SSE 未验 |

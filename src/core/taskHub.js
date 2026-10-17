@@ -99,6 +99,7 @@ class TaskHub {
       name,
       description: job.description || name,
       source: job.source || 'unknown',
+      requestId: job.requestId || null,
       startedAt: Date.now(),
       interruptReason: null,
       replacedBy: null,
@@ -279,6 +280,7 @@ class TaskHub {
     const info = {
       taskId: handle.id,
       attemptId: handle.id,
+      requestId: handle.requestId || null,
       name: handle.name,
       description: handle.description,
       source: handle.source,

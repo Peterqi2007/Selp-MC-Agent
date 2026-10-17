@@ -758,6 +758,8 @@ class Brain {
     }
     const task = buildTask(this.ctx, candidate);
     if (!task) return { ok: false, reason: 'unknown-task-type' };
+    /** The accepted proposal is the request; its id is the provenance of the work. */
+    if (!task.requestId) task.requestId = result.proposal.id;
     const receipt = await this.enqueue(task, { level: 'directive', source: 'proposal' });
     return { ...result, receipt };
   }
@@ -841,6 +843,8 @@ class Brain {
     const source = options.source || 'unknown';
     task.source = source;
     task.level = levelName;
+    /** P1 §1.4.1: a caller that knows the originating request can attach it. */
+    if (options.requestId && !task.requestId) task.requestId = options.requestId;
     /** S3: an explicit task (or an urgent control verb) answers the pending question by replacing it. */
     if (this.proposals && (level === LEVELS.directive || level === LEVELS.urgent)) {
       this.proposals.supersede(`${levelName} task`);

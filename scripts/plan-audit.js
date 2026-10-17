@@ -1001,6 +1001,16 @@ if (STAGE === 'p1') {
     return 'observedAt comes from the last refresh, not from the read';
   });
 
+  check('P1: request identity reaches tasks and hub events', () => {
+    const brain = read('src/brain.js');
+    const hub = read('src/core/taskHub.js');
+    if (!/options\.requestId && !task\.requestId/.test(brain)) throw new Error('enqueue ignores requestId');
+    if (!/task\.requestId = result\.proposal\.id/.test(brain)) throw new Error('accepted proposals are not a request');
+    if (!/requestId: job\.requestId \|\| null/.test(hub)) throw new Error('hub jobs cannot carry a requestId');
+    if (!/requestId: handle\.requestId \|\| null/.test(hub)) throw new Error('hub events do not carry the requestId');
+    return 'proposal -> task -> hub event provenance';
+  });
+
   check('P1: proposals are wired with an offline answer surface', () => {
     const brain = read('src/brain.js');
     const commands = read('src/chat/commands.js');

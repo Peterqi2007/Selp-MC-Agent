@@ -1828,6 +1828,58 @@ function makeBrain() {
     });
   }
 
+  // --------------------------------------------- request identity propagation
+  process.stdout.write('\n30. request identity propagation\n');
+  {
+    const brain = makeBrain();
+    brain.running = true;
+    let seen = null;
+    brain.runTask = async (task) => {
+      seen = task;
+    };
+    brain.proposals.propose({
+      name: 'mine',
+      type: 'mine',
+      args: { block: 'stone', count: 1 },
+      reason: 'test'
+    });
+    const accepted = await brain.acceptProposal();
+    await new Promise((resolve) => setTimeout(resolve, 10));
+    check('an accepted proposal carries its id as the task requestId', () => {
+      assert(accepted.ok);
+      assert(seen);
+      assert.strictEqual(seen.requestId, accepted.proposal.id);
+    });
+  }
+
+  {
+    const brain = makeBrain();
+    const task = { name: 'explicit', describe: () => 'explicit', state: 'pending' };
+    brain.enqueue(task, { level: 'directive', source: 'test', requestId: 'req-7' });
+    check('enqueue accepts an explicit requestId', () => {
+      assert.strictEqual(task.requestId, 'req-7');
+    });
+  }
+
+  {
+    const brain = makeBrain();
+    const receipt = await brain.ctx.hub.submit({
+      name: 'hub-provenance',
+      description: 'hub provenance',
+      source: 'test',
+      requestId: 'req-9',
+      run: async () => ({ ok: true, reason: 'ok' })
+    });
+    await new Promise((resolve) => setTimeout(resolve, 30));
+    check('a hub job carries its requestId into task events', () => {
+      const done = brain.events
+        .since(0)
+        .filter((event) => event.type === 'task:done' && event.taskId === receipt.taskId);
+      assert.strictEqual(done.length, 1);
+      assert.strictEqual(done[0].requestId, 'req-9');
+    });
+  }
+
   // summary
   const failed = results.filter((result) => !result.ok);
   process.stdout.write(`\nP1 contract test: ${results.length - failed.length}/${results.length} checks passed\n`);
