@@ -330,11 +330,56 @@ function note(s) {
       await body.command('stop');
     }
 
+    if (chopCount > 0) {
+      /**
+       * The scan radius is only 24 blocks, so "no tree nearby" usually means "not here", not
+       * "nowhere". Roaming a few legs is what a player does, and each leg is itself more
+       * evidence for primitive 1 - the planner has to find a route through whatever terrain
+       * the world actually has, not the terrain a test author imagined.
+       */
+      let tree = pickSafeTree(body);
+      const roamLegs = [];
+      for (let attempt = 0; !tree && attempt < 6; attempt += 1) {
+        const spot = pickSafeDestination(body, 12 + attempt * 3);
+        if (!spot) {
+          note(`roam ${attempt + 1}: no safe destination found - stopping the search`);
+          break;
+        }
+        const task = new GoToTask(ctx, { position: spot, range: 2, timeoutMs: 40000 });
+        const res = await task.execute();
+        const moved = distanceMoved(body, spot);
+        roamLegs.push(`${res.ok ? 'ok' : res.reason}->${spot.x},${spot.z}(${moved.toFixed(1)}b)`);
+        tree = pickSafeTree(body);
+      }
+      if (roamLegs.length) note(`roamed ${roamLegs.length} leg(s): ${roamLegs.join(' ')}`);
+
+      if (!tree) {
+        note('no natural tree found after roaming - skipping the chop/collect check');
+        note('(nothing was dug; re-run near a forest, or use --dig dirt,stone instead)');
+      } else {
+        note(`target tree: ${tree.name} at (${tree.position.x},${tree.position.y},${tree.position.z}), ${tree.distance} blocks away`);
+        const beforeCount = countLogs(body);
+        const task = new ChopWoodTask(ctx, { count: chopCount, timeoutMs: 90000, warmupMs: 1000 });
+        const res = await task.execute();
+        await body.refresh(true);
+        const gained = countLogs(body) - beforeCount;
+        check(
+          'primitive 2+3 chop: the log really entered the inventory',
+          gained >= 1,
+          `${res.reason} (inventory +${gained} log(s), ${res.ok ? 'task ok' : 'task reported partial/failed'})`
+        );
+        if (gained === 0) {
+          note('the block may have been broken without the drop being collected - this is exactly');
+          note('the failure the "count items, not swings" rule exists to catch');
+        }
+      }
+    }
+
     // ---- primitive 2 + 3: break, then collect the drop --------------------
     /**
      * `--dig dirt:4,stone:8` adds break/collect checks on plain terrain.
      *
-     * ADDITIVE, not a replacement: with a spec present the tree check below still runs, so one
+     * ADDITIVE, not a replacement: the tree check above still runs, so one
      * invocation covers both "can it fell a tree" and "can it dig ordinary ground". Dirt needs
      * no tool and is never part of anything; stone is the material the plan's acceptance names
      * and exercises the prerequisite rule - bare-handed stone mining breaks the block and
@@ -382,51 +427,6 @@ function note(s) {
             gained >= 1,
             `${res.reason} (inventory +${gained})`
           );
-        }
-      }
-    }
-
-    if (chopCount > 0) {
-      /**
-       * The scan radius is only 24 blocks, so "no tree nearby" usually means "not here", not
-       * "nowhere". Roaming a few legs is what a player does, and each leg is itself more
-       * evidence for primitive 1 - the planner has to find a route through whatever terrain
-       * the world actually has, not the terrain a test author imagined.
-       */
-      let tree = pickSafeTree(body);
-      const roamLegs = [];
-      for (let attempt = 0; !tree && attempt < 6; attempt += 1) {
-        const spot = pickSafeDestination(body, 12 + attempt * 3);
-        if (!spot) {
-          note(`roam ${attempt + 1}: no safe destination found - stopping the search`);
-          break;
-        }
-        const task = new GoToTask(ctx, { position: spot, range: 2, timeoutMs: 40000 });
-        const res = await task.execute();
-        const moved = distanceMoved(body, spot);
-        roamLegs.push(`${res.ok ? 'ok' : res.reason}->${spot.x},${spot.z}(${moved.toFixed(1)}b)`);
-        tree = pickSafeTree(body);
-      }
-      if (roamLegs.length) note(`roamed ${roamLegs.length} leg(s): ${roamLegs.join(' ')}`);
-
-      if (!tree) {
-        note('no natural tree found after roaming - skipping the chop/collect check');
-        note('(nothing was dug; re-run near a forest, or use --dig dirt,stone instead)');
-      } else {
-        note(`target tree: ${tree.name} at (${tree.position.x},${tree.position.y},${tree.position.z}), ${tree.distance} blocks away`);
-        const beforeCount = countLogs(body);
-        const task = new ChopWoodTask(ctx, { count: chopCount, timeoutMs: 90000, warmupMs: 1000 });
-        const res = await task.execute();
-        await body.refresh(true);
-        const gained = countLogs(body) - beforeCount;
-        check(
-          'primitive 2+3 chop: the log really entered the inventory',
-          gained >= 1,
-          `${res.reason} (inventory +${gained} log(s), ${res.ok ? 'task ok' : 'task reported partial/failed'})`
-        );
-        if (gained === 0) {
-          note('the block may have been broken without the drop being collected - this is exactly');
-          note('the failure the "count items, not swings" rule exists to catch');
         }
       }
     }

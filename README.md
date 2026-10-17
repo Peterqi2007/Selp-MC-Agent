@@ -188,8 +188,8 @@ LLM 层（`src/llm/`，生产配置已开启 `toolCalling`）：8 个工具 —�
   `path:test 35/35`、`clientmod:test 11/11`、`verify:roleplay 34/34`、`llm:dry` 路由 67/67 + 工具 43/43（明细见 §8）。
 * P1 离线（2026-10-17 实跑）：`p1:verify`（P0 8/8 + `planner:test 32/32` + `p1:contract:test 148/148` +
   `p1:fault:test 7/7` + `plan:audit --stage p1 94/94`）；真机/模型项**部分执行**：
-  `client:verify 23/23`、登录+寻路 7/7、砍树 PASS、独立 mine 2/2 PASS、`--dig stone` 前置点位失败、
-  夜间门禁会中止；其余未执行项见 `docs/P1-CLIENT-TESTS.md`。
+  `client:verify 23/23`、登录+寻路 7/7、砍树 PASS、独立 mine 一次 2/2 / 厚土柱 0/2、
+  `--dig stone` 点位失败、夜间门禁会中止；其余未执行项见 `docs/P1-CLIENT-TESTS.md`。
 * 控制 Mod：`mod-client/dist/agent-client-1.0.0.jar` **75000 字节**（2026-10-13 17:37 构建，含 WalkTo 严格到达
   y 容差、战斗 v3 与 TACZ 枪械）；已 `client:install`，与 PCL 版本目录在装的 jar 字节完全一致，并已在 10-13
   17:38 与 22:03 两个真机会话中实际加载。改 Mod 后必须重装（`npm run client:install`）并重启客户端。

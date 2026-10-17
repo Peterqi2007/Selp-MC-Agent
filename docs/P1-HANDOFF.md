@@ -46,7 +46,7 @@ npm run p1:baseline -- --suites  # 记录提交/配置指纹/套件结果到 run
 | --- | --- |
 | `client:verify`（模组协议） | **23/23 PASS** |
 | `client-real --login`（登录+谨慎寻路） | **7/7 PASS**，服务器确认 `Вход успешен` |
-| `client-real --primitives` | 砍树 PASS；**独立 mine 2/2（库存 +2）PASS**；`--dig stone` 前置点位失败；一次复测因死亡/空背包无效 |
+| `client-real --primitives` | 砍树 PASS；独立 mine 一次 2/2、另一次厚土柱 0/2；`--dig stone` 点位失败；一次复测因死亡/空背包无效 |
 | Agent 自动 AuthMe 登录 | 首次失败（探针早于 ChatListener 首轮播种）；修复后 **PASS**，未发 `/register` |
 | A01 面板 `!status` / 非法 `!mine` | PASS：3ms、模型 tokens 0→0、明确 usage |
 | `/state` 空闲 | p50 43.8ms / p95 64.9ms（30 次，1.79MB，63,257 cells） |
@@ -77,7 +77,7 @@ npm run p1:baseline -- --suites  # 记录提交/配置指纹/套件结果到 run
 
 | 项 | 原因 / 下一步 |
 | --- | --- |
-| 挖石路径（真机） | 独立 `mine` 已 2/2 PASS；`--dig stone` 前置检查需调整点位/顺序 |
+| 挖石路径（真机） | 一次 2/2；另一次厚土柱 0/2。结果强依赖地质，需固定裸露石层测试点或更深下挖设计 |
 | 夜间睡眠（真机） | 门禁生效（无床/走不到会中止）；实际入睡尚未成功，需床可达时重试 |
 | 真实 harness 传输与插件 | 需要 DSH/Codex 宿主接线与单独批准；适配器/回合/续轮桥已就绪 |
 | 真实模型判定与语言行为 | 需要模型端点/预算与客户端窗口；契约与 stub 已就绪（A02+ 未执行） |
