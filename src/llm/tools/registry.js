@@ -163,7 +163,43 @@ const TOOLS = [
   }
 ];
 
+/**
+ * Language-brain-only tools (P1 M2/M3).
+ *
+ * These are deliberately NOT in `TOOLS`: the P0 audit and `toolNames()` keep the eight
+ * action tools, and the action brain never sees these. Only `brain='language'` exposes them,
+ * which is what lets the language brain speak or stay silent without gaining an executor.
+ */
+const LANGUAGE_ONLY_TOOLS = [
+  {
+    name: 'say',
+    kind: 'write',
+    description: 'Say one short line in chat. Use the player-facing persona voice.',
+    parameters: {
+      type: 'object',
+      properties: { text: { type: 'string', description: 'the exact line to say' } },
+      required: ['text'],
+      additionalProperties: false
+    },
+    run: async (ctx, args) => {
+      if (!ctx || !ctx.reply) return { ok: false, error: 'no-reply-channel' };
+      const text = String(args.text || '').trim();
+      if (!text) return { ok: false, error: 'empty-text' };
+      await ctx.reply(text, { why: 'language-brain', conversation: true });
+      return { ok: true, said: text };
+    }
+  },
+  {
+    name: 'silence',
+    kind: 'read',
+    description: 'Choose not to speak this turn.',
+    parameters: { type: 'object', properties: {}, additionalProperties: false },
+    run: async () => ({ ok: true, silent: true })
+  }
+];
+
 const BY_NAME = new Map(TOOLS.map((tool) => [tool.name, tool]));
+for (const tool of LANGUAGE_ONLY_TOOLS) BY_NAME.set(tool.name, tool);
 
 /** Names the model is allowed to ask for. */
 function toolNames() {
@@ -328,8 +364,16 @@ async function call(ctx, name, rawArgs, options = {}) {
 }
 
 /** True when the named tool exists (cheap check for callers that must not dispatch). */
-function has(name) {
-  return BY_NAME.has(name);
+/**
+ * Is this name callable on a surface?
+ *
+ * The default answer is about the P0 tool list, so the P0 boundary "speech cannot become a
+ * capability" stays true and testable. Language-only tools require `{ brain: 'language' }` -
+ * a caller has to ask for the language surface explicitly.
+ */
+function has(name, options = {}) {
+  if (options.brain === 'language') return BY_NAME.has(name);
+  return TOOLS.some((tool) => tool.name === name);
 }
 
 /** Total number of tools; asserted against the plan's "P0 只有 6 个". */
@@ -379,7 +423,8 @@ function toOpenAiTools(ctx, brain = null) {
       available = null;
     }
   }
-  const list = TOOLS.map((tool) => {
+  const baseTools = brain === 'language' ? [...TOOLS, ...LANGUAGE_ONLY_TOOLS] : TOOLS;
+  const list = baseTools.map((tool) => {
     let description = tool.description;
     let parameters = tool.parameters;
     if (tool.name === 'do_skill' && available && available.length) {
@@ -402,6 +447,7 @@ function toOpenAiTools(ctx, brain = null) {
 
 module.exports = {
   TOOLS,
+  LANGUAGE_ONLY_TOOLS,
   call,
   has,
   count,

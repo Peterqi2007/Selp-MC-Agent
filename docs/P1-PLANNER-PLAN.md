@@ -611,10 +611,10 @@ A12 的周期、时延与资源阈值由 M0/M2 测量后填入部署记录，未
 > **实施进展（2026-10-17，M2 离线契约 + 地址通道 + 判定器 + 工具清单）**：二值闸门
 > （`CommandGate`）、`@` 地址通道（默认关闭）、严格判定器（`InstructionJudge` +
 > `LlmCore.judgeInstruction`）、双脑工具面（`toOpenAiTools(ctx, brain)` 两面不重叠、
-> `LlmCore({brain})` 可选且默认 null）、字段新鲜度；`p1:contract:test` **86/86**（含监听器
-> 端到端：@→闸门→原文派发、与 `!` 并存、拒绝/关闭不派发）、`plan:audit --stage p1` 66/66，
-> 详见 [`P1-M2.md`](P1-M2.md)。**未完成**：真实模型判定、双 agent 实例/persona 指令、
-> 感知刷新；M2 **不得整体标为通过**。
+> `LlmCore({brain})` 可选且默认 null）、`say`/`silence` 语言专用工具、字段新鲜度；
+> `p1:contract:test` **96/96**（含监听器端到端：@→闸门→原文派发、与 `!` 并存、拒绝/关闭不派发）、
+> `plan:audit --stage p1` **71/71**，详见 [`P1-M2.md`](P1-M2.md)。**未完成**：真实模型判定、
+> 双 agent 实例/persona 指令、感知刷新；M2 **不得整体标为通过**。
 
 ### M3：可恢复规划、方法学习与玩家求助
 

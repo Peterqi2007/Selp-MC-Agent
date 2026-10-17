@@ -1278,7 +1278,14 @@ function makeBrain() {
     const action = toolRegistry.toOpenAiTools(null, 'action').map((tool) => tool.function.name);
     check('the registry splits the P0 tool list into two disjoint surfaces', () => {
       assert.strictEqual(all.length, 8, `expected the 8 P0 tools, got ${all.join(',')}`);
-      assert.deepStrictEqual(language, ['observe', 'find_blocks', 'lookup_item', 'scan_around']);
+      assert.deepStrictEqual(language, [
+        'observe',
+        'find_blocks',
+        'lookup_item',
+        'scan_around',
+        'say',
+        'silence'
+      ]);
       assert.deepStrictEqual(action.slice().sort(), ['do_skill', 'do_task', 'go_to', 'stop'].sort());
       assert(!language.some((name) => action.includes(name)), 'a tool may not be on both surfaces');
     });
@@ -1286,6 +1293,18 @@ function makeBrain() {
       assert(!language.some((name) => EXECUTION_TOOLS.includes(name)));
       assert(language.every((name) => SURFACES.language.includes(name)));
       assert(action.every((name) => SURFACES.action.includes(name)));
+    });
+    const sayCalls = [];
+    const sayContext = { reply: async (text, options) => sayCalls.push({ text, options }) };
+    const spoken = await toolRegistry.call(sayContext, 'say', { text: 'hello there' });
+    const silent = await toolRegistry.call(sayContext, 'silence', {});
+    check('say is language-only and can actually speak', () => {
+      assert(spoken.ok);
+      assert.strictEqual(sayCalls.length, 1);
+      assert.strictEqual(sayCalls[0].text, 'hello there');
+      assert.strictEqual(sayCalls[0].options.conversation, true);
+      assert(silent.ok && silent.result.silent);
+      assert(!toolRegistry.toolNames().includes('say'), 'say must stay out of the P0 tool list');
     });
   }
 

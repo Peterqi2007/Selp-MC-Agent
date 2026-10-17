@@ -904,6 +904,22 @@ if (STAGE === 'p1') {
     return 'generator -> candidate; promotion stays a separate gate';
   });
 
+  check('P1: say/silence are language-only tools', () => {
+    const registry = require(path.join(ROOT, 'src/llm/tools/registry.js'));
+    const names = registry.LANGUAGE_ONLY_TOOLS.map((tool) => tool.name);
+    if (!names.includes('say') || !names.includes('silence')) throw new Error('say/silence are missing');
+    if (registry.toolNames().includes('say')) throw new Error('say leaked into the P0 tool list');
+    if (registry.has('say')) throw new Error('say must not be callable on the default surface');
+    if (!registry.has('say', { brain: 'language' })) throw new Error('the language surface cannot call say');
+    const language = registry
+      .toOpenAiTools(null, 'language')
+      .map((tool) => tool.function.name);
+    if (!language.includes('say') || !language.includes('silence')) {
+      throw new Error('the language surface does not expose say/silence');
+    }
+    return 'language-only; P0 tool list still 8';
+  });
+
   check('P1: proposals are wired with an offline answer surface', () => {
     const brain = read('src/brain.js');
     const commands = read('src/chat/commands.js');
