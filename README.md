@@ -58,7 +58,8 @@
 | [`docs/P1-M6.md`](docs/P1-M6.md) | **P1 M6 记录（聊天并发 + 按需接线）**：未读去重、过时回复拒绝、自回声拒绝、限速/重复/截断、随会话持久化；LLM 回复可 opt-in 守卫（默认关闭）。真实多人 A23/A24、状态发言、A25 聊天侧未完成 |
 | [`docs/P1-M7.md`](docs/P1-M7.md) | **P1 M7 记录（离线准备）**：`p1:verify` 一键离线验收、`p1:fault:test` 7/7、A01–A31 验收矩阵（无一项标通过）、发布清单与残余风险。**P1 未发布**，客户端/模型项全部未执行 |
 | [`docs/P1-GAP-AUDIT.md`](docs/P1-GAP-AUDIT.md) | **P1 全文差距审计**：§1.4–§1.9 逐节“已落地/部分/仅契约/未开始”，离线待办优先级与需批准项 |
-| [`docs/P1-HANDOFF.md`](docs/P1-HANDOFF.md) | **P1 离线交接**：一键复验、已交付清单、默认配置、未交付原因、客户端窗口顺序、代码地图与风险 |
+| [`docs/P1-HANDOFF.md`](docs/P1-HANDOFF.md) | **P1 离线交接**：一键复验、已交付清单、客户端窗口实测、默认配置、未交付原因、客户端窗口顺序、代码地图与风险 |
+| [`docs/CLIENT-TEST-2026-10-17.md`](docs/CLIENT-TEST-2026-10-17.md) | **客户端窗口实测记录**：协议 23/23、登录+寻路 7/7、采集 9/10（挖石 noPath 失败）、Agent 自动登录修复、`/state` 空闲成本、F1 未授权 |
 | [`docs/PLANNER-RETIREMENT.md`](docs/PLANNER-RETIREMENT.md) | **自主规划器退役**：`slowLoop` 拆为 GoalEvaluator + 提案 + TaskSlot。**S0–S4 已全部离线交付**（`planner:test` 32/32、`plan:audit --stage p1` 91/91），真机判据仍登记在客户端清单 |
 | [`docs/P1-CLIENT-TESTS.md`](docs/P1-CLIENT-TESTS.md) | **客户端/真机测试清单**：P1 与退役判据里所有需要真实客户端/服务器的项，**当前全部未执行**（本分支只跑离线套件） |
 | [`docs/PLANNER-AB-EXPERIMENT.md`](docs/PLANNER-AB-EXPERIMENT.md) | **选型 A/B 实验设计**（**条件触发**：仅当 P1 §1.9.2 降级判定成立才执行）：24 次计分运行的场景与门槛；成本审计按时间 / token / 模块复用三项（§6–§7），§10 是决策闸门，**不做经济性评估**（§8.4） |
@@ -186,8 +187,9 @@ LLM 层（`src/llm/`，生产配置已开启 `toolCalling`）：8 个工具 —�
   `mining:entry:test 25/25`、`mining:collection:test 24/24`、`mining:recovery:test 18/18`、`tasks:test 52/52`、
   `path:test 35/35`、`clientmod:test 11/11`、`verify:roleplay 34/34`、`llm:dry` 路由 67/67 + 工具 43/43（明细见 §8）。
 * P1 离线（2026-10-17 实跑）：`p1:verify`（P0 8/8 + `planner:test 32/32` + `p1:contract:test 146/146` +
-  `p1:fault:test 7/7` + `plan:audit --stage p1 91/91`）；真机/模型项**全部未执行**
-  （唯一权威清单：`docs/P1-CLIENT-TESTS.md`）。
+  `p1:fault:test 7/7` + `plan:audit --stage p1 91/91`）；真机/模型项**部分执行**：
+  `client:verify 23/23`、登录+寻路 7/7、采集 9/10（挖石失败）、A01 部分通过；
+  其余未执行项见 `docs/P1-CLIENT-TESTS.md`。
 * 控制 Mod：`mod-client/dist/agent-client-1.0.0.jar` **75000 字节**（2026-10-13 17:37 构建，含 WalkTo 严格到达
   y 容差、战斗 v3 与 TACZ 枪械）；已 `client:install`，与 PCL 版本目录在装的 jar 字节完全一致，并已在 10-13
   17:38 与 22:03 两个真机会话中实际加载。改 Mod 后必须重装（`npm run client:install`）并重启客户端。

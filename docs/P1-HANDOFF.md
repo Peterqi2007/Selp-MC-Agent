@@ -1,8 +1,10 @@
 # P1 离线交接（2026-10-17）
 
 > **一句话**：RETIREMENT 已完成；P1 的**离线可交付部分**已实现并通过一键复验；
-> **P1 未验收、未发布**。所有真实客户端/模型项仍登记在
-> [`P1-CLIENT-TESTS.md`](P1-CLIENT-TESTS.md)，状态全部「未执行」。
+> **客户端窗口已于 2026-10-17 开始**（协议/登录/寻路/砍树通过，挖石失败），
+> **P1 仍未验收、未发布**。已执行项见
+> [`CLIENT-TEST-2026-10-17.md`](CLIENT-TEST-2026-10-17.md)；其余真机/模型项仍以
+> [`P1-CLIENT-TESTS.md`](P1-CLIENT-TESTS.md) 为唯一权威，状态「未执行」。
 > 本文是交接入口；逐项证据见 [`P1-M7.md`](P1-M7.md) 的 A01–A31 矩阵。
 
 ## 1. 一键复验
@@ -38,7 +40,23 @@ npm run p1:baseline -- --suites  # 记录提交/配置指纹/套件结果到 run
 | M6 | `ConversationState`（去重/过期/自回声/限速/截断）+ LLM 回复 opt-in 守卫（默认关闭） |
 | M7 | 故障演练 7/7、A01–A31 矩阵、`p1:verify`、本交接文档 |
 
-## 3. 默认配置（未改变现网行为）
+## 3. 客户端窗口实测（2026-10-17）
+
+| 项 | 结果 |
+| --- | --- |
+| `client:verify`（模组协议） | **23/23 PASS** |
+| `client-real --login`（登录+谨慎寻路） | **7/7 PASS**，服务器确认 `Вход успешен` |
+| `client-real --primitives` | **9/10**：砍树 PASS；**挖石 FAIL（32 个目标 noPath）** |
+| Agent 自动 AuthMe 登录 | 首次失败（探针早于 ChatListener 首轮播种）；修复后 **PASS**，未发 `/register` |
+| A01 面板 `!status` / 非法 `!mine` | PASS：3ms、模型 tokens 0→0、明确 usage |
+| `/state` 空闲 | p50 43.8ms / p95 64.9ms（30 次，1.79MB，63,257 cells） |
+| F1 CU 限窗 | **未执行**：helper 无已授权应用，读取 java 窗口被拒 |
+
+证据：`runtime/logs/client-verify-2026-10-17.log`、`client-real-login-2026-10-17.log`、
+`client-real-primitives-2026-10-17.log`、`agent-authme-final-2026-10-17.log`、
+`state-idle-2026-10-17.json`；摘要见 [`CLIENT-TEST-2026-10-17.md`](CLIENT-TEST-2026-10-17.md)。
+
+## 4. 默认配置（未改变现网行为）
 
 | 配置 | 默认 |
 | --- | --- |
@@ -51,19 +69,20 @@ npm run p1:baseline -- --suites  # 记录提交/配置指纹/套件结果到 run
 | `state.path` / `debounceMs` | `runtime/p1-state.json` / `1000` |
 | `web.eventsToken` | `""`（仅本机） |
 
-## 4. 未交付（以及为什么）
+## 5. 未交付（以及为什么）
 
 | 项 | 原因 / 下一步 |
 | --- | --- |
+| 挖石路径（真机） | **实测失败**：32 个目标 noPath；需复现并定位 |
 | 真实 harness 传输与插件 | 需要 DSH/Codex 宿主接线与单独批准；适配器/回合/续轮桥已就绪 |
-| 真实模型判定与语言行为 | 需要模型端点/预算与客户端窗口；契约与 stub 已就绪 |
+| 真实模型判定与语言行为 | 需要模型端点/预算与客户端窗口；契约与 stub 已就绪（A02+ 未执行） |
 | 代码技能真实生成/试运行/受限执行 | 需要编码后端与 A19 安全边界评审；当前只做静态检查与 dry-run |
-| GUI/CU 闭环 | F1 未执行；F1 不通过则 CU 标 N/A |
+| GUI/CU 闭环 | F1 未验证（helper 无授权应用）；F1 不通过则 CU 标 N/A |
 | 联网搜索/学习 | 需要搜索/模型预算；本地方法/记忆已就绪 |
 | 真机持久化重启恢复 | A17/A29 未执行；默认关闭 |
 | 多人聊天观察 | A23/A24 未执行；状态机与规则已就绪 |
 
-## 5. 客户端窗口怎么开始
+## 6. 客户端窗口怎么开始
 
 1. 先读 [`P1-CLIENT-TESTS.md`](P1-CLIENT-TESTS.md)（唯一权威清单），按 M0-C1/C2/C3 → F1/F2/F3 →
    A 类顺序执行；每项记录版本、账号、种子、日志/截图路径。
@@ -71,7 +90,7 @@ npm run p1:baseline -- --suites  # 记录提交/配置指纹/套件结果到 run
 3. F1 不通过：CU 保持 N/A，不要开 `chat.addressedPrefix` 之外的任何在线能力。
 4. 完成一项就把结果回填清单，**未测不填、代码存在不算通过**。
 
-## 6. 代码地图（P1 新增）
+## 7. 代码地图（P1 新增）
 
 ```
 src/core/      taskEvents, planStore, taskSlot, capabilities, stateStore, sessionState,
@@ -89,7 +108,7 @@ scripts/       p1-verify, p1-contract-test, p1-fault-test, p1-baseline
 docs/          P1-M0 … P1-M7, P1-GAP-AUDIT, P1-CLIENT-TESTS
 ```
 
-## 7. 已知风险
+## 8. 已知风险
 
 1. 真实模型行为未测：判定器/语言 agent/对话通道只有 stub 回执。
 2. 真实宿主未接：`TurnLifecycle`/`ResumeBridge` 是契约，不是运行中的 DSH 会话。
@@ -97,8 +116,9 @@ docs/          P1-M0 … P1-M7, P1-GAP-AUDIT, P1-CLIENT-TESTS
 4. 持久化默认关闭且未经真机重启验证。
 5. 所有阈值（`/state` 周期、感知成本、聊天节奏、预算）都未测量；500ms/3 次检索是配置，不是结论。
 
-## 8. 建议顺序
+## 9. 建议顺序
 
-1. 客户端窗口：M0-C1/C2/C3 → F1 → A01–A03 → A17/A29。
-2. 通过后再接真实 harness 传输与受限执行（需单独批准）。
-3. 每次改动保持 `npm run p1:verify` 全绿；删除断言必须同提交替换。
+1. **先修挖石 noPath**（本次唯一硬失败）：指定地表矿点/下挖入口复现，抓 `path-trace` 对应记录。
+2. 客户端窗口剩余项：M0-C1 的移动/挖矿/反射/GUI 负载 → F1（需先授权 java 窗口）→ A02。
+3. 通过后再接真实 harness 传输与受限执行（需单独批准）。
+4. 每次改动保持 `npm run p1:verify` 全绿；删除断言必须同提交替换。

@@ -1628,6 +1628,30 @@ async function main() {
     return 'probed, detected, logged in once';
   });
 
+  await checkAsync('authme: a late refusal still triggers a login (live 2026-10-17)', async () => {
+    const { AuthMeLogin } = require(path.join(ROOT, 'src/core/authme'));
+    const sent = [];
+    const body = {
+      chat: async (m) => sent.push(m),
+      command: async (c) => {
+        sent.push(c);
+        // The live server's refusal arrived after the old fixed 1200ms sleep.
+        setTimeout(() => auth.observe('§cКоманды недоступны до входа! Сначала §e/login§c.'), 1500);
+        return { ok: true };
+      },
+      login: async (pw) => {
+        sent.push(`login ${pw}`);
+        setTimeout(() => auth.observe('§aВход успешен!'), 10);
+        return true;
+      }
+    };
+    const auth = new AuthMeLogin(body, {}, { password: 'secret', log: silent, timeoutMs: 5000 });
+    const res = await auth.ensure('startup');
+    if (!res.ok) throw new Error(`expected a login after the late refusal, got ${res.action}: ${res.reason}`);
+    if (!sent.includes('login secret')) throw new Error(`the login was not dispatched: ${JSON.stringify(sent)}`);
+    return 'late refusal polled, then logged in';
+  });
+
   await checkAsync('authme: stays quiet when there is no evidence either way', async () => {
     const { AuthMeLogin } = require(path.join(ROOT, 'src/core/authme'));
     const sent = [];

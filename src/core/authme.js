@@ -83,6 +83,15 @@ class AuthMeLogin {
     /** Kept for compatibility; registering is never performed (see rule 1 in the header). */
     this.registerOnMissing = false;
     this.timeoutMs = options.timeoutMs || 20000;
+    /**
+     * How long the startup probe waits for the server's refusal. The chat poller runs
+     * every ~700ms and the server answers asynchronously; live 2026-10-17 a fixed 1200ms
+     * sleep missed "commands unavailable before login" and the agent wrongly concluded it
+     * was authenticated. Poll for evidence instead of sleeping a fixed amount.
+     */
+    this.probeWaitMs = options.probeWaitMs || 4000;
+    /** Wait out ChatListener's first poll before probing (700ms interval + margin). */
+    this.probeDelayMs = options.probeDelayMs || 1800;
     /** Minimum gap between two login attempts, to stay clear of the server's limiter. */
     this.cooldownMs = options.cooldownMs || 65000;
 
@@ -142,19 +151,34 @@ class AuthMeLogin {
    * from a prompt that may have scrolled out of the 50-line chat buffer.
    */
   async probe() {
-    const before = this.lines.length;
+    /**
+     * Let ChatListener finish its first poll first (it "seeds" the existing window without
+     * processing it). Sending the probe before that seed means the server's refusal is
+     * consumed by the baseline and never reaches `observe()` - live 2026-10-17 that made
+     * the agent believe it was already authenticated after a client restart.
+     */
+    await sleep(this.probeDelayMs);
+    const seenBefore = new Set(this.lines);
     try {
       await this.body.command('cmd list');
     } catch (err) {
       this.log.debug(`login probe failed to send: ${err.message}`);
       return null;
     }
-    await sleep(1200);
-    const fresh = this.lines.slice(before);
-    const text = fresh.join('\n');
-    if (NOT_AUTHED.test(text)) return 'not-authenticated';
-    if (SUCCESS.test(text) || ALREADY.test(text)) return 'authenticated';
-    if (RATE_LIMITED.test(text)) return 'rate-limited';
+    /**
+     * Poll instead of a fixed sleep: the chat poller and the server reply are both
+     * asynchronous. Return as soon as there is evidence; otherwise wait up to
+     * `probeWaitMs` and report "no evidence" (never "authenticated").
+     */
+    const deadline = Date.now() + this.probeWaitMs;
+    while (Date.now() < deadline) {
+      await sleep(250);
+      const fresh = this.lines.filter((line) => !seenBefore.has(line));
+      const text = fresh.join('\n');
+      if (NOT_AUTHED.test(text)) return 'not-authenticated';
+      if (SUCCESS.test(text) || ALREADY.test(text)) return 'authenticated';
+      if (RATE_LIMITED.test(text)) return 'rate-limited';
+    }
     return null;
   }
 
