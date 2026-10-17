@@ -1049,6 +1049,66 @@ function makeBrain() {
     });
   }
 
+  // --------------------------------------------------- chat conversation state
+  process.stdout.write('\n16. chat conversation state\n');
+  const { ConversationState } = require('../src/chat/conversation');
+
+  {
+    let clock = 1000;
+    const conversation = new ConversationState({
+      now: () => clock,
+      dedupeMs: 30000,
+      minGapMs: 1500,
+      maxChars: 10
+    });
+    check('a duplicate incoming line is dropped inside the window', () => {
+      assert(conversation.rememberIncoming({ id: 'm1', text: 'hi', from: 'p' }).ok);
+      clock += 1000;
+      assert.strictEqual(conversation.rememberIncoming({ id: 'm1', text: 'hi', from: 'p' }).reason, 'duplicate');
+      clock += 30001;
+      assert(conversation.rememberIncoming({ id: 'm1', text: 'hi', from: 'p' }).ok, 'after the window it is a new line');
+    });
+    check('a reply to a superseded request is refused', () => {
+      conversation.beginRequest('r1');
+      conversation.beginRequest('r2');
+      assert.strictEqual(conversation.approve({ text: 'old', requestId: 'r1' }).reason, 'stale-request');
+      assert(conversation.approve({ text: 'new', requestId: 'r2' }).ok);
+    });
+    check('self-echo and too-soon replies are refused', () => {
+      assert.strictEqual(conversation.approve({ text: 'x', fromAgent: true }).reason, 'self-echo');
+      conversation.markSent('hello');
+      clock += 500;
+      assert.strictEqual(conversation.approve({ text: 'again' }).reason, 'too-soon');
+    });
+    check('identical replies are deduped and long text is truncated', () => {
+      clock += 2000;
+      assert.strictEqual(conversation.approve({ text: 'hello' }).reason, 'duplicate-reply');
+      const long = conversation.approve({ text: '123456789012345', requestId: 'r2' });
+      assert(long.ok);
+      assert.strictEqual(long.text, '1234567890');
+      assert.strictEqual(long.truncated, true);
+    });
+  }
+
+  {
+    const brain = makeBrain();
+    brain.conversation.beginRequest('r9');
+    brain.conversation.markSent('hello', 1000);
+    brain.conversation.rememberIncoming({ id: 'm9', text: 'hi', from: 'p', at: 1000 });
+    const saved = brain.captureState();
+    const restored = makeBrain();
+    const result = restored.restoreState(saved);
+    check('conversation dedupe state survives the session', () => {
+      assert(result.restored.conversation);
+      assert.strictEqual(restored.conversation.activeRequest, 'r9');
+      assert.strictEqual(restored.conversation.lastSentAt, 1000);
+      assert.strictEqual(
+        restored.conversation.rememberIncoming({ id: 'm9', text: 'hi', at: 1001 }).reason,
+        'duplicate'
+      );
+    });
+  }
+
   // summary
   const failed = results.filter((result) => !result.ok);
   process.stdout.write(`\nP1 contract test: ${results.length - failed.length}/${results.length} checks passed\n`);
@@ -1056,5 +1116,5 @@ function makeBrain() {
     process.stdout.write('FAILED\n');
     process.exit(1);
   }
-  process.stdout.write('P1 offline contracts hold (M1-M5: events, plans, SSE, turn, routing, state, skills, CU policy)\n');
+  process.stdout.write('P1 offline contracts hold (M1-M6: events, plans, SSE, turn, routing, state, skills, CU, chat)\n');
 })();

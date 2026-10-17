@@ -25,7 +25,9 @@ function captureState(brain) {
       brain.proposals && typeof brain.proposals.toJSON === 'function' ? brain.proposals.toJSON() : null,
     events: brain.events && typeof brain.events.toJSON === 'function' ? brain.events.toJSON() : null,
     methods: brain.methods && typeof brain.methods.toJSON === 'function' ? brain.methods.toJSON() : null,
-    answers: brain.answers && typeof brain.answers.toJSON === 'function' ? brain.answers.toJSON() : null
+    answers: brain.answers && typeof brain.answers.toJSON === 'function' ? brain.answers.toJSON() : null,
+    conversation:
+      brain.conversation && typeof brain.conversation.toJSON === 'function' ? brain.conversation.toJSON() : null
   };
 }
 
@@ -33,7 +35,14 @@ function restoreState(brain, data) {
   if (!data || data.version !== VERSION) {
     return { ok: false, reason: 'unsupported-version' };
   }
-  const restored = { plans: false, proposals: false, events: false, methods: false, answers: false };
+  const restored = {
+    plans: false,
+    proposals: false,
+    events: false,
+    methods: false,
+    answers: false,
+    conversation: false
+  };
   if (data.plans && brain.plans && typeof brain.plans.restore === 'function') {
     restored.plans = brain.plans.restore(data.plans);
   }
@@ -48,6 +57,9 @@ function restoreState(brain, data) {
   }
   if (data.answers && brain.answers && typeof brain.answers.restore === 'function') {
     restored.answers = brain.answers.restore(data.answers);
+  }
+  if (data.conversation && brain.conversation && typeof brain.conversation.restore === 'function') {
+    restored.conversation = brain.conversation.restore(data.conversation);
   }
   return { ok: true, restored, savedAt: data.savedAt || null };
 }

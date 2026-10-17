@@ -768,6 +768,23 @@ if (STAGE === 'p1') {
     return 'default deny; verified window + bounds only';
   });
 
+  check('P1: chat replies are deduped, rate-limited and stale-proof', () => {
+    const chat = read('src/chat/conversation.js');
+    const brain = read('src/brain.js');
+    if (!/class ConversationState/.test(chat)) throw new Error('ConversationState is missing');
+    if (!/duplicate-reply/.test(chat) || !/too-soon/.test(chat)) throw new Error('reply dedupe/rate limit is missing');
+    if (!/stale-request/.test(chat) || !/self-echo/.test(chat)) throw new Error('stale/self-echo protection is missing');
+    if (!/new ConversationState/.test(brain)) throw new Error('brain does not create the conversation state');
+    return 'duplicate/stale/self-echo/rate-limit; no name filter';
+  });
+
+  check('P1: conversation state is persisted with the session', () => {
+    const session = read('src/core/sessionState.js');
+    if (!/conversation/.test(session)) throw new Error('conversation is not captured');
+    if (!/conversation\.restore|brain\.conversation/.test(session)) throw new Error('conversation is not restored');
+    return 'seen lines + last reply + active request survive restart';
+  });
+
   check('P1: proposals are wired with an offline answer surface', () => {
     const brain = read('src/brain.js');
     const commands = read('src/chat/commands.js');

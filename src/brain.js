@@ -40,6 +40,7 @@ const { captureState, restoreState } = require('./core/sessionState');
 const { MethodLibrary } = require('./learning/methodLibrary');
 const { AnswerMemory } = require('./learning/answerMemory');
 const { Budget } = require('./planner/budget');
+const { ConversationState } = require('./chat/conversation');
 const nodePath = require('path');
 const { bare } = require('./world/items');
 /**
@@ -129,6 +130,9 @@ class Brain {
     /** M3: finite search/replan/retry budgets for the planning loop. */
     this.budget = new Budget();
     ctx.budget = this.budget;
+    /** M6: deterministic chat dedupe/rate-limit/stale-request state (persisted). */
+    this.conversation = new ConversationState();
+    ctx.conversation = this.conversation;
     /**
      * Holds: the single table of "why is the brain not working" (src/core/holds.js).
      *
@@ -930,6 +934,7 @@ class Brain {
       methods: this.methods ? this.methods.status() : null,
       answers: this.answers ? this.answers.status() : null,
       budget: this.budget ? this.budget.status() : null,
+      conversation: this.conversation ? this.conversation.status() : null,
       completedGoals: this.completedGoals.slice(-10),
       memory: this.ctx.memory.summary()
     };
