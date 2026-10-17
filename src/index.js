@@ -416,6 +416,12 @@ async function main() {
   const { resolveTrigger, personaForConfig } = require('./llm/persona');
   const persona = personaForConfig(ctx, { log: new Logger('persona') });
   const dialogueTrigger = resolveTrigger(ctx, { log });
+  if (chatCfg.addressedPrefix && dialogueTrigger && chatCfg.addressedPrefix === dialogueTrigger) {
+    /** A02 needs the gate; ChatListener checks dialogue first, so equal prefixes bypass it. */
+    log.warn(
+      `addressedPrefix and dialogueTrigger are both "${dialogueTrigger}" - dialogue wins and the addressed gate is bypassed; use distinct prefixes for A02`
+    );
+  }
   /**
    * P1 M2h: optional language-brain dialogue channel. Default off; when on, plain dialogue
    * goes to LanguageAgent (read/say/silence only). Execution requests inside it are refused

@@ -335,6 +335,23 @@ async function buildAgent(options = {}) {
     return failure.reason;
   });
 
+  await scenario('!mine dirt 1 asks for exactly one block (no hidden +2)', async () => {
+    const agent = await buildAgent();
+    let captured = null;
+    const original = agent.brain.enqueue.bind(agent.brain);
+    agent.brain.enqueue = async (task) => {
+      captured = task;
+      return { accepted: true };
+    };
+    const receipt = await agent.chat.handle('mine dirt 1', 'test');
+    agent.brain.enqueue = original;
+    agent.stop();
+    expect(receipt && receipt.ok === true, `command was refused: ${JSON.stringify(receipt)}`);
+    expect(captured, 'no mine task was enqueued');
+    expect(captured.target === 1, `expected target=1, got ${captured.target}`);
+    return `target=${captured.target}`;
+  });
+
   await scenario('!stop silences the planner until !resume (explicit work still runs)', async () => {
     /**
      * Live report: "the stop command cannot stop the task." The handler cancelled the

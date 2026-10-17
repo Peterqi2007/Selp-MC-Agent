@@ -36,7 +36,16 @@ register({
       : direction;
     const delta = { north: [0, -1], south: [0, 1], east: [1, 0], west: [-1, 0] }[pick];
     const target = { x: Math.round(now.x) + delta[0] * distance, y: Math.round(now.y), z: Math.round(now.z) + delta[1] * distance };
-    const ok = await ctx.body.moveTo(target, { range: 3, timeoutMs: 30000 });
+    const ok = await ctx.body.moveTo(target, {
+      /**
+       * Live 2026-10-17: explore to 86,65,33 stopped at 83,66,33 (horizontal 3, vertical 1;
+       * distance 3.16) and looped on the same waypoint until "stalled" - there was no
+       * obstacle. A tolerance of 4 accepts the near cell; exploration does not need to land
+       * exactly on the last block.
+       */
+      range: 4,
+      timeoutMs: 30000
+    });
     return ok
       ? { ok: true, detail: `explored ${pick} to ${target.x},${target.y},${target.z}` }
       : { ok: false, reason: `could not walk ${pick} towards ${target.x},${target.y},${target.z}` };

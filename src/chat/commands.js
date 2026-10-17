@@ -230,7 +230,7 @@ class ChatController {
           return dispatched;
         }
         this.say(`去挖 ${dispatched.count} 个 ${block}`);
-        return this.enqueue(new MineBlockTask(ctx, { block: dispatched.blocks, count: dispatched.count + 2 }));
+        return this.enqueue(new MineBlockTask(ctx, { block: dispatched.blocks, count: dispatched.count }));
       },
       chop: (args) => {
         const count = Number(args[0]) || 8;
