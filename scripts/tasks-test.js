@@ -409,8 +409,10 @@ function treeBlocks(x, z, height, species = 'oak', options = {}) {
     expect(elapsed < 12000, `must not hang, took ${elapsed}ms`);
     expect(body.stats.dug === 0, 'nothing should have been dug');
     expect(task.failedTargets.length > 0, 'the unreachable block should be remembered');
-    // Zero harvest is a SUCCESS by design, so the planner stops re-queueing it.
-    expect(res.ok, `zero-harvest must report success to stop replanning loops, got ${res.reason}`);
+    // P1 A06: zero harvest is a BLOCKED failure, never success. The old success let a plan
+    // without a postcondition claim completion with zero logs (live 2026-10-18).
+    expect(!res.ok, `zero-harvest must fail, got ${res.reason}`);
+    expect(res.status === 'blocked', `zero-harvest should be blocked, got ${res.status}`);
     // Targets existed but none could be reached: the verdict must say that, not "no logs".
     expect(/could not reach or break/.test(res.reason), `got "${res.reason}"`);
     return `${task.failedTargets.length} target(s) blacklisted, "${res.reason}"`;
@@ -475,16 +477,36 @@ function treeBlocks(x, z, height, species = 'oak', options = {}) {
     return `collected ${logs} despite an unreachable drop`;
   });
 
-  await scenario('no trees at all: succeeds quickly with a clear message', async () => {
+  await scenario('no trees at all: fails quickly with a clear message', async () => {
     const body = new MockBody(cfg, { blocks: [] });
     await body.connect();
     const task = new ChopWoodTask(makeCtx(body, cfg), { count: 8, timeoutMs: 20000, warmupMs: 0 });
     const started = Date.now();
     const res = await task.execute();
     const elapsed = Date.now() - started;
-    expect(res.ok, `zero-harvest must be a success, got ${res.reason}`);
+    expect(!res.ok, `zero-harvest must fail, got ${res.reason}`);
+    expect(res.status === 'blocked', `zero-harvest should be blocked, got ${res.status}`);
     expect(elapsed < 5000, `should not spin, took ${elapsed}ms`);
     expect(/no logs available nearby/.test(res.reason), `got "${res.reason}"`);
+    return res.reason;
+  });
+
+  await scenario('MineBlockTask with no stone at all: zero yield is a BLOCKED failure', async () => {
+    /**
+     * The live A13-3 regression (2026-10-18): `mine stone` reported `task:done` with
+     * "could not reach or break any of 32 stone target(s)" while cobblestone stayed at 0.
+     * A plan without a postcondition would have marked the step complete. This fixture has
+     * a pickaxe but no stone, so the only correct verdict is failure/blocked.
+     */
+    const body = new MockBody(cfg, { blocks: [], inventory: { 'minecraft:iron_pickaxe': 1 } });
+    await body.connect();
+    const task = new MineBlockTask(makeCtx(body, cfg), {
+      block: ['stone'], count: 1, probeShaft: false, warmupMs: 0, roamSteps: 0
+    });
+    const res = await task.execute();
+    expect(!res.ok, `zero-yield mine must fail, got ${res.reason}`);
+    expect(res.status === 'blocked', `zero-yield mine should be blocked, got ${res.status}`);
+    expect(/no stone available nearby/.test(res.reason), `got "${res.reason}"`);
     return res.reason;
   });
 
@@ -500,7 +522,8 @@ function treeBlocks(x, z, height, species = 'oak', options = {}) {
     body.lastMove = { ok: false, reason: 'screen-open', screen: 'ContainerScreen' };
     const task = new ChopWoodTask(makeCtx(body, cfg), { count: 2, timeoutMs: 15000, warmupMs: 0, roamSteps: 0 });
     const res = await task.execute();
-    expect(res.ok, `zero-harvest stays a success, got ${res.reason}`);
+    expect(!res.ok, `zero-harvest must fail, got ${res.reason}`);
+    expect(res.status === 'blocked', `zero-harvest should be blocked, got ${res.status}`);
     expect(/could not reach or break/.test(res.reason), `must say targets were unreachable, got "${res.reason}"`);
     expect(/screen-open/.test(res.reason), `must carry the real reason, got "${res.reason}"`);
     return res.reason.slice(0, 80);
@@ -559,7 +582,10 @@ function treeBlocks(x, z, height, species = 'oak', options = {}) {
     const res = await task.execute();
     const wallDug = body.history.filter((h) => h.action === 'dig' && /oak_log/.test(h.name)).length;
     expect(wallDug === 0, `the wall was dismantled: ${wallDug} log blocks broken`);
-    expect(res.ok, `refusing a build should end quietly, got ${res.reason}`);
+    // P1 A06: zero collected is a blocked failure, even when the reason is a safety refusal.
+    expect(!res.ok, `refusing a build must not report success, got ${res.reason}`);
+    expect(res.status === 'blocked', `refusing a build should be blocked, got ${res.status}`);
+    expect(/refused as player-built/.test(res.reason), `refusal should be in the verdict, got ${res.reason}`);
     expect(task.refusedTargets.length > 0, 'the refusals should be recorded for the log');
     return `refused ${task.refusedTargets.length} built log(s), nothing broken`;
   });
@@ -608,7 +634,9 @@ function treeBlocks(x, z, height, species = 'oak', options = {}) {
     expect(dug === 0, `a bare log pillar must not be broken, dug ${dug}`);
     expect(task.refusedTargets.length >= 1, 'the refusal should be recorded');
     expect(/no leaves/.test(task.refusedTargets[0].why), `reason should name the missing canopy, got "${task.refusedTargets[0].why}"`);
-    expect(res.ok, `refusing a build ends quietly, got ${res.reason}`);
+    expect(!res.ok, `refusing a build must not report success, got ${res.reason}`);
+    expect(res.status === 'blocked', `refusing a build should be blocked, got ${res.status}`);
+    expect(/refused as player-built/.test(res.reason), `refusal should be in the verdict, got ${res.reason}`);
     return task.refusedTargets[0].why;
   });
 

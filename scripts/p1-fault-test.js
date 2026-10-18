@@ -114,6 +114,17 @@ class QuickTask extends Task {
   }
 }
 
+class FailingPlanTask extends Task {
+  constructor(ctx) {
+    super(ctx, { name: 'failing-plan-step', description: 'plan step fails', timeoutMs: 1000 });
+    this.runs = 0;
+  }
+  run() {
+    this.runs += 1;
+    return { ok: false, status: 'blocked', reason: 'no target' };
+  }
+}
+
 (async () => {
   process.stdout.write('P1 fault drills (offline)\n\n');
 
@@ -203,6 +214,50 @@ class QuickTask extends Task {
       assert.strictEqual(runs.length, 0);
       assert.strictEqual(restored.plans.get('p-fault').version, 1);
       assert.strictEqual(restored.activeTask, null);
+    });
+  }
+
+  {
+    const brain = makeBrain();
+    brain.running = true;
+    const task = new FailingPlanTask(brain.ctx);
+    task.planId = 'plan-fault-retry';
+    task.stepId = 's1';
+    const result = await brain.runTask(task);
+    check('a plan-owned failure does not schedule a TaskSlot retry', () => {
+      assert.strictEqual(result.ok, false);
+      assert.strictEqual(task.runs, 1, 'the plan step ran again without the PlanRunner');
+      assert.strictEqual(task.retries, 0, 'TaskSlot must not retry a plan-owned task');
+      assert.strictEqual(brain.activeTask, null);
+    });
+  }
+
+  {
+    const brain = makeBrain();
+    brain.running = true;
+    const first = new FailingPlanTask(brain.ctx);
+    first.planId = 'plan-identity-1';
+    first.stepId = 's1';
+    await brain.runTask(first);
+    const firstId = first.taskId;
+    const firstEvents = brain.events.since(0).filter((event) => event.type === 'task:failed' && event.taskId === firstId).length;
+    const saved = brain.captureState();
+
+    const restored = makeBrain();
+    restored.running = true;
+    const info = restored.restoreState(saved);
+    const second = new FailingPlanTask(restored.ctx);
+    second.planId = 'plan-identity-2';
+    second.stepId = 's1';
+    await restored.runTask(second);
+    check('a restart advances task ids so the next failure event is not deduped', () => {
+      assert(info.ok);
+      assert.notStrictEqual(second.taskId, firstId, 'the new task reused a restored taskId');
+      assert.strictEqual(firstEvents, 1);
+      const secondEvents = restored.events
+        .since(0)
+        .filter((event) => event.type === 'task:failed' && event.taskId === second.taskId).length;
+      assert.strictEqual(secondEvents, 1, 'the new task:failed was deduped by an id collision');
     });
   }
 

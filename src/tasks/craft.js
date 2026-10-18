@@ -1,4 +1,4 @@
-﻿'use strict';
+'use strict';
 
 /**
  * Task: craft something.
@@ -14,6 +14,12 @@
  * satisfying prerequisites. The single most common crafting failure is asking for a
  * crafting table (or a tool) while the planks and sticks are still logs, so this task
  * converts materials first and then retries.
+ *
+ * Menu-capable bodies (the real client) do NOT have a recipe database in the body; they
+ * craft through the registered `craft` skill (recipe planner + real grid clicks), which is
+ * the same path `!craft` already used. Before this delegation, a plan step `type:"craft"`
+ * went through `body.supportsCrafting=false` and failed instantly, while `!craft` worked
+ * (live A13-4, 2026-10-18).
  */
 
 const { Task } = require('./task');
@@ -47,6 +53,15 @@ class CraftTask extends Task {
     const body = this.body;
     if (!body) return this.fail('no body attached');
 
+    /**
+     * Menu-capable bodies are the real client: they know every recipe but expose it through
+     * the open menu, not a `body.craft()` recipe database. Route to the registered skill
+     * (the same one `!craft` uses) instead of failing on `supportsCrafting === false`.
+     */
+    if (typeof body.menu === 'function' && typeof body.clickSlot === 'function') {
+      return this.runMenuCraft();
+    }
+
     if (body.supportsCrafting === false) {
       return this.fail(`${body.kind} body cannot craft (no recipe support)`);
     }
@@ -70,6 +85,28 @@ class CraftTask extends Task {
     this.checkpoint();
     if (produced > 0) return this.succeed(`crafted ${produced}x ${this.item}`);
     return this.fail(`could not craft ${this.item}: ${outcome.reason || 'unknown reason'} (held: ${this.inventoryDigest()})`);
+  }
+
+  /**
+   * Craft through the registered `craft` skill: recipe planning + real menu clicks.
+   *
+   * The skill returns what actually appeared in the menu; we cross-check the inventory delta
+   * too, because a stale snapshot must not turn "clicks ran but nothing appeared" into success.
+   */
+  async runMenuCraft() {
+    const skills = require('../skills');
+    const before = this.progress();
+    const result = await skills
+      .run('craft', this.ctx, { item: this.item, count: this.count })
+      .catch((err) => ({ ok: false, reason: err.message }));
+    const produced = Math.max(Number(result && result.produced) || 0, this.progress() - before);
+    this.crafted = produced;
+    this.checkpoint();
+    if (result && result.ok === true && produced > 0) {
+      return this.succeed(`crafted ${produced}x ${this.item}`);
+    }
+    const detail = (result && (result.reason || result.detail)) || 'unknown reason';
+    return this.fail(`could not craft ${this.item}: ${detail} (held: ${this.inventoryDigest()})`);
   }
 
   /** One craft attempt, normalised to {ok, reason}. */

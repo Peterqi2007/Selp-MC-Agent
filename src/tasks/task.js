@@ -168,6 +168,15 @@ class Task {
     return { ok: false, reason };
   }
 
+  /**
+   * Environment blocked the goal: no target, no route, or a target that exists but cannot
+   * be reached. This is a failure (`ok:false`) with the finer P1 status `blocked`, so the
+   * planner/plan layer never treats "zero collected" as completion (P1 A06).
+   */
+  blocked(reason = 'blocked') {
+    return { ok: false, status: 'blocked', reason };
+  }
+
   checkpoint() {
     if (this.ctx.memory) {
       this.ctx.memory.recordTask(this.name, {

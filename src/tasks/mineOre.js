@@ -64,8 +64,11 @@ class MineOreTask extends Task {
     /**
      * Keep the skill's full result (mined/ledger/minedAt/progress): the plan asks the
      * adapter to preserve `progress` and `mined/ledger/failure`, not just ok/reason.
+     *
+     * `reason` is the skill's human detail. Without it a zero/partial result reached the
+     * event stream as the useless word "completed" (A13-c1 live, 2026-10-18).
      */
-    return { ...result, ok: result.ok !== false };
+    return { ...result, ok: result.ok !== false, reason: result.reason || result.detail || null };
   }
 
   cancel() {

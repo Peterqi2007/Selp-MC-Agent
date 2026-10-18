@@ -296,6 +296,13 @@ class MineBlockTask extends HarvestTask {
       this.chosenTool = pick;
     }
 
+    /**
+     * Baseline before the aimed dig. `digWhatIAmLookingAt()` runs before `super.run()`, so
+     * without this snapshot the first crosshair block was excluded from the inventory delta
+     * and a 1-block task reported zero yield (live 2026-10-18, crosshair regression test).
+     */
+    if (this.baseline === null) this.baseline = this.countWhere((name) => this.countsAsHarvest(name));
+
     // ---- aimed mining first: what is already under the crosshair? ---------
     await this.digWhatIAmLookingAt();
 

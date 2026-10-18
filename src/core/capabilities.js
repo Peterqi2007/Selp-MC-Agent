@@ -20,12 +20,27 @@
  */
 
 const SPECS = {
-  crafting: { flag: 'supportsCrafting', label: 'crafting', reason: 'this body has no crafting support' },
+  crafting: {
+    flag: 'supportsCrafting',
+    label: 'crafting',
+    /**
+     * The real client has no recipe database (`supportsCrafting=false`) but DOES expose the
+     * open menu + slot clicks, which is all the registered `craft` skill needs. Reading only
+     * the flag made A05 report "cannot craft" while `!craft` worked (live 2026-10-18).
+     */
+    menu: true,
+    reason: 'this body has neither a recipe database nor a crafting menu'
+  },
   deposit: { flag: 'supportsDeposit', label: 'chest storage', reason: 'this body has no container support' },
   hunting: { flag: 'supportsHunting', label: 'hunting', reason: 'this body cannot see or fight animals' },
   light: { host: 'mineflayer', label: 'placing torches', reason: 'this body has no mineflayer instance' },
   shelter: { host: 'mineflayer', label: 'building a shelter', reason: 'this body has no mineflayer instance' }
 };
+
+/** A body that can open a menu and click slots can craft through the registered skill. */
+function menuCapable(body) {
+  return !!(body && typeof body.menu === 'function' && typeof body.clickSlot === 'function');
+}
 
 /**
  * @param {object} ctx agent context
@@ -36,7 +51,13 @@ function capabilities(ctx) {
   const hasBot = !!(ctx && ctx.controller && ctx.controller.bot);
   const table = {};
   for (const [name, spec] of Object.entries(SPECS)) {
-    const supported = spec.flag ? !!(body && body[spec.flag]) : spec.host === 'mineflayer' ? hasBot : false;
+    const byFlag = spec.flag ? !!(body && body[spec.flag]) : false;
+    const byMenu = spec.menu === true && menuCapable(body);
+    const supported = spec.flag
+      ? byFlag || byMenu
+      : spec.host === 'mineflayer'
+        ? hasBot
+        : false;
     table[name] = { name, supported, reason: supported ? null : spec.reason, label: spec.label };
   }
   return table;

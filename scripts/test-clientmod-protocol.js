@@ -1103,6 +1103,25 @@ function check(name, ok, detail) {
       JSON.stringify(body.snapshot().inventory)
     );
 
+    // ---- the plan path: CraftTask must use the menu skill, not fail on supportsCrafting ----
+    // Live A13-4 (2026-10-18): `!craft` worked, but a plan step `type:"craft"` went through
+    // CraftTask -> supportsCrafting=false and failed instead of using the same grid clicks.
+    world.menu = null;
+    world.craftOpen = false;
+    world.grid = new Array(9).fill(null);
+    world.carried = null;
+    world.inventory = { 'minecraft:oak_log': 2 };
+    await body.refresh(true);
+    const { CraftTask } = require('../src/tasks/craft');
+    const craftTask = new CraftTask(craftCtx, { item: 'oak_planks', count: 4 });
+    const craftTaskResult = await craftTask.execute();
+    await body.refresh(true);
+    check(
+      'CraftTask (plan path) delegates to the menu-capable craft skill',
+      craftTaskResult.ok === true && (body.snapshot().inventory['minecraft:oak_planks'] || 0) >= 4,
+      JSON.stringify({ result: craftTaskResult, inventory: body.snapshot().inventory }).slice(0, 260)
+    );
+
     // ---- smelting: load input + fuel, take the product -------------------
     world.menu = null;
     world.craftOpen = false;

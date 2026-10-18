@@ -221,6 +221,14 @@ class TaskSlot {
      * so their events were indistinguishable and looked like duplicate terminals.
      */
     if (!task.taskId) task.taskId = `task-${++this.seq}`;
+    /**
+     * A task that belongs to a parent plan is settled by the PlanRunner/PlanService, which
+     * owns replanning and its budget. TaskSlot's B2 retry loop must NOT run underneath it:
+     * live A13 2026-10-18 the plan step failed, the plan published `plan:failed`, and then
+     * TaskSlot retried the same body task 1.5s later (`mine` attempt 2/3) - a late action
+     * and a late `task:failed` after the plan had already terminated.
+     */
+    const planOwned = !!(task.planId || task.stepId);
     const held = this.brainTask;
     if (this.busy && held !== task) {
       this.queue.push(task);
@@ -263,7 +271,7 @@ class TaskSlot {
          * event on the first attempt. Keep the event for compatibility and mark whether it
          * is retrying; exactly one attempt per task carries `terminal:true`.
          */
-        const retrying = this.willRetry(task);
+        const retrying = planOwned ? false : this.willRetry(task);
         this.publish('task:failed', {
           name: task.name,
           reason: res.reason,
@@ -273,7 +281,11 @@ class TaskSlot {
           retrying,
           terminal: !retrying
         });
-        this.maybeRetry(task);
+        if (planOwned) {
+          brain.log.debug(`${task.name} failed inside plan ${task.planId}; PlanRunner owns retry/replan`);
+        } else {
+          this.maybeRetry(task);
+        }
       }
       /** M1c: the parent plan runner reads the normalized result to classify the step. */
       return res;
@@ -328,6 +340,13 @@ class TaskSlot {
    */
   toJSON() {
     return {
+      /**
+       * Identity counter must survive a restart. Live A13 2026-10-18: after a restart the
+       * counter reset and the new task reused `task-1`; its `task:failed` eventId collided
+       * with the restored one and TaskEvents silently dropped it. The plan:step still
+       * appeared, so the loss looked like "no task event" rather than a duplicate id.
+       */
+      seq: this.seq,
       failCounts: [...this.failCounts.entries()],
       quarantine: [...this.quarantine.entries()],
       blockedGoal: this.blockedGoal ? { ...this.blockedGoal } : null,
@@ -340,6 +359,8 @@ class TaskSlot {
     if (!data || typeof data !== 'object') return false;
     const pairs = (value, predicate) =>
       Array.isArray(value) ? value.filter((entry) => Array.isArray(entry) && entry.length === 2 && predicate(entry[1])) : [];
+    const seq = Number(data.seq);
+    if (Number.isFinite(seq) && seq >= 0) this.seq = Math.floor(seq);
     this.failCounts = new Map(pairs(data.failCounts, (value) => Number.isFinite(Number(value)) && Number(value) >= 0));
     this.quarantine = new Map(pairs(data.quarantine, (value) => Number.isFinite(Number(value))));
     this.blockedGoal = data.blockedGoal && typeof data.blockedGoal === 'object' ? { ...data.blockedGoal } : null;

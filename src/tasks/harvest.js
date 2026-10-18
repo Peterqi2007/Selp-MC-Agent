@@ -14,10 +14,13 @@
  *   1. **Count drops, not swings.** `collected` is an *inventory delta*, not a count of
  *      successful `dig()` calls. Mining stone bare-handed destroys the block and drops
  *      nothing, so a dig-counting task reports success while the bag stays empty.
- *   2. **Zero harvest is success.** On a map with no trees nearby, failing makes the
- *      planner re-queue the identical goal forever. Reporting "nothing here" lets it
- *      move on. Progress that falls short of the target *is* a failure, because that
- *      means the area had resources and we fumbled them.
+ *   2. **Zero harvest is a BLOCKED failure, never success.** P1 A06: a task that saw
+ *      targets but collected none must not report completion. The old "nothing here =
+ *      success" rule stopped a re-queue loop, but it also let `chop-wood`/`mine` report
+ *      `task:done` with zero collected, and a plan without a postcondition then claimed
+ *      completion. Repeated failures are handled by TaskSlot's strikes/quarantine, not
+ *      by lying about the result. Partial progress still fails too, because it means the
+ *      area had resources and we fumbled them.
  *   3. **A full inventory fails early.** Otherwise the bot digs, the drops despawn
  *      uncollected, and the loop runs until the timeout with nothing to show.
  *   4. **Unreachable targets are remembered.** `noPath` on one tree must not stop the
@@ -67,6 +70,13 @@ class HarvestTask extends Task {
     this.roamCount = 0;
     /** Blocks broken successfully; used in the success message. */
     this.breakCount = 0;
+    /**
+     * Inventory baseline for the inventory-delta progress. `null` until the first run (or
+     * until an aimed-dig subclass snapshots it before doing work). Kept nullable because
+     * MineBlockTask digs at the crosshair before `super.run()`; resetting it after that dig
+     * silently discarded the first block and made a one-block task look like zero yield.
+     */
+    this.baseline = null;
   }
 
   // ------------------------------------------------------------- subclass API
@@ -116,7 +126,7 @@ class HarvestTask extends Task {
     const body = this.body;
     if (!body) return this.fail('no body attached');
 
-    this.baseline = this.countWhere((name) => this.countsAsHarvest(name));
+    if (this.baseline === null) this.baseline = this.countWhere((name) => this.countsAsHarvest(name));
 
     // ---- perception warm-up ------------------------------------------------
     if (!this.findTargets().length) {
@@ -254,7 +264,12 @@ class HarvestTask extends Task {
     }
     if (have === 0) {
       /**
-       * Two very different zeros, two very different sentences.
+       * Two very different zeros, two very different sentences - both are failures.
+       *
+       * P1 A06 (live 2026-10-18): `chop-wood` reported `task:done` with "could not reach
+       * or break any of 32 logs target(s)" while the bag stayed at 19, and a plan without
+       * a postcondition then completed. Zero collected is not completion. `blocked` keeps
+       * the finer reason (`noPath`, screen-open, no targets) visible to the plan layer.
        *
        * Live report: "no dirt/grass_block available nearby" while the bot stood in a meadow
        * with 4248 soil blocks in scan range - every candidate had been *unreachable* (a
@@ -264,12 +279,15 @@ class HarvestTask extends Task {
        */
       if (this.seenTargets.size > 0) {
         const why = this.failureReason ? this.failureReason() : null;
-        return this.succeed(
+        const details = [];
+        if (why) details.push(why);
+        if (this.refusedTargets.length) details.push(`${this.refusedTargets.length} target(s) refused as player-built`);
+        return this.blocked(
           `could not reach or break any of ${this.seenTargets.size} ${this.unitName()} target(s)` +
-            `${why ? ` (${why})` : ''}; ${this.scanHint()}`
+            `${details.length ? ` (${details.join('; ')})` : ''}; ${this.scanHint()}`
         );
       }
-      return this.succeed(
+      return this.blocked(
         `no ${this.unitName()} available nearby (still ${this.countWhere((n) => this.countsAsHarvest(n))} in inventory; ${this.scanHint()})`
       );
     }

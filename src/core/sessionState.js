@@ -71,6 +71,20 @@ function restoreState(brain, data) {
   if (data.events && brain.events && typeof brain.events.restore === 'function') {
     restored.events = brain.events.restore(data.events);
   }
+  /**
+   * Old state files predate `taskSlot.seq`. Even when the counter was persisted, the event
+   * ring is the authority on which ids were already used: a new `task-N` whose eventId was
+   * restored would be silently deduped by TaskEvents (A13 live 2026-10-18). Advance the
+   * slot past every restored id before the next task is built.
+   */
+  if (brain.slot && brain.events && typeof brain.events.since === 'function') {
+    let maxTaskSeq = 0;
+    for (const event of brain.events.since(0)) {
+      const match = /^task-(\d+)$/.exec(String((event && event.taskId) || ''));
+      if (match) maxTaskSeq = Math.max(maxTaskSeq, Number(match[1]));
+    }
+    if (maxTaskSeq > (Number(brain.slot.seq) || 0)) brain.slot.seq = maxTaskSeq;
+  }
   if (data.methods && brain.methods && typeof brain.methods.restore === 'function') {
     restored.methods = brain.methods.restore(data.methods);
   }

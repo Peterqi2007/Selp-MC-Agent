@@ -2138,11 +2138,13 @@ register({
     };
     return {
       /**
-       * Zero ore is not success. Live M1 2026-10-17: `!mine diamond_ore` with no target
-       * returned `task:done` ("mined 0 ..."), exactly the false completion A06 forbids.
-       * `planExceeded` alone only says the planner stopped, not that anything was mined.
+       * Zero ore OR an uncollected product is not success. Live M1 2026-10-17: `!mine
+       * diamond_ore` with no target returned `task:done` ("mined 0 ..."), exactly the false
+       * completion A06 forbids. Live A13-c1 2026-10-18: the ore was mined but its product
+       * was not in the bag; `stats.ores > 0` alone still reported done. A goal is complete
+       * only when nothing is pending and the run is not partial.
        */
-      ok: !stats.planExceeded && stats.ores > 0,
+      ok: !stats.planExceeded && stats.ores > 0 && !partial,
       stopped: stats.planExceeded ? 'plan-exceeded' : stats.countReached ? 'count' : null,
       mined: stats.ores,
       blocks: stats.blocks,

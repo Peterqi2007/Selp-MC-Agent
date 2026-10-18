@@ -94,11 +94,12 @@ class GatherWoodTask extends Task {
     }
 
     // Not enough, but no progress after searching the whole radius means the grove is
-    // exhausted. Reporting that as a hard failure would make the planner re-queue the
-    // same goal forever on a map with few trees; reporting success lets it move on.
+    // exhausted. P1 A06: zero gained is a BLOCKED failure, not success. The old success
+    // made the task look complete with zero logs; TaskSlot's strikes/quarantine are the
+    // mechanism that stops a re-queue loop.
     const gained = this.progress() - (this.startedWith || 0);
     if (gained === 0) {
-      return this.succeed(`no trees available nearby (still have ${this.progress()}/${this.target} logs)`);
+      return this.blocked(`no trees available nearby (still have ${this.progress()}/${this.target} logs)`);
     }
     return this.fail(`only collected ${this.progress()}/${this.target} logs`);
   }
