@@ -57,9 +57,9 @@
     "proposalCooldownMs": 180000,
     "proposalTtlMs": 300000
   },
-  "_comment_state": "P1 M3/A17/A29. enabled=false keeps the current in-memory-only behaviour until the client acceptance window. When enabled, plans/proposals/event ring are written atomically to path (temp+rename); a corrupt file is renamed to .corrupt-<ts> and ignored. In-flight tasks/turns are never restored.",
+  "_comment_state": "P1 M3/A17/A29 live entry. enabled=true turns on atomic session persistence so the M3 restart items can be tested: plans, proposals (pending question), event ring, budgets, methods/answers/memory are written to path (temp+rename); a corrupt file is renamed to .corrupt-<ts> and ignored. In-flight tasks/turns are never restored, and restore never starts a plan. Offline Brain suites run with P1_STATE=off so they cannot read or write this file.",
   "state": {
-    "enabled": false,
+    "enabled": true,
     "path": "runtime/p1-state.json",
     "debounceMs": 1000
   },

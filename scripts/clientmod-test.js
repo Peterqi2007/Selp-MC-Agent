@@ -1,5 +1,8 @@
 'use strict';
 
+// Offline suites must not read or write the live session-state file (config enables it).
+process.env.P1_STATE = 'off';
+
 /**
  * `npm run clientmod:test` - the client-mod body, end to end, with no Minecraft.
  *

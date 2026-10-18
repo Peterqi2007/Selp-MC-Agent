@@ -181,6 +181,12 @@ class ChatController {
         ctx.brain.hold('owner-stop', '!stop from chat');
         // The background task slot is separate from the brain queue; stop means both.
         if (ctx.hub) ctx.hub.cancel('!stop').catch(() => {});
+        /**
+         * Plans and harness turns are separate owners of the same body; a stop that leaves
+         * a plan "running" would keep moving after the player said stop (M3).
+         */
+        if (ctx.planService) ctx.planService.cancelAll('!stop').catch(() => {});
+        if (ctx.turnService) ctx.turnService.cancelAll('!stop');
         ctx.nav.stop();
         if (ctx.body && typeof ctx.body.interrupt === 'function') ctx.body.interrupt('!stop');
         this.followTarget = null;

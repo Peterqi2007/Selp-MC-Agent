@@ -4,6 +4,10 @@
 > 仅契约 / 未开始**，并给出离线可继续的优先级。本文不改变任何验收结论：所有真机/模型项
 > 仍以 [`P1-CLIENT-TESTS.md`](P1-CLIENT-TESTS.md) 为准，**全部未执行**。
 > 当前一键离线验收：`npm run p1:verify`（见 [`P1-M7.md`](P1-M7.md)）。
+>
+> **2026-10-18 更新**：`P1-M3.md` 的 live 入口已接（PlanService/`POST /plan`、TurnService/
+> `/harness/events`、DSH `mc_plan`、持久化测试窗口开启）；本文 §1.9、§2 的“真实 harness
+> 传输未接/仅契约”已部分过时，真机 A13–A17/A28–A30/F2 仍未执行。
 
 ## 1. 逐节状态
 

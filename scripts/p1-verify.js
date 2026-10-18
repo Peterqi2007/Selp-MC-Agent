@@ -27,6 +27,7 @@ const suites = [
   ...(fast ? [] : [{ name: 'P0 regression', script: 'scripts/p0-verify.js' }]),
   { name: 'planner:test', script: 'scripts/planner-retirement-test.js' },
   { name: 'p1:contract:test', script: 'scripts/p1-contract-test.js' },
+  { name: 'p1:m3:test', script: 'scripts/p1-m3-test.js' },
   { name: 'p1:fault:test', script: 'scripts/p1-fault-test.js' },
   { name: 'plan:audit p1', script: 'scripts/plan-audit.js', args: ['--stage', 'p1'] }
 ];
@@ -39,7 +40,9 @@ for (const suite of suites) {
   process.stdout.write(`\n=== ${suite.name} ===\n`);
   const result = spawnSync(process.execPath, [suite.script, ...(suite.args || [])], {
     cwd: ROOT,
-    stdio: 'inherit'
+    stdio: 'inherit',
+    // Offline suites must never touch the live session-state file (config enables it).
+    env: { ...process.env, P1_STATE: 'off' }
   });
   results.push({
     name: suite.name,

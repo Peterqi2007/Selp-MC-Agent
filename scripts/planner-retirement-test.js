@@ -1,5 +1,8 @@
 'use strict';
 
+// Offline suites must not read or write the live session-state file (config enables it).
+process.env.P1_STATE = 'off';
+
 /**
  * `npm run planner:test` - RETIREMENT S0/S1/S2 hooks.
  *

@@ -13,6 +13,16 @@
  *   POST /command  {command, priority}   same command table as the chat channel
  *   POST /emergency-stop            four-stage stop, reports what actually happened
  *
+ * P1 M3 live entry (localhost, same trust boundary as /command):
+ *   POST /plan  {planId?, steps, start?, turn?, wait?, baseVersion?}
+ *   GET  /plan | /plan/<id>
+ *   POST /plan/<id>/start | /resume | /cancel
+ *   POST /harness/turn  {requestId?, planId?} ; /harness/turn/<id>/{wait,finish,cancel}
+ *   GET  /harness/turns ; GET /harness/events (SSE, token-aware)
+ *
+ * The plan endpoints are acceptance surfaces, not completion claims: `/plan` returns 202
+ * while the plan runs, and the outcome is on `/events` (plan:*) or `/plan/<id>`.
+ *
  * Two design notes worth keeping:
  *
  *   - **`/ui/state` is not `/status`.** The body snapshot carries a 40817-cell block map;
@@ -99,6 +109,242 @@ function startStatusServer(ctx, options = {}) {
         const web = (ctx.cfg && ctx.cfg.agent && ctx.cfg.agent.web) || {};
         streamEvents(req, res, { events: ctx.events, token: web.eventsToken || '' });
         return; // the stream owns the response until the client disconnects
+      }
+
+      // -------------------------------------------- plans (M3 live entry, localhost)
+      /**
+       * `POST /plan` is the harness's plan-entry: a draft is validated by PlanService
+       * (replan guard/budget), written through PlanStore and, unless `start:false`, run
+       * through PlanRunner. The HTTP response is an acceptance, not a completion; clients
+       * poll `GET /plan/<id>`, read `/events`, or pass `wait:true` for a bounded wait.
+       *
+       * These endpoints share `/command`'s localhost trust boundary. They do not expose a
+       * remote control surface (the server binds 127.0.0.1 by default).
+       */
+      if (url.pathname === '/plan' && (req.method === 'GET' || req.method === 'POST')) {
+        if (!ctx.planService) return json(res, 503, { ok: false, error: 'plan service unavailable' });
+        if (req.method === 'GET') return json(res, 200, { ok: true, ...ctx.planService.status() });
+
+        let body = {};
+        try {
+          body = JSON.parse((await readRaw(req)) || '{}');
+        } catch {
+          return json(res, 400, { ok: false, error: 'invalid JSON' });
+        }
+        /**
+         * A turn needs the plan id before submission, because `trackPlan` must be installed
+         * before the first step event; generate the id here when the caller omitted it.
+         */
+        const wantsTurn = body.start !== false && (body.turn === true || (body.turn && typeof body.turn === 'object'));
+        const planId =
+          body.planId ||
+          (wantsTurn ? `plan-${Date.now()}-${Math.random().toString(36).slice(2, 7)}` : undefined);
+        const requestId = body.requestId || (body.turn && body.turn.requestId) || null;
+        let turn = null;
+        if (wantsTurn) {
+          if (!ctx.turnService) return json(res, 503, { ok: false, error: 'turn service unavailable' });
+          const begun = ctx.turnService.begin({ requestId, planId });
+          if (!begun.ok) {
+            return json(res, 409, { ok: false, error: begun.reason, activeTurn: begun.activeId || null });
+          }
+          turn = begun.turn;
+        }
+        const submitted = ctx.planService.submit(
+          {
+            planId,
+            goal: body.goal,
+            requestId,
+            baseVersion: body.baseVersion,
+            constraints: body.constraints,
+            steps: body.steps
+          },
+          { source: wantsTurn ? 'harness' : 'http' }
+        );
+        if (!submitted.ok) {
+          if (turn) ctx.turnService.cancel(turn.id, 'plan-rejected');
+          const status = submitted.reason === 'stale' || submitted.reason === 'plan-busy' ? 409 : 400;
+          return json(res, status, { ok: false, error: submitted.reason, planId: planId || null, detail: submitted });
+        }
+        if (turn) {
+          const tracked = ctx.turnService.trackPlan(turn.id, submitted.plan.planId, 'mc_plan');
+          if (!tracked.ok) {
+            ctx.turnService.cancel(turn.id, 'plan-track-failed');
+            return json(res, 409, { ok: false, error: tracked.reason, planId: submitted.plan.planId });
+          }
+        }
+        if (body.start === false) {
+          return json(res, 202, {
+            ok: true,
+            accepted: true,
+            started: false,
+            planId: submitted.plan.planId,
+            version: submitted.version,
+            turnId: turn ? turn.id : null,
+            plan: submitted.plan
+          });
+        }
+        const started = ctx.planService.start(submitted.plan.planId, { requestId });
+        if (!started.ok) {
+          if (turn) ctx.turnService.cancel(turn.id, started.reason || 'plan-start-failed');
+          return json(res, 409, {
+            ok: false,
+            error: started.reason,
+            planId: submitted.plan.planId,
+            plan: ctx.planService.get(submitted.plan.planId)
+          });
+        }
+        if (body.wait === true) {
+          const timeout = Math.min(Math.max(Number(body.waitMs) || 10000, 100), 60000);
+          const view = await ctx.planService.waitFor(submitted.plan.planId, timeout);
+          return json(res, 200, {
+            ok: true,
+            accepted: true,
+            waited: timeout,
+            planId: submitted.plan.planId,
+            version: submitted.version,
+            turnId: turn ? turn.id : null,
+            state: view ? view.state : null,
+            plan: view
+          });
+        }
+        return json(res, 202, {
+          ok: true,
+          accepted: true,
+          started: true,
+          planId: submitted.plan.planId,
+          version: submitted.version,
+          turnId: turn ? turn.id : null,
+          state: ctx.planService.get(submitted.plan.planId).state,
+          plan: ctx.planService.get(submitted.plan.planId)
+        });
+      }
+
+      if (url.pathname.startsWith('/plan/')) {
+        if (!ctx.planService) return json(res, 503, { ok: false, error: 'plan service unavailable' });
+        const parts = url.pathname.split('/').filter(Boolean);
+        const planId = decodeURIComponent(parts[1] || '');
+        const action = parts[2] || '';
+        if (!planId) return json(res, 400, { ok: false, error: 'planId required' });
+        if (req.method === 'GET' && !action) {
+          const plan = ctx.planService.get(planId);
+          if (!plan) return json(res, 404, { ok: false, error: 'unknown-plan', planId });
+          return json(res, 200, { ok: true, plan });
+        }
+        let body = {};
+        if (req.method === 'POST') {
+          try {
+            body = JSON.parse((await readRaw(req)) || '{}');
+          } catch {
+            return json(res, 400, { ok: false, error: 'invalid JSON' });
+          }
+        }
+        if (req.method === 'POST' && action === 'start') {
+          const started = ctx.planService.start(planId, { requestId: body.requestId || null });
+          if (!started.ok) {
+            return json(res, 409, { ok: false, error: started.reason, planId, plan: ctx.planService.get(planId) });
+          }
+          return json(res, 202, {
+            ok: true,
+            accepted: true,
+            planId,
+            plan: ctx.planService.get(planId)
+          });
+        }
+        if (req.method === 'POST' && action === 'resume') {
+          const answer = body.answer === undefined ? true : body.answer;
+          const started = ctx.planService.resume(planId, answer, { reason: body.reason || 'http' });
+          if (!started.ok) {
+            return json(res, 409, { ok: false, error: started.reason, planId, plan: ctx.planService.get(planId) });
+          }
+          if (body.wait === true) {
+            const timeout = Math.min(Math.max(Number(body.waitMs) || 10000, 100), 60000);
+            const settled = await Promise.race([
+              started.promise,
+              new Promise((resolve) => setTimeout(() => resolve({ ok: false, timeout: true }), timeout))
+            ]);
+            return json(res, 200, {
+              ok: !!(settled && settled.ok),
+              accepted: true,
+              planId,
+              result: settled,
+              plan: ctx.planService.get(planId)
+            });
+          }
+          return json(res, 202, { ok: true, accepted: true, planId, plan: ctx.planService.get(planId) });
+        }
+        if (req.method === 'POST' && action === 'cancel') {
+          const cancelled = ctx.planService.cancel(planId, body.reason || 'http');
+          const status = cancelled.ok ? 200 : 409;
+          return json(res, status, {
+            ...cancelled,
+            planId,
+            plan: ctx.planService.get(planId)
+          });
+        }
+        return json(res, 404, { ok: false, error: 'not found' });
+      }
+
+      // -------------------------------------- harness turns (M3/F2, localhost)
+      if (url.pathname === '/harness/events' && req.method === 'GET') {
+        const web = (ctx.cfg && ctx.cfg.agent && ctx.cfg.agent.web) || {};
+        if (!ctx.turnEvents) return json(res, 503, { ok: false, error: 'turn events unavailable' });
+        streamEvents(req, res, { events: ctx.turnEvents, token: web.eventsToken || '' });
+        return;
+      }
+
+      if (url.pathname === '/harness/turns' && req.method === 'GET') {
+        if (!ctx.turnService) return json(res, 503, { ok: false, error: 'turn service unavailable' });
+        return json(res, 200, { ok: true, ...ctx.turnService.status() });
+      }
+
+      if (url.pathname === '/harness/turn' && req.method === 'POST') {
+        if (!ctx.turnService) return json(res, 503, { ok: false, error: 'turn service unavailable' });
+        let body = {};
+        try {
+          body = JSON.parse((await readRaw(req)) || '{}');
+        } catch {
+          return json(res, 400, { ok: false, error: 'invalid JSON' });
+        }
+        const begun = ctx.turnService.begin({ requestId: body.requestId, planId: body.planId });
+        if (!begun.ok) return json(res, 409, { ok: false, error: begun.reason, activeTurn: begun.activeId || null });
+        return json(res, 200, { ok: true, turn: begun.turn });
+      }
+
+      if (url.pathname.startsWith('/harness/turn/')) {
+        if (!ctx.turnService) return json(res, 503, { ok: false, error: 'turn service unavailable' });
+        const parts = url.pathname.split('/').filter(Boolean);
+        const turnId = decodeURIComponent(parts[2] || '');
+        const action = parts[3] || '';
+        if (!turnId) return json(res, 400, { ok: false, error: 'turnId required' });
+        let body = {};
+        if (req.method === 'POST') {
+          try {
+            body = JSON.parse((await readRaw(req)) || '{}');
+          } catch {
+            return json(res, 400, { ok: false, error: 'invalid JSON' });
+          }
+        }
+        if (req.method === 'POST' && action === 'wait') {
+          let waited;
+          if (body.planId) waited = ctx.turnService.trackPlan(turnId, String(body.planId), body.tool || 'mc_plan');
+          else if (body.taskId) waited = ctx.turnService.waitTask(turnId, String(body.taskId), body.tool || null);
+          else return json(res, 400, { ok: false, error: 'taskId or planId required' });
+          return json(res, waited.ok ? 200 : 409, { ...waited, turn: ctx.turns.get(turnId) });
+        }
+        if (req.method === 'POST' && action === 'finish') {
+          const finished = ctx.turnService.finish(turnId);
+          return json(res, finished.ok ? 200 : 409, { ...finished, turn: ctx.turns.get(turnId) });
+        }
+        if (req.method === 'POST' && action === 'cancel') {
+          const cancelled = ctx.turnService.cancel(turnId, body.reason || 'http');
+          return json(res, cancelled.ok ? 200 : 409, { ...cancelled, turn: ctx.turns.get(turnId) });
+        }
+        if (req.method === 'GET' && !action) {
+          const turn = ctx.turns.get(turnId);
+          if (!turn) return json(res, 404, { ok: false, error: 'unknown-turn' });
+          return json(res, 200, { ok: true, turn });
+        }
+        return json(res, 404, { ok: false, error: 'not found' });
       }
 
       // ------------------------------------------------------------ panel
@@ -715,6 +961,13 @@ function emergencyStop(ctx) {
       else ctx.brain.autoPlanDisabled = true;
       // The background task slot is not the brain queue; an emergency stop means both.
       if (ctx.hub && typeof ctx.hub.cancel === 'function') ctx.hub.cancel('panel emergency stop').catch(() => {});
+      // Plans and harness turns drive the same body; stop them before reporting success.
+      if (ctx.planService && typeof ctx.planService.cancelAll === 'function') {
+        ctx.planService.cancelAll('panel emergency stop').catch(() => {});
+      }
+      if (ctx.turnService && typeof ctx.turnService.cancelAll === 'function') {
+        ctx.turnService.cancelAll('panel emergency stop');
+      }
       ctx.log.warn('EMERGENCY STOP: queue cleared, current task cancelled');
     }
     steps.brain = { ok: true, ms: Date.now() - started };

@@ -1,5 +1,8 @@
 'use strict';
 
+// Offline suites must not read or write the live session-state file (config enables it).
+process.env.P1_STATE = 'off';
+
 /**
  * `npm run p1:fault:test` - offline fault drills (P1 M7).
  *

@@ -21,6 +21,9 @@ function captureState(brain) {
     version: VERSION,
     savedAt: new Date().toISOString(),
     plans: brain.plans && typeof brain.plans.toJSON === 'function' ? brain.plans.toJSON() : null,
+    planService:
+      brain.planService && typeof brain.planService.toJSON === 'function' ? brain.planService.toJSON() : null,
+    budget: brain.budget && typeof brain.budget.toJSON === 'function' ? brain.budget.toJSON() : null,
     proposals:
       brain.proposals && typeof brain.proposals.toJSON === 'function' ? brain.proposals.toJSON() : null,
     events: brain.events && typeof brain.events.toJSON === 'function' ? brain.events.toJSON() : null,
@@ -39,6 +42,8 @@ function restoreState(brain, data) {
   }
   const restored = {
     plans: false,
+    planService: false,
+    budget: false,
     proposals: false,
     events: false,
     methods: false,
@@ -48,6 +53,12 @@ function restoreState(brain, data) {
   };
   if (data.plans && brain.plans && typeof brain.plans.restore === 'function') {
     restored.plans = brain.plans.restore(data.plans);
+  }
+  if (data.planService && brain.planService && typeof brain.planService.restore === 'function') {
+    restored.planService = brain.planService.restore(data.planService);
+  }
+  if (data.budget && brain.budget && typeof brain.budget.restore === 'function') {
+    restored.budget = brain.budget.restore(data.budget);
   }
   if (data.proposals && brain.proposals && typeof brain.proposals.restore === 'function') {
     restored.proposals = brain.proposals.restore(data.proposals);

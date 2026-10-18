@@ -45,7 +45,7 @@ for (const suite of SUITES) {
   const result = spawnSync(process.execPath, [path.join(ROOT, suite.script)], {
     cwd: ROOT,
     stdio: 'inherit',
-    env: process.env
+    env: { ...process.env, P1_STATE: 'off' }
   });
   const ms = Date.now() - started;
   outcomes.push({ ...suite, code: result.status, ms });

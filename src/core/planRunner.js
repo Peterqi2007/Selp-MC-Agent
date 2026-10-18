@@ -34,6 +34,8 @@ class PlanRunner {
     this.verify = deps.verify || null;
     this.observe = deps.observe || null;
     this.recordMethod = deps.recordMethod || null;
+    /** Called after every step settlement; PlanService turns it into a `plan:step` event. */
+    this.onStep = deps.onStep || null;
     this.log = deps.log || { info() {}, warn() {}, debug() {} };
     if (!this.plans || typeof this.plans.applyDraft !== 'function') {
       throw new Error('PlanRunner needs a PlanStore');
@@ -78,6 +80,7 @@ class PlanRunner {
           const answer = options.answers ? options.answers[step.id] : undefined;
           if (answer === undefined) {
             this._writeStep(planId, step.id, 'waiting');
+            this._noteStep(planId, step.id, 'waiting', 'waiting-for-player');
             return {
               ok: false,
               waiting: {
@@ -91,19 +94,41 @@ class PlanRunner {
           const accepted = answer !== false && answer !== 'deny';
           results.push({ stepId: step.id, status: accepted ? 'succeeded' : 'cancelled', waiting: true });
           this._writeStep(planId, step.id, accepted ? 'done' : 'failed');
+          this._noteStep(planId, step.id, accepted ? 'succeeded' : 'failed', accepted ? null : 'player-rejected');
           if (!accepted) break;
           continue;
         }
-        const task = this.createTask(step, {
-          planId,
-          requestId: options.requestId || stored.requestId || null,
-          stepId: step.id
-        });
+        /**
+         * `createTask` builds a task from a plan step. A bad step type must fail *that
+         * step*, not throw out of the plan and leave the run half-reported (M3 live entry).
+         */
+        let task = null;
+        try {
+          task = this.createTask(step, {
+            planId,
+            requestId: options.requestId || stored.requestId || null,
+            stepId: step.id
+          });
+        } catch (err) {
+          this._writeStep(planId, step.id, 'failed');
+          results.push({ stepId: step.id, status: 'failed', reason: `task build failed: ${err.message}` });
+          this._noteStep(planId, step.id, 'failed', `task build failed: ${err.message}`);
+          return { ok: false, reason: `task build failed for step ${step.id}: ${err.message}`, results };
+        }
         if (!task) {
           this._writeStep(planId, step.id, 'failed');
           results.push({ stepId: step.id, status: 'failed', reason: 'no task for step' });
+          this._noteStep(planId, step.id, 'failed', 'no task for step');
           return { ok: false, reason: `no task for step ${step.id}`, results };
         }
+        /**
+         * Identity chain (A04/A31): the executor's event must name the plan and step it
+         * belongs to, not just the task. Set them explicitly so a builder that ignores the
+         * id args still produces attributable events.
+         */
+        if (!task.planId) task.planId = planId;
+        if (!task.stepId) task.stepId = step.id;
+        if (!task.requestId) task.requestId = options.requestId || stored.requestId || null;
         this.currentTask = task;
         let result;
         try {
@@ -138,8 +163,13 @@ class PlanRunner {
         this._writeStep(
           planId,
           step.id,
-          finalStatus === 'succeeded' || finalStatus === 'partial' ? 'done' : 'failed'
+          finalStatus === 'succeeded' || finalStatus === 'partial'
+            ? 'done'
+            : finalStatus === 'cancelled'
+              ? 'cancelled'
+              : 'failed'
         );
+        this._noteStep(planId, step.id, finalStatus, reason);
         /**
          * Learning feedback: a step that names a method updates that method's outcome record.
          * The evidence is the step result (including a failed postcondition), not the model's
@@ -189,6 +219,16 @@ class PlanRunner {
     if (!waiting) return { ok: false, reason: 'nothing-waiting', results: [] };
     if (this.active) return { ok: false, reason: 'busy', results: [] };
     return this.run(planId, { answers: { [waiting.id]: answer } });
+  }
+
+  /** One observation point per step for PlanService/events; never throws into the run. */
+  _noteStep(planId, stepId, status, reason) {
+    if (typeof this.onStep !== 'function') return;
+    try {
+      this.onStep({ planId, stepId, status, reason: reason || null });
+    } catch (err) {
+      this.log.debug(`step event listener failed: ${err.message}`);
+    }
   }
 
   _writeStep(planId, stepId, status) {

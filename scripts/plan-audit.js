@@ -654,6 +654,23 @@ if (STAGE === 'p1') {
     return 'temp+rename; corrupt -> .corrupt-<ts>';
   });
 
+  check('P1: M3 has a live plan entry and a harness resume channel', () => {
+    const planService = read('src/core/planService.js');
+    const turnService = read('src/harness/turnService.js');
+    const status = read('src/web/statusServer.js');
+    const brain = read('src/brain.js');
+    const plugin = read('dsh-plugin-mc-harness/lib/index.js');
+    if (!/class PlanService/.test(planService)) throw new Error('PlanService is missing');
+    if (!/submit\(|start\(|cancel\(|resume\(/.test(planService)) throw new Error('plan lifecycle is incomplete');
+    if (!/validateReplanDraft/.test(planService)) throw new Error('the live entry bypasses the replan guard');
+    if (!/class TurnService/.test(turnService)) throw new Error('TurnService is missing');
+    if (!/planEvent|planCall/.test(turnService)) throw new Error('turns cannot wait on a plan');
+    if (!/'\/plan'|'\/harness\/turn'|'\/harness\/events'/.test(status)) throw new Error('HTTP entry is missing');
+    if (!/new PlanService/.test(brain) || !/new TurnService/.test(brain)) throw new Error('brain does not wire M3 services');
+    if (!/mc_plan/.test(plugin)) throw new Error('the DSH plugin cannot submit a plan');
+    return 'POST /plan -> PlanService -> PlanRunner; turn resume over /harness/events; mc_plan';
+  });
+
   check('P1: restart restores plans/questions but never replays actions', () => {
     const session = read('src/core/sessionState.js');
     const brain = read('src/brain.js');
@@ -661,13 +678,18 @@ if (STAGE === 'p1') {
     if (!/plans/.test(session) || !/proposals/.test(session) || !/events/.test(session)) {
       throw new Error('not all resumable state is captured');
     }
+    if (!/planService/.test(session) || !/planService\.restore/.test(session)) {
+      throw new Error('plan budgets/service state are not restored');
+    }
     if (/runTask|\.execute\(/.test(session)) throw new Error('restore must not execute or replay anything');
     if (!/captureState\(this\)/.test(brain) || !/restoreState\(this, data\)/.test(brain)) {
       throw new Error('brain does not expose capture/restore');
     }
+    if (!/planService\.restoreQuestions/.test(brain)) throw new Error('a restored waiting plan does not re-ask its question');
+    if (!/P1_STATE/.test(brain)) throw new Error('offline suites cannot disable live persistence');
     const cfg = JSON.parse(read('config/agent.json'));
-    if (!cfg.state || cfg.state.enabled !== false) throw new Error('persistence must stay opt-in until client acceptance');
-    return 'plans + pending questions + event seq; no action replay; opt-in';
+    if (!cfg.state || cfg.state.enabled !== true) throw new Error('M3 persistence is not enabled for the test window');
+    return 'plans + pending questions + budgets + event seq; no action replay; enabled (P1_STATE=off for suites)';
   });
 
   check('P1: a plan can wait for the player without executing', () => {
@@ -873,14 +895,14 @@ if (STAGE === 'p1') {
 
   check('P1: answering a plan question resumes the plan', () => {
     const brain = read('src/brain.js');
-    if (!/accepted\.resumed|resumed = await this\.planRunner\.resume/.test(brain)) {
-      throw new Error('accept does not resume the plan');
+    if (!/_answerPlan/.test(brain) || !/planService\.resume/.test(brain)) {
+      throw new Error('accept does not resume the plan through PlanService');
     }
-    if (!/planRunner\.resume\(planQuestion\.planId, false\)/.test(brain)) {
+    if (!/_answerPlan\(planQuestion\.planId, false/.test(brain)) {
       throw new Error('reject does not fail the waiting step');
     }
     if (!/async runPlan/.test(brain)) throw new Error('brain has no runPlan entry');
-    return 'accept -> resume(true); reject -> resume(false)';
+    return 'accept -> PlanService.resume(true); reject -> resume(false)';
   });
 
   check('P1: generated code is statically scanned and never executed', () => {

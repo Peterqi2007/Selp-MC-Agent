@@ -1,5 +1,8 @@
 'use strict';
 
+// Offline suites must not read or write the live session-state file (config enables it).
+process.env.P1_STATE = 'off';
+
 /**
  * `npm run control:test` - end-to-end verification of deliverables D, E and C, offline.
  *

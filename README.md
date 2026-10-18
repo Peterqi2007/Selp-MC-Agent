@@ -52,7 +52,7 @@
 | [`docs/P1-M0.md`](docs/P1-M0.md) | **P1 M0 记录**：基线（提交/指纹/套件）、问题复核、P0→P1 审计迁移清单、评测集 v1、测量模板与版本登记。离线项已完成，**客户端三项未执行** |
 | [`docs/P1-M1.md`](docs/P1-M1.md) | **P1 M1 记录（离线 M1a–M1d）**：`TaskEvents` 汇聚/重放、身份字段、`PlanStore` 单一写者、同端口 SSE、Capability 表、TaskResult 六态、`mine_ore` progress 值域、PlanRunner、TurnLifecycle、HarnessAdapter；`p1:contract:test` 22/22。真实 DSH 插件接线与持久化未完成 |
 | [`docs/P1-M2.md`](docs/P1-M2.md) | **P1 M2 记录（离线契约 + 地址通道）**：二值闸门、`@` 通道默认关闭、严格 LLM 判定器、双脑工具清单、语言专用 `say`/`silence`、离线 `LanguageAgent`、可选语言对话通道（默认关闭）、快照字段时间戳、刷新调度、威胁订阅、persona 注入；`p1:contract:test` 133/133。真实模型判定、真机采集未完成 |
-| [`docs/P1-M3.md`](docs/P1-M3.md) | **P1 M3 记录（离线持久化/等待/续轮/学习/预算）**：原子状态、计划/问题/事件/方法/回答/分类记忆恢复、`wait_for_player`、计划问题复用提案、`!state`、`!method`、`ResumeBridge`、`MethodLibrary`（执行反馈/检索）、`AnswerMemory`、`MemoryStore`、`Budget`、`verifier`、`draftGuard`；默认关闭。真实 harness 传输、联网学习、A17/A29 真机未完成 |
+| [`docs/P1-M3.md`](docs/P1-M3.md) | **P1 M3 记录（代码入口已接，待客户端测试）**：`PlanService`（submit/start/resume/cancel + 预算/守卫）、`POST /plan`、`TurnService` 与 `/harness/events` 续轮、DSH `mc_plan`/`mc_cancel`、持久化在测试窗口启用；原子状态、计划/问题/事件/方法/回答/分类记忆恢复、`wait_for_player`、`!state`、`!method`、`Budget`、`verifier`、`draftGuard`；`p1:m3:test` 25/25。真实客户端 A13–A17/A28–A30/F2 仍未执行 |
 | [`docs/P1-M4.md`](docs/P1-M4.md) | **P1 M4 记录（离线安全子集）**：manifest 校验、生成管线（静态扫描、不执行）、candidates/promoted 目录与指针、晋升/回退/下线、runner dry-run、promoted-only 检索。真实编码后端、受限执行、A18–A20 未完成 |
 | [`docs/P1-M5.md`](docs/P1-M5.md) | **P1 M5 记录（窗口策略离线契约）**：CU 默认拒绝（F1 未验证）、窗口/边界/截图限窗、显式 verify+证据、`ComputerUseGuard` 拒绝不触达执行器。GUI 中断、截图成本、A21/A22 未完成 |
 | [`docs/P1-M6.md`](docs/P1-M6.md) | **P1 M6 记录（聊天并发 + 按需接线）**：未读去重、过时回复拒绝、自回声拒绝、限速/重复/截断、随会话持久化；LLM 回复可 opt-in 守卫（默认关闭）。真实多人 A23/A24、状态发言、A25 聊天侧未完成 |
@@ -64,7 +64,7 @@
 | [`docs/M2-CLIENT-TEST-2026-10-17.md`](docs/M2-CLIENT-TEST-2026-10-17.md) | **M2 客户端记录**：A01/A02/A03/A09/A10/A11/A12/H1 均 PASS；A12 GUI 修复后 219ms 自动关工作台并击杀；TACZ reload live PASS；时间判定改为 server dayTime 优先 |
 | [`docs/DSH-HARNESS.md`](docs/DSH-HARNESS.md) | **DSH harness 接入**：`dsh-plugin-mc-harness` 插件、安装脚本、`mc_observe`/`mc_step`/`mc_finish`、live `/goal` H1 结果；隐藏 agent 无 provider transport。Full Access Ask 仅 M5 CU 的对话级预设 |
 | [`docs/P1-CLIENT-VERIFICATION.md`](docs/P1-CLIENT-VERIFICATION.md) | **P1 客户端阶段验证计划（M1–M7）**：阶段闸门、可证伪主张、正/反证据、有效性边界、当前 0/7 通过；待用户逐阶段审阅 |
-| [`docs/PLANNER-RETIREMENT.md`](docs/PLANNER-RETIREMENT.md) | **自主规划器退役**：`slowLoop` 拆为 GoalEvaluator + 提案 + TaskSlot。**S0–S4 已全部离线交付**（`planner:test` 32/32、`plan:audit --stage p1` 95/95），真机判据仍登记在客户端清单 |
+| [`docs/PLANNER-RETIREMENT.md`](docs/PLANNER-RETIREMENT.md) | **自主规划器退役**：`slowLoop` 拆为 GoalEvaluator + 提案 + TaskSlot。**S0–S4 已全部离线交付**（`planner:test` 32/32、`plan:audit --stage p1` 96/96），真机判据仍登记在客户端清单 |
 | [`docs/P1-CLIENT-TESTS.md`](docs/P1-CLIENT-TESTS.md) | **客户端/真机测试清单**：P1 与退役判据里所有需要真实客户端/服务器的项，**当前全部未执行**（本分支只跑离线套件） |
 | [`docs/PLANNER-AB-EXPERIMENT.md`](docs/PLANNER-AB-EXPERIMENT.md) | **选型 A/B 实验设计**（**条件触发**：仅当 P1 §1.9.2 降级判定成立才执行）：24 次计分运行的场景与门槛；成本审计按时间 / token / 模块复用三项（§6–§7），§10 是决策闸门，**不做经济性评估**（§8.4） |
 | [`docs/HARNESS-INTERFACES.md`](docs/HARNESS-INTERFACES.md) | **两侧接口事实**：Codex（`base_instructions` 可整段替换 / `tool_mode` / hooks / MCP）与 DSH（0.2.0-rc.2、cordis 插件契约、system-prompt 装配、preset）的一手机器取证，含待验证项 |
@@ -190,14 +190,18 @@ LLM 层（`src/llm/`，生产配置已开启 `toolCalling`）：8 个工具 —�
 * 离线全绿（2026-10-16 实跑）：`selftest 176/176`、`skills:test 57/57`、`client:test 73/73`、`control:test 37/37`、
   `mining:entry:test 25/25`、`mining:collection:test 24/24`、`mining:recovery:test 18/18`、`tasks:test 52/52`、
   `path:test 35/35`、`clientmod:test 11/11`、`verify:roleplay 34/34`、`llm:dry` 路由 67/67 + 工具 43/43（明细见 §8）。
-* P1 离线（2026-10-17 实跑）：`p1:verify`（P0 8/8 + `planner:test 32/32` + `p1:contract:test 153/153` +
-  `p1:fault:test 7/7` + `plan:audit --stage p1 95/95`）；真机/模型项**部分执行**：
+* P1 离线（2026-10-18 实跑）：`p1:verify`（P0 8/8 + `planner:test 32/32` + `p1:contract:test 158/158` +
+  `p1:m3:test 25/25` + `p1:fault:test 7/7` + `plan:audit --stage p1 96/96`）；真机/模型项**部分执行**：
   `client:verify 23/23`、登录+寻路 7/7、砍树 PASS、独立 mine 一次 2/2 / 厚土柱 0/2、
   `--dig stone` 点位失败、持久化 save/重启恢复部分通过、夜间门禁会中止；
   其余未执行项见 `docs/P1-CLIENT-TESTS.md`。
-* 控制 Mod：`mod-client/dist/agent-client-1.0.0.jar` **75000 字节**（2026-10-13 17:37 构建，含 WalkTo 严格到达
-  y 容差、战斗 v3 与 TACZ 枪械）；已 `client:install`，与 PCL 版本目录在装的 jar 字节完全一致，并已在 10-13
-  17:38 与 22:03 两个真机会话中实际加载。改 Mod 后必须重装（`npm run client:install`）并重启客户端。
+* P1 客户端阶段（2026-10-17/18）：**M1 适用子集 PASS、M2 PASS**（A01/A02/A03/A09/A10/A11/A12 +
+  H1a/H1b）；M3 的代码入口（计划/续轮/持久化）已接线，A13–A17、A28–A30、F2 **仍未执行**；
+  M5 因 CU 未授权继续 BLOCKED。详见 `docs/P1-CLIENT-VERIFICATION.md`、
+  `docs/M1-CLIENT-TEST-2026-10-17.md`、`docs/M2-CLIENT-TEST-2026-10-17.md`。
+* 控制 Mod：`mod-client/dist/agent-client-1.0.0.jar` **75631 字节**（2026-10-18 16:29 构建，含 WalkTo 严格到达
+  y 容差、战斗 v3、TACZ 枪械与 server `dayTime` 昼夜判断）；已 `client:install`，与 PCL 版本目录在装的 jar
+  字节一致（sha256 相同），并已在真机会话中加载。改 Mod 后必须重装（`npm run client:install`）并重启客户端。
 * **规划器（自主决策）专项**：`slowLoop → decide() → runTask` 这条回路的问题与 **`!` 命令回路**、
   **LLM `do_task`/`do_skill` 回路**分开记账——已核实 10 条（含 `shelter` 规则静默死规则、`light` 无能力闸门、
   矿石路径零进展判定失效）与重构债 7 条见 [`docs/PLANNER-REFACTOR.md`](docs/PLANNER-REFACTOR.md)。

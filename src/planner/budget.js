@@ -55,6 +55,35 @@ class Budget {
     for (const kind of Object.keys(this.limits)) remaining[kind] = this.remaining(kind);
     return { limits: { ...this.limits }, spent: { ...this.spent }, total: { ...this.total }, remaining };
   }
+
+  /** Persist counters and limits (A29: a restart reports the same cumulative cost). */
+  toJSON() {
+    return { limits: { ...this.limits }, spent: { ...this.spent }, total: { ...this.total } };
+  }
+
+  /** Restore a persisted snapshot; unknown counters are dropped rather than trusted. */
+  restore(data) {
+    if (!data || typeof data !== 'object') return false;
+    if (data.limits && typeof data.limits === 'object') {
+      const limits = {};
+      for (const [kind, value] of Object.entries(data.limits)) {
+        const number = Number(value);
+        if (Number.isFinite(number) && number >= 0) limits[kind] = number;
+      }
+      this.limits = { ...DEFAULT_LIMITS, ...limits };
+    }
+    this.spent = {};
+    this.total = {};
+    for (const field of ['spent', 'total']) {
+      const source = data[field];
+      if (!source || typeof source !== 'object') continue;
+      for (const [kind, value] of Object.entries(source)) {
+        const number = Number(value);
+        if (Number.isFinite(number) && number >= 0) this[field][kind] = number;
+      }
+    }
+    return true;
+  }
 }
 
 module.exports = { Budget, DEFAULT_LIMITS };

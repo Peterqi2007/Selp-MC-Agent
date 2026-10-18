@@ -17,6 +17,7 @@
 
 const { ChopWoodTask } = require('./tasks/chopWood');
 const { CraftTask } = require('./tasks/craft');
+const { GoToTask } = require('./tasks/goto');
 const { MineBlockTask } = require('./tasks/mineBlock');
 const { MineOreTask } = require('./tasks/mineOre');
 const { ShelterTask } = require('./tasks/shelter');
@@ -34,10 +35,12 @@ const { TaskEvents } = require('./core/taskEvents');
 const { PerceptionWake } = require('./world/perceptionWake');
 const { PlanStore } = require('./core/planStore');
 const { PlanRunner } = require('./core/planRunner');
+const { PlanService } = require('./core/planService');
 const { PlanQuestionBridge } = require('./planner/planQuestions');
 const { verifyStep } = require('./planner/verifier');
 const { TurnLifecycle } = require('./core/turnLifecycle');
 const { HarnessAdapter } = require('./harness/adapter');
+const { TurnService } = require('./harness/turnService');
 const { StateStore } = require('./core/stateStore');
 const { captureState, restoreState } = require('./core/sessionState');
 const { MethodLibrary } = require('./learning/methodLibrary');
@@ -69,8 +72,9 @@ const GUN_FALLBACK = new Set(['tacz_unavailable', 'no_gun', 'not_a_gun', 'no_amm
 const NO_TASK = Symbol('no-task');
 
 class Brain {
-  constructor(ctx) {
+  constructor(ctx, options = {}) {
     this.ctx = ctx;
+    this.options = options;
     this.cfg = ctx.cfg.agent;
     this.log = new Logger('brain');
     this.running = false;
@@ -122,15 +126,44 @@ class Brain {
       verify: (step, observation) => verifyStep(step, observation),
       observe: () => (this.ctx.world.snapshot ? this.ctx.world.snapshot(true) : null),
       recordMethod: (step, ok) => this.methods.recordOutcome(step.methodId, ok),
+      onStep: (event) => this.planService && this.planService.onStep(event),
       log: this.log
     });
     ctx.planRunner = this.planRunner;
     this.planQuestions = new PlanQuestionBridge({ plans: this.plans, proposals: this.proposals });
     ctx.planQuestions = this.planQuestions;
+    /**
+     * M3 live entry: the missing submit/start/cancel/answer surface for plans. It writes
+     * through PlanStore and executes through PlanRunner, so it adds no second writer,
+     * executor or question state machine.
+     */
+    this.planService = new PlanService({
+      plans: this.plans,
+      runner: this.planRunner,
+      questions: this.planQuestions,
+      events: this.events,
+      proposals: this.proposals,
+      log: this.log,
+      knownStepTypes: [...Object.keys(TASK_BUILDERS), 'wait_for_player'],
+      waitIdleMs: (this.cfg.planner && this.cfg.planner.planWaitIdleMs) || 30000,
+      isBodyBusy: () => !!(this.activeTask || (this.slot && this.slot.busy)),
+      /** Loops may not have started yet (offline fixture); pause/death are the hard gates. */
+      canRun: () => !this.paused && !this.stopped,
+      onChange: () => this.scheduleStateSave()
+    });
+    ctx.planService = this.planService;
     this.turns = new TurnLifecycle();
     ctx.turns = this.turns;
     this.harness = new HarnessAdapter({ turns: this.turns, events: this.events });
     ctx.harness = this.harness;
+    this.turnService = new TurnService({
+      turns: this.turns,
+      adapter: this.harness,
+      planService: this.planService,
+      log: this.log
+    });
+    ctx.turnService = this.turnService;
+    ctx.turnEvents = this.turnService.turnEvents;
     /**
      * A11: sampling produces no wake; only an edge does. The model consumer subscribes in
      * index.js, keeping this class independent of the LLM and safe to run offline.
@@ -188,28 +221,55 @@ class Brain {
      */
     this.on('proposal:expired', (proposal) => {
       if (!proposal || proposal.type !== 'plan_question' || !proposal.planId) return;
-      this.planRunner.resume(proposal.planId, false).catch((err) => {
-        this.log.warn(`expired plan question could not resume ${proposal.planId}: ${err.message}`);
-      });
+      const resumed = this.planService
+        ? this.planService.resume(proposal.planId, false, { reason: 'expired' })
+        : this.planRunner.resume(proposal.planId, false);
+      if (resumed && resumed.promise) {
+        resumed.promise.catch((err) => {
+          this.log.warn(`expired plan question could not resume ${proposal.planId}: ${err.message}`);
+        });
+      } else if (resumed && typeof resumed.catch === 'function') {
+        resumed.catch((err) => {
+          this.log.warn(`expired plan question could not resume ${proposal.planId}: ${err.message}`);
+        });
+      }
     });
 
     /**
-     * P1 M3/A17/A29: opt-in persistence. Off by default until the client window; when on,
-     * plans/proposals/events are restored on construction and saved atomically (debounced).
-     * In-flight tasks and LLM turns are never restored - a restart must not replay actions.
+     * P1 M3/A17/A29: persistence. `config/agent.json` turns it on; an explicit
+     * `options.state` lets an offline fixture point at a temp file, and `P1_STATE=off`
+     * keeps the many Brain-constructing suites from reading/writing the live state file.
+     *
+     * Restore never starts a plan and never replays a task: plans/proposals/event ring and
+     * the plan budgets come back; in-flight tasks and harness turns do not.
      */
-    const stateCfg = (ctx.cfg.agent && ctx.cfg.agent.state) || {};
+    const stateCfg = options.state || (ctx.cfg.agent && ctx.cfg.agent.state) || {};
+    const stateDisabled = !options.state && process.env.P1_STATE === 'off';
     this.stateStore = null;
-    this.stateDebounceMs = stateCfg.debounceMs || 1000;
+    this.stateDebounceMs = stateCfg.debounceMs === undefined ? 1000 : stateCfg.debounceMs;
     this._stateTimer = null;
-    if (stateCfg.enabled) {
-      this.stateStore = new StateStore({
-        file: nodePath.resolve(__dirname, '..', stateCfg.path || 'runtime/p1-state.json')
-      });
+    if (stateCfg.enabled && !stateDisabled) {
+      const stateFile = stateCfg.file
+        ? nodePath.resolve(stateCfg.file)
+        : nodePath.resolve(__dirname, '..', stateCfg.path || 'runtime/p1-state.json');
+      this.stateStore = new StateStore({ file: stateFile });
       const saved = this.stateStore.load();
       if (saved) {
         const restored = this.restoreState(saved);
         this.log.info(`state restored: ${JSON.stringify(restored.restored || {})}`);
+        /**
+         * A plan can be saved between "step waiting" and "proposal created"; re-ask so an
+         * unanswered question is visible after restart (A17) without running the plan.
+         */
+        try {
+          const questions = this.planService.restoreQuestions();
+          if (questions.length) {
+            this.log.info(`plan questions restored: ${JSON.stringify(questions)}`);
+            this.scheduleStateSave();
+          }
+        } catch (err) {
+          this.log.warn(`plan questions restore failed: ${err.message}`);
+        }
       }
       for (const event of [
         'task:done',
@@ -996,6 +1056,22 @@ class Brain {
     return result;
   }
 
+  /**
+   * Continue a parked plan from an answer.
+   *
+   * The live PlanService path publishes `plan:resumed`/step events and persists; the raw
+   * PlanRunner path is kept for a Brain fixture that deliberately runs without it.
+   */
+  async _answerPlan(planId, answer, reason) {
+    if (this.planService) {
+      const started = this.planService.resume(planId, answer, { reason });
+      if (!started.ok) return started;
+      const settled = await started.promise.catch((err) => ({ ok: false, reason: err.message, results: [] }));
+      return { ...settled, accepted: true, plan: this.planService.get(planId) };
+    }
+    return this.planRunner.resume(planId, answer);
+  }
+
   /** Player accepted a proposal: build the task and enqueue it as an explicit directive. */
   async acceptProposal(id = null, options = {}) {
     const result = this.proposals.accept(id, options);
@@ -1003,7 +1079,7 @@ class Brain {
     const candidate = result.proposal.candidate;
     if (candidate && candidate.type === 'plan_question') {
       const args = candidate.args || {};
-      const resumed = await this.planRunner.resume(args.planId, true);
+      const resumed = await this._answerPlan(args.planId, true, 'accepted');
       return { ...result, resumed };
     }
     const task = buildTask(this.ctx, candidate);
@@ -1022,7 +1098,7 @@ class Brain {
         : null;
     const result = this.proposals.reject(id, options);
     if (result.ok && planQuestion) {
-      const resumed = await this.planRunner.resume(planQuestion.planId, false);
+      const resumed = await this._answerPlan(planQuestion.planId, false, 'rejected');
       return { ...result, resumed };
     }
     return result;
@@ -1187,6 +1263,9 @@ class Brain {
     this.stoppedReason = 'death';
     this.queue.length = 0;
     if (this.currentTask && this.currentTask.state === 'running') this.currentTask.cancel();
+    /** A plan/turn is work too: death must not leave a parent plan driving the body. */
+    if (this.planService) this.planService.cancelAll('death').catch(() => {});
+    if (this.turnService) this.turnService.cancelAll('death');
     this.deathDetail = detail;
     this.log.warn('brain STOPPED after death - no tasks will run until an explicit resume');
     return this.status();
@@ -1225,8 +1304,10 @@ class Brain {
       perceptionWake: this.perceptionWake ? this.perceptionWake.status() : null,
       plans: this.plans ? this.plans.status() : null,
       planRunner: this.planRunner ? { busy: this.planRunner.busy } : null,
+      planService: this.planService ? this.planService.status() : null,
       turns: this.turns ? { activeId: this.turns.activeId } : null,
       harness: this.harness ? this.harness.status() : null,
+      turnService: this.turnService ? this.turnService.status() : null,
       methods: this.methods ? this.methods.status() : null,
       answers: this.answers ? this.answers.status() : null,
       budget: this.budget ? this.budget.status() : null,
@@ -1291,6 +1372,14 @@ class Brain {
   pause() {
     this.holds.hold('paused', '!pause');
     if (this.currentTask) this.currentTask.cancel();
+    /**
+     * A paused brain must not let a running plan step continue behind the hold, but a plan
+     * parked on a player question should survive the pause (it is not doing anything).
+     */
+    if (this.planService && this.planService.active) {
+      this.planService.cancel(this.planService.active.planId, 'paused');
+    }
+    if (this.turnService) this.turnService.cancelAll('paused');
     this.ctx.nav.interrupt('brain paused');
     this.log.warn('brain paused');
   }
@@ -1337,6 +1426,7 @@ const TASK_BUILDERS = {
   'chop-wood': (ctx, args) => new ChopWoodTask(ctx, args),
   craft: (ctx, args) => new CraftTask(ctx, args),
   shelter: (ctx, args) => new ShelterTask(ctx, args),
+  goto: (ctx, args) => new GoToTask(ctx, args),
   mine: (ctx, args) => new MineBlockTask(ctx, args),
   'mine-ore': (ctx, args) => new MineOreTask(ctx, args),
   light: (ctx, args) => new LightTask(ctx, args)

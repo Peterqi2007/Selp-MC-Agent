@@ -8,7 +8,7 @@
 
 | 文件 | 作用 |
 | --- | --- |
-| `dsh-plugin-mc-harness/` | DSH 插件包（ESM）；注册 `mc_observe`、`mc_step`、`mc_finish` |
+| `dsh-plugin-mc-harness/` | DSH 插件包（ESM）；注册 `mc_observe`、`mc_step`、`mc_plan`、`mc_plan_status`、`mc_cancel`、`mc_finish` |
 | `scripts/install-dsh-plugin.js` | 复制插件到 desktop profile，追加 `cordis.patch.yml`（自动备份） |
 | `scripts/dsh-h1-test.js` | 通过 `POST /goal` 驱动 DSH，打印 H1a/H1b 结果 |
 | `npm run dsh:install` / `npm run dsh:h1` | 安装 / H1 测试入口 |
@@ -18,18 +18,39 @@
 ```
 H1 test (Node)
   POST http://127.0.0.1:8770/goal { goal }
-    -> DSH plugin: ctx.agents.create(session)
+    -> DSH plugin: ctx.agents.create(session)  (or /goal {agentId} for a live conversation)
+    -> runtime.bind(agent): subscribe GET http://127.0.0.1:8766/harness/events (SSE)
     -> agent.followup(goal + tool instructions)
-    -> DSH model calls mc_observe / mc_step / mc_finish
+    -> DSH model calls mc_observe / mc_step / mc_plan / mc_finish
     -> mc_step: POST http://127.0.0.1:8766/command
-    -> Node agent TaskSlot executes; event log/SSE unchanged
-    -> plugin returns { steps, receipts, finish, final }
+    -> mc_plan: POST http://127.0.0.1:8766/plan {steps, turn:true}
+         -> Node PlanService validates + PlanRunner executes steps (TaskSlot)
+         -> plan settles -> turn:resumable on /harness/events
+         -> plugin: agent.followup(resume message)
+    -> plugin returns { steps, plans, receipts, finish, final }
 ```
 
 - `mc_observe`：只读 `/ui/state`（位置/血量/时间/当前任务）。
 - `mc_step`：一次只发一条面板命令（`goto`/`mine`/`chop`/`stop`…），不带 `!`。
+- `mc_plan`：提交多步计划；有 live 对话绑定时用 `turn:true`，计划结算后同一对话续轮；
+  没有绑定时计划仍执行，可用 `mc_plan_status` 轮询。
+- `mc_plan_status`：只读 `GET /plan/:id`（状态/步骤/预算）。
+- `mc_cancel`：取消当前计划或绑定的 turn。
 - `mc_finish`：记录总结与 `achieved`，无副作用。
 - 插件不执行 shell、不直接改身体；所有身体动作仍经 Node 的 `TaskSlot`。
+
+### 绑定 live 对话（M3/F2）
+
+`/goal {agentId}` 会自动绑定；普通 UI 对话需要显式绑定：
+
+```powershell
+curl -X POST http://127.0.0.1:8770/bind -H "content-type: application/json" ^
+  -d '{\"agentId\":\"<live-agent-id>\"}'
+curl http://127.0.0.1:8770/health   # boundAgentId / turns
+```
+
+绑定后插件才订阅 `/harness/events`。旧版插件进程不会因为源码改动自动升级：更新插件后
+必须 `npm run dsh:install -- --apply` 并**重启 DSH**，否则只有旧工具面。
 
 ## 2. 安装与启动
 
@@ -82,7 +103,7 @@ npm run dsh:h1
 3. H1b 不产生 `mc_step`，不虚报完成；
 4. 事件/身份仍由 Node TaskSlot 发出，没有第二套规划器直接改身体。
 
-## 4. 实现状态（2026-10-17）
+## 4. 实现状态（2026-10-18）
 
 | 项 | 状态 |
 | --- | --- |
@@ -90,6 +111,8 @@ npm run dsh:h1
 | DSH 加载插件 | ✅ `GET 8770/health` 返回 `plugin: dsh-mc-harness` |
 | `mc_step` | ✅ 真机可用：手动 `mine dirt 2` 经 8766 执行，任务完成 |
 | `mc_observe` | ✅ 真机可用：返回位置/血量/时间/当前任务；对象输出已改 JSON 字符串 |
+| `mc_plan` / `mc_plan_status` / `mc_cancel` | ✅ 源码已实现；**需重装+重启 DSH 后生效**；Node 侧 `POST /plan` 已用 mock Agent 冒烟 |
+| `/harness/events` + `/bind` | ✅ 源码已实现；Node 侧 SSE/续轮已用 mock Agent 冒烟；旧插件进程未加载 |
 | `POST /goal` | ⚠️ **隐藏 agent 路径失败，live 路径通过**：隐藏 agent 报 `LlmError TRANSPORT`（host 无桌面会话 provider 上下文）；`/goal {agentId}` 指向 live 对话已跑通 |
 | H1a | ✅ **PASS（live `/goal`）**：3 次 `mc_observe` + 2 条 `mc_step`（`mine dirt 2`、`stop`），`finish.achieved=true`；背包 `dirt 39→41`（+2） |
 | H1b | ✅ **PASS（live `/goal`）**：0 条 mutating `mc_step`，`finish.achieved=false`，实测说明缺钻石/工作台/craft 能力 |
@@ -124,10 +147,31 @@ H1a/H1b 会进入同一个 live 对话。
 - H1b：0 条 mutating `mc_step`，`finish.achieved=false`，实测说明缺钻石/工作台/craft；
 - 官方脚本输出：`H1a steps>=2 + achieved=true: PASS`、`H1b no mutating steps + achieved=false: PASS`。
 
+### M3：计划与续轮（源码就绪，待重启 DSH）
+
+Node 侧可直接验证（不需要 DSH）：
+
+```powershell
+# 提交并等待一个带后置条件的计划
+curl -X POST http://127.0.0.1:8766/plan -H "content-type: application/json" ^
+  -d '{\"planId\":\"demo\",\"wait\":true,\"steps\":[{\"id\":\"c\",\"type\":\"chop-wood\",\"args\":{\"count\":1},\"postconditions\":{\"inventoryAtLeast\":{\"oak_log\":1}}}]}'
+```
+
+带 `turn:true` 时 Node 会创建 turn 并 park 在计划上；`GET http://127.0.0.1:8766/harness/events`
+（SSE）会收到 `turn:resumable`。插件加载后，它会把该事件变成同一 live 对话的 `followup`，
+模型再 `mc_observe` 核对世界并 `mc_finish`；`POST /harness/turn/:id/finish` 收尾。
+
+**未在真实 DSH 上验证**：本次只做了 Node/mock 冒烟；重装并重启 DSH 后，M3 的 A28/F2
+才具备真机证据。若插件未重启，`mc_plan` 不存在，旧工具面只能逐条 `mc_step`。
+
 ### 边界
 
 - 隐藏 agent 不做 H1；live `/goal` 要求预先存在一个 DSH 对话。
 - H1b 允许只读 `status`/`observe`，不允许 `mine`/`chop`/`goto`/`stop` 等 body 动作。
 - 插件工具注册在全局 tools 上；H1 使用 live 对话，不创建独立测试 session。
+- `mc_plan` 的步骤是命令表动作；没有 `postconditions` 的计划无法证伪任务自报
+  （P0 的零采集成功语义会使 `mine dirt` 计划完成）。A13 必须声明可核对终态。
+- 等待玩家的计划在重启后恢复问题；若模型回合已结束，玩家回答后计划继续执行，但不会
+  自动唤醒已结束的 harness 回合（记录为 A14/A17 的边界）。
 - Full Access Ask 是**对话级模式预设**，不是启动参数；插件自身不提升权限，`mc_step` 只调用
   8766 命令表。H1 不使用它；M5 的 CU 对话才需要选择。

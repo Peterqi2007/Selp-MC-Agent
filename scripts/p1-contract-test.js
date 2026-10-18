@@ -1,5 +1,8 @@
 'use strict';
 
+// Offline suites must not read or write the live session-state file (config enables it).
+process.env.P1_STATE = 'off';
+
 /**
  * `npm run p1:contract:test` - P1 M1 offline contracts (P1 §1.4.1/§1.4.4, A04/A31).
  *

@@ -15,6 +15,10 @@
  *     turn.cancel    { turnId, reason? }              -> cancelled; late events die
  *     turn.finished  { turnId }                       -> done
  *
+ * M3 adds a plan-level park: `planCall({turnId, planId})` waits on the synthetic identity
+ * `plan:<id>`, and `planEvent(turnId, planEvent)` feeds a PlanService event into the same
+ * TurnLifecycle rules (one wake, no duplicate, cancel wins).
+ *
  * `events` (TaskEvents) is subscribed directly, so the executor's own `task:done/failed`
  * facts reach the adapter without a second emitter. A task event that does not belong to a
  * parked turn is ignored silently - the planner runs tasks all the time and that is not an
@@ -58,6 +62,41 @@ class HarnessAdapter {
     if (result.ok) {
       this.taskToTurn.set(taskId, turnId);
       this._record('waiting', { turnId, taskId, tool: tool || null });
+    }
+    return result;
+  }
+
+  /**
+   * The model submitted a whole plan instead of one task. Park the turn on the plan as a
+   * synthetic identity (`plan:<planId>`) so a terminal plan event can resume it through the
+   * same TurnLifecycle rules (one event, no duplicate, cancel wins).
+   */
+  planCall({ turnId, planId, tool } = {}) {
+    if (!this.turns) return { ok: false, reason: 'no-turn-lifecycle' };
+    if (!planId) return { ok: false, reason: 'planId-required' };
+    const result = this.turns.wait(turnId, planKey(planId));
+    if (result.ok) {
+      this._record('waiting-plan', { turnId, planId, tool: tool || null });
+    }
+    return result;
+  }
+
+  /** A PlanService event for a turn-parked plan. */
+  planEvent(turnId, event = {}) {
+    if (!this.turns) return { ok: false, reason: 'no-turn-lifecycle' };
+    if (!event.planId) return { ok: false, reason: 'no-plan-id' };
+    const result = this.turns.ingest(turnId, {
+      taskId: planKey(event.planId),
+      type: event.type || 'plan:completed',
+      reason: event.reason || event.question || null
+    });
+    if (result.ok) {
+      this._record('resumable-plan', { turnId, planId: event.planId, event: event.type || null });
+      this._notifyResumable(result.turn, event);
+    } else if (result.reason === 'already-resumable') {
+      this._record('ignored-duplicate-plan', { turnId, planId: event.planId });
+    } else {
+      this._record('ignored-plan', { turnId, planId: event.planId, reason: result.reason });
     }
     return result;
   }
@@ -153,4 +192,8 @@ class HarnessAdapter {
   }
 }
 
-module.exports = { HarnessAdapter };
+function planKey(planId) {
+  return `plan:${planId}`;
+}
+
+module.exports = { HarnessAdapter, planKey };

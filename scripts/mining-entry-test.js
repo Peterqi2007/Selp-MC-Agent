@@ -1,5 +1,8 @@
 'use strict';
 
+// Offline suites must not read or write the live session-state file (config enables it).
+process.env.P1_STATE = 'off';
+
 /**
  * `npm run mining:entry:test` - the A-series acceptance for the unified mining entry
  * (docs/MINING-LLM-PLAN.md §6.1).
