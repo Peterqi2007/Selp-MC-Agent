@@ -489,7 +489,14 @@ class Brain {
         // Fire-and-forget with a guard: the fight can run for tens of seconds and
         // must not block the other reflexes (eat/armor/refresh keep ticking).
         this._reflexFight = true;
-        const useGun = nearest.distance > 4.5;
+        /**
+         * Prefer the gun whenever one is available, even point-blank. The shoot skill
+         * owns the close-range policy: it backs away while firing when there is room,
+         * and switches to the sword/axe only when that retreat cannot move. Choosing
+         * melee here (the old `distance <= 4.5` rule) made a healthy bot punch with the
+         * gun's stock while a retreat was still possible - operator report 2026-10-18.
+         */
+        const useGun = !!(snapNow && combatSkills.chooseGun(snapNow, { distance: nearest.distance }).ok);
         const run = useGun
           ? skills.run('shoot', this.ctx, { id: nearest.entity.id })
           : skills.run('attack', this.ctx, {});

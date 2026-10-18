@@ -256,18 +256,26 @@ timeOfDay=17818, isDay=false
    `skillRetreat()` 并 `return`，不再进入 engage；低血量时只剩撤退；
 2. `skillRetreat()` 只发 `retreatFrom`，不检查位移；退到坑/墙时命令仍被接受，
    于是“继续后退”但没有位移，也不会换近战；
-3. `shoot` 在 ≤3 格时也只 `retreatFrom(fire)` 继续用枪，没有切剑。
+3. `shoot` 在 ≤3 格时也只 `retreatFrom(fire)` 继续用枪，没有切剑；
+4. `brain.fastLoop` 仍用 `useGun = distance > 4.5`：3–4.5 格即使枪可用、后方有退路，
+   也直接选 `attack`（近战），于是“可以撤退却切近战、没有换枪”。
 
 本轮已修：
 
+- `brain.fastLoop`：只要有可用枪就选 `shoot`（不再按 4.5 格切近战）；由 shoot 自己决定
+  “先撤退射击”还是“撤退受阻切剑”，没枪才 `attack`；
 - `skillRetreat()`：等待 700ms 检查实际水平位移；`moved < 0.35` 或命令失败时，
   记录 `danger: retreat blocked ...`，调用 `skills.run('attack')`（attack 会 equipWeapon 换剑/斧）；
 - `shoot` ≤3 格：先尝试撤退并检查位移；受阻时 `equipWeapon` + `fightTarget`，没有近战武器才退回旧 kite；
 - 两个路径都留了武器/受阻日志。
 
-回归：`skills:test 58/58`（新增“blocked retreat switches to melee weapon”）、`control:test 38/38`。
+回归：`skills:test 58/58`、`control:test 38/38`（control 的 3 格期望已改为 shoot）。
 
-**A12 判定：FAIL（本轮数据）；修复后需在新夜晚重跑。** GUI 子场景依赖 M5/F1，尚未执行。
+重测记录（2026-10-18 07:41）：Agent 重启时客户端角色已是 **hp=0.82**，07:41:05 死亡；
+重生后 07:42:06 再次死亡。该段日志没有 threat/reflex 记录，是**低血量起步的污染环境**，
+不能用于验证新 reflex；需先恢复到满血再重跑。
+
+**A12 判定：FAIL（本轮数据）；修复后需在满血的新夜晚重跑。** GUI 子场景依赖 M5/F1，尚未执行。
 
 ## 12. 未执行
 

@@ -1264,8 +1264,8 @@ async function buildAgent(options = {}) {
       const beforeOverride = skillCalls.length;
       await tick(override.brain);
       expect(
-        skillCalls.slice(beforeOverride).some((call) => call.name === 'attack'),
-        `at 3 blocks the ignored target is hittable again: ${JSON.stringify(skillCalls.slice(beforeOverride))}`
+        skillCalls.slice(beforeOverride).some((call) => call.name === 'shoot'),
+        `at 3 blocks a gun-capable bot must shoot and let the skill retreat/fall back: ${JSON.stringify(skillCalls.slice(beforeOverride))}`
       );
 
       // ---- an explicit fight task suppresses the reflex (no double-fire) -------------
