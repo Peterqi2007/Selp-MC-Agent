@@ -376,6 +376,7 @@ register({
     let notAGunRetries = 0;
     let retreatBlocked = false;
     const dryGuns = new Set(); // item ids that answered "no_ammo"; never re-select them
+    const reloadAttempts = new Set(); // one explicit reload attempt per gun per shoot call
 
     for (;;) {
       if (Date.now() > deadline) {
@@ -540,7 +541,27 @@ register({
       const reason = verdict.reason || 'unknown';
       if (reason === 'target_gone') continue; // resolve() reports the kill next pass
       if (reason === 'no_ammo') {
-        dryGuns.add(bare(gun.item));
+        /**
+         * The client controller already tries to reload at magazine 0, but gives up after
+         * 4s and returns no_ammo. Before marking the gun dry (and before the reflex falls
+         * back to a sword), ask the mod for one explicit reload and re-read the magazine.
+         */
+        const gunId = bare(gun.item);
+        if (!reloadAttempts.has(gunId) && typeof body.reload === 'function') {
+          reloadAttempts.add(gunId);
+          logInfo(`shoot: ${gunId} empty - explicit reload`);
+          const reloadAccepted = await body.reload().catch(() => false);
+          await sleep(900);
+          const fresh = typeof body.refresh === 'function' ? await body.refresh(true).catch(() => null) : null;
+          const reloadedGun = fresh ? heldGun(fresh) : null;
+          if (reloadedGun && (reloadedGun.magazine + (reloadedGun.dummy || 0)) > 0) {
+            dryGuns.delete(gunId);
+            logInfo(`shoot: ${gunId} reloaded (mag ${reloadedGun.magazine}) - continuing`);
+            continue;
+          }
+          logInfo(`shoot: ${gunId} reload did not fill the magazine (accepted=${reloadAccepted}) - falling through`);
+        }
+        dryGuns.add(gunId);
         const alt = chooseGun(snap, { distance, excludeItems: [...dryGuns] });
         if (!alt.ok) {
           return { ok: false, failure: 'no_ammo', reason: `out of ammo: no other loaded gun (${shotsTotal} shots fired)` };
@@ -548,7 +569,7 @@ register({
         if (!(await equipVerified(ctx, alt.gun.item))) {
           return { ok: false, failure: 'no_gun', reason: `could not equip ${bare(alt.gun.item)}` };
         }
-        logInfo(`shoot: ${bare(gun.item)} dry - switching to ${bare(alt.gun.item)}`);
+        logInfo(`shoot: ${gunId} dry - switching to ${bare(alt.gun.item)}`);
         continue;
       }
       if (reason === 'blocked') {

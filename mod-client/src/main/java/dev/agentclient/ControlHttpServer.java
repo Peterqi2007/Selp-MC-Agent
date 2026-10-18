@@ -582,6 +582,7 @@ public final class ControlHttpServer {
                     }
                 }
                 case "stop" -> out.put("ok", Json.bool(actions.stop()));
+                case "reload" -> out.put("ok", Json.bool(actions.reloadGun()));
                 case "resync" -> {
                     actions.resyncPosition();
                     out.put("ok", Json.bool(true));
@@ -591,7 +592,7 @@ public final class ControlHttpServer {
                     out.put("error", Json.str("unknown command: " + verb));
                     out.put("known", Json.str(
                             "chat login register cmd look lookat moveto dig place useon menu click close "
-                                    + "use select drop attack shoot retreat stop resync"));
+                                    + "use select drop attack shoot retreat stop reload resync"));
                 }
             }
         } catch (Exception e) {

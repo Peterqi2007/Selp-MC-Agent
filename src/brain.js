@@ -234,6 +234,7 @@ class Brain {
     this.recentDeaths = [];
     /** Reflex bookkeeping for the skill-driven (non-mineflayer) path. */
     this._reflexFight = false;
+    this._reflexFightAt = 0;
     this._reflexEatBusy = false;
     this._reflexEatAt = 0;
     this._reflexArmorBusy = false;
@@ -378,6 +379,18 @@ class Brain {
         this.log.debug(`perception wake failed: ${err.message}`);
       }
     }
+    /**
+     * Safety valve: a combat skill must not freeze every later reflex forever. Live
+     * 2026-10-18 a no-ammo shoot left the guard set while zombies closed in; the bot
+     * stood still until an explicit !attack. The skill timeout is 45s, so 20s is a
+     * deliberately aggressive release for a stuck promise; the double-engage risk is
+     * bounded by combatState's own lease.
+     */
+    if (this._reflexFight && this._reflexFightAt && Date.now() - this._reflexFightAt > 20000) {
+      this.log.warn(`reflex fight guard stuck for ${Math.round((Date.now() - this._reflexFightAt) / 1000)}s - releasing`);
+      this._reflexFight = false;
+      this._reflexFightAt = 0;
+    }
 
     // ---- safe mode: stop feeding the mobs -------------------------------------
     // Several quick deaths in a row mean the current strategy is losing. Drop all
@@ -519,6 +532,7 @@ class Brain {
         // Fire-and-forget with a guard: the fight can run for tens of seconds and
         // must not block the other reflexes (eat/armor/refresh keep ticking).
         this._reflexFight = true;
+        this._reflexFightAt = Date.now();
         /**
          * Prefer the gun whenever one is available, even point-blank. The shoot skill
          * owns the close-range policy: it backs away while firing when there is room,
@@ -544,6 +558,7 @@ class Brain {
           .catch((e) => this.log.debug(`reflex fight failed: ${e.message}`))
           .finally(() => {
             this._reflexFight = false;
+            this._reflexFightAt = 0;
           });
       } else {
         await combat.defend();
@@ -694,6 +709,7 @@ class Brain {
     this._retreatCheckAt = 0;
     this._retreatStart = null;
     this._reflexFight = true;
+    this._reflexFightAt = Date.now();
     try {
       const melee = await skills.run('attack', this.ctx, { timeoutMs: Math.min(5000, 1500 + threat.distance * 400) });
       this.log.info(`danger: melee fallback ${melee && melee.ok ? 'killed' : 'failed'}: ${(melee && (melee.reason || melee.detail)) || 'no result'}`);
@@ -701,6 +717,7 @@ class Brain {
       this.log.warn(`danger: melee fallback failed: ${err.message}`);
     } finally {
       this._reflexFight = false;
+      this._reflexFightAt = 0;
     }
     return true;
   }

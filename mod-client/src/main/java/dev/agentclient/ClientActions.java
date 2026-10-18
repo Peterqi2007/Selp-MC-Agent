@@ -740,6 +740,26 @@ public final class ClientActions {
         });
     }
 
+    /**
+     * Trigger one explicit TACZ reload. The shoot/retreat controllers already reload
+     * automatically at magazine 0, but that path gives up after 4s and the agent then
+     * marks the gun dry. This verb lets the agent retry the reload once more before
+     * falling back to melee.
+     */
+    public boolean reloadGun() {
+        return onClient(() -> {
+            if (mc.player == null) {
+                return false;
+            }
+            Object operator = TaczBridge.operator(mc.player);
+            if (operator == null) {
+                return false;
+            }
+            TaczBridge.reload(operator);
+            return true;
+        });
+    }
+
     /** Walk toward a point by holding forward; the game does the physics. */
     private final class WalkTo implements Continuous {
         /**

@@ -1470,6 +1470,12 @@ class ClientModBody extends Body {
     return !!(res && res.ok);
   }
 
+  /** Trigger one explicit TACZ reload of the held gun. */
+  async reload() {
+    const res = await this.command('reload');
+    return !!(res && res.ok);
+  }
+
   /**
    * Fire the held TACZ gun at an entity: ONE bounded burst of ≤maxShots rounds.
    *

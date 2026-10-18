@@ -285,6 +285,17 @@ timeOfDay=17818, isDay=false
 - 07:59:36 第三只 6.4 格，枪 `mag=-1`；之后约 20s 只有 `danger detected, retreating`，
   没有 attack/shoot/equip，07:59:57 死亡；
 - 08:00:17 重生后仍处于 stopped，又死亡一次（这是死亡 hold 的预期行为，不是 reflex）。
+- 08:19:10 弹匣 `mag=0` 后日志只有 `reason=no_ammo`，没有 reload；HP 降到 5，
+  最后靠显式 `attack` 才杀死近身 zombie。说明 client 的自动换弹超时后，agent 没有再次换弹，
+  也没有及时切近战。
+
+换弹修复（2026-10-18）：
+
+- mod 新增 `/command reload`，`ClientActions.reloadGun()` 调用 TACZ operator.reload；
+- `ClientModBody.reload()`；
+- shoot 在 `no_ammo` 后先显式 reload 一次、刷新弹匣；只有仍为空才标 dry / 切枪 / 切近战；
+- skills 新增“空弹匣触发一次显式 reload”场景（59/59）；
+- agent 仍需重启客户端加载新 jar；本轮 live 没有验证新 reload 路径。
 
 根因（第二轮）：
 
