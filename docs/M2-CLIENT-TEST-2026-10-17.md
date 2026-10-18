@@ -1,8 +1,8 @@
 # M2 客户端测试记录（2026-10-17 首轮）
 
 > 阶段：M2（A01–A03、A09–A12、H1a/H1b）
-> 结论：**A01/A02/A03/A09/A10/A11/H1a/H1b 均 PASS；A12 FAIL（本轮近身无响应，
-> 撤退受阻不换剑已修，需重跑）。时间判定 bug 已修。**
+> 结论：**A01/A02/A03/A09/A10/A11/H1a/H1b 均 PASS；A12 部分 PASS（idle + 15 格主动交战
+> 已验证，不再复测；普通任务/GUI 未测）。时间判定 bug 已修。**
 > 原始证据：`runtime/logs/agent-m2-a01-2026-10-17.log`、
 > `runtime/logs/agent-a02-final2-2026-10-17.log`、`runtime/logs/a02-gate-2026-10-17.json`、
 > `runtime/logs/a09-idle-2026-10-17.json`、`runtime/logs/a10-stale-2026-10-17.json`、
@@ -238,7 +238,7 @@ timeOfDay=17818, isDay=false
 
 复验：`timeOfDay=17818` → `isDay=false`，A11 回复改为“天黑了”。
 
-## 11. A12：威胁与性能 —— FAIL（本轮）
+## 11. A12：威胁与性能 —— 部分 PASS（idle + 15 格主动交战）
 
 真机：day 819、`timeOfDay=13640` 夜、idle（`autoPlanDisabled=true`、`current=null`）。
 
@@ -328,7 +328,8 @@ Y 保持 attack 技能原来的 ±4；进入该范围的 hostile 会主动 engag
 - control 增加 blocked-retreat 场景（38/38），确认先 retreat，受阻后 attack；
 - reflex hostiles 先按 XZ 15 / Y ±4 过滤，再选最近目标。
 
-**A12 判定：FAIL（两轮数据）；修复后需在满血新夜晚重跑。** GUI 子场景依赖 M5/F1，尚未执行。
+**A12 判定：部分 PASS（2026-10-18 操作员确认）。** 静止场景威胁响应与 **XZ 15 格主动交战**
+已验证，不再复测；普通任务/GUI 子场景未测（GUI 依赖 M5/F1）。
 
 ## 12. 未执行
 
