@@ -331,6 +331,12 @@ Y 保持 attack 技能原来的 ±4；进入该范围的 hostile 会主动 engag
 **A12 判定：部分 PASS（2026-10-18 操作员确认）。** 静止场景威胁响应与 **XZ 15 格主动交战**
 已验证，不再复测；普通任务/GUI 子场景未测（GUI 依赖 M5/F1）。
 
+**2026-10-18 GUI 尝试：不计通过。** 现场 `/state.screen` 是 `PauseScreen`，日志没有
+`CraftingScreen`/工作台界面记录；09:15:56 Agent 第 4 次死亡，`PauseScreen` 按设计属于
+操作员界面，`autoCloseScreens` 不会关闭它。因此这次不是有效的工作台 GUI 测试。需要在
+重生后关闭暂停界面，实际打开工作台（`/state.screen` 应为 `CraftingScreen`）再召怪。
+
+
 ## 12. 未执行
 
 - A12 修复后的重跑（idle + 普通任务各 ≥5 次，GUI 留 M5）。
