@@ -223,6 +223,23 @@ function treeBlocks(x, z, height, species = 'oak', options = {}) {
     return 'stone/iron/deepslate gold/log all correct';
   });
 
+  await scenario('vanilla stone is mineable without a mineflayer registry (live A13-3)', () => {
+    /**
+     * The client-mod body never calls `scan(bot)`, so ModKnowledge.registry stayed null and
+     * stone/cobblestone classified as "unknown" -> isMineable() false. Live 2026-10-18 an
+     * agent plan refused every stone target while a standalone task with no `mods` context
+     * dug the same crosshair block. The vanilla minecraft-data registry closes that gap.
+     */
+    const { ModKnowledge } = require('../src/mods/knowledge');
+    const mods = new ModKnowledge(cfg);
+    expect(mods.isMineable('minecraft:stone') === true, 'stone must be mineable without a bot registry');
+    expect(mods.isMineable('minecraft:cobblestone') === true, 'cobblestone must be mineable');
+    expect(mods.isMineable('minecraft:deepslate') === true, 'deepslate must be mineable');
+    expect(mods.isMineable('minecraft:bedrock') === false, 'bedrock must stay unmineable');
+    expect(mods.isMineable('minecraft:barrier') === false, 'barrier must stay unmineable');
+    return `vanilla registry blocks=${Object.keys(mods.registry.blocksByName || {}).length}`;
+  });
+
   // ---------------------------------------------------------------- tool policy
   process.stdout.write('\n2b. tool policy - hardness vs. what is in the hand\n');
 

@@ -166,6 +166,15 @@ class ModKnowledge {
     this.learned = { items: {}, blocks: {}, servers: {} };
     this.report = null;
     this.load();
+    /**
+     * The client-mod body never calls `scan(bot)`, so `registry` stayed null and every
+     * vanilla block fell through to `classify()` -> `unknown` -> `isMineable() === false`.
+     * Live 2026-10-18: `mine stone` refused every stone target as unmineable (the task
+     * reported "could not reach or break any..."), while a standalone task with no `mods`
+     * context dug the same crosshair block immediately. Load the vanilla registry from
+     * `minecraft-data` so stone/cobblestone/deepslate remain ordinary mineable blocks.
+     */
+    if (!this.registry) this.registry = vanillaRegistry(cfg);
   }
 
   // ------------------------------------------------------------ persistence
@@ -423,6 +432,20 @@ function bareName(name) {
   if (!name || typeof name !== 'string') return '';
   const idx = name.indexOf(':');
   return idx === -1 ? name : name.slice(idx + 1);
+}
+
+/**
+ * Vanilla block registry for bodies that never expose a mineflayer `bot.registry`
+ * (the real client / mock). `minecraft-data(version)` has the same `blocksByName` shape.
+ */
+function vanillaRegistry(cfg) {
+  try {
+    const version = (cfg && cfg.bot && cfg.bot.version) || '1.20.1';
+    const data = require('minecraft-data')(version);
+    return data && data.blocksByName ? data : null;
+  } catch {
+    return null;
+  }
 }
 
 /** Known loader namespace markers, exported for tests. */
