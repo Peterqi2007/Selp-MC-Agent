@@ -473,11 +473,25 @@ class MineBlockTask extends HarvestTask {
   async probeShaft() {
     const world = this.ctx.world;
     let advanced = false;
+    /**
+     * The shaft is measured from the feet cell at entry, not from the current snapshot on
+     * every step. Live A13-3 2026-10-18:
+     *
+     *   probe shaft: y=63 below=grass_block at {x:19,y:62,z:73}
+     *   probe shaft: y=63 below=air         at {x:19,y:62,z:73}
+     *
+     * The second line is the hole the first dig just made. The body's `position` had not
+     * moved down yet, so re-reading `here.y - 1` looked at the same cell, saw the new air,
+     * and treated it as natural void. No shaft was ever dug below the first block. Using
+     * `startY - 1 - step` reads the next depth whether or not the snapshot has caught up.
+     */
+    const start = this.position;
+    if (!start) return false;
+    const startY = Math.floor(start.y);
 
     for (let step = 0; step < this.shaftDepth; step += 1) {
       if (this.cancelled) break;
-      const here = this.position;
-      if (!here) break;
+      const here = this.position || start;
 
       /**
        * Dig the block *below the feet*, not the feet cell.
@@ -486,14 +500,15 @@ class MineBlockTask extends HarvestTask {
        * dug anything: live 2026-10-17 a surface with no exposed stone stayed untouched while
        * the task walked at buried targets and reported noPath.
        */
+      const belowY = startY - 1 - step;
       const below = world.blockAtAbsolute({
         x: Math.floor(here.x),
-        y: Math.floor(here.y) - 1,
+        y: belowY,
         z: Math.floor(here.z)
       });
       const name = below ? bare(below.name) : null;
       this.log.info(
-        `probe shaft: y=${Math.floor(here.y)} below=${name || 'null'}` +
+        `probe shaft: depth=${step + 1} fromY=${startY} belowY=${belowY} below=${name || 'null'}` +
           (below && below.position ? ` at ${JSON.stringify(below.position)}` : '')
       );
       if (!name || ['air', 'cave_air', 'void_air', 'water', 'lava', 'bedrock', 'barrier'].includes(name)) break;

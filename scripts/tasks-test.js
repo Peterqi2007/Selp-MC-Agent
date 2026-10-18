@@ -181,6 +181,40 @@ function treeBlocks(x, z, height, species = 'oak', options = {}) {
     return `dug ${body.stats.dug}, reason="${res.reason}"`;
   });
 
+  await scenario('probe shaft does not mistake the hole it just dug for natural void', async () => {
+    /**
+     * Live A13-3 2026-10-18:
+     *   probe shaft: y=63 below=grass_block at 19,62,73
+     *   probe shaft: y=63 below=air         at 19,62,73
+     * The second read was the hole from the first dig; the body snapshot had not moved down,
+     * so the old code looked at the same cell, saw air and stopped. With grass/dirt above the
+     * stone, that meant the shaft never reached stone at all.
+     */
+    const blocks = [
+      { name: 'grass_block', position: { x: 0, y: 63, z: 0 } },
+      { name: 'dirt', position: { x: 0, y: 62, z: 0 } },
+      { name: 'stone', position: { x: 0, y: 61, z: 0 } },
+      { name: 'stone', position: { x: 0, y: 60, z: 0 } }
+    ];
+    const body = new MockBody(cfg, { blocks, inventory: { stone_pickaxe: 1 } });
+    await body.connect();
+    const task = new MineBlockTask(makeCtx(body, cfg), {
+      block: ['stone'], count: 1, probeShaft: true, shaftDepth: 4, warmupMs: 0, roamSteps: 0
+    });
+    // Exercise the shaft directly: the mock bot does not fall into the hole, so the drops
+    // from stone 3+ blocks below are intentionally outside the collector's vertical limit.
+    // What this scenario pins is the shaft continuing to the next depth instead of stopping
+    // on the air cell it just created.
+    const advanced = await task.probeShaft();
+    const stoneDug = body.history.some(
+      (entry) => entry.action === 'dig' && /stone/.test(entry.name) && entry.position && entry.position.y === 61
+    );
+    expect(advanced, 'the shaft must advance past the first block');
+    expect(body.stats.dug >= 3, `the shaft should dig grass, dirt and stone, dug=${body.stats.dug}`);
+    expect(stoneDug, `the shaft must reach the stone at y=61; history=${JSON.stringify(body.history)}`);
+    return `shaft reached y=61 stone after ${body.stats.dug} digs`;
+  });
+
   await scenario('dropOf maps ore blocks to their real drops', () => {
     expect(dropOf('stone') === 'cobblestone', 'stone -> cobblestone');
     expect(dropOf('minecraft:iron_ore') === 'raw_iron', 'iron_ore -> raw_iron');
