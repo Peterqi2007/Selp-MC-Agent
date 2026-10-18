@@ -444,6 +444,23 @@ class Brain {
      */
     const skillDriven = this.ctx.bodyKind !== 'mineflayer';
 
+    /**
+     * A container screen blocks aiming/attack/movement. Close it as soon as a hostile is
+     * actually present, before danger/engage; waiting for a flank movement cost ~5s and
+     * a life in the 2026-10-18 GUI test. Pause/chat screens are not auto-closable and
+     * remain an explicit blocked state.
+     */
+    if (skillDriven && this.ctx.body && typeof this.ctx.body.ensureCombatScreenClear === 'function') {
+      const nearby = this.ctx.world.hostiles(24) || [];
+      if (nearby.length) {
+        const clear = await this.ctx.body.ensureCombatScreenClear().catch(() => false);
+        if (!clear) {
+          this.log.warn('reflex blocked by an open non-container screen');
+          return;
+        }
+      }
+    }
+
     if (world.isInDanger()) {
       /**
        * A melee fallback is already running: do not start another retreat, or its next

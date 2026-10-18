@@ -340,9 +340,14 @@ Y 保持 attack 技能原来的 ±4；进入该范围的 hostile 会主动 engag
 任务场景，不计入。该单次注入满足“威胁被发现、任务/战斗争抢有可解释响应、战斗最终完成”
 的验收口径。
 
-**2026-10-18 GUI 场景：仍未测。** 现场只是 `PauseScreen`，不是工作台
-`CraftingScreen`；操作员已放置工作台 `(99,69,-9)`，需在重生后关闭暂停界面、实际打开
-工作台再召怪。`PauseScreen` 按设计属于操作员界面，`autoCloseScreens` 不会关闭它。
+**2026-10-18 GUI 场景：FAIL（首轮）。** 工作台成功打开为 `CraftingScreen`；威胁在
+09:35:11 进入（decaying zombie 13.9 格），射击被界面挡住；直到 09:35:16 的 flank
+移动才触发 `container screen ... closing`，关闭延迟约 **5 秒**；09:35:24 目标进入
+3 格，09:35:27 死亡。失败原因：关闭界面只发生在“移动需要”时，而不是进入战斗前。
+
+修复：`ClientModBody.ensureCombatScreenClear()`，Brain 在附近有 hostile 时、进入
+danger/engage 之前立即关闭 container screen；PauseScreen/聊天等人类界面仍拒绝自动关闭。
+该修复需重启 Agent 后重测 GUI 场景。
 
 
 ## 12. 未执行

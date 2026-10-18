@@ -1326,6 +1326,24 @@ class ClientModBody extends Body {
    * Kept for the container/crafting skills, which open a menu themselves and must put it away.
    * It is not a general "dismiss whatever is on screen": see `isContainerScreen`.
    */
+  /**
+   * Close a container screen before a reflex fight, not only when a walk needs it.
+   *
+   * Live GUI test 2026-10-18: a CraftingScreen stayed open for ~5s after a zombie entered
+   * range because nothing tried to move until the shoot skill flanked; shots were blocked
+   * and the bot died. Pause/chat/unknown screens remain human-owned and are refused.
+   */
+  async ensureCombatScreenClear() {
+    const snap = this.snapshot();
+    if (!snap || !snap.screenOpen) return true;
+    const screen = snap.screen || 'a screen';
+    if (!ClientModBody.isContainerScreen(screen) || !this.autoCloseScreens) {
+      this.log.warn(`${screen} is open and not auto-closable - combat cannot start`);
+      return false;
+    }
+    return this._tryCloseScreen(screen);
+  }
+
   async closeMenu() {
     const res = await this.command('close');
     return !!(res && res.ok);
