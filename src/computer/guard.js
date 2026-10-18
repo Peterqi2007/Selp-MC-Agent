@@ -13,6 +13,10 @@
  *     attempted, and the caller needs to know that);
  *   - with no executor wired (the default until F1), nothing can run.
  *
+ * `observe()` is the read-only twin: it goes through `policy.checkObserve()` instead of
+ * `policy.check()`, so pre-F1 observation is limited to the unique candidate window and cannot
+ * smuggle in input. Both methods share the same "refusal never executes" rule.
+ *
  * The guard is transport-free: the executor is whatever the future client window injects.
  */
 
@@ -26,12 +30,8 @@ class ComputerUseGuard {
     }
   }
 
-  /**
-   * @param {object} action { kind, windowId, x?, y? }
-   * @returns {Promise<{ok:boolean, executed:boolean, reason?:string, result?:any, error?:string}>}
-   */
-  async act(action = {}) {
-    const verdict = this.policy.check(action);
+  /** Refuse-or-run, shared by act() and observe(). */
+  async dispatch(action, verdict) {
     if (!verdict || verdict.ok !== true) {
       const reason = (verdict && verdict.reason) || 'denied';
       this.log.debug(`computer-use action refused (${reason})`);
@@ -46,6 +46,25 @@ class ComputerUseGuard {
     } catch (err) {
       return { ok: false, executed: true, reason: 'executor-error', error: err.message };
     }
+  }
+
+  /**
+   * @param {object} action { kind, windowId, x?, y? }
+   * @returns {Promise<{ok:boolean, executed:boolean, reason?:string, result?:any, error?:string}>}
+   */
+  async act(action = {}) {
+    return this.dispatch(action, this.policy.check(action));
+  }
+
+  /**
+   * Read-only observation (state / screenshot). Same refusal contract as act().
+   * @param {object} action { kind, windowId }
+   */
+  async observe(action = {}) {
+    if (typeof this.policy.checkObserve !== 'function') {
+      return { ok: false, executed: false, reason: 'observation-unsupported' };
+    }
+    return this.dispatch(action, this.policy.checkObserve(action));
   }
 
   status() {

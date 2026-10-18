@@ -1039,7 +1039,7 @@ function makeBrain() {
     policy.verify({
       gameWindowId: 'mc',
       bounds: { x: 0, y: 0, width: 800, height: 600 },
-      evidence: 'F1 pending'
+      evidence: { windowId: 'mc', screenshot: { ok: true, width: 800, height: 600 }, boundsSource: 'win32' }
     });
     check('an action inside the verified window is allowed, outside is not', () => {
       assert(policy.check({ kind: 'click', windowId: 'mc', x: 100, y: 100 }).ok);
@@ -2279,7 +2279,11 @@ function makeBrain() {
       assert.strictEqual(calls.length, 0);
     });
 
-    policy.verify({ gameWindowId: 'mc', bounds: { x: 0, y: 0, width: 800, height: 600 } });
+    policy.verify({
+      gameWindowId: 'mc',
+      bounds: { x: 0, y: 0, width: 800, height: 600 },
+      evidence: { windowId: 'mc', screenshot: { ok: true, width: 800, height: 600 }, boundsSource: 'win32' }
+    });
     const allowed = await guard.act({ kind: 'click', windowId: 'mc', x: 100, y: 100 });
     check('a verified in-window action reaches the executor once', () => {
       assert(allowed.ok);
@@ -2442,6 +2446,276 @@ function makeBrain() {
       assert.strictEqual(failed.filter((event) => event.terminal === true).length, 1);
       assert.strictEqual(failed[1].attemptId, `${flaky.taskId}#1`);
       assert.strictEqual(failed[1].terminal, true);
+    });
+  }
+
+  // ------------------------------------------------ CU preflight gate (M5/F1)
+  process.stdout.write('\n42. CU preflight gate (M5/F1)\n');
+  {
+    const { WindowPolicy } = require('../src/computer/windowPolicy');
+    const { CuPreflight } = require('../src/computer/preflight');
+    const {
+      normalizeRect,
+      resolveRect,
+      win32RectProvider,
+      buildWin32Script
+    } = require('../src/computer/windowRect');
+
+    const candidate = 'mc-330636';
+    const makeGate = (options = {}) => {
+      const calls = [];
+      const policy = new WindowPolicy({ candidates: options.candidates || [] });
+      const preflight = new CuPreflight({
+        policy,
+        execute: async (action) => {
+          calls.push(action);
+          return { ok: true, kind: action.kind };
+        },
+        rectProviders: options.rectProviders || []
+      });
+      return { policy, preflight, calls };
+    };
+
+    // -- pre-F1: acts denied, observation limited to the unique candidate
+    const gate = makeGate({ candidates: [candidate] });
+    const deniedAct = await gate.preflight.act({ kind: 'click', windowId: candidate, x: 10, y: 10 });
+    check('pre-F1 act is refused before the executor is reached', () => {
+      assert.strictEqual(deniedAct.ok, false);
+      assert.strictEqual(deniedAct.executed, false);
+      assert.strictEqual(deniedAct.reason, 'cu-unproven');
+      assert.strictEqual(gate.calls.length, 0);
+    });
+
+    const readOnly = await gate.preflight.observe({ kind: 'screenshot', windowId: candidate });
+    check('pre-F1 read-only observation of the unique candidate is allowed', () => {
+      assert(readOnly.ok);
+      assert.strictEqual(readOnly.executed, true);
+      assert.strictEqual(gate.calls.length, 1);
+      assert.strictEqual(gate.calls[0].kind, 'screenshot');
+    });
+
+    const noId = await gate.preflight.observe({ kind: 'screenshot' });
+    check('observation without an explicit windowId is refused', () => {
+      assert.strictEqual(noId.ok, false);
+      assert.strictEqual(noId.reason, 'observe-window-required');
+      assert.strictEqual(gate.calls.length, 1);
+    });
+
+    const otherWindow = await gate.preflight.observe({ kind: 'screenshot', windowId: 'notepad-1' });
+    check('observation of any other window is refused', () => {
+      assert.strictEqual(otherWindow.ok, false);
+      assert.strictEqual(otherWindow.reason, 'not-candidate-window');
+      assert.strictEqual(gate.calls.length, 1);
+    });
+
+    const carriesInput = await gate.preflight.observe({ kind: 'screenshot', windowId: candidate, x: 5, y: 5 });
+    check('observation carrying input fields is refused', () => {
+      assert.strictEqual(carriesInput.ok, false);
+      assert.strictEqual(carriesInput.reason, 'interaction-not-allowed');
+      assert.strictEqual(gate.calls.length, 1);
+    });
+
+    const twoCandidates = makeGate({ candidates: ['mc-a', 'mc-b'] });
+    const ambiguous = await twoCandidates.preflight.observe({ kind: 'screenshot', windowId: 'mc-a' });
+    check('observation needs exactly one candidate window', () => {
+      assert.strictEqual(ambiguous.ok, false);
+      assert.strictEqual(ambiguous.reason, 'candidate-not-unique');
+      assert.strictEqual(twoCandidates.calls.length, 0);
+    });
+
+    // -- verify() only accepts real F1 evidence
+    const noEvidence = new WindowPolicy({ candidates: [candidate] }).verify({
+      gameWindowId: candidate,
+      bounds: { x: 0, y: 0, width: 1280, height: 720 }
+    });
+    check('verify() refuses to pass without a screenshot', () => {
+      assert.strictEqual(noEvidence.ok, false);
+      assert.strictEqual(noEvidence.reason, 'screenshot-required');
+    });
+
+    const verifying = new WindowPolicy({ candidates: [candidate] });
+    const pixelBounds = verifying.verify({
+      gameWindowId: candidate,
+      bounds: { x: 0, y: 0, width: 1280, height: 720 },
+      evidence: {
+        windowId: candidate,
+        screenshot: { ok: true, width: 696, height: 417 },
+        boundsSource: 'screenshot-size'
+      }
+    });
+    check('verify() refuses bounds inferred from screenshot pixels', () => {
+      assert.strictEqual(pixelBounds.ok, false);
+      assert.strictEqual(pixelBounds.reason, 'bounds-source-invalid');
+      assert.strictEqual(verifying.verified, false);
+    });
+
+    const foreignWindow = verifying.verify({
+      gameWindowId: 'notepad-1',
+      bounds: { x: 0, y: 0, width: 800, height: 600 },
+      evidence: { screenshot: { ok: true, width: 800, height: 600 }, boundsSource: 'win32' }
+    });
+    check('verify() refuses a window that is not the candidate', () => {
+      assert.strictEqual(foreignWindow.ok, false);
+      assert.strictEqual(foreignWindow.reason, 'window-mismatch');
+      assert.strictEqual(verifying.verified, false);
+    });
+
+    const verified = verifying.verify({
+      gameWindowId: candidate,
+      bounds: { x: 0, y: 0, width: 1280, height: 720 },
+      evidence: { windowId: candidate, screenshot: { ok: true, width: 1280, height: 720 }, boundsSource: 'dwm' }
+    });
+    check('verify() passes on screenshot plus a real geometry source', () => {
+      assert(verified.ok);
+      assert.strictEqual(verifying.verified, true);
+      assert.strictEqual(verifying.bounds.source, 'dwm');
+    });
+
+    const postVerify = makeGate({ candidates: [candidate] });
+    postVerify.policy.verify({
+      gameWindowId: candidate,
+      bounds: { x: 0, y: 0, width: 1280, height: 720 },
+      evidence: { windowId: candidate, screenshot: { ok: true, width: 1280, height: 720 }, boundsSource: 'win32' }
+    });
+    const elsewhere = await postVerify.preflight.observe({ kind: 'screenshot', windowId: 'notepad-1' });
+    const insideAct = await postVerify.preflight.act({ kind: 'click', windowId: candidate, x: 40, y: 40 });
+    check('after verify the target window admits acts and other windows stay closed', () => {
+      assert.strictEqual(elsewhere.ok, false);
+      assert.strictEqual(elsewhere.reason, 'outside-window');
+      assert(insideAct.ok);
+      assert.strictEqual(postVerify.calls.length, 1);
+    });
+
+    // -- rect sources: helper first, then read-only Win32/DWM
+    const helperWins = await resolveRect({
+      windowId: candidate,
+      providers: [
+        { name: 'helper', get: async () => ({ x: 100, y: 200, width: 800, height: 600, source: 'helper' }) },
+        {
+          name: 'win32',
+          get: async () => {
+            throw new Error('must not be asked');
+          }
+        }
+      ]
+    });
+    check('the helper rect is used when it returns one', () => {
+      assert(helperWins.ok);
+      assert.strictEqual(helperWins.rect.source, 'helper');
+      assert.strictEqual(helperWins.rect.x, 100);
+      assert.strictEqual(helperWins.attempts.length, 1);
+    });
+
+    const win32Fallback = await resolveRect({
+      windowId: candidate,
+      providers: [
+        {
+          name: 'helper',
+          get: async () => {
+            throw new Error('helper has no rect');
+          }
+        },
+        { name: 'win32', get: async () => ({ x: 56, y: 24, width: 1280, height: 720, source: 'dwm' }) }
+      ]
+    });
+    check('Win32/DWM is the fallback when the helper cannot return a rect', () => {
+      assert(win32Fallback.ok);
+      assert.strictEqual(win32Fallback.rect.source, 'dwm');
+      assert.strictEqual(win32Fallback.attempts[0].reason, 'provider-error');
+      assert.strictEqual(win32Fallback.attempts[1].ok, true);
+    });
+
+    const unavailable = await resolveRect({
+      windowId: candidate,
+      providers: [
+        {
+          name: 'helper',
+          get: async () => {
+            throw new Error('no helper rect');
+          }
+        },
+        {
+          name: 'win32',
+          get: async () => {
+            throw new Error('no powershell runner');
+          }
+        }
+      ]
+    });
+    check('no rect source means rect-unavailable, with no invented coordinates', () => {
+      assert.strictEqual(unavailable.ok, false);
+      assert.strictEqual(unavailable.reason, 'rect-unavailable');
+      assert.strictEqual(unavailable.rect, undefined);
+    });
+
+    const pixelRect = normalizeRect({ x: 0, y: 0, width: 696, height: 417, source: 'screenshot-size' });
+    check('a rect labelled screenshot-size is refused at the source', () => {
+      assert.strictEqual(pixelRect.ok, false);
+      assert.strictEqual(pixelRect.reason, 'rect-source-invalid');
+    });
+
+    const degenerateRect = normalizeRect({ x: 0, y: 0, width: 0, height: 720, source: 'win32' });
+    check('a degenerate rect is refused', () => {
+      assert.strictEqual(degenerateRect.ok, false);
+      assert.strictEqual(degenerateRect.reason, 'rect-invalid');
+    });
+
+    const win32Provider = win32RectProvider({
+      runner: async () =>
+        JSON.stringify({
+          ok: true,
+          pid: 1234,
+          rect: { x: 10, y: 20, width: 1280, height: 720, source: 'dwm', hwnd: 99 }
+        })
+    });
+    const parsedRect = await win32Provider.get(candidate);
+    check('the win32 provider parses a read-only probe result', () => {
+      assert.strictEqual(parsedRect.x, 10);
+      assert.strictEqual(parsedRect.width, 1280);
+      assert.strictEqual(parsedRect.source, 'dwm');
+      assert.strictEqual(parsedRect.windowId, candidate);
+    });
+
+    const missingWindow = win32RectProvider({
+      runner: async () => JSON.stringify({ ok: false, reason: 'window-not-found' })
+    });
+    let probeError = null;
+    try {
+      await missingWindow.get(candidate);
+    } catch (err) {
+      probeError = err.message;
+    }
+    check('the win32 provider surfaces a probe refusal as an error', () => {
+      assert.match(String(probeError), /window-not-found/);
+    });
+
+    const script = buildWin32Script({ processName: 'java', titlePattern: '*Minecraft*' });
+    check('the win32 probe is read-only: geometry only, no capture or input APIs', () => {
+      assert.match(script, /GetWindowRect/);
+      assert.match(script, /DwmGetWindowAttribute/);
+      assert.doesNotMatch(script, /PrintWindow|BitBlt|SendInput|keybd_event|mouse_event|CopyFromScreen/);
+      assert.match(script, /"java"/);
+    });
+
+    // -- the gate itself must never probe a non-candidate window's geometry
+    let probed = false;
+    const geometryGate = makeGate({
+      candidates: [candidate],
+      rectProviders: [
+        {
+          name: 'spy',
+          get: async () => {
+            probed = true;
+            return { x: 0, y: 0, width: 10, height: 10, source: 'win32' };
+          }
+        }
+      ]
+    });
+    const stolen = await geometryGate.preflight.resolveRect('notepad-1');
+    check('geometry is never queried for a non-candidate window', () => {
+      assert.strictEqual(stolen.ok, false);
+      assert.strictEqual(stolen.reason, 'not-candidate-window');
+      assert.strictEqual(probed, false);
     });
   }
 

@@ -1,0 +1,162 @@
+# dsh-computer-use: preserve screenshot mediaType (applied 2026-10-18)
+# Root cause: helper JPEG data URL was always published as image/png.
+# Apply to src/tools/state.ts, then rebuild; lib/index.js is patched directly here.
+--- src/tools/state.ts.bak-mime-20261018-205042	2026-10-18 20:50:42.147627000 +0800
++++ src/tools/state.ts	2026-10-18 20:50:53.502709500 +0800
+@@ -191,15 +191,20 @@
+   }
+ 
+   const inputs: SaveImageAttachment[] = []
+-  const meta: { width: number; height: number }[] = []
++  const meta: { width: number; height: number; mediaType: ImageMediaType }[] = []
+   for (const [index, shot] of shots.entries()) {
+     try {
++      const decoded = decodeDataUrl(shot.url)
+       inputs.push({
+-        data: decodeDataUrl(shot.url),
+-        mediaType: 'image/png',
+-        name: shotName(windowId, index),
++        data: decoded.data,
++        mediaType: decoded.mediaType,
++        name: shotName(windowId, index, decoded.mediaType),
++      })
++      meta.push({
++        width: shot.width ?? 0,
++        height: shot.height ?? 0,
++        mediaType: decoded.mediaType,
+       })
+-      meta.push({ width: shot.width ?? 0, height: shot.height ?? 0 })
+     } catch (error) {
+       notes.push(`第 ${index + 1} 张截图解码失败：${formatError(error)}`)
+     }
+@@ -211,7 +216,7 @@
+     for (const [index, ref] of refs.entries()) {
+       published.push({
+         attachmentId: String(ref.attachmentId),
+-        mediaType: 'image/png',
++        mediaType: ref.mediaType ?? meta[index]?.mediaType ?? inputs[index]?.mediaType ?? 'image/png',
+         bytes: ref.bytes ?? inputs[index]?.data.length ?? 0,
+         width: meta[index]?.width ?? 0,
+         height: meta[index]?.height ?? 0,
+@@ -270,13 +275,49 @@
+   }
+ }
+ 
+-function shotName(windowId: number, index: number): string {
+-  return `computer-use-${safeToken(String(windowId), 'window')}-${index}.png`
++function shotName(windowId: number, index: number, mediaType: ImageMediaType = 'image/png'): string {
++  const extension = mediaType === 'image/jpeg' ? 'jpg' : mediaType === 'image/webp' ? 'webp' : 'png'
++  return `computer-use-${safeToken(String(windowId), 'window')}-${index}.${extension}`
++}
++
++/** Prefer the bytes' real signature when a helper labels a screenshot incorrectly. */
++function sniffImageMediaType(data: Uint8Array): ImageMediaType | null {
++  if (data.length >= 8 && data[0] === 0x89 && data[1] === 0x50 && data[2] === 0x4e && data[3] === 0x47) {
++    return 'image/png'
++  }
++  if (data.length >= 3 && data[0] === 0xff && data[1] === 0xd8 && data[2] === 0xff) {
++    return 'image/jpeg'
++  }
++  if (
++    data.length >= 12 &&
++    String.fromCharCode(data[0], data[1], data[2], data[3]) === 'RIFF' &&
++    String.fromCharCode(data[8], data[9], data[10], data[11]) === 'WEBP'
++  ) {
++    return 'image/webp'
++  }
++  return null
+ }
+ 
+-/** 把 `data:image/png;base64,...` 解回字节。 */
+-function decodeDataUrl(url: string): Uint8Array {
++/**
++ * Decode a screenshot data URL and keep its real media type.
++ *
++ * The helper has returned JPEG bytes for a Minecraft/OpenGL window even though the old
++ * implementation hard-coded `image/png`; the attachment store then rejected the upload with
++ * "Declared image type does not match its bytes." Parse the header, normalize `image/jpg`,
++ * and prefer the byte signature when the two disagree.
++ */
++function decodeDataUrl(url: string): { data: Uint8Array; mediaType: ImageMediaType } {
++  if (!url.startsWith('data:')) throw new Error('截图数据不是合法的 data URL')
+   const comma = url.indexOf(',')
+   if (comma === -1) throw new Error('截图数据不是合法的 data URL')
+-  return new Uint8Array(Buffer.from(url.slice(comma + 1), 'base64'))
++  const header = url.slice(5, comma)
++  const declared = (header.split(';')[0] || 'image/png').toLowerCase().replace('image/jpg', 'image/jpeg')
++  if (declared !== 'image/png' && declared !== 'image/jpeg' && declared !== 'image/webp') {
++    throw new Error(`不支持的截图 mediaType: ${declared}`)
++  }
++  const data = new Uint8Array(
++    Buffer.from(url.slice(comma + 1), /;base64/i.test(header) ? 'base64' : 'utf8'),
++  )
++  if (data.length === 0) throw new Error('截图数据为空')
++  return { data, mediaType: sniffImageMediaType(data) ?? (declared as ImageMediaType) }
+ }
+--- lib/index.js.bak-mime-20261018-205042	2026-10-18 20:50:42.197699300 +0800
++++ lib/index.js	2026-10-18 20:50:59.889409800 +0800
+@@ -1333,12 +1333,13 @@
+   const meta = [];
+   for (const [index, shot] of shots.entries()) {
+     try {
++      const decoded = decodeDataUrl(shot.url);
+       inputs.push({
+-        data: decodeDataUrl(shot.url),
+-        mediaType: "image/png",
+-        name: shotName(windowId, index)
++        data: decoded.data,
++        mediaType: decoded.mediaType,
++        name: shotName(windowId, index, decoded.mediaType)
+       });
+-      meta.push({ width: shot.width ?? 0, height: shot.height ?? 0 });
++      meta.push({ width: shot.width ?? 0, height: shot.height ?? 0, mediaType: decoded.mediaType });
+     } catch (error) {
+       notes.push(`\u7B2C ${index + 1} \u5F20\u622A\u56FE\u89E3\u7801\u5931\u8D25\uFF1A${formatError(error)}`);
+     }
+@@ -1349,7 +1350,7 @@
+     for (const [index, ref] of refs.entries()) {
+       published.push({
+         attachmentId: String(ref.attachmentId),
+-        mediaType: "image/png",
++        mediaType: ref.mediaType ?? meta[index]?.mediaType ?? inputs[index]?.mediaType ?? "image/png",
+         bytes: ref.bytes ?? inputs[index]?.data.length ?? 0,
+         width: meta[index]?.width ?? 0,
+         height: meta[index]?.height ?? 0,
+@@ -1398,13 +1399,34 @@
+     notes.push(`\u622A\u56FE\u53D1\u5E03\u5931\u8D25\uFF1A${formatError(error)}`);
+   }
+ }
+-function shotName(windowId, index) {
+-  return `computer-use-${safeToken(String(windowId), "window")}-${index}.png`;
++function shotName(windowId, index, mediaType = "image/png") {
++  const extension = mediaType === "image/jpeg" ? "jpg" : mediaType === "image/webp" ? "webp" : "png";
++  return `computer-use-${safeToken(String(windowId), "window")}-${index}.${extension}`;
++}
++function sniffImageMediaType(data) {
++  if (data.length >= 8 && data[0] === 0x89 && data[1] === 0x50 && data[2] === 0x4e && data[3] === 0x47) {
++    return "image/png";
++  }
++  if (data.length >= 3 && data[0] === 0xff && data[1] === 0xd8 && data[2] === 0xff) {
++    return "image/jpeg";
++  }
++  if (data.length >= 12 && String.fromCharCode(data[0], data[1], data[2], data[3]) === "RIFF" && String.fromCharCode(data[8], data[9], data[10], data[11]) === "WEBP") {
++    return "image/webp";
++  }
++  return null;
+ }
+ function decodeDataUrl(url) {
++  if (!String(url).startsWith("data:")) throw new Error("\u622A\u56FE\u6570\u636E\u4E0D\u662F\u5408\u6CD5\u7684 data URL");
+   const comma = url.indexOf(",");
+   if (comma === -1) throw new Error("\u622A\u56FE\u6570\u636E\u4E0D\u662F\u5408\u6CD5\u7684 data URL");
+-  return new Uint8Array(Buffer.from(url.slice(comma + 1), "base64"));
++  const header = url.slice(5, comma);
++  const declared = (header.split(";")[0] || "image/png").toLowerCase().replace("image/jpg", "image/jpeg");
++  if (declared !== "image/png" && declared !== "image/jpeg" && declared !== "image/webp") {
++    throw new Error(`\u4E0D\u652F\u6301\u7684\u622A\u56FE mediaType: ${declared}`);
++  }
++  const data = new Uint8Array(Buffer.from(url.slice(comma + 1), /;base64/i.test(header) ? "base64" : "utf8"));
++  if (data.length === 0) throw new Error("\u622A\u56FE\u6570\u636E\u4E3A\u7A7A");
++  return { data, mediaType: sniffImageMediaType(data) ?? declared };
+ }
+ 
+ // dsh-computer-use/src/tools/act.ts
