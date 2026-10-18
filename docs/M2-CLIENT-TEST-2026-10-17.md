@@ -275,7 +275,34 @@ timeOfDay=17818, isDay=false
 重生后 07:42:06 再次死亡。该段日志没有 threat/reflex 记录，是**低血量起步的污染环境**，
 不能用于验证新 reflex；需先恢复到满血再重跑。
 
-**A12 判定：FAIL（本轮数据）；修复后需在满血的新夜晚重跑。** GUI 子场景依赖 M5/F1，尚未执行。
+重测记录（2026-10-18 07:57–08:00，满血起步，仍 FAIL）：
+
+- 07:57:57 第一只 zombie 4.0 格，shoot 在 07:58:00 成功；
+- 07:58:01 第二只 10.1 格，shoot 被 cover 挡住；07:58:10 HP<8 进入 danger；
+  07:58:12 `retreat blocked (moved 0.02)` 启动了 melee fallback，但 **07:58:12.602
+  下一 tick 又 `danger detected, retreating`，把 fallback 取消**，07:58:13 死亡；
+- 07:59:19 `!resume`；两只 zombie（5.0/9.1）分别在 07:59:29/07:59:33 被 shoot 击杀；
+- 07:59:36 第三只 6.4 格，枪 `mag=-1`；之后约 20s 只有 `danger detected, retreating`，
+  没有 attack/shoot/equip，07:59:57 死亡；
+- 08:00:17 重生后仍处于 stopped，又死亡一次（这是死亡 hold 的预期行为，不是 reflex）。
+
+根因（第二轮）：
+
+1. `skillRetreat` 在 `_retreatUntil` 内直接 return，2.7s 内不复检位移；坑里一直“视为在撤退”；
+2. blocked fallback 启动后没有 `_reflexFight` 保护，下一 tick 的 danger 分支又发 retreat，
+   取消近战；
+3. HP<8 且 7 格内没有 hostile 时，`skillRetreat` 返回 undefined，danger 分支仍 `return`，
+   导致静默空转；
+4. 枪 `mag=-1` 后没有可靠切近战，仍然反复 retreat。
+
+本轮追加修复：
+
+- `skillRetreat` 每 700ms 复检实际位移；`moved < 0.35` 立即 melee fallback；
+- fallback 期间设 `_reflexFight=true`，danger 分支遇到它直接返回，不取消近战；
+- HP<8 且 7 格内无怪时 `skillRetreat` 返回 false，fastLoop 继续 eat/engage，不再静默 return；
+- control 增加 blocked-retreat 场景（38/38），确认先 retreat，受阻后 attack。
+
+**A12 判定：FAIL（两轮数据）；修复后需在满血新夜晚重跑。** GUI 子场景依赖 M5/F1，尚未执行。
 
 ## 12. 未执行
 

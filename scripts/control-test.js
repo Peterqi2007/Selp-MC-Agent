@@ -1144,17 +1144,18 @@ async function buildAgent(options = {}) {
       return { ok: true, detail: 'stub' };
     };
     try {
-      const mkBrain = ({ health = 20, hostiles = [], hub = null } = {}) => {
+      const mkBrain = ({ health = 20, hostiles = [], hub = null, retreatMoves = true } = {}) => {
         const calls = { retreat: [], stop: 0, equip: [] };
         let held = null;
         let danger = false;
         let healthNow = health;
         let hostileList = hostiles;
+        let pos = { x: 0, y: 64, z: 0 };
         const body = {
           isReady: true,
-          refresh: async () => null,
+          refresh: async () => body.snapshot(),
           snapshot: () => ({
-            position: { x: 0, y: 64, z: 0 },
+            position: { ...pos },
             health: healthNow,
             heldItem: held,
             inventory: {},
@@ -1167,6 +1168,8 @@ async function buildAgent(options = {}) {
           },
           retreatFrom: async (entity, options) => {
             calls.retreat.push({ id: entity.id, ms: options.ms, fire: options.fire === true });
+            // A working retreat moves; the blocked-retreat fallback is tested separately.
+            if (retreatMoves) pos = { ...pos, x: pos.x + 1 };
             return true;
           },
           stop: async () => {
@@ -1230,6 +1233,19 @@ async function buildAgent(options = {}) {
       await tick(retreatAgent.brain);
       expect(retreatAgent.calls.stop >= 1, 'danger over must cancel the running retreat');
       expect(retreatAgent.brain._retreatTargetId === null, 'the retreat marker must clear');
+
+      // ---- a blocked retreat must fall back to melee, and must not be re-cancelled ----
+      const blocked = mkBrain({ health: 6, hostiles: [hostile(8, 2)], retreatMoves: false });
+      blocked.setDanger(true);
+      const beforeBlocked = skillCalls.length;
+      await tick(blocked.brain);
+      expect(blocked.calls.retreat.length >= 1, 'the blocked case must still try to retreat first');
+      expect(
+        skillCalls.slice(beforeBlocked).some((call) => call.name === 'attack'),
+        `a blocked retreat must switch to attack: ${JSON.stringify(skillCalls.slice(beforeBlocked))}`
+      );
+      expect(blocked.brain._reflexFight === false, 'the melee guard must be released after the fallback');
+      expect(blocked.brain._retreatTargetId === null, 'a blocked retreat must clear its marker');
 
       // ---- charge: wounded below 16 engages a 10-block target with the gun -----------
       const wounded = mkBrain({ health: 15, hostiles: [hostile(2, 10)] });

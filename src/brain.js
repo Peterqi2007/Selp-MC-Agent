@@ -241,6 +241,8 @@ class Brain {
     /** Retreat state (skillRetreat): the target we are backing away from, and its expiry. */
     this._retreatTargetId = null;
     this._retreatUntil = 0;
+    this._retreatStart = null;
+    this._retreatCheckAt = 0;
     /** Last observed health, for the "hurt this tick -> charge" reflex (plan §②). */
     this._lastHealth = null;
   }
@@ -430,6 +432,12 @@ class Brain {
     const skillDriven = this.ctx.bodyKind !== 'mineflayer';
 
     if (world.isInDanger()) {
+      /**
+       * A melee fallback is already running: do not start another retreat, or its next
+       * tick cancels the sword attack (live 2026-10-18: blocked retreat -> attack was
+       * immediately overridden by another danger tick and the bot died).
+       */
+      if (this._reflexFight) return;
       this.log.warn('danger detected, retreating');
       if (skillDriven) {
         /**
@@ -437,12 +445,17 @@ class Brain {
          * spammed "danger detected, retreating" and did nothing (live 2026-10-13: the
          * bot stood in the open at 4.8 hp until it died). Now it backs away for real.
          */
-        await this.skillRetreat();
+        const handled = await this.skillRetreat();
+        if (handled) return;
+        // Danger with no hostile inside 7 blocks: do not silently stand here; let the
+        // eat/engage chain below run (live 2026-10-18: 20s of "danger detected" while
+        // the gun was dry and the nearest zombie was outside the retreat list).
+        this.log.warn('danger but no retreat target within 7 blocks - continuing reflexes');
       } else {
         await combat.retreat(12);
         await eat.tick(true);
+        return;
       }
-      return;
     }
 
     /** Danger over: cancel a retreat that is still running so its keys are released. */
@@ -578,14 +591,33 @@ class Brain {
    */
   async skillRetreat() {
     const body = this.ctx.body;
-    if (!body || typeof body.retreatFrom !== 'function') return;
+    if (!body || typeof body.retreatFrom !== 'function') return false;
     const list = (this.ctx.world.hostiles(7) || [])
       .filter((h) => !combatState.shouldSkip(h.entity.id, h.distance))
       .sort((a, b) => (a.distance || 0) - (b.distance || 0));
-    if (!list.length) return; // nothing to face: this reflex cannot help
+    if (!list.length) return false; // no hostile to retreat from: let the other reflexes run
     const threat = list[0];
     const now = Date.now();
-    if (this._retreatTargetId === threat.entity.id && now < this._retreatUntil) return; // still running
+
+    /**
+     * A retreat command lasts ~3s, but we cannot trust "accepted" as "moving". While one
+     * is running, re-check displacement every ~700ms. Live 2026-10-18: a 2.7s early return
+     * here hid a blocked retreat until the bot was nearly dead; the melee fallback then
+     * started, was cancelled by the next danger tick, and the bot died.
+     */
+    if (this._retreatTargetId === threat.entity.id && now < this._retreatUntil) {
+      if (now < this._retreatCheckAt) return true;
+      const checked = typeof body.refresh === 'function' ? await body.refresh(true).catch(() => null) : null;
+      const moved = this._retreatStart && checked && checked.position
+        ? Math.hypot(checked.position.x - this._retreatStart.x, checked.position.z - this._retreatStart.z)
+        : null;
+      if (moved !== null && moved < 0.35) {
+        return this.runMeleeFallback(threat, moved);
+      }
+      this._retreatCheckAt = now + 700;
+      return true;
+    }
+
     const snap = typeof body.snapshot === 'function' ? body.snapshot() : null;
     let fire = false;
     const chosen = combatSkills.chooseGun(snap, { distance: threat.distance });
@@ -610,22 +642,38 @@ class Brain {
       ? Math.hypot(after.position.x - before.x, after.position.z - before.z)
       : null;
     if (!accepted || (moved !== null && moved < 0.35)) {
-      this.log.warn(
-        `danger: retreat blocked (${moved === null ? 'no movement data' : `moved ${moved.toFixed(2)} blocks`}) ` +
-        `- switching to melee against ${bare(threat.entity.name)}`
-      );
-      this._retreatTargetId = null;
-      this._retreatUntil = 0;
-      try {
-        const melee = await skills.run('attack', this.ctx, { timeoutMs: Math.min(5000, 1500 + threat.distance * 400) });
-        this.log.info(`danger: melee fallback ${melee && melee.ok ? 'killed' : 'failed'}: ${(melee && (melee.reason || melee.detail)) || 'no result'}`);
-      } catch (err) {
-        this.log.warn(`danger: melee fallback failed: ${err.message}`);
-      }
-      return;
+      return this.runMeleeFallback(threat, moved);
     }
     this._retreatTargetId = threat.entity.id;
     this._retreatUntil = now + 2700;
+    this._retreatStart = before;
+    this._retreatCheckAt = now + 700;
+    return true;
+  }
+
+  /**
+   * Sword/axe fallback for a blocked retreat. The `_reflexFight` guard prevents the
+   * danger branch from issuing another retreat and cancelling this attack mid-swing.
+   */
+  async runMeleeFallback(threat, moved = null) {
+    this.log.warn(
+      `danger: retreat blocked (${moved === null ? 'no movement data' : `moved ${moved.toFixed(2)} blocks`}) ` +
+      `- switching to melee against ${bare(threat.entity.name)}`
+    );
+    this._retreatTargetId = null;
+    this._retreatUntil = 0;
+    this._retreatCheckAt = 0;
+    this._retreatStart = null;
+    this._reflexFight = true;
+    try {
+      const melee = await skills.run('attack', this.ctx, { timeoutMs: Math.min(5000, 1500 + threat.distance * 400) });
+      this.log.info(`danger: melee fallback ${melee && melee.ok ? 'killed' : 'failed'}: ${(melee && (melee.reason || melee.detail)) || 'no result'}`);
+    } catch (err) {
+      this.log.warn(`danger: melee fallback failed: ${err.message}`);
+    } finally {
+      this._reflexFight = false;
+    }
+    return true;
   }
 
   /**
