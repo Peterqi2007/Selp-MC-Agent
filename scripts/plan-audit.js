@@ -817,6 +817,30 @@ if (STAGE === 'p1') {
     return 'opt-in conversation guard; default off';
   });
 
+  check('P1: ordinary chat has a live participate/silence entry', () => {
+    const participation = read('src/chat/chatParticipation.js');
+    const proposalChat = read('src/chat/proposalChat.js');
+    const index = read('src/index.js');
+    const cfg = JSON.parse(read('config/agent.json'));
+    if (!/class ChatParticipation/.test(participation)) throw new Error('ChatParticipation is missing');
+    if (!/rememberIncoming/.test(participation) || !/beginRequest/.test(participation)) {
+      throw new Error('participation bypasses the conversation request lifecycle');
+    }
+    if (!/parseParticipation/.test(participation) || !/respond !== true/.test(participation)) {
+      throw new Error('silence/malformed output handling is missing');
+    }
+    if (!/new ChatParticipation/.test(index) || !/ctx\.chatParticipation\.handle/.test(index)) {
+      throw new Error('ordinary chat is not wired to the participation service');
+    }
+    if (!/class ProposalChat/.test(proposalChat) || !/new ProposalChat/.test(index)) {
+      throw new Error('pending proposals have no chat answer path');
+    }
+    if (!cfg.chat || cfg.chat.participate !== false || cfg.chat.proposalChat !== false) {
+      throw new Error('M6 chat wiring must stay opt-in until the client window');
+    }
+    return 'ordinary chat -> model decision -> ConversationState -> reply(); proposal yes/no';
+  });
+
   check('P1: fault drills keep one owner and never replay', () => {
     if (!exists('scripts/p1-fault-test.js')) throw new Error('the fault drill suite is missing');
     const drills = read('scripts/p1-fault-test.js');

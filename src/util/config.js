@@ -164,7 +164,14 @@ const DEFAULTS = {
       ignoreOtherChat: true,
       replyInGame: true,
       maxChars: 100,
-      minReplyGapMs: 1200
+      minReplyGapMs: 1200,
+      /** M6: opt-in ordinary-chat participation; false keeps "answer only when addressed". */
+      participate: false,
+      participateMaxTokens: 120,
+      participateTimeoutMs: 4000,
+      participateHistoryLimit: 8,
+      /** M6: answer a pending proposal with a standalone yes/no in ordinary chat. */
+      proposalChat: false
     },
     /**
      * Proactive speech - the bot speaking when NOT spoken to (role-play requirement).

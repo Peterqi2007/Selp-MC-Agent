@@ -433,6 +433,8 @@ function startStatusServer(ctx, options = {}) {
           target: ctx.target ? ctx.target : undefined,
           death: ctx.deathWatch ? ctx.deathWatch.status() : undefined,
           llm: ctx.llm ? { enabled: ctx.llm.enabled, model: ctx.llm.client.model, tokensToday: ctx.llm.tokensToday } : undefined,
+          chatParticipation: ctx.chatParticipation ? ctx.chatParticipation.status() : undefined,
+          proposalChat: ctx.proposalChat ? ctx.proposalChat.status() : undefined,
           updatedAt: new Date().toISOString()
         });
       }

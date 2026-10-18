@@ -30,8 +30,9 @@ npm run p1:baseline -- --suites  # 记录提交/配置指纹/套件结果到 run
 | `planner:test` | **32/32** |
 | `p1:contract:test` | **158/158** |
 | `p1:m3:test` | **25/25** |
+| `p1:m6:test` | **10/10** |
 | `p1:fault:test` | **7/7** |
-| `plan:audit --stage p1` | **96/96** |
+| `plan:audit --stage p1` | **97/97** |
 
 没有启动 Minecraft、没有调用模型、没有执行生成代码或 GUI 自动化。
 
@@ -45,7 +46,7 @@ npm run p1:baseline -- --suites  # 记录提交/配置指纹/套件结果到 run
 | M3 | `PlanService`/`POST /plan`、`TurnService`/`/harness/events`、DSH `mc_plan`、原子持久化（测试窗口开启）、`wait_for_player`、计划问题复用提案（接受/拒绝/过期）、`ResumeBridge`、`MethodLibrary`（执行反馈 + 检索）、`AnswerMemory`、`MemoryStore`、`Budget`、`verifier`、`draftGuard`、`!state`、`!method` |
 | M4 | manifest 校验、生成管线（静态扫描，不执行）、candidates/promoted 目录与指针、晋升/回退/下线、dry-run runner、promoted-only 检索 |
 | M5 | `WindowPolicy`（默认拒绝）+ `ComputerUseGuard`（拒绝不触达执行器） |
-| M6 | `ConversationState`（去重/过期/自回声/限速/截断）+ LLM 回复 opt-in 守卫（默认关闭） |
+| M6 | `ConversationState`（去重/过期/自回声/限速/截断）+ LLM 回复 opt-in 守卫（默认关闭）+ `ChatParticipation` 普通聊天参与/沉默 + `ProposalChat` 聊天 yes/no |
 | M7 | 故障演练 7/7、A01–A31 矩阵、`p1:verify`、本交接文档 |
 
 ## 3. 客户端窗口实测（2026-10-17）
@@ -110,7 +111,8 @@ npm run p1:baseline -- --suites  # 记录提交/配置指纹/套件结果到 run
 src/core/      taskEvents, planStore, planService, taskSlot, capabilities, stateStore,
                sessionState, planRunner, turnLifecycle
 src/planner/   evaluator, proposals, budget, verifier, draftGuard, planQuestions
-src/chat/      commandGate, addressedHandler, conversation, languageDialogue
+src/chat/      commandGate, addressedHandler, conversation, languageDialogue,
+               chatParticipation, proposalChat
 src/llm/       judge, toolSurface, languageAgent
 src/world/     freshness, refreshPlan, threatObserver
 src/learning/  methodLibrary, answerMemory

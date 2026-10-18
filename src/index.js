@@ -419,13 +419,6 @@ async function main() {
         log.debug(`perception wake speech failed: ${err.message}`);
       });
     });
-    chatListener.onOther = (line) => {
-      const match = String(line).match(/^\s*<[^<>]{1,32}>\s+(.+)$/);
-      if (!match) return; // server notices without a player sender are not chat messages
-      const content = match[1].trim();
-      if (!content || content.startsWith('!') || content.startsWith('@')) return;
-      ctx.perceptionWake.noteChat(content);
-    };
   }
 
   /**
@@ -515,6 +508,95 @@ async function main() {
     chatListener.dialogueTrigger = dialogueTrigger;
     chatListener.ignoreOtherChat = chatCfg.ignoreOtherChat !== false;
   }
+
+  /**
+   * M6: ordinary multiplayer chat participation.
+   *
+   * This is a separate, opt-in path from the `@`/dialogue channels: it is the only place
+   * where an unaddressed line may get a model-decided reply or deliberate silence. The
+   * model sees no action tools; a malformed answer is silence. `ConversationState` supplies
+   * incoming dedupe, request identity, stale-request refusal, rate limiting and echo rules
+   * through the single `reply()` path.
+   */
+  let chatParticipation = null;
+  if (chatCfg.participate && llm && llm.client) {
+    const { ChatParticipation } = require('./chat/chatParticipation');
+    chatParticipation = new ChatParticipation({
+      ctx,
+      enabled: true,
+      conversation: ctx.conversation,
+      reply: ctx.reply,
+      persona: [persona.name, persona.body].filter(Boolean).join('\n').slice(0, 1500) || null,
+      memoryFor: (text) =>
+        ctx.memoryStore
+          ? ctx.memoryStore.recall(text, { limit: 3 }).map(({ entry }) => ({
+              category: entry.category,
+              text: entry.text
+            }))
+          : [],
+      maxTokens: chatCfg.participateMaxTokens || 120,
+      timeoutMs: chatCfg.participateTimeoutMs || 4000,
+      historyLimit: chatCfg.participateHistoryLimit || 8,
+      maxChars: chatCfg.maxChars || 100,
+      complete: async ({ system, messages, maxTokens, timeoutMs }) => {
+        const result = await llm.client.complete({
+          system,
+          messages,
+          timeoutMs: timeoutMs || 4000,
+          maxTokens: maxTokens || 120
+        });
+        if (!result || !result.ok) throw new Error((result && result.reason) || 'model-failed');
+        return result.text;
+      },
+      log: new Logger('chat-participate')
+    });
+    ctx.chatParticipation = chatParticipation;
+    log.info(`ordinary chat participation enabled (max ${chatCfg.maxChars || 100} chars/reply)`);
+  }
+
+  /**
+   * M6/A25: strict chat answers for a pending proposal. This is not a second proposal
+   * state machine; it only calls the same `acceptProposal`/`rejectProposal` as `!proposal`.
+   */
+  let proposalChat = null;
+  if (chatCfg.proposalChat) {
+    const { ProposalChat } = require('./chat/proposalChat');
+    proposalChat = new ProposalChat({ brain, log: new Logger('proposal-chat') });
+    ctx.proposalChat = proposalChat;
+    log.info('proposal chat answers enabled (standalone yes/no; ambiguous lines stay unanswered)');
+  }
+
+  /**
+   * The only ordinary-chat intake. Commands, the dialogue trigger and the addressed channel
+   * are handled earlier by ChatListener and never reach here. Server notices without a
+   * `<player>` sender are not chat messages.
+   */
+  chatListener.onOther = (line) => {
+    const match = String(line || '').match(/^\s*<([^<>]{1,32})>\s+(.+)$/);
+    if (!match) return;
+    const from = match[1].trim();
+    const text = match[2].trim();
+    if (!text || text.startsWith('!') || text.startsWith('@')) return;
+    const ownName = String((cfg.agent.bot && cfg.agent.bot.username) || '').toLowerCase();
+    if (ownName && from.toLowerCase() === ownName) return;
+    if (ctx.proposalChat) {
+      const handled = ctx.proposalChat.handle({ from, text, line });
+      if (handled && handled.handled) return;
+    }
+    /**
+     * A11's chat wake and M6's participation are alternatives, not two speakers: with
+     * participation on, the participation path owns the reply decision and must not also
+     * trigger a generic perception line. Weather/phase wakes are untouched.
+     */
+    if (ctx.perceptionWake && !ctx.chatParticipation) ctx.perceptionWake.noteChat(text, from);
+    if (ctx.chatParticipation) {
+      try {
+        ctx.chatParticipation.handle({ from, text, line });
+      } catch (err) {
+        log.debug(`chat participation intake failed: ${err.message}`);
+      }
+    }
+  };
 
   // --------------------------------------------------------- death handling
   const deathWatch = new DeathWatch(ctx, { log: new Logger('death') });
