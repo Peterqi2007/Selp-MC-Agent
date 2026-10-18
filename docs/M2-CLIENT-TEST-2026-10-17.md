@@ -1,13 +1,13 @@
 # M2 客户端测试记录（2026-10-17 首轮）
 
 > 阶段：M2（A01–A03、A09–A12、H1a/H1b）
-> 结论：**A01/A02/A03/A09/A10/A11/H1a/H1b 均 PASS；A12 未执行。
-> 时间判定 bug 已修（server dayTime 优先）。**
+> 结论：**A01/A02/A03/A09/A10/A11/H1a/H1b 均 PASS；A12 FAIL（本轮近身无响应，
+> 撤退受阻不换剑已修，需重跑）。时间判定 bug 已修。**
 > 原始证据：`runtime/logs/agent-m2-a01-2026-10-17.log`、
 > `runtime/logs/agent-a02-final2-2026-10-17.log`、`runtime/logs/a02-gate-2026-10-17.json`、
 > `runtime/logs/a09-idle-2026-10-17.json`、`runtime/logs/a10-stale-2026-10-17.json`、
-> `runtime/logs/a11-wake-2026-10-17.json`、`runtime/logs/agent-a10-a11c-2026-10-17.log`、
-> `runtime/logs/dsh-h1-live-run-2026-10-17.log`。
+> `runtime/logs/a11-wake-2026-10-17.json`、`runtime/logs/a12-threats-2026-10-18.json`、
+> `runtime/logs/agent-a10-a11c-2026-10-17.log`、`runtime/logs/dsh-h1-live-run-2026-10-17.log`。
 
 ## 1. 环境
 
@@ -238,13 +238,45 @@ timeOfDay=17818, isDay=false
 
 复验：`timeOfDay=17818` → `isDay=false`，A11 回复改为“天黑了”。
 
-## 11. 未执行
+## 11. A12：威胁与性能 —— FAIL（本轮）
 
-- A12 威胁与性能（怪物接近/伤害各 ≥5 次、p50/p95）。
-- A02 的真机 timeout 子项（本轮未触发；离线 contract 覆盖）。
+真机：day 819、`timeOfDay=13640` 夜、idle（`autoPlanDisabled=true`、`current=null`）。
+
+观察：
+
+- `perceptionWake` 记录 `threat:enter = 11`、`threat:leave = 11`；
+- 最后一只 `born_in_chaos_v1:restless_spirit` 近到 **0.98 格**；
+- HP **20 → 2.46**；
+- 最后一次 `shoot` 在 `07:18:10`，07:20 近身期间**没有 attack/shoot/equip 日志**；
+- 因此“各 ≥5 次都有可解释响应”不成立，p50/p95 没有有效响应样本可算。
+
+根因：
+
+1. `brain.fastLoop` 在 `world.isInDanger()`（HP < fleeHealthThreshold=8）时先走
+   `skillRetreat()` 并 `return`，不再进入 engage；低血量时只剩撤退；
+2. `skillRetreat()` 只发 `retreatFrom`，不检查位移；退到坑/墙时命令仍被接受，
+   于是“继续后退”但没有位移，也不会换近战；
+3. `shoot` 在 ≤3 格时也只 `retreatFrom(fire)` 继续用枪，没有切剑。
+
+本轮已修：
+
+- `skillRetreat()`：等待 700ms 检查实际水平位移；`moved < 0.35` 或命令失败时，
+  记录 `danger: retreat blocked ...`，调用 `skills.run('attack')`（attack 会 equipWeapon 换剑/斧）；
+- `shoot` ≤3 格：先尝试撤退并检查位移；受阻时 `equipWeapon` + `fightTarget`，没有近战武器才退回旧 kite；
+- 两个路径都留了武器/受阻日志。
+
+回归：`skills:test 58/58`（新增“blocked retreat switches to melee weapon”）、`control:test 38/38`。
+
+**A12 判定：FAIL（本轮数据）；修复后需在新夜晚重跑。** GUI 子场景依赖 M5/F1，尚未执行。
+
+## 12. 未执行
+
+- A12 修复后的重跑（idle + 普通任务各 ≥5 次，GUI 留 M5）。
+- A02 的真机 timeout 子项（离线 contract 覆盖）。
 - A10 的跨维度/部分刷新子场景；A11 的天气/阶段真机注入。
 
-## 12. 下一步
+## 13. 下一步
 
-1. **A12**：需要怪物环境，按 5 次接近/伤害记录 p50/p95；GUI 场景留 M5。
-2. 之后回填 M2 阶段结果；A10/A11 的故障注入边界保持记录。
+1. **A12 重跑**：新夜晚，idle 5 次 + 普通任务 5 次；重点验证撤退受阻时会换剑。
+2. GUI 场景留 M5；M5 前先完成 F1。
+3. 回填 M2 阶段结果；A10/A11 边界保持记录。

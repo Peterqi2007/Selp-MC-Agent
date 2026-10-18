@@ -497,6 +497,28 @@ function quickMove(slots) {
     return `kited ${body.retreatCalls.length}x, then ${result.detail}`;
   });
 
+  await scenario('shoot: a blocked retreat switches to the melee weapon', async () => {
+    const body = new MockBody(cfg, {
+      entities: [{ id: 1, name: 'minecraft:zombie', kind: 'hostile', alive: true, position: { x: 2, y: 64, z: 0 } }],
+      inventory: { 'tacz:ak47': 1, 'minecraft:iron_sword': 1 },
+      guns: [{ item: 'tacz:ak47', type: 'rifle', magazine: 30 }]
+    });
+    await body.connect();
+    body.held = 'tacz:ak47';
+    let retreats = 0;
+    // A pit/wall: the retreat command is accepted but the body does not move.
+    body.retreatFrom = async () => {
+      retreats += 1;
+      return true;
+    };
+    const result = await skills.run('shoot', makeCtx(body), { timeoutMs: 8000 });
+    expect(result.ok, `expected melee fallback to kill, got ${result.reason}`);
+    expect(retreats >= 1, `the first response must try to retreat, got ${retreats}`);
+    expect(body.held === 'minecraft:iron_sword', `expected the sword in hand, got ${body.held}`);
+    expect(body.stats.attacked >= 1, `expected a melee attack, got ${body.stats.attacked}`);
+    return `retreat blocked ${retreats}x -> ${body.held}`;
+  });
+
   await scenario('shoot: a sniper inside 8 blocks switches to a closer gun', async () => {
     const body = new MockBody(cfg, {
       entities: [{ id: 1, name: 'minecraft:zombie', kind: 'hostile', alive: true, position: { x: 6, y: 64, z: 0 } }],

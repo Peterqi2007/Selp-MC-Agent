@@ -374,6 +374,7 @@ register({
     let bursts = 0;
     let shotsTotal = 0;
     let notAGunRetries = 0;
+    let retreatBlocked = false;
     const dryGuns = new Set(); // item ids that answered "no_ammo"; never re-select them
 
     for (;;) {
@@ -452,10 +453,49 @@ register({
         continue;
       }
       if (distance <= KITE_DISTANCE) {
-        if (typeof body.retreatFrom === 'function') {
-          logInfo(`shoot: target inside ${KITE_DISTANCE} blocks - backing off while firing`);
-          await body.retreatFrom({ id: target.id }, { ms: 900, fire: true }).catch(() => false);
+        /**
+         * Operator rule (2026-10-18): try to back out first. Only when the retreat cannot
+         * move at all (pit/wall/stuck) switch to the sword/axe already in the bag. The old
+         * code kited forever and the operator saw a zombie being "hit with the gun".
+         */
+        if (!retreatBlocked && typeof body.retreatFrom === 'function') {
+          const before = typeof body.snapshot === 'function' ? body.snapshot() : null;
+          const ok = await body.retreatFrom({ id: target.id }, { ms: 900, fire: true }).catch(() => false);
           await sleep(900);
+          const after = typeof body.refresh === 'function'
+            ? await body.refresh(true).catch(() => null)
+            : null;
+          const moved = before && before.position && after && after.position
+            ? Math.hypot(after.position.x - before.position.x, after.position.z - before.position.z)
+            : null;
+          if (ok && (moved === null || moved >= 0.35)) {
+            logInfo(`shoot: target inside ${KITE_DISTANCE} blocks - retreating`);
+            continue;
+          }
+          retreatBlocked = true;
+          logInfo(`shoot: retreat blocked (${moved === null ? 'no movement data' : `moved ${moved.toFixed(2)} blocks`}) - switching to melee`);
+        }
+
+        const melee = await equipWeapon(ctx);
+        if (melee) {
+          logInfo(`shoot: fighting ${bare(target.name)} with ${bare(melee)} (retreat unavailable)`);
+          const remaining = Math.max(1000, Math.min(3000, deadline - Date.now()));
+          const fight = await fightTarget(ctx, target, remaining);
+          if (fight.ok) {
+            return { ok: true, detail: `killed ${bare(target.name)} at ${Math.round(distance || 0)} blocks with ${bare(melee)}` };
+          }
+          return {
+            ok: false,
+            failure: fight.stalled ? 'stalled' : 'melee_failed',
+            reason: fight.reason || `${bare(target.name)} survived the melee switch`
+          };
+        }
+        if (retreatBlocked) {
+          return {
+            ok: false,
+            failure: 'retreat_blocked',
+            reason: `retreat is blocked and there is no melee weapon for ${bare(target.name)}`
+          };
         }
         continue;
       }

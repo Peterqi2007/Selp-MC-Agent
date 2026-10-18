@@ -589,7 +589,34 @@ class Brain {
       }
       fire = true;
     }
-    await body.retreatFrom({ id: threat.entity.id }, { ms: 3000, fire }).catch(() => false);
+    const before = snap && snap.position ? { ...snap.position } : null;
+    this.log.info(`danger: retreating from ${bare(threat.entity.name)} at ${Math.round(threat.distance || 0)} blocks (${fire ? 'fire' : 'no gun'})`);
+    const accepted = await body.retreatFrom({ id: threat.entity.id }, { ms: 3000, fire }).catch(() => false);
+    /**
+     * A retreat command is not a retreat: the client can accept it while a pit/wall
+     * pins the body. Live 2026-10-18 the bot backed into a hole and kept retreating
+     * forever while a zombie killed it. Check actual displacement before trusting it.
+     */
+    await sleep(700);
+    const after = typeof body.refresh === 'function' ? await body.refresh(true).catch(() => null) : null;
+    const moved = before && after && after.position
+      ? Math.hypot(after.position.x - before.x, after.position.z - before.z)
+      : null;
+    if (!accepted || (moved !== null && moved < 0.35)) {
+      this.log.warn(
+        `danger: retreat blocked (${moved === null ? 'no movement data' : `moved ${moved.toFixed(2)} blocks`}) ` +
+        `- switching to melee against ${bare(threat.entity.name)}`
+      );
+      this._retreatTargetId = null;
+      this._retreatUntil = 0;
+      try {
+        const melee = await skills.run('attack', this.ctx, { timeoutMs: Math.min(5000, 1500 + threat.distance * 400) });
+        this.log.info(`danger: melee fallback ${melee && melee.ok ? 'killed' : 'failed'}: ${(melee && (melee.reason || melee.detail)) || 'no result'}`);
+      } catch (err) {
+        this.log.warn(`danger: melee fallback failed: ${err.message}`);
+      }
+      return;
+    }
     this._retreatTargetId = threat.entity.id;
     this._retreatUntil = now + 2700;
   }

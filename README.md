@@ -61,7 +61,7 @@
 | [`docs/P1-HANDOFF.md`](docs/P1-HANDOFF.md) | **P1 离线交接**：一键复验、已交付清单、客户端窗口实测、默认配置、未交付原因、客户端窗口顺序、代码地图与风险 |
 | [`docs/CLIENT-TEST-2026-10-17.md`](docs/CLIENT-TEST-2026-10-17.md) | **客户端窗口实测记录**：协议 23/23、登录+寻路 7/7、采集 9/10（挖石 noPath 失败）、Agent 自动登录修复、`/state` 空闲成本、F1 未授权 |
 | [`docs/M1-CLIENT-TEST-2026-10-17.md`](docs/M1-CLIENT-TEST-2026-10-17.md) | **M1 客户端两轮记录**：零矿 FAIL→修复后 failed；任务 ID/终态 FAIL→修复后唯一；stop 816ms；SSE token/重放通过；**M1 适用子集 PASS**，残余 A05/A07/A08/A31 子项留 M2/M3/M7 |
-| [`docs/M2-CLIENT-TEST-2026-10-17.md`](docs/M2-CLIENT-TEST-2026-10-17.md) | **M2 客户端首轮记录**：A01/A02/A03/A09/A10/A11/H1 均 PASS；A12 未执行；A10 stale/动作拒绝、A11 事件唤醒/去重已实现；时间判定改为 server dayTime 优先 |
+| [`docs/M2-CLIENT-TEST-2026-10-17.md`](docs/M2-CLIENT-TEST-2026-10-17.md) | **M2 客户端记录**：A01/A02/A03/A09/A10/A11/H1 均 PASS；A12 FAIL（近身无响应/HP 2.46），已修撤退受阻切剑并需重跑；时间判定改为 server dayTime 优先 |
 | [`docs/DSH-HARNESS.md`](docs/DSH-HARNESS.md) | **DSH harness 接入**：`dsh-plugin-mc-harness` 插件、安装脚本、`mc_observe`/`mc_step`/`mc_finish`、live `/goal` H1 结果；隐藏 agent 无 provider transport。Full Access Ask 仅 M5 CU 的对话级预设 |
 | [`docs/P1-CLIENT-VERIFICATION.md`](docs/P1-CLIENT-VERIFICATION.md) | **P1 客户端阶段验证计划（M1–M7）**：阶段闸门、可证伪主张、正/反证据、有效性边界、当前 0/7 通过；待用户逐阶段审阅 |
 | [`docs/PLANNER-RETIREMENT.md`](docs/PLANNER-RETIREMENT.md) | **自主规划器退役**：`slowLoop` 拆为 GoalEvaluator + 提案 + TaskSlot。**S0–S4 已全部离线交付**（`planner:test` 32/32、`plan:audit --stage p1` 95/95），真机判据仍登记在客户端清单 |
