@@ -45,6 +45,7 @@ final class TaczBridge {
     private static Method draw;
     private static Method cooldown;
     private static Method aimingProgress;
+    private static Method useInventoryAmmo;
     private static Method getCommonGunIndex;
     private static Method indexGetType;
 
@@ -78,6 +79,8 @@ final class TaczBridge {
             draw = operator.getMethod("draw", ItemStack.class);
             cooldown = operator.getMethod("getClientShootCoolDown");
             aimingProgress = operator.getMethod("getClientAimingProgress", float.class);
+            Class<?> iGun = Class.forName("com.tacz.guns.api.item.IGun");
+            useInventoryAmmo = iGun.getMethod("useInventoryAmmo", ItemStack.class);
             Class<?> api = Class.forName("com.tacz.guns.api.TimelessAPI");
             getCommonGunIndex = api.getMethod("getCommonGunIndex", ResourceLocation.class);
             Class<?> index = Class.forName("com.tacz.guns.resource.index.CommonGunIndex");
@@ -119,6 +122,29 @@ final class TaczBridge {
             return 0;
         }
         return stack.getTag().getInt("DummyAmmo");
+    }
+
+    /**
+     * Does this gun draw rounds straight from the inventory instead of a magazine?
+     *
+     * TACZ's own ReloadKey returns immediately for such guns; treating magazine=0 as
+     * "no ammo" made the agent stop firing and call reload in a loop. The method lives on
+     * IGun; resolve it defensively because older TACZ builds may lack the field.
+     */
+    static boolean usesInventoryAmmo(ItemStack stack) {
+        if (!isGun(stack)) {
+            return false;
+        }
+        resolve();
+        if (!available || useInventoryAmmo == null) {
+            return false;
+        }
+        try {
+            Object result = useInventoryAmmo.invoke(stack.getItem(), stack);
+            return result instanceof Boolean b && b;
+        } catch (Throwable ignored) {
+            return false;
+        }
     }
 
     static boolean hasRounds(ItemStack stack) {

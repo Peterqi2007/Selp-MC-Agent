@@ -455,7 +455,8 @@ final class ClientStateSnapshot {
             entry.put("type", Json.str(TaczBridge.typeOf(gunId)));
             entry.put("magazine", Json.num(magazine));
             entry.put("dummy", Json.num(dummy));
-            entry.put("bullets", Json.bool(magazine > 0 || dummy > 0));
+            entry.put("inventoryAmmo", Json.bool(TaczBridge.usesInventoryAmmo(stack)));
+            entry.put("bullets", Json.bool(magazine > 0 || dummy > 0 || TaczBridge.usesInventoryAmmo(stack)));
             parts.add(Json.obj(entry));
         }
         return "[" + String.join(",", parts) + "]";

@@ -81,3 +81,22 @@
 4. 远程挑衅：让掠夺者在 12-15 格外射击，掉血当 tick 应主动冲锋（或先枪后刀）。
 5. PvP（可选）：`!shoot player <name>` 命中指定玩家；确认不会自动打玩家。
 6. 已知边界：撤退无悬崖保护；流弹误伤不处理；弹尽换枪按全局近距序与“同型不重复排除”的既有规则。
+
+## 五、TACZ 换弹诊断（2026-10-18）
+
+历史开火修复 `3ba591a` 的关键是：通用 `IGunOperator.shoot(Supplier,Supplier)` 在客户端不发包；
+必须走 **`IClientPlayerGunOperator.fromLocalPlayer`** 的 `chargeShoot(true)` → `shoot()`。
+`reload()` 也在这个 client operator 上，但反编译 `tacz-1.20.1-1.1.8-hotfix` 可见它会静默返回：
+
+- `IGun.useInventoryAmmo(stack) == true`：这类枪从背包弹药直接供弹，TACZ 自己的 ReloadKey 也直接 return；
+- `clientStateLock`、距上次射击 <100ms；
+- `canReload(...) == false` 或 `needCheckAmmo()` 为 true 且不可换弹。
+
+因此“再调一次 reload”不是可靠修复。当前改动：
+
+- `/state.guns[]` 增加 `inventoryAmmo`，`bullets` 也把 inventory-ammo 枪算作有弹；
+- mod 的 `GunFireState` 对 inventory-ammo 枪跳过 magazine/reload 分支，直接走 `gunTick` 开火；
+- 其他枪保留显式 reload 重试；reload 后仍空则按 `no_ammo → 切枪/近战` 回退；
+- `reload` 端点和 `ClientModBody.reload()` 保留，作为一次可诊断的显式尝试。
+
+仍需真机确认：现代动力枪是否 `inventoryAmmo=true`，以及 `tacz:ammo` 是否与它的 ammo id 匹配。

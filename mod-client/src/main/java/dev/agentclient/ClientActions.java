@@ -1052,6 +1052,8 @@ public final class ClientActions {
         int magazine = -1;
         String gunType = null;
         double distance = -1.0D;
+        /** True when TACZ feeds this gun straight from inventory ammo (no reload). */
+        boolean inventoryAmmo;
         /** Last observed syn cooldown (ms); -1 when the synced value is unavailable. */
         long cooldown = -1L;
     }
@@ -1073,6 +1075,7 @@ public final class ClientActions {
         }
         s.distance = player.distanceTo(target);
         s.magazine = TaczBridge.magazineOf(held) + TaczBridge.dummyOf(held);
+        s.inventoryAmmo = TaczBridge.usesInventoryAmmo(held);
         s.gunType = TaczBridge.typeOf(TaczBridge.gunIdOf(held));
         /**
          * Aim first, shoot second: the scope needs time to come up and rounds fired
@@ -1110,7 +1113,7 @@ public final class ClientActions {
                 return "burst_gap";
             }
         }
-        if (s.magazine <= 0) {
+        if (!s.inventoryAmmo && s.magazine <= 0) {
             if (s.reloadStartedAt == 0L) {
                 TaczBridge.reload(operator);
                 s.reloadStartedAt = now;
