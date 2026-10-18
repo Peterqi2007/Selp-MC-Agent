@@ -362,8 +362,18 @@ async function main() {
 
   // ------------------------------------------------------------ LLM layer
   const { LlmCore } = require('./llm');
-  const llm = new LlmCore(ctx, cfg.llm || {}, { log: new Logger('llm') });
+  const { UsageLedger } = require('./llm/usageLedger');
+  const usageCfg = (cfg.llm && cfg.llm.usage) || {};
+  const usageLedger =
+    usageCfg.enabled === false
+      ? null
+      : new UsageLedger({
+          file: usageCfg.file || 'runtime/llm-usage.jsonl',
+          log: new Logger('usage')
+        });
+  const llm = new LlmCore(ctx, cfg.llm || {}, { log: new Logger('llm'), usageLedger });
   ctx.llm = llm;
+  ctx.usageLedger = usageLedger;
 
   /**
    * LLM mining recovery runner (P2, docs/MINING-LLM-PLAN.md §5.3). The mining skill calls
@@ -466,12 +476,13 @@ async function main() {
               text: entry.text
             }))
           : [],
-      complete: async ({ system, messages, maxTokens }) => {
+      complete: async ({ system, messages, maxTokens, usageContext }) => {
         const result = await llm.client.complete({
           system,
           messages,
           timeoutMs: 4000,
-          maxTokens: maxTokens || 400
+          maxTokens: maxTokens || 400,
+          usageContext
         });
         if (!result || !result.ok) throw new Error((result && result.reason) || 'model-failed');
         return result.text;
@@ -538,12 +549,13 @@ async function main() {
       timeoutMs: chatCfg.participateTimeoutMs || 4000,
       historyLimit: chatCfg.participateHistoryLimit || 8,
       maxChars: chatCfg.maxChars || 100,
-      complete: async ({ system, messages, maxTokens, timeoutMs }) => {
+      complete: async ({ system, messages, maxTokens, timeoutMs, usageContext }) => {
         const result = await llm.client.complete({
           system,
           messages,
           timeoutMs: timeoutMs || 4000,
-          maxTokens: maxTokens || 120
+          maxTokens: maxTokens || 120,
+          usageContext
         });
         if (!result || !result.ok) throw new Error((result && result.reason) || 'model-failed');
         return result.text;

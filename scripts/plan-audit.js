@@ -841,6 +841,24 @@ if (STAGE === 'p1') {
     return 'ordinary chat -> model decision -> ConversationState -> reply(); proposal yes/no';
   });
 
+  check('P1: M7 persists the failure ledger and records per-request usage', () => {
+    const slot = read('src/core/taskSlot.js');
+    const session = read('src/core/sessionState.js');
+    const ledger = read('src/llm/usageLedger.js');
+    const client = read('src/llm/client.js');
+    const llm = read('src/llm/index.js');
+    const index = read('src/index.js');
+    if (!/toJSON\(\)/.test(slot) || !/restore\(data\)/.test(slot)) throw new Error('TaskSlot ledger has no persistence');
+    if (!/failCounts/.test(slot) || !/quarantine/.test(slot) || !/blockedGoal/.test(slot)) {
+      throw new Error('the failure ledger is incomplete');
+    }
+    if (!/taskSlot/.test(session)) throw new Error('sessionState does not carry the slot ledger');
+    if (!/missing-usage/.test(ledger)) throw new Error('missing usage is not distinguished from zero');
+    if (!/usageContext/.test(client) || !/usageContext/.test(llm)) throw new Error('model requests are not attributable');
+    if (!/new UsageLedger/.test(index) || !/usageLedger/.test(index)) throw new Error('the live process does not create the usage ledger');
+    return 'strikes/quarantine/blockedGoal persisted; usage JSONL ok|missing-usage|error';
+  });
+
   check('P1: fault drills keep one owner and never replay', () => {
     if (!exists('scripts/p1-fault-test.js')) throw new Error('the fault drill suite is missing');
     const drills = read('scripts/p1-fault-test.js');

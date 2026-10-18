@@ -16,5 +16,7 @@
   "_comment_persona": "The character (name / species / trigger / maxChars / style) lives in config/persona.md and nowhere else. `file` only tells the loader where that sheet is; the legacy string fields (name/style/honesty/maxChars) still exist in src/util/config.js as a safety net for the case where the sheet fails to load, and are ignored while it loads. Do not re-add them here: a leftover `style` used to append '猫娘...带喵' to a 大肥鱼 character sheet that never mentions cats, and a leftover `maxChars` silently overrode the sheet's own limit.",
   "persona": { "file": "config/persona.md" },
   "history": { "perPlayer": 8, "global": 30 },
-  "trace": { "enabled": true, "file": "runtime/llm-trace.jsonl" }
+  "trace": { "enabled": true, "file": "runtime/llm-trace.jsonl" },
+  "_comment_usage": "M7/A30 per-request ledger: one JSONL record per provider call with requestId/kind/model/status/usage. Missing provider usage is recorded as status=missing-usage and usage=null, never 0. Offline fixtures construct LlmCore without this ledger, so tests do not write it.",
+  "usage": { "enabled": true, "file": "runtime/llm-usage.jsonl" }
 }

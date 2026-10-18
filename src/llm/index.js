@@ -24,6 +24,7 @@
  */
 
 const { LlmClient } = require('./client');
+const { UsageLedger } = require('./usageLedger');
 const { systemPrompt, buildMessages, capabilities, personaFor } = require('./blackboard');
 const { parseIntent, describeIntent } = require('./intent');
 const fallbackRouter = require('./fallbackRouter');
@@ -47,6 +48,12 @@ class LlmCore {
     this.disabledReason = null;
     this.trace = tracer((cfg.trace && cfg.trace.file) || 'runtime/llm-trace.jsonl', { component: 'llm' });
 
+    /**
+     * A30: the live process supplies the ledger (see src/index.js). Offline fixtures do not,
+     * so constructing LlmCore in a test never writes usage records.
+     */
+    this.usageLedger = options.usageLedger || null;
+
     this.client =
       options.client ||
       new LlmClient({
@@ -54,8 +61,12 @@ class LlmCore {
         apiKey: cfg.apiKey || process.env.LLM_API_KEY || process.env.OPENAI_API_KEY || '',
         model: cfg.model || 'deepseek-chat',
         timeoutMs: (cfg.timeouts && cfg.timeouts.intentMs) || 8000,
-        log: this.log
+        log: this.log,
+        usageLedger: this.usageLedger
       });
+    if (this.usageLedger && this.client && !this.client.usageLedger) {
+      this.client.usageLedger = this.usageLedger;
+    }
 
     /** Player requests currently in flight, keyed by a short id. */
     this.requests = new Map();
@@ -253,7 +264,12 @@ class LlmCore {
     let fallbackReason = null;
 
     if (this.enabled && !this.budgetExceeded) {
-      const result = await this.askModel({ text, speaker: options.speaker, history: this.historyFor(options.speaker) });
+      const result = await this.askModel({
+        text,
+        speaker: options.speaker,
+        history: this.historyFor(options.speaker),
+        usageContext: { requestId: id, kind: 'chat' }
+      });
       if (result.ok) {
         decision = result.intent;
         via = 'llm';
@@ -334,7 +350,7 @@ class LlmCore {
    * Never throws: every failure comes back as `{ok:false, reason}` so the caller falls
    * back to the router instead of leaving the player with silence.
    */
-  async askModel({ text, speaker, history, followUp }) {
+  async askModel({ text, speaker, history, followUp, usageContext = null }) {
     if (this.turnsInFlight >= ((this.cfg.limits && this.cfg.limits.concurrentTurns) || 1)) {
       return { ok: false, reason: 'another turn is already running' };
     }
@@ -357,12 +373,14 @@ class LlmCore {
        * failing a round that almost worked; the budget itself is now 1200 so the common
        * case never needs the retry. Tokens from both attempts are returned for accounting.
        */
-      const callModel = async (messages, tools) => {
-        const attempt = (maxTokens) =>
+      const contextFor = (round, attempt) => ({ ...(usageContext || {}), round, attempt });
+      const callModel = async (messages, tools, round = 'first') => {
+        const attempt = (maxTokens, attemptKind = 'initial') =>
           this.client.complete({
             system,
             messages,
             timeoutMs,
+            usageContext: contextFor(round, attemptKind),
             maxTokens,
             /**
              * Tools are offered only when the provider can act on them.
@@ -377,7 +395,7 @@ class LlmCore {
         let tokens = (res.ok && res.usage && res.usage.total_tokens) || 0;
         if (res.ok && !(res.toolCalls || []).length && !String(res.text || '').trim() && res.finishReason === 'length') {
           this.trace({ kind: 'model-retry', reason: 'empty answer with finish_reason=length', from: 1200, to: 2400 });
-          const retry = await attempt(2400);
+          const retry = await attempt(2400, 'retry');
           tokens += (retry.ok && retry.usage && retry.usage.total_tokens) || 0;
           res = retry;
         }
@@ -420,7 +438,7 @@ class LlmCore {
            */
           reasoning: res.reasoning || null
         });
-        const secondAttempt = await callModel([...baseMessages, ...used.messages], undefined);
+        const secondAttempt = await callModel([...baseMessages, ...used.messages], undefined, 'after-tools');
         const second = secondAttempt.res;
         this.tokensToday += secondAttempt.tokens;
         if (!second.ok) {
@@ -553,7 +571,8 @@ class LlmCore {
     const result = await this.askModel({
       text: request.text,
       speaker: 'player',
-      followUp: { name: info.name, reason: info.reason, ok }
+      followUp: { name: info.name, reason: info.reason, ok },
+      usageContext: { requestId: request.id, kind: 'follow-up' }
     });
     const record = {
       kind: 'follow-up',
@@ -603,7 +622,13 @@ class LlmCore {
    */
   async speakUp(kind, data = {}) {
     const event = { kind, detail: data.detail || '', taskOk: data.taskOk, taskName: data.taskName || null };
-    const record = { kind: 'proactive', trigger: kind, at: new Date().toISOString(), detail: event.detail || null };
+    const record = {
+      kind: 'proactive',
+      id: `proactive-${kind}-${Date.now()}-${++this.requestSeq}`,
+      trigger: kind,
+      at: new Date().toISOString(),
+      detail: event.detail || null
+    };
 
     if (!this.enabled || this.budgetExceeded) {
       const line = await this.fallbackLine(event);
@@ -631,7 +656,8 @@ class LlmCore {
           system,
           messages: buildMessages({ proactive: event }),
           timeoutMs: (this.cfg.timeouts && this.cfg.timeouts.proactiveMs) || 6000,
-          maxTokens: 120
+          maxTokens: 120,
+          usageContext: { requestId: record.id, kind: `proactive:${kind}` }
         });
         this.tokensToday += (res.ok && res.usage && res.usage.total_tokens) || 0;
         record.tokens = (res.ok && res.usage && res.usage.total_tokens) || 0;
@@ -855,7 +881,8 @@ class LlmCore {
           system: prompt.system,
           messages: [{ role: 'user', content: prompt.user }],
           timeoutMs: 2000,
-          maxTokens: 200
+          maxTokens: 200,
+          usageContext: { requestId: `judge-${Date.now()}`, kind: 'judge' }
         });
         if (!result || !result.ok) throw new Error((result && result.reason) || 'model-failed');
         return result.text;
@@ -904,6 +931,7 @@ class LlmCore {
       turnsInFlight: this.turnsInFlight,
       openRequests: [...this.requests.values()].filter((r) => !r.closed).map((r) => ({ id: r.id, text: r.text, turns: r.turns })),
       recentTurns: this.turns.slice(-10),
+      usage: this.usageLedger ? this.usageLedger.status() : null,
       capabilities: this.capabilities(),
       /**
        * The tool inventory, so the panel can show what the model is actually allowed to do.

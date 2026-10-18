@@ -151,7 +151,8 @@ class ChatParticipation {
         }),
         messages: [{ role: 'user', content: entry.text }],
         maxTokens: this.maxTokens,
-        timeoutMs: this.timeoutMs
+        timeoutMs: this.timeoutMs,
+        usageContext: { requestId, kind: 'chat-participation' }
       });
     } catch (err) {
       this.stats.errors += 1;

@@ -81,10 +81,12 @@ class LanguageAgent {
     let raw;
     try {
       const memories = typeof this.memoryFor === 'function' ? this.memoryFor(text) || [] : [];
+      const requestId = request.requestId || `language-${Date.now()}-${Math.floor(Math.random() * 1e6)}`;
       raw = await this.complete({
         system: languagePrompt(this.persona, memories),
         messages,
-        maxTokens: this.maxTokens
+        maxTokens: this.maxTokens,
+        usageContext: { requestId, kind: 'language-agent' }
       });
     } catch (err) {
       return { ok: false, spoke: false, reason: 'model-error', error: err.message };

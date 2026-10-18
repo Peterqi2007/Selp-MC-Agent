@@ -28,6 +28,9 @@ class LlmClient {
     this.log = options.log || { debug() {}, warn() {}, info() {} };
     /** Injectable for tests: `llm:dry` runs the whole brain with no network at all. */
     this.fetchImpl = options.fetchImpl || (typeof fetch === 'function' ? fetch : null);
+    /** M7/A30: optional per-request ledger. Absent in offline fixtures (no writes). */
+    this.usageLedger = options.usageLedger || null;
+    this.provider = options.provider || 'openai-compatible';
     this.stats = { calls: 0, failures: 0, promptTokens: 0, completionTokens: 0, totalTokens: 0, lastError: null };
   }
 
@@ -42,8 +45,31 @@ class LlmClient {
    * @returns {Promise<{ok:true, text:string, usage:object} | {ok:false, reason:string, status?:number}>}
    */
   async complete(request = {}) {
-    if (!this.fetchImpl) return { ok: false, reason: 'fetch is not available in this runtime' };
-    if (!this.apiKey) return { ok: false, reason: 'no api key configured' };
+    /** A30: every provider call is attributable even when the caller did not label it. */
+    const usageContext =
+      request.usageContext && typeof request.usageContext === 'object' ? request.usageContext : {};
+    const started = Date.now();
+    const finish = (result) => {
+      if (this.usageLedger && typeof this.usageLedger.record === 'function') {
+        try {
+          this.usageLedger.record({
+            ...usageContext,
+            model: (result && result.model) || this.model,
+            provider: usageContext.provider || this.provider,
+            ok: !!(result && result.ok),
+            usage: (result && result.usage) || null,
+            status: result && result.ok ? null : 'error',
+            error: result && result.ok ? null : (result && result.reason) || null,
+            ms: Date.now() - started
+          });
+        } catch {
+          /* accounting must never break a turn */
+        }
+      }
+      return result;
+    };
+    if (!this.fetchImpl) return finish({ ok: false, reason: 'fetch is not available in this runtime' });
+    if (!this.apiKey) return finish({ ok: false, reason: 'no api key configured' });
 
     const messages = [];
     if (request.system) messages.push({ role: 'system', content: request.system });
@@ -110,7 +136,7 @@ class LlmClient {
         }
         this.stats.failures += 1;
         this.stats.lastError = `HTTP ${res.status} ${detail}`;
-        return { ok: false, reason: `HTTP ${res.status}`, status: res.status, detail };
+        return finish({ ok: false, reason: `HTTP ${res.status}`, status: res.status, detail });
       }
 
       const payload = await res.json();
@@ -132,7 +158,7 @@ class LlmClient {
        * into a fallback-to-regex round.
        */
       if (toolCalls.length) {
-        return {
+        return finish({
           ok: true,
           text: typeof text === 'string' ? text : '',
           /**
@@ -154,26 +180,26 @@ class LlmClient {
           finishReason: choice ? choice.finish_reason : null,
           usage,
           model: payload.model || this.model
-        };
+        });
       }
 
       if (typeof text !== 'string') {
         this.stats.failures += 1;
         this.stats.lastError = 'response contained no message content';
-        return {
+        return finish({
           ok: false,
           reason: 'no message content in the response',
           finishReason: choice ? choice.finish_reason : null
-        };
+        });
       }
-      return {
+      return finish({
         ok: true,
         text,
         toolCalls: [],
         finishReason: choice ? choice.finish_reason : null,
         usage,
         model: payload.model || this.model
-      };
+      });
     } catch (err) {
       this.stats.failures += 1;
       const aborted = err && (err.name === 'AbortError' || /abort/i.test(err.message || ''));
@@ -183,7 +209,7 @@ class LlmClient {
           : `timeout after ${request.timeoutMs || this.timeoutMs}ms`
         : err.message;
       this.stats.lastError = reason;
-      return { ok: false, reason };
+      return finish({ ok: false, reason });
     } finally {
       clearTimeout(timer);
       if (external && onExternalAbort && typeof external.removeEventListener === 'function') {

@@ -53,6 +53,7 @@
     "p1:fault:test": "node scripts/p1-fault-test.js",
     "p1:m3:test": "node scripts/p1-m3-test.js",
     "p1:m6:test": "node scripts/p1-m6-test.js",
+    "p1:m7:test": "node scripts/p1-m7-test.js",
     "p1:verify": "node scripts/p1-verify.js",
     "personal:test": "node scripts/personal-test.js",
     "plan:audit": "node scripts/plan-audit.js",

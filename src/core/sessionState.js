@@ -24,6 +24,7 @@ function captureState(brain) {
     planService:
       brain.planService && typeof brain.planService.toJSON === 'function' ? brain.planService.toJSON() : null,
     budget: brain.budget && typeof brain.budget.toJSON === 'function' ? brain.budget.toJSON() : null,
+    taskSlot: brain.slot && typeof brain.slot.toJSON === 'function' ? brain.slot.toJSON() : null,
     proposals:
       brain.proposals && typeof brain.proposals.toJSON === 'function' ? brain.proposals.toJSON() : null,
     events: brain.events && typeof brain.events.toJSON === 'function' ? brain.events.toJSON() : null,
@@ -44,6 +45,7 @@ function restoreState(brain, data) {
     plans: false,
     planService: false,
     budget: false,
+    taskSlot: false,
     proposals: false,
     events: false,
     methods: false,
@@ -59,6 +61,9 @@ function restoreState(brain, data) {
   }
   if (data.budget && brain.budget && typeof brain.budget.restore === 'function') {
     restored.budget = brain.budget.restore(data.budget);
+  }
+  if (data.taskSlot && brain.slot && typeof brain.slot.restore === 'function') {
+    restored.taskSlot = brain.slot.restore(data.taskSlot);
   }
   if (data.proposals && brain.proposals && typeof brain.proposals.restore === 'function') {
     restored.proposals = brain.proposals.restore(data.proposals);

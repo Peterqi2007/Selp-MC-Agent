@@ -319,6 +319,35 @@ class TaskSlot {
     if (typeof brain.emit === 'function') brain.emit(event, payload);
   }
 
+  /**
+   * Persist the failure ledger (A17/R3): strike counts, quarantine windows, the last
+   * blocked goal, and the bounded progress/stall counters that feed the zero-progress park.
+   *
+   * The body owner, queue and in-flight task are deliberately absent: a restart must not
+   * resurrect an executor.
+   */
+  toJSON() {
+    return {
+      failCounts: [...this.failCounts.entries()],
+      quarantine: [...this.quarantine.entries()],
+      blockedGoal: this.blockedGoal ? { ...this.blockedGoal } : null,
+      progressSeen: [...this._progressSeen.entries()],
+      stalls: [...this._stalls.entries()]
+    };
+  }
+
+  restore(data) {
+    if (!data || typeof data !== 'object') return false;
+    const pairs = (value, predicate) =>
+      Array.isArray(value) ? value.filter((entry) => Array.isArray(entry) && entry.length === 2 && predicate(entry[1])) : [];
+    this.failCounts = new Map(pairs(data.failCounts, (value) => Number.isFinite(Number(value)) && Number(value) >= 0));
+    this.quarantine = new Map(pairs(data.quarantine, (value) => Number.isFinite(Number(value))));
+    this.blockedGoal = data.blockedGoal && typeof data.blockedGoal === 'object' ? { ...data.blockedGoal } : null;
+    this._progressSeen = new Map(pairs(data.progressSeen, (value) => value !== undefined));
+    this._stalls = new Map(pairs(data.stalls, (value) => Number.isFinite(Number(value)) && Number(value) >= 0));
+    return true;
+  }
+
   _hold(on, note) {
     const brain = this.brain || (this.ctx && this.ctx.brain);
     if (!brain || typeof brain.hold !== 'function' || typeof brain.release !== 'function') return;

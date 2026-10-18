@@ -271,7 +271,8 @@ class MiningRecoverySession {
         maxTokens,
         timeoutMs: this.cfg.modelTimeoutMs,
         temperature: 0.1,
-        signal: this.controller.signal
+        signal: this.controller.signal,
+        usageContext: { requestId: this.recoveryId, kind: 'mining-recovery', call: this.callsUsed }
       });
       this.trace({
         kind: 'recovery-model',

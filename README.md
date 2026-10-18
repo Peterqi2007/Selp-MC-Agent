@@ -191,8 +191,8 @@ LLM 层（`src/llm/`，生产配置已开启 `toolCalling`）：8 个工具 —�
   `mining:entry:test 25/25`、`mining:collection:test 24/24`、`mining:recovery:test 18/18`、`tasks:test 52/52`、
   `path:test 35/35`、`clientmod:test 11/11`、`verify:roleplay 34/34`、`llm:dry` 路由 67/67 + 工具 43/43（明细见 §8）。
 * P1 离线（2026-10-18 实跑）：`p1:verify`（P0 8/8 + `planner:test 32/32` + `p1:contract:test 158/158` +
-  `p1:m3:test 25/25` + `p1:m6:test 10/10` + `p1:fault:test 7/7` + `plan:audit --stage p1 97/97`）；
-  真机/模型项**部分执行**：
+  `p1:m3:test 25/25` + `p1:m6:test 10/10` + `p1:m7:test 9/9` + `p1:fault:test 7/7` +
+  `plan:audit --stage p1 98/98`）；真机/模型项**部分执行**：
   `client:verify 23/23`、登录+寻路 7/7、砍树 PASS、独立 mine 一次 2/2 / 厚土柱 0/2、
   `--dig stone` 点位失败、持久化 save/重启恢复部分通过、夜间门禁会中止；
   其余未执行项见 `docs/P1-CLIENT-TESTS.md`。
