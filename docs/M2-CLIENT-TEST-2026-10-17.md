@@ -297,6 +297,9 @@ timeOfDay=17818, isDay=false
 - 实测空弹匣 reload 需要 **>2s**（0→27）；此前显式 reload 只等 900ms，误判失败；
 - 修复：显式 reload 最多轮询 **4.5s**；另外在 reflex 战斗结束后检查空弹匣并主动 reload
   （覆盖“最后一发击杀目标”的 target_gone 路径）；
+- **live 复验 PASS（2026-10-18）**：08:54:46 `mag=0 reason=no_ammo` → 显式 reload →
+  08:54:47.883 `mag=30`；08:59:46 战斗结束后 `post-fight reload` → 08:59:48.243 `mag=30`；
+  当前 `mag=22`、`tacz:ammo=50`，不再切近战；
 - skills 新增“延迟 reload”场景（59/59）；A12 仍需重测。
 
 根因（第二轮）：
