@@ -376,6 +376,62 @@ async function main() {
   ctx.usageLedger = usageLedger;
 
   /**
+   * M4 live loop: generation -> candidate -> sandbox trial -> evidence -> promotion.
+   *
+   * The service is present only when the config enables it. Generation writes files but
+   * never imports them; the sandbox child is the only consumer. Search is the DeepSeek
+   * Search API through this Node process (generated code has no direct network).
+   */
+  const codeCfg = (cfg.agent && cfg.agent.codeSkills) || {};
+  if (codeCfg.enabled !== false) {
+    const { SearchService } = require('./llm/knowledge/searchService');
+    const { CodeSkillGeneration } = require('./codeSkills/generation');
+    const { CodeSkillService } = require('./codeSkills/service');
+    const searchCfg = codeCfg.search || {};
+    const searchService = new SearchService({
+      baseUrl: llm.client.baseUrl,
+      apiKey: llm.client.apiKey,
+      enabled: searchCfg.enabled !== false,
+      cacheFile: searchCfg.cacheFile || 'runtime/search-cache.json',
+      timeoutMs: searchCfg.timeoutMs || 8000,
+      log: new Logger('search')
+    });
+    const codeGeneration = new CodeSkillGeneration({
+      complete: async ({ system, messages, maxTokens, timeoutMs, usageContext }) => {
+        const result = await llm.client.complete({
+          system,
+          messages,
+          maxTokens,
+          timeoutMs,
+          usageContext
+        });
+        if (!result || !result.ok) throw new Error((result && result.reason) || 'model-failed');
+        return result.text;
+      },
+      maxTokens: codeCfg.generateMaxTokens || 2600,
+      timeoutMs: codeCfg.generationTimeoutMs || 30000,
+      log: new Logger('code-gen')
+    });
+    ctx.codeSkills = new CodeSkillService({
+      root: codeCfg.root || 'runtime/code-skills',
+      evidenceDir: codeCfg.evidenceDir || 'runtime/code-skill-runs',
+      sandboxRoot: codeCfg.sandboxRoot || 'runtime/code-skill-sandbox',
+      timeoutMs: codeCfg.sandboxTimeoutMs || 30000,
+      maxCalls: codeCfg.maxCalls || 100,
+      generation: codeGeneration,
+      search: searchService,
+      ctx,
+      brain,
+      log: new Logger('code-skills')
+    });
+    ctx.search = (query, searchOptions) => searchService.search(query, searchOptions);
+    log.info(
+      `code skills online: root=${codeCfg.root || 'runtime/code-skills'} ` +
+        `(sandbox ${codeCfg.sandboxTimeoutMs || 30000}ms, search ${searchService.configured ? 'on' : 'off'})`
+    );
+  }
+
+  /**
    * LLM mining recovery runner (P2, docs/MINING-LLM-PLAN.md §5.3). The mining skill calls
    * this from inside its own TaskHub task when the progress monitor fires a trigger; the
    * session shares that task's owner and budgets and never submits a second job.

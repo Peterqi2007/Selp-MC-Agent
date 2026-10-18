@@ -63,6 +63,22 @@
     "path": "runtime/p1-state.json",
     "debounceMs": 1000
   },
+  "_comment_codeSkills": "M4 live loop. enabled=true instantiates CodeSkillService: real generation writes candidates/, trial runs in a permissioned Node child (SandboxRunner) with capability RPC, evidence goes to runtime/code-skill-runs/. No per-action approval; the sandbox timeout/call budget/permission list stay enforced. Generated code is static-scanned and never required by the parent. search uses the DeepSeek Search API with the llm baseUrl/apiKey; results are untrusted data and cached for review.",
+  "codeSkills": {
+    "enabled": true,
+    "root": "runtime/code-skills",
+    "evidenceDir": "runtime/code-skill-runs",
+    "sandboxRoot": "runtime/code-skill-sandbox",
+    "sandboxTimeoutMs": 30000,
+    "maxCalls": 100,
+    "generateMaxTokens": 2600,
+    "generationTimeoutMs": 30000,
+    "search": {
+      "enabled": true,
+      "cacheFile": "runtime/search-cache.json",
+      "timeoutMs": 8000
+    }
+  },
   "_comment_chat": "Two input channels: prefix '!' is the deterministic command fast-path, dialogueTrigger goes to the LLM. Other chat is normally ignored; `participate=true` (P1 M6) lets the language half decide whether to join ordinary multiplayer chat, and `proposalChat=true` lets a standalone yes/no answer the pending proposal. conversationGuard applies to opt-in LLM replies; it is independent of the participation switch. dialogueTrigger is left null so the persona file's own frontmatter decides - that keeps a character swap from silently killing the in-game channel.",
   "chat": {
     "prefix": "!",

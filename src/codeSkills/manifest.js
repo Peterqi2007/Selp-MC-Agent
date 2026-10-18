@@ -12,8 +12,10 @@
  *   - `version` is plain semver (`1.2.3`), so promotion/rollback can be exact;
  *   - `entry` is a relative `.js` path with no `..` and no absolute path - the runner must
  *     not be able to point outside the skill directory;
- *   - `permissions` is a subset of what the host offers; `fs`, `net` and `exec` are not on
- *     that list;
+ *   - `permissions` is a subset of what the host offers. The 2026-10-18 sandbox grant is
+ *     `read_state/submit_task/chat/wait/search/generate/subprocess`; direct `fs/net/exec`
+ *     are still not on the list - search/generate go through the Node broker and subprocess
+ *     is a controlled child script, not a raw shell;
  *   - `apiVersion` is the host contract version (currently 1).
  *
  * This module does not read or run the entry file.
@@ -21,7 +23,15 @@
 
 const NAME_PATTERN = /^[a-z][a-z0-9_-]*\.[a-z][a-z0-9_-]*$/;
 const VERSION_PATTERN = /^\d+\.\d+\.\d+$/;
-const ALLOWED_PERMISSIONS = new Set(['read_state', 'submit_task', 'chat', 'wait']);
+const ALLOWED_PERMISSIONS = new Set([
+  'read_state',
+  'submit_task',
+  'chat',
+  'wait',
+  'search',
+  'generate',
+  'subprocess'
+]);
 const API_VERSION = 1;
 
 function validateManifest(manifest) {

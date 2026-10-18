@@ -53,7 +53,7 @@
 | [`docs/P1-M1.md`](docs/P1-M1.md) | **P1 M1 记录（离线 M1a–M1d）**：`TaskEvents` 汇聚/重放、身份字段、`PlanStore` 单一写者、同端口 SSE、Capability 表、TaskResult 六态、`mine_ore` progress 值域、PlanRunner、TurnLifecycle、HarnessAdapter；`p1:contract:test` 22/22。真实 DSH 插件接线与持久化未完成 |
 | [`docs/P1-M2.md`](docs/P1-M2.md) | **P1 M2 记录（离线契约 + 地址通道）**：二值闸门、`@` 通道默认关闭、严格 LLM 判定器、双脑工具清单、语言专用 `say`/`silence`、离线 `LanguageAgent`、可选语言对话通道（默认关闭）、快照字段时间戳、刷新调度、威胁订阅、persona 注入；`p1:contract:test` 133/133。真实模型判定、真机采集未完成 |
 | [`docs/P1-M3.md`](docs/P1-M3.md) | **P1 M3 记录（代码入口已接，待客户端测试）**：`PlanService`（submit/start/resume/cancel + 预算/守卫）、`POST /plan`、`TurnService` 与 `/harness/events` 续轮、DSH `mc_plan`/`mc_cancel`、持久化在测试窗口启用；原子状态、计划/问题/事件/方法/回答/分类记忆恢复、`wait_for_player`、`!state`、`!method`、`Budget`、`verifier`、`draftGuard`；`p1:m3:test` 25/25。真实客户端 A13–A17/A28–A30/F2 仍未执行 |
-| [`docs/P1-M4.md`](docs/P1-M4.md) | **P1 M4 记录（离线安全子集）**：manifest 校验、生成管线（静态扫描、不执行）、candidates/promoted 目录与指针、晋升/回退/下线、runner dry-run、promoted-only 检索。真实编码后端、受限执行、A18–A20 未完成 |
+| [`docs/P1-M4.md`](docs/P1-M4.md) | **P1 M4 记录**：manifest 校验、生成管线、candidates/promoted 目录与指针、晋升/回退/下线、promoted-only 检索；2026-10-18 接真实生成、权限子进程试运行、证据、取消、DeepSeek Search、HTTP `/code-skills`；A18–A20/A27 真机未执行。沙箱规则见 [`P1-M4-SANDBOX.md`](docs/P1-M4-SANDBOX.md) |
 | [`docs/P1-M5.md`](docs/P1-M5.md) | **P1 M5 记录（窗口策略离线契约）**：CU 默认拒绝（F1 未验证）、窗口/边界/截图限窗、显式 verify+证据、`ComputerUseGuard` 拒绝不触达执行器。GUI 中断、截图成本、A21/A22 未完成 |
 | [`docs/P1-M6.md`](docs/P1-M6.md) | **P1 M6 记录（聊天并发 + 按需接线）**：未读去重、过时回复拒绝、自回声拒绝、限速/重复/截断、随会话持久化；LLM 回复可 opt-in 守卫（默认关闭）。真实多人 A23/A24、状态发言、A25 聊天侧未完成 |
 | [`docs/P1-M7.md`](docs/P1-M7.md) | **P1 M7 记录（离线准备）**：`p1:verify` 一键离线验收、`p1:fault:test` 7/7、A01–A31 验收矩阵（无一项标通过）、发布清单与残余风险。**P1 未发布**，客户端/模型项全部未执行 |
@@ -191,15 +191,17 @@ LLM 层（`src/llm/`，生产配置已开启 `toolCalling`）：8 个工具 —�
   `mining:entry:test 25/25`、`mining:collection:test 24/24`、`mining:recovery:test 18/18`、`tasks:test 52/52`、
   `path:test 35/35`、`clientmod:test 11/11`、`verify:roleplay 34/34`、`llm:dry` 路由 67/67 + 工具 43/43（明细见 §8）。
 * P1 离线（2026-10-18 实跑）：`p1:verify`（P0 8/8 + `planner:test 32/32` + `p1:contract:test 158/158` +
-  `p1:m3:test 25/25` + `p1:m6:test 10/10` + `p1:m7:test 9/9` + `p1:fault:test 7/7` +
-  `plan:audit --stage p1 98/98`）；真机/模型项**部分执行**：
+  `p1:m3:test 25/25` + `p1:m6:test 10/10` + `p1:m7:test 9/9` + `p1:m4:test 12/12` +
+  `p1:fault:test 7/7` + `plan:audit --stage p1 99/99`）；真机/模型项**部分执行**：
   `client:verify 23/23`、登录+寻路 7/7、砍树 PASS、独立 mine 一次 2/2 / 厚土柱 0/2、
   `--dig stone` 点位失败、持久化 save/重启恢复部分通过、夜间门禁会中止；
   其余未执行项见 `docs/P1-CLIENT-TESTS.md`。
 * P1 客户端阶段（2026-10-17/18）：**M1 适用子集 PASS、M2 PASS**（A01/A02/A03/A09/A10/A11/A12 +
-  H1a/H1b）；M3 的代码入口（计划/续轮/持久化）已接线，A13–A17、A28–A30、F2 **仍未执行**；
-  M5 因 CU 未授权继续 BLOCKED。详见 `docs/P1-CLIENT-VERIFICATION.md`、
-  `docs/M1-CLIENT-TEST-2026-10-17.md`、`docs/M2-CLIENT-TEST-2026-10-17.md`。
+  H1a/H1b）；M3 计划/续轮/持久化、M6 普通聊天参与/提案 yes-no、M7 失败账本/usage 账本、
+  M4 真实生成/权限子进程/证据/晋升入口均已接线（离线 `p1:m3/m6/m7/m4` 全绿）；A13–A20、
+  A23–A30、A27、F2 **仍未执行**；M5 因 CU 未授权继续 BLOCKED。详见
+  `docs/P1-CLIENT-VERIFICATION.md`、`docs/M1-CLIENT-TEST-2026-10-17.md`、
+  `docs/M2-CLIENT-TEST-2026-10-17.md`、`docs/P1-M4-SANDBOX.md`。
 * 控制 Mod：`mod-client/dist/agent-client-1.0.0.jar` **75631 字节**（2026-10-18 16:29 构建，含 WalkTo 严格到达
   y 容差、战斗 v3、TACZ 枪械与 server `dayTime` 昼夜判断）；已 `client:install`，与 PCL 版本目录在装的 jar
   字节一致（sha256 相同），并已在真机会话中加载。改 Mod 后必须重装（`npm run client:install`）并重启客户端。

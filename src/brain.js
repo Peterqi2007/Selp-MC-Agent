@@ -1106,6 +1106,34 @@ class Brain {
 
   // ------------------------------------------------------------- task runner
 
+  /**
+   * M4/A19: the only task-submission surface for a sandboxed code skill.
+   *
+   * The code skill never calls the body directly; it submits a normal task candidate here,
+   * which goes through `buildTask` + `enqueue` (and therefore TaskSlot + the permission gate).
+   * The call returns the acceptance receipt, not the task result; completion is a task event.
+   */
+  async submitExternalTask(candidate = {}, options = {}) {
+    const type = String(candidate.type || '').trim();
+    if (!type || !TASK_BUILDERS[type]) {
+      return { ok: false, reason: 'unknown-task-type', type: type || null };
+    }
+    let task;
+    try {
+      task = buildTask(this.ctx, { type, args: candidate.args || {} });
+    } catch (err) {
+      return { ok: false, reason: 'task-build-failed', error: err.message };
+    }
+    if (!task) return { ok: false, reason: 'task-build-failed' };
+    task.source = 'code-skill';
+    const receipt = await this.enqueue(task, {
+      level: 'directive',
+      source: 'code-skill',
+      requestId: options.requestId || `code-skill-${Date.now()}`
+    });
+    return { ...receipt, taskId: task.taskId || null, type };
+  }
+
   /** Task execution, settlement and lifecycle events live in the slot (S2b). */
   async runTask(task) {
     return this.slot.runTask(task);

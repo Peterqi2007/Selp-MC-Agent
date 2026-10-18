@@ -91,6 +91,21 @@ class CodeSkillDirectory {
     }
   }
 
+  /** Read the promoted copy; the only code path normal dispatch may execute. */
+  readPromoted(name, version) {
+    try {
+      const pointer = this.current(name);
+      const resolvedVersion = version || (pointer && pointer.version);
+      if (!resolvedVersion) return null;
+      const dir = this.promotedDir(name, resolvedVersion);
+      const manifest = JSON.parse(fs.readFileSync(path.join(dir, 'manifest.json'), 'utf8'));
+      const code = fs.readFileSync(path.join(dir, manifest.entry), 'utf8');
+      return { manifest, code, dir, version: resolvedVersion };
+    } catch {
+      return null;
+    }
+  }
+
   /** Copy the candidate into `promoted/` and atomically point `current.json` at it. */
   promote(name, version) {
     const candidate = this.readCandidate(name, version);

@@ -859,6 +859,42 @@ if (STAGE === 'p1') {
     return 'strikes/quarantine/blockedGoal persisted; usage JSONL ok|missing-usage|error';
   });
 
+  check('P1: M4 generation/trial is wired to a real permissioned sandbox', () => {
+    const manifest = read('src/codeSkills/manifest.js');
+    const runner = read('src/codeSkills/sandboxRunner.js');
+    const worker = read('src/codeSkills/sandboxWorker.js');
+    const service = read('src/codeSkills/service.js');
+    const generation = read('src/codeSkills/generation.js');
+    const search = read('src/llm/knowledge/searchService.js');
+    const index = read('src/index.js');
+    const server = read('src/web/statusServer.js');
+    const cfg = JSON.parse(read('config/agent.json'));
+    if (!/search/.test(manifest) || !/generate/.test(manifest) || !/subprocess/.test(manifest)) {
+      throw new Error('the authorized M4 permission set is not in the manifest allowlist');
+    }
+    if (!/--permission/.test(runner) || !/--allow-fs-read/.test(runner) || !/spawn\(/.test(runner)) {
+      throw new Error('the sandbox is not a permissioned child process');
+    }
+    if (!/vm\.createContext/.test(worker) || !/sandbox-denied-module/.test(worker)) {
+      throw new Error('the worker does not evaluate code in the guarded vm context');
+    }
+    if (!/read_state/.test(service) || !/submit_task/.test(service) || !/evidence/.test(service)) {
+      throw new Error('the capability broker/evidence is incomplete');
+    }
+    if (!/v1\/tools\/search/.test(search)) throw new Error('DeepSeek Search is not wired');
+    if (!/new CodeSkillService/.test(index) || !/ctx\.codeSkills/.test(index)) {
+      throw new Error('the live agent does not instantiate the code-skill service');
+    }
+    if (!/\/code-skills\/generate/.test(server) || !/\/code-skills\/cancel/.test(server)) {
+      throw new Error('the code-skill HTTP entry points are missing');
+    }
+    const codeCfg = (cfg.agent && cfg.agent.codeSkills) || cfg.codeSkills;
+    if (!codeCfg || codeCfg.enabled !== true) {
+      throw new Error('M4 live wiring must be explicitly enabled in config');
+    }
+    return 'generate -> candidate -> permissioned child -> evidence -> promote/rollback';
+  });
+
   check('P1: fault drills keep one owner and never replay', () => {
     if (!exists('scripts/p1-fault-test.js')) throw new Error('the fault drill suite is missing');
     const drills = read('scripts/p1-fault-test.js');

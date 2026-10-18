@@ -1,0 +1,184 @@
+'use strict';
+
+/**
+ * SearchService - the Node-side network broker for DeepSeek Search (M4 capability, A16).
+ *
+ * Generated code never gets direct network access. It calls `ctx.search(query)`, the
+ * sandbox worker RPCs the trusted Node process, and this service performs the HTTP request
+ * with the operator's configured DeepSeek key.
+ *
+ * Safety rules carried over from docs/LLM-INTEGRATION-PLAN.md §5.1:
+ *   - results are data, never instructions: each result is marked `untrusted:true` and is
+ *     not concatenated into a model system prompt by this service;
+ *   - queries are filtered for coordinates / hostnames / IPs (no server or player
+ *     addresses leave the machine);
+ *   - 8s timeout, bounded count and content bytes; failures do not retry in a loop;
+ *   - results are cached to a human-readable JSON file for review, with a bounded ring.
+ *
+ * Endpoint: POST https://api.deepseek.com/v1/tools/search
+ */
+
+const fs = require('fs');
+const path = require('path');
+const crypto = require('crypto');
+
+const MAX_QUERY = 128;
+const MAX_CONTENT = 8 * 1024;
+const CACHE_LIMIT = 50;
+
+function fingerprint(value) {
+  return crypto.createHash('sha1').update(String(value)).digest('hex').slice(0, 16);
+}
+
+/** Reject coordinates, IPs, server addresses and player-like entity selectors. */
+function unsafeQuery(query) {
+  const text = String(query || '');
+  if (/\b-?\d{1,4}\s*[, ]\s*-?\d{1,4}\s*[, ]\s*-?\d{1,4}\b/.test(text)) return 'coordinates';
+  if (/\b[xyz]\s*[:=]\s*-?\d{1,6}\b/i.test(text)) return 'coordinates';
+  if (/\b(?:\d{1,3}\.){3}\d{1,3}\b/.test(text)) return 'ip-address';
+  if (/@[a-z0-9_]{2,16}\b/i.test(text)) return 'player-name';
+  return null;
+}
+
+function normalizeResult(result) {
+  if (!result || typeof result !== 'object') return null;
+  const title = String(result.title || '').slice(0, 300);
+  const url = String(result.url || '').slice(0, 1000);
+  const summary = String(result.summary || result.snippet || '').slice(0, 2000);
+  const content = String(result.content || '').slice(0, MAX_CONTENT);
+  if (!title && !url && !summary) return null;
+  return { title, url, summary, content, untrusted: true };
+}
+
+class SearchService {
+  /**
+   * @param {object} options
+   *   baseUrl/apiKey  DeepSeek credentials (reuse the LLM config)
+   *   fetchImpl       injectable for tests
+   *   cacheFile       human-reviewable cache path (default runtime/search-cache.json)
+   *   enabled         false disables the capability entirely
+   *   timeoutMs/countMax/maxContentBytes/log/now
+   */
+  constructor(options = {}) {
+    this.baseUrl = String(options.baseUrl || 'https://api.deepseek.com').replace(/\/+$/, '');
+    this.apiKey = options.apiKey || '';
+    this.fetchImpl = options.fetchImpl || (typeof fetch === 'function' ? fetch : null);
+    this.enabled = options.enabled !== false;
+    this.cacheFile = options.cacheFile || path.join('runtime', 'search-cache.json');
+    this.timeoutMs = options.timeoutMs || 8000;
+    this.countMax = options.countMax || 10;
+    this.maxContentBytes = options.maxContentBytes || MAX_CONTENT;
+    this.log = options.log || { info() {}, warn() {}, debug() {} };
+    this.now = options.now || (() => Date.now());
+    this.cache = this._loadCache();
+    this.stats = { calls: 0, ok: 0, failures: 0, filtered: 0, cachedHits: 0 };
+  }
+
+  get configured() {
+    return !!(this.enabled && this.apiKey && this.fetchImpl);
+  }
+
+  /**
+   * @param {string} query
+   * @param {object} [options] { count, needContent, oriQuestion }
+   * @returns {Promise<{ok:boolean, reason?:string, results?:Array, cached?:boolean}>}
+   */
+  async search(query, options = {}) {
+    if (!this.enabled) return { ok: false, reason: 'disabled' };
+    if (!this.apiKey) return { ok: false, reason: 'no-api-key' };
+    if (!this.fetchImpl) return { ok: false, reason: 'fetch-unavailable' };
+    const clean = String(query || '').trim();
+    if (!clean) return { ok: false, reason: 'query-required' };
+    if (clean.length > MAX_QUERY) return { ok: false, reason: 'query-too-long' };
+    const unsafe = unsafeQuery(clean);
+    if (unsafe) {
+      this.stats.filtered += 1;
+      return { ok: false, reason: 'privacy-filtered', detail: unsafe };
+    }
+    const count = Math.min(Math.max(Number(options.count) || 5, 1), this.countMax);
+    const key = fingerprint(`${clean}|${count}|${options.needContent ? 1 : 0}`);
+    const cached = this.cache[key];
+    if (cached && this.now() - cached.at < 1000 * 60 * 60 * 24) {
+      this.stats.cachedHits += 1;
+      return { ok: true, cached: true, results: cached.results };
+    }
+
+    this.stats.calls += 1;
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), this.timeoutMs);
+    try {
+      const res = await this.fetchImpl(`${this.baseUrl}/v1/tools/search`, {
+        method: 'POST',
+        headers: {
+          'content-type': 'application/json',
+          authorization: `Bearer ${this.apiKey}`
+        },
+        body: JSON.stringify({
+          query: clean,
+          count,
+          need_content: options.needContent === true,
+          ...(options.oriQuestion ? { ori_question: String(options.oriQuestion).slice(0, 128) } : {})
+        }),
+        signal: controller.signal
+      });
+      if (!res.ok) {
+        this.stats.failures += 1;
+        let detail = '';
+        try {
+          detail = (await res.text()).slice(0, 300);
+        } catch {
+          /* ignore */
+        }
+        return { ok: false, reason: `HTTP ${res.status}`, detail };
+      }
+      const payload = await res.json();
+      const results = (payload.results || [])
+        .map(normalizeResult)
+        .filter(Boolean)
+        .slice(0, count)
+        .map((result) => ({ ...result, content: result.content.slice(0, this.maxContentBytes) }));
+      this._writeCache(key, clean, results);
+      this.stats.ok += 1;
+      return { ok: true, cached: false, results };
+    } catch (err) {
+      this.stats.failures += 1;
+      const aborted = err && (err.name === 'AbortError' || /abort/i.test(err.message || ''));
+      return { ok: false, reason: aborted ? 'timeout' : err.message };
+    } finally {
+      clearTimeout(timer);
+    }
+  }
+
+  status() {
+    return {
+      enabled: this.enabled,
+      configured: this.configured,
+      endpoint: `${this.baseUrl}/v1/tools/search`,
+      cacheFile: this.cacheFile,
+      stats: { ...this.stats }
+    };
+  }
+
+  _loadCache() {
+    try {
+      const data = JSON.parse(fs.readFileSync(this.cacheFile, 'utf8'));
+      return data && typeof data === 'object' && !Array.isArray(data) ? data : {};
+    } catch {
+      return {};
+    }
+  }
+
+  _writeCache(key, query, results) {
+    this.cache[key] = { at: this.now(), query, results };
+    const entries = Object.entries(this.cache).sort((a, b) => (b[1].at || 0) - (a[1].at || 0));
+    this.cache = Object.fromEntries(entries.slice(0, CACHE_LIMIT));
+    try {
+      fs.mkdirSync(path.dirname(this.cacheFile), { recursive: true });
+      fs.writeFileSync(this.cacheFile, `${JSON.stringify(this.cache, null, 2)}\n`);
+    } catch (err) {
+      this.log.warn(`search cache write failed: ${err.message}`);
+    }
+  }
+}
+
+module.exports = { SearchService, unsafeQuery, normalizeResult };

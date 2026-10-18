@@ -20,6 +20,21 @@
 
 const { validateManifest } = require('./manifest');
 
+/** Parse the `{manifest,code}` envelope from a model answer (plain or fenced JSON). */
+function parseGeneratedEnvelope(raw) {
+  if (raw && typeof raw === 'object' && !Array.isArray(raw)) return raw;
+  const text = String(raw || '').trim();
+  if (!text) return null;
+  const fenced = text.match(/```(?:json)?\s*([\s\S]*?)```/i);
+  const candidate = fenced ? fenced[1].trim() : text;
+  try {
+    const data = JSON.parse(candidate);
+    return data && typeof data === 'object' && !Array.isArray(data) ? data : null;
+  } catch {
+    return null;
+  }
+}
+
 const FORBIDDEN = [
   { pattern: /\brequire\s*\(/, reason: 'require-not-allowed' },
   { pattern: /\bimport\s+/, reason: 'import-not-allowed' },
@@ -107,4 +122,4 @@ class CodeSkillGenerator {
   }
 }
 
-module.exports = { CodeSkillGenerator, scanCode, FORBIDDEN };
+module.exports = { CodeSkillGenerator, scanCode, FORBIDDEN, parseGeneratedEnvelope };

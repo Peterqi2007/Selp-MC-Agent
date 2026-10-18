@@ -134,6 +134,52 @@ class CodeSkillStore {
       createdAt: record.createdAt
     };
   }
+
+  /**
+   * Persist metadata for the live service. The entry code lives in CodeSkillDirectory;
+   * this file only carries lifecycle state (status/trial reports/promoted pointers).
+   */
+  toJSON() {
+    return {
+      candidates: [...this.candidates.entries()].map(([key, record]) => [key, {
+        manifest: record.manifest,
+        status: record.status,
+        source: record.source,
+        tests: record.tests,
+        createdAt: record.createdAt
+      }]),
+      promoted: [...this.promoted.entries()],
+      history: this.history.slice(-200)
+    };
+  }
+
+  restore(data) {
+    if (!data || typeof data !== 'object') return false;
+    const candidates = Array.isArray(data.candidates) ? data.candidates : [];
+    const promoted = Array.isArray(data.promoted) ? data.promoted : [];
+    this.candidates.clear();
+    this.promoted.clear();
+    for (const entry of candidates) {
+      if (!Array.isArray(entry) || entry.length !== 2) continue;
+      const [key, record] = entry;
+      if (!record || !record.manifest || !validateManifest(record.manifest).ok) continue;
+      this.candidates.set(key, {
+        manifest: { ...record.manifest, permissions: [...(record.manifest.permissions || [])] },
+        status: record.status || 'candidate',
+        source: record.source || 'restored',
+        tests: record.tests || null,
+        createdAt: record.createdAt || new Date(this.now()).toISOString()
+      });
+    }
+    for (const entry of promoted) {
+      if (!Array.isArray(entry) || entry.length !== 2) continue;
+      const [name, pointer] = entry;
+      if (!pointer || typeof pointer.version !== 'string') continue;
+      this.promoted.set(name, { ...pointer });
+    }
+    this.history = Array.isArray(data.history) ? data.history.slice(-200) : [];
+    return true;
+  }
 }
 
 module.exports = { CodeSkillStore };

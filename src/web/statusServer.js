@@ -435,6 +435,13 @@ function startStatusServer(ctx, options = {}) {
           llm: ctx.llm ? { enabled: ctx.llm.enabled, model: ctx.llm.client.model, tokensToday: ctx.llm.tokensToday } : undefined,
           chatParticipation: ctx.chatParticipation ? ctx.chatParticipation.status() : undefined,
           proposalChat: ctx.proposalChat ? ctx.proposalChat.status() : undefined,
+          codeSkills: ctx.codeSkills
+            ? {
+                candidates: ctx.codeSkills.list().length,
+                promoted: ctx.codeSkills.store.promoted.size,
+                active: ctx.codeSkills.status().active
+              }
+            : undefined,
           updatedAt: new Date().toISOString()
         });
       }
@@ -460,6 +467,98 @@ function startStatusServer(ctx, options = {}) {
       if (req.method === 'GET' && url.pathname === '/logs') {
         const n = Number(url.searchParams.get('n')) || 50;
         return json(res, 200, { lines: ctx.log.recent(n) });
+      }
+
+      // ---------------------------------------------------- code skills (M4)
+      if (req.method === 'GET' && url.pathname === '/code-skills') {
+        if (!ctx.codeSkills) return json(res, 503, { ok: false, error: 'code skills unavailable' });
+        return json(res, 200, { ok: true, ...ctx.codeSkills.status() });
+      }
+
+      if (req.method === 'POST' && url.pathname === '/code-skills/generate') {
+        if (!ctx.codeSkills) return json(res, 503, { ok: false, error: 'code skills unavailable' });
+        const body = await readBody(req);
+        if (!body || !body.prompt) return json(res, 400, { ok: false, error: 'missing "prompt"' });
+        try {
+          const result =
+            body.trial === true
+              ? await ctx.codeSkills.generateAndTrial({
+                  prompt: body.prompt,
+                  manifest: body.manifest || null,
+                  params: body.params || {},
+                  timeoutMs: body.timeoutMs
+                })
+              : await ctx.codeSkills.generateCandidate({
+                  prompt: body.prompt,
+                  manifest: body.manifest || null
+                });
+          let promoted = null;
+          if (body.promote === true && result.ok && result.name && result.version && result.trial && result.trial.ok) {
+            promoted = ctx.codeSkills.promote(result.name, result.version);
+          }
+          return json(res, 200, { ...result, promoted });
+        } catch (err) {
+          return json(res, 500, { ok: false, error: err.message });
+        }
+      }
+
+      if (req.method === 'POST' && url.pathname === '/code-skills/cancel') {
+        if (!ctx.codeSkills) return json(res, 503, { ok: false, error: 'code skills unavailable' });
+        const body = await readBody(req);
+        if (body && body.all === true) return json(res, 200, ctx.codeSkills.cancelAll());
+        if (body && body.name) {
+          return json(res, 200, ctx.codeSkills.cancel(String(body.name), String(body.version || '')));
+        }
+        return json(res, 400, { ok: false, error: 'missing "name" or "all"' });
+      }
+
+      if (req.method === 'POST' && url.pathname === '/code-skills/rollback') {
+        if (!ctx.codeSkills) return json(res, 503, { ok: false, error: 'code skills unavailable' });
+        const body = await readBody(req);
+        if (!body || !body.name) return json(res, 400, { ok: false, error: 'missing "name"' });
+        return json(res, 200, ctx.codeSkills.rollback(String(body.name)));
+      }
+
+      const codeSkillRun = url.pathname.match(/^\/code-skills\/([^/]+)\/run$/);
+      if (req.method === 'POST' && codeSkillRun) {
+        if (!ctx.codeSkills) return json(res, 503, { ok: false, error: 'code skills unavailable' });
+        const body = await readBody(req);
+        try {
+          const result = await ctx.codeSkills.runPromoted(
+            decodeURIComponent(codeSkillRun[1]),
+            (body && body.params) || {},
+            { timeoutMs: body && body.timeoutMs }
+          );
+          return json(res, 200, result);
+        } catch (err) {
+          return json(res, 500, { ok: false, error: err.message });
+        }
+      }
+
+      const codeSkillTrial = url.pathname.match(/^\/code-skills\/([^/]+)\/([^/]+)\/trial$/);
+      if (req.method === 'POST' && codeSkillTrial) {
+        if (!ctx.codeSkills) return json(res, 503, { ok: false, error: 'code skills unavailable' });
+        const body = (await readBody(req)) || {};
+        try {
+          const result = await ctx.codeSkills.trial(decodeURIComponent(codeSkillTrial[1]), decodeURIComponent(codeSkillTrial[2]), {
+            params: body.params || {},
+            timeoutMs: body.timeoutMs
+          });
+          return json(res, 200, result);
+        } catch (err) {
+          return json(res, 500, { ok: false, error: err.message });
+        }
+      }
+
+      const codeSkillAction = url.pathname.match(/^\/code-skills\/([^/]+)\/([^/]+)\/(promote|retire)$/);
+      if (req.method === 'POST' && codeSkillAction) {
+        if (!ctx.codeSkills) return json(res, 503, { ok: false, error: 'code skills unavailable' });
+        const name = decodeURIComponent(codeSkillAction[1]);
+        const version = decodeURIComponent(codeSkillAction[2]);
+        if (codeSkillAction[3] === 'promote') {
+          return json(res, 200, ctx.codeSkills.promote(name, version));
+        }
+        return json(res, 200, ctx.codeSkills.retire(name, version));
       }
 
       // ----------------------------------------------------------- control
@@ -969,6 +1068,9 @@ function emergencyStop(ctx) {
       }
       if (ctx.turnService && typeof ctx.turnService.cancelAll === 'function') {
         ctx.turnService.cancelAll('panel emergency stop');
+      }
+      if (ctx.codeSkills && typeof ctx.codeSkills.cancelAll === 'function') {
+        ctx.codeSkills.cancelAll();
       }
       ctx.log.warn('EMERGENCY STOP: queue cleared, current task cancelled');
     }
