@@ -1,8 +1,8 @@
 # M2 客户端测试记录（2026-10-17 首轮）
 
 > 阶段：M2（A01–A03、A09–A12、H1a/H1b）
-> 结论：**A01/A02/A03/A09/A10/A11/H1a/H1b 均 PASS；A12 部分 PASS（idle + 15 格主动交战
-> 已验证，不再复测；普通任务/GUI 未测）。时间判定 bug 已修。**
+> 结论：**A01/A02/A03/A09/A10/A11/A12/H1a/H1b 均 PASS。A12 按操作员口径每场景
+> 1 次成功即可（idle/普通任务/GUI 均 PASS）。时间判定 bug 已修。**
 > 原始证据：`runtime/logs/agent-m2-a01-2026-10-17.log`、
 > `runtime/logs/agent-a02-final2-2026-10-17.log`、`runtime/logs/a02-gate-2026-10-17.json`、
 > `runtime/logs/a09-idle-2026-10-17.json`、`runtime/logs/a10-stale-2026-10-17.json`、
@@ -328,26 +328,25 @@ Y 保持 attack 技能原来的 ±4；进入该范围的 hostile 会主动 engag
 - control 增加 blocked-retreat 场景（38/38），确认先 retreat，受阻后 attack；
 - reflex hostiles 先按 XZ 15 / Y ±4 过滤，再选最近目标。
 
-**A12 判定：部分 PASS（2026-10-18 操作员确认）。** 静止场景威胁响应、XZ 15 格主动交战、
-普通任务场景均 PASS；GUI 子场景仍未测（依赖 M5/F1）。
+**A12 判定：PASS（2026-10-18 操作员确认）。** 静止场景威胁响应、XZ 15 格主动交战、
+普通任务场景、GUI 场景均 PASS。按操作员口径每场景只要求 1 次成功，不构造 5 次夹具，
+不强制 p50/p95。
 
-**验收口径调整（2026-10-18 操作员决定）**：每个场景 **1 次成功注入即可**，不要求构造
-5 次夹具，也不强制 p50/p95 统计。此前“≥5 次 + p50/p95”的要求作废；后续 A12 只验
-“该场景至少成功一次，且响应可解释”。
+**2026-10-18 GUI 场景：首轮 FAIL → 修复后 PASS。**
+首轮：工作台 `CraftingScreen` 在 threat 后约 5s 才因 flank 移动关闭，射击被挡，09:35:27 死亡。
+修复 `ensureCombatScreenClear()` 后重测：
 
-**2026-10-18 普通任务场景：PASS。** 任务发布瞬间 **1 只怪物**进入扫描范围；任务执行与
-战斗多次切换身体，最终战斗胜出并击杀目标 zombie。后续出现的怪物与后续死亡不属于这次
-任务场景，不计入。该单次注入满足“威胁被发现、任务/战斗争抢有可解释响应、战斗最终完成”
-的验收口径。
+```text
+09:50:24.810  a container screen is open (CraftingScreen) - closing it
+09:50:25.029  screen closed - walking on        (219ms)
+09:50:25.030  hostile pillager at 13.4 blocks - engaging
+09:50:28.266  shoot burst 4 shots
+后续连续击杀，HP 17.53，未死亡
+```
 
-**2026-10-18 GUI 场景：FAIL（首轮）。** 工作台成功打开为 `CraftingScreen`；威胁在
-09:35:11 进入（decaying zombie 13.9 格），射击被界面挡住；直到 09:35:16 的 flank
-移动才触发 `container screen ... closing`，关闭延迟约 **5 秒**；09:35:24 目标进入
-3 格，09:35:27 死亡。失败原因：关闭界面只发生在“移动需要”时，而不是进入战斗前。
-
-修复：`ClientModBody.ensureCombatScreenClear()`，Brain 在附近有 hostile 时、进入
-danger/engage 之前立即关闭 container screen；PauseScreen/聊天等人类界面仍拒绝自动关闭。
-该修复只在 hostile 进入 15 格主动交战半径时关闭容器界面，远处怪不会关工作台；需重启 Agent 后重测 GUI 场景。
+界面在 15 格威胁进入后 **219ms 内自动关闭**，随后才开火，满足 GUI 场景。
+之后出现的 `PauseScreen` 是人类界面，属于 `reflex blocked` 的受限原因，不计入这次
+工作台 GUI 场景。
 
 
 ## 12. 未执行
