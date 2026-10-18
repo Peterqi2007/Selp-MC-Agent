@@ -488,15 +488,32 @@ class Brain {
     const hurtThisTick = hpNow !== null && this._lastHealth !== null && hpNow < this._lastHealth - 0.01;
     if (hpNow !== null) this._lastHealth = hpNow;
     const engageHealthThreshold = (this.cfg.behaviour && this.cfg.behaviour.engageHealthThreshold) || 16;
+    /**
+     * Operator rule 2026-10-18: active combat radius is 15 blocks on X/Z; the vertical
+     * window keeps the original attack-skill +-4. The body can still see 24 blocks, but
+     * the reflex must not chase a target 20 blocks away just because the scan sees it.
+     */
+    const engageRadiusXZ = (this.cfg.behaviour && this.cfg.behaviour.engageRadiusXZ) || 15;
+    const engageRadiusY = (this.cfg.behaviour && this.cfg.behaviour.engageRadiusY) || 4;
+    const origin = snapNow && snapNow.position ? snapNow.position : null;
     const candidates = (world.hostiles(24) || [])
+      .map((h) => {
+        const pos = h.entity && h.entity.position;
+        const xzDistance = origin && pos ? Math.hypot(pos.x - origin.x, pos.z - origin.z) : h.distance;
+        const verticalDistance = origin && pos ? Math.abs(pos.y - origin.y) : null;
+        return { ...h, xzDistance, verticalDistance };
+      })
       .filter((h) => !combatState.shouldSkip(h.entity.id, h.distance))
-      .sort((a, b) => (a.distance || 0) - (b.distance || 0));
+      .filter((h) => !origin || (h.xzDistance <= engageRadiusXZ && (h.verticalDistance === null || h.verticalDistance <= engageRadiusY)))
+      .sort((a, b) => (a.xzDistance || 0) - (b.xzDistance || 0));
     const nearest = candidates.length ? candidates[0] : null;
-    const wantFight =
-      nearest &&
-      (nearest.distance <= 5 || (hpNow !== null && hpNow < engageHealthThreshold) || (hurtThisTick && nearest.distance <= 24));
+    /**
+     * Proactive radius: any hostile inside the 15-block XZ / +-4 Y window is engaged;
+     * the old "only <=5 or wounded" condition made the 15-block radius meaningless.
+     */
+    const wantFight = !!nearest;
     if (wantFight && this.cfg.behaviour.autoFight && !this._reflexFight && !this.hostileFightTaskActive()) {
-      this.log.info(`hostile ${nearest.entity.name} at ${nearest.distance.toFixed(1)} blocks - engaging`);
+      this.log.info(`hostile ${nearest.entity.name} at ${nearest.distance.toFixed(1)} blocks (xz ${nearest.xzDistance.toFixed(1)}) - engaging`);
       this.preempt();
       if (skillDriven) {
         // Fire-and-forget with a guard: the fight can run for tens of seconds and
@@ -607,14 +624,11 @@ class Brain {
      */
     if (this._retreatTargetId === threat.entity.id && now < this._retreatUntil) {
       if (now < this._retreatCheckAt) return true;
-      const checked = typeof body.refresh === 'function' ? await body.refresh(true).catch(() => null) : null;
-      const moved = this._retreatStart && checked && checked.position
-        ? Math.hypot(checked.position.x - this._retreatStart.x, checked.position.z - this._retreatStart.z)
-        : null;
+      const moved = await this.confirmRetreatMovement(body, this._retreatStart);
       if (moved !== null && moved < 0.35) {
         return this.runMeleeFallback(threat, moved);
       }
-      this._retreatCheckAt = now + 700;
+      this._retreatCheckAt = Date.now() + 700;
       return true;
     }
 
@@ -633,22 +647,37 @@ class Brain {
     const accepted = await body.retreatFrom({ id: threat.entity.id }, { ms: 3000, fire }).catch(() => false);
     /**
      * A retreat command is not a retreat: the client can accept it while a pit/wall
-     * pins the body. Live 2026-10-18 the bot backed into a hole and kept retreating
-     * forever while a zombie killed it. Check actual displacement before trusting it.
+     * pins the body. Do not call a single 700ms sample "blocked" - the first sample may
+     * land during client startup/knockback. Require two consecutive samples without
+     * horizontal movement; a single snapshot was the false-positive source on 2026-10-18.
      */
-    await sleep(700);
-    const after = typeof body.refresh === 'function' ? await body.refresh(true).catch(() => null) : null;
-    const moved = before && after && after.position
-      ? Math.hypot(after.position.x - before.x, after.position.z - before.z)
-      : null;
+    const moved = accepted ? await this.confirmRetreatMovement(body, before) : null;
     if (!accepted || (moved !== null && moved < 0.35)) {
       return this.runMeleeFallback(threat, moved);
     }
     this._retreatTargetId = threat.entity.id;
     this._retreatUntil = now + 2700;
     this._retreatStart = before;
-    this._retreatCheckAt = now + 700;
+    this._retreatCheckAt = Date.now() + 700;
     return true;
+  }
+
+  /**
+   * Measure real horizontal displacement from the retreat start at 700ms intervals.
+   * Two consecutive samples below 0.35 blocks are required before declaring "blocked";
+   * returns the largest observed displacement (null when refresh has no position data).
+   */
+  async confirmRetreatMovement(body, before) {
+    if (!before || typeof body.refresh !== 'function') return null;
+    let moved = null;
+    for (let i = 0; i < 2; i += 1) {
+      await sleep(700);
+      const after = await body.refresh(true).catch(() => null);
+      if (!after || !after.position) continue;
+      moved = Math.hypot(after.position.x - before.x, after.position.z - before.z);
+      if (moved >= 0.35) return moved; // movement started; not blocked
+    }
+    return moved;
   }
 
   /**

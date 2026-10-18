@@ -1284,6 +1284,32 @@ async function buildAgent(options = {}) {
         `at 3 blocks a gun-capable bot must shoot and let the skill retreat/fall back: ${JSON.stringify(skillCalls.slice(beforeOverride))}`
       );
 
+      // ---- active radius: XZ 15, Y remains +-4 --------------------------------
+      const outside = mkBrain({ health: 20, hostiles: [hostile(10, 16)] });
+      const beforeOutside = skillCalls.length;
+      await tick(outside.brain);
+      expect(
+        !skillCalls.slice(beforeOutside).some((call) => call.name === 'attack' || call.name === 'shoot'),
+        `16 XZ blocks is outside the 15-block active radius: ${JSON.stringify(skillCalls.slice(beforeOutside))}`
+      );
+      const inside = mkBrain({ health: 20, hostiles: [hostile(11, 14)] });
+      const beforeInside = skillCalls.length;
+      await tick(inside.brain);
+      expect(
+        skillCalls.slice(beforeInside).some((call) => call.name === 'shoot'),
+        `14 XZ blocks is inside the active radius: ${JSON.stringify(skillCalls.slice(beforeInside))}`
+      );
+      const high = mkBrain({
+        health: 20,
+        hostiles: [{ entity: { id: 12, name: 'minecraft:zombie', position: { x: 2, y: 70, z: 0 } }, distance: 2 }]
+      });
+      const beforeHigh = skillCalls.length;
+      await tick(high.brain);
+      expect(
+        !skillCalls.slice(beforeHigh).some((call) => call.name === 'attack' || call.name === 'shoot'),
+        `a target 6 blocks above must stay outside the original +-4 Y window: ${JSON.stringify(skillCalls.slice(beforeHigh))}`
+      );
+
       // ---- an explicit fight task suppresses the reflex (no double-fire) -------------
       const busyHub = { status: () => ({ current: { name: 'attack' } }) };
       const suppressed = mkBrain({ health: 20, hostiles: [hostile(4, 3)], hub: busyHub });

@@ -295,12 +295,22 @@ timeOfDay=17818, isDay=false
    导致静默空转；
 4. 枪 `mag=-1` 后没有可靠切近战，仍然反复 retreat。
 
+**blocked 判定（修复后）**：`retreatFrom` 命令被拒绝，或从撤退起点开始连续 **两次 700ms**
+采样，水平位移都 `< 0.35` 格。它只测实际位移，不查询地形/碰撞；单次采样在客户端启动、
+击退或命令刚下发时会误判，所以改成两次。真机若看到“能退却被判 blocked”，需要抓
+`moved` 值和两次采样位置。
+
+**主动交战半径**：`engageRadiusXZ=15`、`engageRadiusY=4`。XZ 用水平距离过滤，
+Y 保持 attack 技能原来的 ±4；进入该范围的 hostile 会主动 engage，不再是只在 ≤5 格或
+受伤时才反应。
+
 本轮追加修复：
 
-- `skillRetreat` 每 700ms 复检实际位移；`moved < 0.35` 立即 melee fallback；
+- `skillRetreat` 每 700ms 复检实际位移；两次连续无位移才 melee fallback；
 - fallback 期间设 `_reflexFight=true`，danger 分支遇到它直接返回，不取消近战；
 - HP<8 且 7 格内无怪时 `skillRetreat` 返回 false，fastLoop 继续 eat/engage，不再静默 return；
-- control 增加 blocked-retreat 场景（38/38），确认先 retreat，受阻后 attack。
+- control 增加 blocked-retreat 场景（38/38），确认先 retreat，受阻后 attack；
+- reflex hostiles 先按 XZ 15 / Y ±4 过滤，再选最近目标。
 
 **A12 判定：FAIL（两轮数据）；修复后需在满血新夜晚重跑。** GUI 子场景依赖 M5/F1，尚未执行。
 
