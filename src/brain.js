@@ -556,7 +556,10 @@ class Brain {
             return result;
           })
           .catch((e) => this.log.debug(`reflex fight failed: ${e.message}`))
-          .finally(() => {
+          .finally(async () => {
+            // A burst can kill the target on its last round; that exits through
+            // target_gone, not no_ammo, leaving an empty gun for the next fight.
+            await this.reloadAfterFight();
             this._reflexFight = false;
             this._reflexFightAt = 0;
           });
@@ -693,6 +696,38 @@ class Brain {
       if (moved >= 0.35) return moved; // movement started; not blocked
     }
     return moved;
+  }
+
+  /**
+   * Refill the held gun after a fight when the burst emptied it but the target died
+   * before the shoot skill reached its no_ammo branch.
+   */
+  async reloadAfterFight() {
+    const body = this.ctx.body;
+    if (!body || typeof body.reload !== 'function' || typeof body.snapshot !== 'function') return;
+    try {
+      const snap = body.snapshot();
+      const held = snap && snap.heldItem ? String(snap.heldItem) : null;
+      const gun = held && Array.isArray(snap.guns) ? snap.guns.find((g) => g.item === held) : null;
+      if (!gun || gun.inventoryAmmo || (gun.magazine || 0) + (gun.dummy || 0) > 0) return;
+      this.log.info(`post-fight reload: ${gun.item} magazine=0`);
+      await body.reload();
+      const deadline = Date.now() + 4500;
+      let refilled = null;
+      while (Date.now() < deadline) {
+        await sleep(500);
+        const after = typeof body.refresh === 'function' ? await body.refresh(true).catch(() => null) : null;
+        refilled = after && Array.isArray(after.guns)
+          ? after.guns.find((g) => g.item === gun.item)
+          : null;
+        if (refilled && (refilled.magazine || 0) + (refilled.dummy || 0) > 0) break;
+      }
+      this.log.info(
+        `post-fight reload: ${gun.item} -> magazine=${refilled && Number.isFinite(refilled.magazine) ? refilled.magazine : '?'}`
+      );
+    } catch (err) {
+      this.log.warn(`post-fight reload failed: ${err.message}`);
+    }
   }
 
   /**

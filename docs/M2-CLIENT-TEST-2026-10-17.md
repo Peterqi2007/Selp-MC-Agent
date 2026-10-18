@@ -291,11 +291,13 @@ timeOfDay=17818, isDay=false
 
 换弹修复（2026-10-18）：
 
-- mod 新增 `/command reload`，`ClientActions.reloadGun()` 调用 TACZ operator.reload；
-- `ClientModBody.reload()`；
-- shoot 在 `no_ammo` 后先显式 reload 一次、刷新弹匣；只有仍为空才标 dry / 切枪 / 切近战；
-- skills 新增“空弹匣触发一次显式 reload”场景（59/59）；
-- agent 仍需重启客户端加载新 jar；本轮 live 没有验证新 reload 路径。
+- 直接验证：`POST /command reload` 在 `mag=20` 时可用，2s 内 `20→30`，`tacz:ammo 38→28`；
+- 空弹匣战斗验证：30 发打空、目标在最后一发死亡，`shoot` 从 target_gone 退出，
+  **没有进入 no_ammo 分支**，所以没有 reload，下一场直接空枪/切近战；
+- 实测空弹匣 reload 需要 **>2s**（0→27）；此前显式 reload 只等 900ms，误判失败；
+- 修复：显式 reload 最多轮询 **4.5s**；另外在 reflex 战斗结束后检查空弹匣并主动 reload
+  （覆盖“最后一发击杀目标”的 target_gone 路径）；
+- skills 新增“延迟 reload”场景（59/59）；A12 仍需重测。
 
 根因（第二轮）：
 

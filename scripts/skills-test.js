@@ -519,7 +519,7 @@ function quickMove(slots) {
     return `retreat blocked ${retreats}x -> ${body.held}`;
   });
 
-  await scenario('shoot: an empty magazine triggers one explicit reload before no_ammo', async () => {
+  await scenario('shoot: an empty magazine waits for a delayed reload before no_ammo', async () => {
     const body = new MockBody(cfg, {
       entities: [{ id: 1, name: 'minecraft:zombie', kind: 'hostile', alive: true, position: { x: 10, y: 64, z: 0 } }],
       inventory: { 'tacz:ak47': 1 },
@@ -528,16 +528,27 @@ function quickMove(slots) {
     await body.connect();
     body.held = 'tacz:ak47';
     let reloads = 0;
+    let armed = false;
+    let refreshes = 0;
     body.reload = async () => {
       reloads += 1;
-      body.guns[0].magazine = 5;
+      armed = true;
       return true;
     };
-    const result = await skills.run('shoot', makeCtx(body), { timeoutMs: 5000 });
-    expect(result.ok, `expected a kill after the reload, got ${result.reason}`);
+    const baseRefresh = body.refresh.bind(body);
+    body.refresh = async () => {
+      if (armed) {
+        refreshes += 1;
+        if (refreshes >= 2) body.guns[0].magazine = 5;
+      }
+      return baseRefresh();
+    };
+    const result = await skills.run('shoot', makeCtx(body), { timeoutMs: 6000 });
+    expect(result.ok, `expected a kill after the delayed reload, got ${result.reason}`);
     expect(reloads >= 1, `empty magazine must call reload, got ${reloads}`);
+    expect(refreshes >= 2, `the reload wait must poll the magazine, got ${refreshes} refreshes`);
     expect(body.held === 'tacz:ak47', `the rifle must stay in hand, held=${body.held}`);
-    return `reloaded ${reloads}x then ${result.detail}`;
+    return `reloaded ${reloads}x after ${refreshes} polls, then ${result.detail}`;
   });
 
   await scenario('shoot: a sniper inside 8 blocks switches to a closer gun', async () => {

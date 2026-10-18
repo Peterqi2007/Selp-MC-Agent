@@ -183,6 +183,22 @@ function pickTarget(ctx, { type, maxDistance, vertical }) {
   return { ok: true, target: list[0] };
 }
 
+/** Poll the magazine for up to ~4.5s after asking TACZ to reload. */
+async function waitForReload(ctx, itemName, timeoutMs = 4500) {
+  const body = ctx.body;
+  if (!body || typeof body.refresh !== 'function') return null;
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    await sleep(500);
+    const fresh = await body.refresh(true).catch(() => null);
+    const gun = fresh && Array.isArray(fresh.guns)
+      ? fresh.guns.find((g) => bare(g.item) === bare(itemName))
+      : null;
+    if (gun && (gun.magazine + (gun.dummy || 0)) > 0) return gun;
+  }
+  return null;
+}
+
 /**
  * Run one melee engagement in 3s chunks, re-checking contact at every boundary.
  *
@@ -551,15 +567,13 @@ register({
           reloadAttempts.add(gunId);
           logInfo(`shoot: ${gunId} empty - explicit reload`);
           const reloadAccepted = await body.reload().catch(() => false);
-          await sleep(900);
-          const fresh = typeof body.refresh === 'function' ? await body.refresh(true).catch(() => null) : null;
-          const reloadedGun = fresh ? heldGun(fresh) : null;
-          if (reloadedGun && (reloadedGun.magazine + (reloadedGun.dummy || 0)) > 0) {
+          const reloadedGun = await waitForReload(ctx, gunId, 4500);
+          if (reloadedGun) {
             dryGuns.delete(gunId);
             logInfo(`shoot: ${gunId} reloaded (mag ${reloadedGun.magazine}) - continuing`);
             continue;
           }
-          logInfo(`shoot: ${gunId} reload did not fill the magazine (accepted=${reloadAccepted}) - falling through`);
+          logInfo(`shoot: ${gunId} reload did not fill the magazine within 4.5s (accepted=${reloadAccepted}) - falling through`);
         }
         dryGuns.add(gunId);
         const alt = chooseGun(snap, { distance, excludeItems: [...dryGuns] });
