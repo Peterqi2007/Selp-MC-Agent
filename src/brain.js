@@ -451,7 +451,9 @@ class Brain {
      * remain an explicit blocked state.
      */
     if (skillDriven && this.ctx.body && typeof this.ctx.body.ensureCombatScreenClear === 'function') {
-      const nearby = this.ctx.world.hostiles(24) || [];
+      // Only a hostile inside the active combat radius should close the operator's GUI;
+      // using the 24-block scan made a workbench close for a mob 20 blocks away.
+      const nearby = this.ctx.world.hostiles(15) || [];
       if (nearby.length) {
         const clear = await this.ctx.body.ensureCombatScreenClear().catch(() => false);
         if (!clear) {

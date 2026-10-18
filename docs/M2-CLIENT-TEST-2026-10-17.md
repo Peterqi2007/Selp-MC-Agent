@@ -347,7 +347,7 @@ Y 保持 attack 技能原来的 ±4；进入该范围的 hostile 会主动 engag
 
 修复：`ClientModBody.ensureCombatScreenClear()`，Brain 在附近有 hostile 时、进入
 danger/engage 之前立即关闭 container screen；PauseScreen/聊天等人类界面仍拒绝自动关闭。
-该修复需重启 Agent 后重测 GUI 场景。
+该修复只在 hostile 进入 15 格主动交战半径时关闭容器界面，远处怪不会关工作台；需重启 Agent 后重测 GUI 场景。
 
 
 ## 12. 未执行
