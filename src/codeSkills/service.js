@@ -12,7 +12,7 @@
  *   submit_task  through Brain.buildTask + enqueue, i.e. the normal TaskSlot/permission path
  *   chat         the single reply() path with the conversation guard
  *   wait         handled inside the worker (bounded)
- *   search       DeepSeek Search through SearchService (Node network broker)
+ *   search       DeepSeek Search through WebSearch (Node network broker)
  *   generate     another candidate through the generation backend (bounded per run)
  *   subprocess   a Node script inside the run's sandbox dir, with the same permission flags
  *

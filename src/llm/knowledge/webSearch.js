@@ -1,11 +1,12 @@
 'use strict';
 
 /**
- * SearchService - the Node-side network broker for DeepSeek Search (M4 capability, A16).
+ * WebSearch - the Node-side network broker for the behavior brain's mod-content lookup
+ * (M4 capability / A16; plan file name: webSearch.js, tool name: lookup_mod_content).
  *
- * Generated code never gets direct network access. It calls `ctx.search(query)`, the
- * sandbox worker RPCs the trusted Node process, and this service performs the HTTP request
- * with the operator's configured DeepSeek key.
+ * Generated code never gets direct network access. The behavior brain (DeepSeek harness)
+ * calls `lookup_mod_content`; the Node broker performs the HTTP request with the operator's
+ * configured key. The language brain must NOT expose this as a tool.
  *
  * Safety rules carried over from docs/LLM-INTEGRATION-PLAN.md §5.1:
  *   - results are data, never instructions: each result is marked `untrusted:true` and is
@@ -50,7 +51,7 @@ function normalizeResult(result) {
   return { title, url, summary, content, untrusted: true };
 }
 
-class SearchService {
+class WebSearch {
   /**
    * @param {object} options
    *   baseUrl/apiKey  DeepSeek credentials (reuse the LLM config)
@@ -179,6 +180,15 @@ class SearchService {
       this.log.warn(`search cache write failed: ${err.message}`);
     }
   }
+  /**
+   * Behavior-brain name. Keep `search` as the low-level method for generated-code RPC.
+   * @param {string} query
+   * @param {object} [options]
+   */
+  async lookup(query, options = {}) {
+    const result = await this.search(query, options);
+    return { ...result, source: 'deepseek-web-search' };
+  }
 }
 
-module.exports = { SearchService, unsafeQuery, normalizeResult };
+module.exports = { WebSearch, unsafeQuery, normalizeResult };

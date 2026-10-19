@@ -111,6 +111,35 @@ function startStatusServer(ctx, options = {}) {
         return; // the stream owns the response until the client disconnects
       }
 
+      /**
+       * Behavior-brain web lookup (A16). This is the Node network broker behind the
+       * DeepSeek-harness `lookup_mod_content` tool. The language brain never sees a route
+       * or tool for it; results are untrusted data and never an action.
+       */
+      if (req.method === 'POST' && url.pathname === '/lookup_mod_content') {
+        if (!ctx.webSearch || typeof ctx.webSearch.lookup !== 'function') {
+          return json(res, 503, { ok: false, error: 'web lookup unavailable' });
+        }
+        let body = {};
+        try {
+          body = JSON.parse((await readRaw(req)) || '{}');
+        } catch {
+          return json(res, 400, { ok: false, error: 'invalid JSON' });
+        }
+        const query = String(body.query || '').trim();
+        if (!query) return json(res, 400, { ok: false, error: 'query required' });
+        const result = await ctx.webSearch.lookup(query, {
+          count: body.count,
+          needContent: body.needContent === true,
+          oriQuestion: body.oriQuestion
+        });
+        return json(res, result.ok ? 200 : 502, {
+          ...result,
+          source: 'deepseek-web-search',
+          untrusted: true
+        });
+      }
+
       // -------------------------------------------- plans (M3 live entry, localhost)
       /**
        * `POST /plan` is the harness's plan-entry: a draft is validated by PlanService

@@ -24,7 +24,7 @@ const { CodeSkillStore } = require('../src/codeSkills/store');
 const { CodeSkillGeneration } = require('../src/codeSkills/generation');
 const { SandboxRunner } = require('../src/codeSkills/sandboxRunner');
 const { CodeSkillService } = require('../src/codeSkills/service');
-const { SearchService, unsafeQuery } = require('../src/llm/knowledge/searchService');
+const { WebSearch, unsafeQuery } = require('../src/llm/knowledge/webSearch');
 
 const silent = { info() {}, warn() {}, debug() {}, error() {} };
 const results = [];
@@ -119,7 +119,7 @@ function fakeSearchResponse(payload) {
   await check('DeepSeek Search posts the documented schema and caches the result', async () => {
     const root = tempRoot('p1-m4-search-');
     const calls = [];
-    const service = new SearchService({
+    const service = new WebSearch({
       baseUrl: 'https://api.deepseek.com',
       apiKey: 'test-key',
       cacheFile: path.join(root, 'cache.json'),
@@ -145,9 +145,24 @@ function fakeSearchResponse(payload) {
     fs.rmSync(root, { recursive: true, force: true });
   });
 
+  await check('WebSearch.lookup is the behavior-brain name and marks results untrusted', async () => {
+    const service = new WebSearch({
+      apiKey: 'k',
+      fetchImpl: async () =>
+        fakeSearchResponse({
+          results: [{ title: 'Mod block', url: 'https://example.invalid/mod', summary: 'a block', content: 'body' }]
+        }),
+      log: silent
+    });
+    const result = await service.lookup('mod block', { count: 1 });
+    assert(result.ok);
+    assert.strictEqual(result.source, 'deepseek-web-search');
+    assert.strictEqual(result.results[0].untrusted, true);
+  });
+
   await check('search refuses coordinates/IPs before any request', async () => {
     let called = false;
-    const service = new SearchService({
+    const service = new WebSearch({
       apiKey: 'k',
       fetchImpl: async () => {
         called = true;

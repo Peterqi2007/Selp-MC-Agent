@@ -117,7 +117,7 @@ src/chat/      commandGate, addressedHandler, conversation, languageDialogue,
                chatParticipation, proposalChat
 src/codeSkills/ manifest, generator, store, directory, sandboxRunner, sandboxWorker,
                service, generation, catalog
-src/llm/knowledge/ searchService（DeepSeek /v1/tools/search）
+src/llm/knowledge/ webSearch（DeepSeek /v1/tools/search；行为脑 lookup_mod_content 的 broker）
 src/llm/       judge, toolSurface, languageAgent
 src/world/     freshness, refreshPlan, threatObserver
 src/learning/  methodLibrary, answerMemory

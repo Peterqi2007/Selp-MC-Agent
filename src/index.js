@@ -385,26 +385,26 @@ async function main() {
   const codeCfg = (cfg.agent && cfg.agent.codeSkills) || {};
   const searchCfg = codeCfg.search || {};
   /**
-   * Web search is a general language-brain capability (A16), not a sub-feature of code
-   * skills. Instantiate it independently so `chat.languageAgent` can call the `search`
-   * tool even when code-skill generation is disabled; the code-skill service reuses the
-   * same broker for its sandbox RPC.
+   * Web search belongs to the behavior brain, not the language brain. The DeepSeek harness
+   * calls the `lookup_mod_content` tool -> Node `/lookup_mod_content` -> this broker. The
+   * language surface must not expose it: a talk-only brain must not be able to reach the
+   * network or turn a web result into an action.
    */
-  let searchService = null;
+  let webSearch = null;
   if (searchCfg.enabled !== false) {
-    const { SearchService } = require('./llm/knowledge/searchService');
-    searchService = new SearchService({
+    const { WebSearch } = require('./llm/knowledge/webSearch');
+    webSearch = new WebSearch({
       baseUrl: llm.client.baseUrl,
       apiKey: llm.client.apiKey,
       enabled: true,
       cacheFile: searchCfg.cacheFile || 'runtime/search-cache.json',
       timeoutMs: searchCfg.timeoutMs || 8000,
-      log: new Logger('search')
+      log: new Logger('webSearch')
     });
-    ctx.search = (query, searchOptions) => searchService.search(query, searchOptions);
+    ctx.webSearch = webSearch;
     log.info(
-      `web search ${searchService.configured ? 'online' : 'configured-off'} ` +
-        `(${searchService.baseUrl}/v1/tools/search)`
+      `web lookup ${webSearch.configured ? 'online' : 'configured-off'} ` +
+        `(${webSearch.baseUrl}/v1/tools/search)`
     );
   }
   if (codeCfg.enabled !== false) {
@@ -433,14 +433,14 @@ async function main() {
       timeoutMs: codeCfg.sandboxTimeoutMs || 30000,
       maxCalls: codeCfg.maxCalls || 100,
       generation: codeGeneration,
-      search: searchService,
+      search: webSearch,
       ctx,
       brain,
       log: new Logger('code-skills')
     });
     log.info(
       `code skills online: root=${codeCfg.root || 'runtime/code-skills'} ` +
-        `(sandbox ${codeCfg.sandboxTimeoutMs || 30000}ms, search ${searchService && searchService.configured ? 'on' : 'off'})`
+        `(sandbox ${codeCfg.sandboxTimeoutMs || 30000}ms, search ${webSearch && webSearch.configured ? 'on' : 'off'})`
     );
   }
 

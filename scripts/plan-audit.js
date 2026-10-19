@@ -865,7 +865,7 @@ if (STAGE === 'p1') {
     const worker = read('src/codeSkills/sandboxWorker.js');
     const service = read('src/codeSkills/service.js');
     const generation = read('src/codeSkills/generation.js');
-    const search = read('src/llm/knowledge/searchService.js');
+    const search = read('src/llm/knowledge/webSearch.js');
     const index = read('src/index.js');
     const server = read('src/web/statusServer.js');
     const cfg = JSON.parse(read('config/agent.json'));
@@ -882,6 +882,16 @@ if (STAGE === 'p1') {
       throw new Error('the capability broker/evidence is incomplete');
     }
     if (!/v1\/tools\/search/.test(search)) throw new Error('DeepSeek Search is not wired');
+    const plugin = read('dsh-plugin-mc-harness/lib/index.js');
+    if (!/lookup_mod_content/.test(plugin)) {
+      throw new Error('the behavior-brain lookup_mod_content tool is missing');
+    }
+    if (/ctx\.search\s*=/.test(index)) {
+      throw new Error('ctx.search exposes web lookup to the language brain');
+    }
+    if (!/\/lookup_mod_content/.test(server)) {
+      throw new Error('the Node /lookup_mod_content broker endpoint is missing');
+    }
     if (!/new CodeSkillService/.test(index) || !/ctx\.codeSkills/.test(index)) {
       throw new Error('the live agent does not instantiate the code-skill service');
     }

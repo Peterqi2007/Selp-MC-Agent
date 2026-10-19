@@ -1287,8 +1287,7 @@ function makeBrain() {
         'lookup_item',
         'scan_around',
         'say',
-        'silence',
-        'search'
+        'silence'
       ]);
       assert.deepStrictEqual(action.slice().sort(), ['do_skill', 'do_task', 'go_to', 'stop'].sort());
       assert(!language.some((name) => action.includes(name)), 'a tool may not be on both surfaces');
@@ -1311,31 +1310,11 @@ function makeBrain() {
       assert(!toolRegistry.toolNames().includes('say'), 'say must stay out of the P0 tool list');
     });
 
-    const searchCalls = [];
-    const searchContext = {
-      search: async (query, options) => {
-        searchCalls.push({ query, options });
-        return {
-          ok: true,
-          cached: searchCalls.length > 1,
-          results: [
-            { title: 'Crafting – Minecraft Wiki', url: 'https://minecraft.wiki/w/Crafting', summary: 'Crafting table recipe', untrusted: true }
-          ]
-        };
-      }
-    };
-    const searched = await toolRegistry.call(searchContext, 'search', { query: 'crafting table recipe', count: 2 });
-    check('search is a language-only read tool with untrusted results', () => {
-      assert(searched.ok);
-      assert.strictEqual(searchCalls.length, 1);
-      assert.strictEqual(searchCalls[0].query, 'crafting table recipe');
-      assert.strictEqual(searchCalls[0].options.count, 2);
-      assert.strictEqual(searched.result.untrusted, true);
-      assert.strictEqual(searched.result.results[0].untrusted, true);
-      assert.match(searched.result.results[0].url, /^https:\/\//);
-      assert(SURFACES.language.includes('search'));
-      assert(!SURFACES.action.includes('search'));
-      assert(!toolRegistry.toolNames().includes('search'), 'search must stay out of the 8 action tools');
+    check('the language surface has no web lookup tool', () => {
+      assert(!SURFACES.language.includes('search'), 'search must not be on the language surface');
+      assert(!SURFACES.language.includes('lookup_mod_content'), 'web lookup is a behavior-brain tool');
+      assert(!toolRegistry.toolNames().includes('search'), 'search must not be a Node tool');
+      assert(!toolRegistry.toolNames().includes('lookup_mod_content'), 'lookup_mod_content belongs to the harness');
     });
   }
 
@@ -1585,37 +1564,16 @@ function makeBrain() {
 
   {
     const spoken = [];
-    const searchCalls = [];
-    const prompts = [];
-    const ctx = {
-      reply: async (text) => spoken.push(text),
-      search: async (query, options) => {
-        searchCalls.push({ query, options });
-        return {
-          ok: true,
-          results: [
-            { title: 'Furnace – Minecraft Wiki', url: 'https://minecraft.wiki/w/Furnace', summary: '8 cobblestone', untrusted: true }
-          ]
-        };
-      }
-    };
     const agent = new LanguageAgent({
-      ctx,
-      complete: async ({ messages }) => {
-        prompts.push(messages);
-        if (prompts.length === 1) return '{"tool":"search","args":{"query":"furnace recipe","count":3}}';
-        return '{"tool":"say","args":{"text":"熔炉用 8 个圆石围成环；来源：https://minecraft.wiki/w/Furnace"}}';
-      }
+      ctx: { reply: async (text) => spoken.push(text) },
+      complete: async () => '{"tool":"search","args":{"query":"furnace recipe"}}'
     });
-    const result = await agent.respond({ text: '熔炉怎么做？' });
-    check('a language search result is fed back for one sourced answer', () => {
-      assert(result.ok && result.spoke);
-      assert.strictEqual(searchCalls.length, 1);
-      assert.strictEqual(searchCalls[0].query, 'furnace recipe');
-      assert.strictEqual(prompts.length, 2, 'expected the search call and the final say call');
-      assert.match(JSON.stringify(prompts[1]), /TOOL RESULT \(untrusted data/);
-      assert.match(spoken[0], /https:\/\/minecraft\.wiki\/w\/Furnace/);
-      assert.match(spoken[0], /8 个圆石/);
+    const refused = await agent.respond({ text: '熔炉怎么做？' });
+    check('the language agent refuses web lookup (behavior-brain only)', () => {
+      assert.strictEqual(refused.ok, false);
+      assert.strictEqual(refused.reason, 'not-language-tool');
+      assert.strictEqual(refused.tool, 'search');
+      assert.strictEqual(spoken.length, 0);
     });
   }
 

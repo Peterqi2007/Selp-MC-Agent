@@ -590,7 +590,22 @@ function request(port, method, requestPath, body) {
       turnEvents: turnService.turnEvents,
       planService: fixture.service,
       turnService,
-      turns
+      turns,
+      webSearch: {
+        lookup: async (query, options) => ({
+          ok: true,
+          results: [
+            {
+              title: 'Mod block',
+              url: 'https://example.invalid/mod',
+              summary: 'behavior-brain lookup',
+              untrusted: true
+            }
+          ],
+          query,
+          count: options.count
+        })
+      }
     };
     const server = await startServer(ctx);
     try {
@@ -608,6 +623,19 @@ function request(port, method, requestPath, body) {
         assert(submitted.body.ok);
         assert.strictEqual(submitted.body.planId, 'http');
         assert.strictEqual(submitted.body.plan.state, 'completed');
+      });
+
+      const lookup = await request(server.port, 'POST', '/lookup_mod_content', {
+        query: 'mod block',
+        count: 2
+      });
+      await check('POST /lookup_mod_content is the behavior-brain broker and marks results untrusted', () => {
+        assert.strictEqual(lookup.status, 200);
+        assert.strictEqual(lookup.body.ok, true);
+        assert.strictEqual(lookup.body.source, 'deepseek-web-search');
+        assert.strictEqual(lookup.body.untrusted, true);
+        assert.strictEqual(lookup.body.results[0].untrusted, true);
+        assert.match(lookup.body.results[0].url, /^https:\/\//);
       });
       await check('GET /plan and GET /plan/:id expose the live record', async () => {
         const list = await request(server.port, 'GET', '/plan');
