@@ -1585,6 +1585,42 @@ function makeBrain() {
 
   {
     const spoken = [];
+    const searchCalls = [];
+    const prompts = [];
+    const ctx = {
+      reply: async (text) => spoken.push(text),
+      search: async (query, options) => {
+        searchCalls.push({ query, options });
+        return {
+          ok: true,
+          results: [
+            { title: 'Furnace – Minecraft Wiki', url: 'https://minecraft.wiki/w/Furnace', summary: '8 cobblestone', untrusted: true }
+          ]
+        };
+      }
+    };
+    const agent = new LanguageAgent({
+      ctx,
+      complete: async ({ messages }) => {
+        prompts.push(messages);
+        if (prompts.length === 1) return '{"tool":"search","args":{"query":"furnace recipe","count":3}}';
+        return '{"tool":"say","args":{"text":"熔炉用 8 个圆石围成环；来源：https://minecraft.wiki/w/Furnace"}}';
+      }
+    });
+    const result = await agent.respond({ text: '熔炉怎么做？' });
+    check('a language search result is fed back for one sourced answer', () => {
+      assert(result.ok && result.spoke);
+      assert.strictEqual(searchCalls.length, 1);
+      assert.strictEqual(searchCalls[0].query, 'furnace recipe');
+      assert.strictEqual(prompts.length, 2, 'expected the search call and the final say call');
+      assert.match(JSON.stringify(prompts[1]), /TOOL RESULT \(untrusted data/);
+      assert.match(spoken[0], /https:\/\/minecraft\.wiki\/w\/Furnace/);
+      assert.match(spoken[0], /8 个圆石/);
+    });
+  }
+
+  {
+    const spoken = [];
     const agent = new LanguageAgent({
       ctx: { reply: async (text) => spoken.push(text) },
       complete: async () => '{"tool":"do_task","args":{"task":"mine"}}'
