@@ -31,12 +31,27 @@ class PlanQuestionBridge {
     if (!step) return { ok: false, reason: 'nothing-waiting' };
     const question =
       step.question || (step.args && step.args.question) || `Continue plan ${planId}?`;
-    const result = this.proposals.propose({
+    const candidate = {
       name: `plan:${planId}:${step.id}`,
       reason: question,
       type: 'plan_question',
       args: { planId, stepId: step.id }
-    });
+    };
+    let result = this.proposals.propose(candidate);
+    /**
+     * A parked plan's question is a direct request to the player and must not disappear
+     * behind an autonomous survival proposal. Live A14 2026-10-19: p2 `mine_ore` was
+     * pending, `propose()` returned `pending`, and the question never appeared; the plan
+     * was parked with no answer surface except the raw HTTP resume. Supersede only a
+     * non-question proposal; if a question is already pending, leave it alone.
+     */
+    if (!result.ok && result.reason === 'pending' && typeof this.proposals.supersede === 'function') {
+      const pending = result.proposal;
+      if (!pending || (pending.candidate && pending.candidate.type !== 'plan_question')) {
+        this.proposals.supersede(`plan-question ${planId}/${step.id}`);
+        result = this.proposals.propose(candidate);
+      }
+    }
     return { ...result, planId, stepId: step.id, question };
   }
 }

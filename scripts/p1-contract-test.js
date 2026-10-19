@@ -1430,13 +1430,18 @@ function makeBrain() {
         { id: 'c', type: 'mine' }
       ]
     });
+    // A survival proposal is already waiting; the parked plan's question must outrank it,
+    // not disappear into "pending" (live A14 2026-10-19 had p2 mine_ore blocking the question).
+    brain.proposals.propose({ name: 'mine_ore', type: 'mine-ore', reason: 'survival proposal', args: {} });
     const parked = await brain.runPlan('pq');
-    check('a waiting plan becomes a plan_question proposal', () => {
+    check('a waiting plan becomes a plan_question proposal (supersedes a survival proposal)', () => {
       assert.strictEqual(parked.waiting.stepId, 'w');
       assert.strictEqual(parked.question.ok, true);
       const pending = brain.proposals.pending();
       assert.strictEqual(pending.candidate.type, 'plan_question');
       assert.strictEqual(pending.reason, '继续执行吗？');
+      const superseded = brain.proposals.status().recent.find((proposal) => proposal.target === 'mine_ore');
+      assert(superseded && superseded.status === 'superseded', `survival proposal was not superseded: ${JSON.stringify(superseded)}`);
       assert.deepStrictEqual(ran, ['a']);
     });
     const accepted = await brain.acceptProposal();
