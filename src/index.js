@@ -551,6 +551,9 @@ async function main() {
           messages,
           timeoutMs: 4000,
           maxTokens: maxTokens || 400,
+          // Compression returns a plain-text summary; JSON mode would make the provider
+          // reject a prompt that does not ask for JSON (live A30 2026-10-19: HTTP 400).
+          json: !(usageContext && usageContext.kind === 'compress'),
           usageContext
         });
         if (!result || !result.ok) throw new Error((result && result.reason) || 'model-failed');

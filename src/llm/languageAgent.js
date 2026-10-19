@@ -18,6 +18,7 @@
 
 const registry = require('./tools/registry');
 const { SURFACES } = require('./toolSurface');
+const { ContextCompactor } = require('./contextCompactor');
 
 /** Read-only tools whose result can be fed back for one final spoken answer. */
 const READ_TOOLS = new Set(['observe', 'find_blocks', 'lookup_item', 'scan_around', 'search']);
@@ -69,6 +70,15 @@ class LanguageAgent {
     this.memoryFor = deps.memoryFor || null;
     this.maxTokens = deps.maxTokens || 400;
     this.log = deps.log || { info() {}, warn() {}, debug() {} };
+    /**
+     * Keep a long dialogue bounded. The compact request is attributable as kind='compress';
+     * tests can inject a compactor to keep the ordinary language tests one-call.
+     */
+    this.compactor =
+      deps.compactor ||
+      (typeof this.complete === 'function'
+        ? new ContextCompactor({ complete: this.complete, log: this.log, ...(deps.compaction || {}) })
+        : null);
   }
 
   /**
@@ -82,8 +92,14 @@ class LanguageAgent {
 
     const memories = typeof this.memoryFor === 'function' ? this.memoryFor(text) || [] : [];
     const requestId = request.requestId || `language-${Date.now()}-${Math.floor(Math.random() * 1e6)}`;
+    let history = Array.isArray(request.history) ? request.history : [];
+    if (this.compactor && typeof this.compactor.prepare === 'function') {
+      const prepared = await this.compactor.prepare(history, { requestId });
+      history = prepared.messages;
+      if (prepared.compacted) this.log.debug(`language history compacted: ${history.length} message(s)`);
+    }
     const baseMessages = [
-      ...(Array.isArray(request.history) ? request.history : []),
+      ...history,
       { role: 'user', content: text }
     ];
     let messages = baseMessages.slice();

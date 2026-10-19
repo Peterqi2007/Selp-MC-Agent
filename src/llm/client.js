@@ -58,7 +58,7 @@ class LlmClient {
             provider: usageContext.provider || this.provider,
             ok: !!(result && result.ok),
             usage: (result && result.usage) || null,
-            status: result && result.ok ? null : 'error',
+            status: result && result.ok ? null : result && result.reason === 'cancelled' ? 'cancelled' : 'error',
             error: result && result.ok ? null : (result && result.reason) || null,
             ms: Date.now() - started
           });

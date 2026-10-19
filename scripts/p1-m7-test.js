@@ -23,6 +23,7 @@ const { TaskSlot } = require('../src/core/taskSlot');
 const { captureState, restoreState } = require('../src/core/sessionState');
 const { UsageLedger, normalizeUsage } = require('../src/llm/usageLedger');
 const { LlmClient } = require('../src/llm/client');
+const { ContextCompactor } = require('../src/llm/contextCompactor');
 
 const silent = { info() {}, warn() {}, debug() {}, error() {} };
 const results = [];
@@ -201,6 +202,41 @@ function readLines(file) {
       assert(entry.error.includes('HTTP 429'));
     });
 
+    await check('an externally cancelled request is recorded as cancelled, not error', async () => {
+      const controller = new AbortController();
+      const client = new LlmClient({
+        baseUrl: 'http://fake',
+        apiKey: 'test-key',
+        model: 'fake-model',
+        fetchImpl: async (_url, options) =>
+          new Promise((_resolve, reject) => {
+            options.signal.addEventListener(
+              'abort',
+              () => {
+                const error = new Error('aborted');
+                error.name = 'AbortError';
+                reject(error);
+              },
+              { once: true }
+            );
+          }),
+        usageLedger: ledger
+      });
+      const pending = client.complete({
+        messages: [{ role: 'user', content: 'hi' }],
+        signal: controller.signal,
+        usageContext: { requestId: 'req-cancel', kind: 'chat' }
+      });
+      controller.abort();
+      const result = await pending;
+      assert.strictEqual(result.ok, false);
+      assert.strictEqual(result.reason, 'cancelled');
+      const entry = readLines(file).find((line) => line.requestId === 'req-cancel');
+      assert.strictEqual(entry.status, 'cancelled');
+      assert.strictEqual(entry.usage, null);
+      assert.strictEqual(entry.error, 'cancelled');
+    });
+
     await check('the ledger can be disabled without writing a file', async () => {
       const disabledFile = path.join(dir, 'disabled.jsonl');
       const disabled = new UsageLedger({ file: disabledFile, enabled: false, log: silent });
@@ -218,6 +254,32 @@ function readLines(file) {
       );
       assert.strictEqual(core.status().usage.records >= 1, true);
       assert.strictEqual(core.status().usage.file, file);
+    });
+
+    await check('long language history is compacted with an attributable compress request', async () => {
+      const calls = [];
+      const compactor = new ContextCompactor({
+        maxMessages: 4,
+        maxChars: 1000,
+        keepMessages: 2,
+        complete: async (request) => {
+          calls.push(request);
+          return 'older turns summary';
+        }
+      });
+      const history = Array.from({ length: 8 }, (_, index) => ({
+        role: 'user',
+        content: `old message ${index}`
+      }));
+      const prepared = await compactor.prepare(history, { requestId: 'req-compress' });
+      assert.strictEqual(prepared.compacted, true);
+      assert.strictEqual(calls.length, 1);
+      assert.strictEqual(calls[0].usageContext.kind, 'compress');
+      assert.strictEqual(calls[0].usageContext.requestId, 'req-compress');
+      assert.strictEqual(prepared.messages.length, 3, 'one summary + the two recent messages');
+      assert.match(prepared.messages[0].content, /older turns summary/);
+      assert.strictEqual(prepared.messages[1].content, 'old message 6');
+      assert.strictEqual(prepared.messages[2].content, 'old message 7');
     });
 
     fs.rmSync(dir, { recursive: true, force: true });
