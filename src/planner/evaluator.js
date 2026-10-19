@@ -210,7 +210,7 @@ const RULES = [
       v.canCraft &&
       v.pickRank >= v.stoneRank &&
       !v.has('iron_ingot', 3) &&
-      countItem(v.inventory, 'raw_iron') + countItem(v.inventory, 'iron_ore') >= 3,
+      countItem(v, 'raw_iron') + countItem(v, 'iron_ore') >= 3,
     args: () => ({ item: 'iron_pickaxe', count: 1, priority: 55 })
   },
   {

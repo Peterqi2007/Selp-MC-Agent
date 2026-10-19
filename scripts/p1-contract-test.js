@@ -1287,7 +1287,8 @@ function makeBrain() {
         'lookup_item',
         'scan_around',
         'say',
-        'silence'
+        'silence',
+        'search'
       ]);
       assert.deepStrictEqual(action.slice().sort(), ['do_skill', 'do_task', 'go_to', 'stop'].sort());
       assert(!language.some((name) => action.includes(name)), 'a tool may not be on both surfaces');
@@ -1308,6 +1309,33 @@ function makeBrain() {
       assert.strictEqual(sayCalls[0].options.conversation, true);
       assert(silent.ok && silent.result.silent);
       assert(!toolRegistry.toolNames().includes('say'), 'say must stay out of the P0 tool list');
+    });
+
+    const searchCalls = [];
+    const searchContext = {
+      search: async (query, options) => {
+        searchCalls.push({ query, options });
+        return {
+          ok: true,
+          cached: searchCalls.length > 1,
+          results: [
+            { title: 'Crafting – Minecraft Wiki', url: 'https://minecraft.wiki/w/Crafting', summary: 'Crafting table recipe', untrusted: true }
+          ]
+        };
+      }
+    };
+    const searched = await toolRegistry.call(searchContext, 'search', { query: 'crafting table recipe', count: 2 });
+    check('search is a language-only read tool with untrusted results', () => {
+      assert(searched.ok);
+      assert.strictEqual(searchCalls.length, 1);
+      assert.strictEqual(searchCalls[0].query, 'crafting table recipe');
+      assert.strictEqual(searchCalls[0].options.count, 2);
+      assert.strictEqual(searched.result.untrusted, true);
+      assert.strictEqual(searched.result.results[0].untrusted, true);
+      assert.match(searched.result.results[0].url, /^https:\/\//);
+      assert(SURFACES.language.includes('search'));
+      assert(!SURFACES.action.includes('search'));
+      assert(!toolRegistry.toolNames().includes('search'), 'search must stay out of the 8 action tools');
     });
   }
 

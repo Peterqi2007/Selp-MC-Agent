@@ -383,19 +383,33 @@ async function main() {
    * Search API through this Node process (generated code has no direct network).
    */
   const codeCfg = (cfg.agent && cfg.agent.codeSkills) || {};
-  if (codeCfg.enabled !== false) {
+  const searchCfg = codeCfg.search || {};
+  /**
+   * Web search is a general language-brain capability (A16), not a sub-feature of code
+   * skills. Instantiate it independently so `chat.languageAgent` can call the `search`
+   * tool even when code-skill generation is disabled; the code-skill service reuses the
+   * same broker for its sandbox RPC.
+   */
+  let searchService = null;
+  if (searchCfg.enabled !== false) {
     const { SearchService } = require('./llm/knowledge/searchService');
-    const { CodeSkillGeneration } = require('./codeSkills/generation');
-    const { CodeSkillService } = require('./codeSkills/service');
-    const searchCfg = codeCfg.search || {};
-    const searchService = new SearchService({
+    searchService = new SearchService({
       baseUrl: llm.client.baseUrl,
       apiKey: llm.client.apiKey,
-      enabled: searchCfg.enabled !== false,
+      enabled: true,
       cacheFile: searchCfg.cacheFile || 'runtime/search-cache.json',
       timeoutMs: searchCfg.timeoutMs || 8000,
       log: new Logger('search')
     });
+    ctx.search = (query, searchOptions) => searchService.search(query, searchOptions);
+    log.info(
+      `web search ${searchService.configured ? 'online' : 'configured-off'} ` +
+        `(${searchService.baseUrl}/v1/tools/search)`
+    );
+  }
+  if (codeCfg.enabled !== false) {
+    const { CodeSkillGeneration } = require('./codeSkills/generation');
+    const { CodeSkillService } = require('./codeSkills/service');
     const codeGeneration = new CodeSkillGeneration({
       complete: async ({ system, messages, maxTokens, timeoutMs, usageContext }) => {
         const result = await llm.client.complete({
@@ -424,10 +438,9 @@ async function main() {
       brain,
       log: new Logger('code-skills')
     });
-    ctx.search = (query, searchOptions) => searchService.search(query, searchOptions);
     log.info(
       `code skills online: root=${codeCfg.root || 'runtime/code-skills'} ` +
-        `(sandbox ${codeCfg.sandboxTimeoutMs || 30000}ms, search ${searchService.configured ? 'on' : 'off'})`
+        `(sandbox ${codeCfg.sandboxTimeoutMs || 30000}ms, search ${searchService && searchService.configured ? 'on' : 'off'})`
     );
   }
 

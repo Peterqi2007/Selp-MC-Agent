@@ -229,6 +229,29 @@ check('a throwing rule is reported and does not stop later rules', () => {
   assert.strictEqual(errors[0].rule, 'boom');
 });
 
+check('the iron-pickaxe craft rule reads the snapshot inventory without throwing', () => {
+  /**
+   * Live 2026-10-19 (proposals mode): every evaluation logged
+   * `rule craft threw: Cannot read properties of undefined (reading 'items')`.
+   * The rule passed `v.inventory` (a SnapshotInventory) where countItem expects the bot-like
+   * view, so it threw and the iron-pickaxe step was silently skipped on every tick.
+   */
+  const brain = makeBrain({
+    'minecraft:stone_pickaxe': 1,
+    'minecraft:raw_iron': 3,
+    'minecraft:oak_log': 4
+  });
+  brain.ctx.body = { supportsCrafting: true, supportsDeposit: false, supportsHunting: false };
+  const errors = [];
+  const candidates = evaluate(brain.ctx, {
+    cfg: brain.cfg,
+    onRuleError: (failure) => errors.push(failure)
+  });
+  assert(!errors.some((failure) => failure.rule === 'craft'), `craft rule threw: ${JSON.stringify(errors)}`);
+  const iron = candidates.find((candidate) => candidate.name === 'craft' && candidate.args && candidate.args.item === 'iron_pickaxe');
+  assert(iron, `expected the iron-pickaxe candidate, got ${candidates.map((c) => `${c.rule}/${c.args && c.args.item}`).join(', ')}`);
+});
+
 // ---------------------------------------------------------------- 5. TaskSlot
 process.stdout.write('\n5. TaskSlot (S2a)\n');
 
