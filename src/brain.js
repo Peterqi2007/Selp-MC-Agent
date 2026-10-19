@@ -125,6 +125,9 @@ class Brain {
       runTask: (task) => this.runTask(task),
       verify: (step, observation) => verifyStep(step, observation),
       observe: () => (this.ctx.world.snapshot ? this.ctx.world.snapshot(true) : null),
+      // A task can finish one tick before the body snapshot shows its inventory change.
+      postconditionRetryMs: 300,
+      postconditionRetryAttempts: 2,
       recordMethod: (step, ok) => this.methods.recordOutcome(step.methodId, ok),
       onStep: (event) => this.planService && this.planService.onStep(event),
       log: this.log

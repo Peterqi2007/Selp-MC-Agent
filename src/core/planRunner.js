@@ -33,6 +33,17 @@ class PlanRunner {
     this.runTask = deps.runTask;
     this.verify = deps.verify || null;
     this.observe = deps.observe || null;
+    this.sleep = deps.sleep || ((ms) => new Promise((resolve) => setTimeout(resolve, ms)));
+    /**
+     * A body can report the task done before its snapshot reflects the last inventory
+     * change (live A13-6 2026-10-19: craft said 4 sticks, postcondition still saw 8, the
+     * next `/state` already had 12). Give a failed *postcondition* a short bounded settle
+     * window; a genuine failure still fails after the last observation.
+     */
+    this.postconditionRetryMs = Number.isFinite(deps.postconditionRetryMs) ? deps.postconditionRetryMs : 0;
+    this.postconditionRetryAttempts = Number.isFinite(deps.postconditionRetryAttempts)
+      ? Math.max(0, deps.postconditionRetryAttempts)
+      : 1;
     this.recordMethod = deps.recordMethod || null;
     /** Called after every step settlement; PlanService turns it into a `plan:step` event. */
     this.onStep = deps.onStep || null;
@@ -146,11 +157,21 @@ class PlanRunner {
          */
         if ((status === 'succeeded' || status === 'partial') && typeof this.verify === 'function') {
           let verdict;
-          try {
-            const observation = typeof this.observe === 'function' ? this.observe() : null;
-            verdict = this.verify(step, observation);
-          } catch (err) {
-            verdict = { ok: false, stage: 'verify-error', failures: [{ reason: err.message }] };
+          const attempts = 1 + this.postconditionRetryAttempts;
+          for (let attempt = 0; attempt < attempts; attempt += 1) {
+            try {
+              const observation = typeof this.observe === 'function' ? this.observe() : null;
+              verdict = this.verify(step, observation);
+            } catch (err) {
+              verdict = { ok: false, stage: 'verify-error', failures: [{ reason: err.message }] };
+            }
+            if (verdict && verdict.ok === true) break;
+            const retryable = verdict && verdict.stage === 'postcondition' && this.postconditionRetryMs >= 0;
+            if (!retryable || attempt + 1 >= attempts) break;
+            this.log.debug(
+              `postcondition not settled for ${planId}/${step.id}; re-observe in ${this.postconditionRetryMs}ms`
+            );
+            await this.sleep(this.postconditionRetryMs);
           }
           if (!verdict || verdict.ok !== true) {
             finalStatus = 'failed';

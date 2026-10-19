@@ -97,7 +97,10 @@ function makePlanService(options = {}) {
     createTask: options.createTask || ((step) => ({ name: step.id, cancel() {} })),
     runTask: options.runTask || (async () => ({ ok: true, status: 'succeeded' })),
     verify: options.verify || null,
-    observe: () => ({}),
+    observe: options.observe || (() => ({})),
+    sleep: options.sleep,
+    postconditionRetryMs: options.postconditionRetryMs,
+    postconditionRetryAttempts: options.postconditionRetryAttempts,
     log: silent
   });
   const service = new PlanService({
@@ -366,6 +369,36 @@ function request(port, method, requestPath, body) {
       assert.strictEqual(view.state, 'failed');
       assert.strictEqual(view.steps[0].status, 'failed');
       await waitForEvent(verifyFixture.events, (event) => event.type === 'plan:failed');
+    });
+
+    await check('a postcondition re-observes a settling inventory before failing', async () => {
+      /**
+       * Live A13-6 2026-10-19: the craft task reported 4 sticks, the immediate observation
+       * still showed 8, and the next `/state` showed 12. The step was wrongly failed.
+       */
+      let observations = 0;
+      const settleFixture = makePlanService({
+        postconditionRetryMs: 1,
+        postconditionRetryAttempts: 1,
+        sleep: async () => {},
+        observe: () => ({ inventory: { 'minecraft:stick': ++observations >= 2 ? 12 : 8 } }),
+        verify: (_step, observation) =>
+          observation.inventory['minecraft:stick'] >= 12
+            ? { ok: true, stage: null, failures: [] }
+            : { ok: false, stage: 'postcondition', failures: [{ kind: 'inventoryAtLeast' }] },
+        runTask: async () => ({ ok: true, status: 'succeeded' })
+      });
+      settleFixture.service.submit(
+        {
+          planId: 'settle',
+          steps: [{ id: 's', type: 'mine', postconditions: { inventoryAtLeast: { 'minecraft:stick': 12 } } }]
+        },
+        { source: 'test' }
+      );
+      settleFixture.service.start('settle');
+      const view = await settleFixture.service.waitFor('settle', 2000);
+      assert.strictEqual(view.state, 'completed');
+      assert(observations >= 2, `expected a re-observation, got ${observations}`);
     });
   }
 
