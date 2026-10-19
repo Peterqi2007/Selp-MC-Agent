@@ -27,8 +27,56 @@ const MAX_QUERY = 128;
 const MAX_CONTENT = 8 * 1024;
 const CACHE_LIMIT = 50;
 
+/**
+ * Source priority for mod/vanilla knowledge. MC百科 (mcmod.cn) is the operator's first
+ * choice for Chinese mod content; Minecraft Wiki is the authoritative vanilla fallback.
+ * This is a preference, not a whitelist: other mod docs remain valid and are kept after
+ * the preferred sources.
+ */
+const DEFAULT_PREFERRED_SOURCES = [
+  { host: 'mcmod.cn', label: 'MC百科' },
+  { host: 'minecraft.wiki', label: 'Minecraft Wiki' },
+  { host: 'zh.minecraft.wiki', label: 'Minecraft Wiki 中文' }
+];
+
 function fingerprint(value) {
   return crypto.createHash('sha1').update(String(value)).digest('hex').slice(0, 16);
+}
+
+function hostnameOf(url) {
+  try {
+    return new URL(String(url || '')).hostname.toLowerCase();
+  } catch {
+    return '';
+  }
+}
+
+function preferredRank(url, preferredSources = DEFAULT_PREFERRED_SOURCES) {
+  const host = hostnameOf(url);
+  if (!host) return preferredSources.length;
+  for (let index = 0; index < preferredSources.length; index += 1) {
+    const source = preferredSources[index];
+    if (host === source.host || host.endsWith(`.${source.host}`)) return index;
+  }
+  return preferredSources.length;
+}
+
+/** Stable re-rank: preferred sources first, the backend's relative order otherwise. */
+function rankPreferred(results, preferredSources = DEFAULT_PREFERRED_SOURCES) {
+  return results
+    .map((result, index) => {
+      const rank = preferredRank(result.url, preferredSources);
+      const source = preferredSources[rank] || null;
+      return {
+        ...result,
+        preferred: !!source,
+        preferredSource: source ? source.label : null,
+        sourceRank: rank,
+        _order: index
+      };
+    })
+    .sort((a, b) => a.sourceRank - b.sourceRank || a._order - b._order)
+    .map(({ _order, ...result }) => result);
 }
 
 /** Reject coordinates, IPs, server addresses and player-like entity selectors. */
@@ -71,6 +119,9 @@ class WebSearch {
     this.maxContentBytes = options.maxContentBytes || MAX_CONTENT;
     this.log = options.log || { info() {}, warn() {}, debug() {} };
     this.now = options.now || (() => Date.now());
+    this.preferredSources = Array.isArray(options.preferredSources)
+      ? options.preferredSources
+      : DEFAULT_PREFERRED_SOURCES;
     this.cache = this._loadCache();
     this.stats = { calls: 0, ok: 0, failures: 0, filtered: 0, cachedHits: 0 };
   }
@@ -101,7 +152,7 @@ class WebSearch {
     const cached = this.cache[key];
     if (cached && this.now() - cached.at < 1000 * 60 * 60 * 24) {
       this.stats.cachedHits += 1;
-      return { ok: true, cached: true, results: cached.results };
+      return { ok: true, cached: true, results: rankPreferred(cached.results, this.preferredSources) };
     }
 
     this.stats.calls += 1;
@@ -133,11 +184,12 @@ class WebSearch {
         return { ok: false, reason: `HTTP ${res.status}`, detail };
       }
       const payload = await res.json();
-      const results = (payload.results || [])
+      const normalized = (payload.results || [])
         .map(normalizeResult)
         .filter(Boolean)
         .slice(0, count)
         .map((result) => ({ ...result, content: result.content.slice(0, this.maxContentBytes) }));
+      const results = rankPreferred(normalized, this.preferredSources);
       this._writeCache(key, clean, results);
       this.stats.ok += 1;
       return { ok: true, cached: false, results };
@@ -156,6 +208,7 @@ class WebSearch {
       configured: this.configured,
       endpoint: `${this.baseUrl}/v1/tools/search`,
       cacheFile: this.cacheFile,
+      preferredSources: this.preferredSources.map((source) => ({ ...source })),
       stats: { ...this.stats }
     };
   }
@@ -191,4 +244,11 @@ class WebSearch {
   }
 }
 
-module.exports = { WebSearch, unsafeQuery, normalizeResult };
+module.exports = {
+  WebSearch,
+  unsafeQuery,
+  normalizeResult,
+  preferredRank,
+  rankPreferred,
+  DEFAULT_PREFERRED_SOURCES
+};

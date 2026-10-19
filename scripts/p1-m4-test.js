@@ -160,6 +160,28 @@ function fakeSearchResponse(payload) {
     assert.strictEqual(result.results[0].untrusted, true);
   });
 
+  await check('MC百科 and Minecraft Wiki are ranked first, without dropping other sources', async () => {
+    const service = new WebSearch({
+      apiKey: 'k',
+      fetchImpl: async () =>
+        fakeSearchResponse({
+          results: [
+            { title: 'Other', url: 'https://example.invalid/mod', summary: 'other' },
+            { title: 'Minecraft Wiki', url: 'https://minecraft.wiki/w/Furnace', summary: 'wiki' },
+            { title: 'MC百科', url: 'https://www.mcmod.cn/item/1.html', summary: 'mcmod' }
+          ]
+        }),
+      log: silent
+    });
+    const result = await service.lookup('mod content', { count: 3 });
+    assert(result.ok);
+    assert.strictEqual(result.results[0].url, 'https://www.mcmod.cn/item/1.html');
+    assert.strictEqual(result.results[0].preferredSource, 'MC百科');
+    assert.strictEqual(result.results[1].url, 'https://minecraft.wiki/w/Furnace');
+    assert.strictEqual(result.results[1].preferredSource, 'Minecraft Wiki');
+    assert.strictEqual(result.results[2].preferred, false, 'other sources stay available');
+  });
+
   await check('search refuses coordinates/IPs before any request', async () => {
     let called = false;
     const service = new WebSearch({
