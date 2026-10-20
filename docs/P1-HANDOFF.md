@@ -113,13 +113,13 @@ npm run p1:baseline -- --suites  # 记录提交/配置指纹/套件结果到 run
 src/core/      taskEvents, planStore, planService, taskSlot, capabilities, stateStore,
                sessionState, planRunner, turnLifecycle
 src/planner/   evaluator, proposals, budget, verifier, draftGuard, planQuestions
-src/chat/      commandGate, addressedHandler, harnessBridge, conversation, languageDialogue,
-               chatParticipation, proposalChat
+src/chat/      commandGate, addressedHandler, harnessBridge, perceptionBridge, conversation,
+               languageDialogue, chatParticipation, proposalChat
 src/codeSkills/ manifest, generator, store, directory, sandboxRunner, sandboxWorker,
                service, generation, catalog
 src/llm/knowledge/ webSearch（DeepSeek /v1/tools/search；语言脑 web_search 无首选，行为脑 lookup_mod_content 优先 MC百科）
 src/llm/       judge, toolSurface, languageAgent
-src/world/     freshness, refreshPlan, threatObserver
+src/world/     freshness, refreshPlan, threatObserver, perceptionWake
 src/learning/  methodLibrary, answerMemory
 src/memory/    store
 src/codeSkills/ manifest, store, catalog, runner, generator, directory

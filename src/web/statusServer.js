@@ -112,6 +112,25 @@ function startStatusServer(ctx, options = {}) {
       }
 
       /**
+       * Autonomous-perception read surface for the behavior brain's `mc_perception` tool.
+       * Read-only edge log; `type` is the perception family (threat/weather/phase/chat/all).
+       */
+      if (req.method === 'GET' && url.pathname === '/perception') {
+        if (!ctx.perceptionWake || typeof ctx.perceptionWake.events !== 'function') {
+          return json(res, 503, { ok: false, error: 'perception unavailable' });
+        }
+        return json(res, 200, {
+          ok: true,
+          seq: ctx.perceptionWake.seq,
+          events: ctx.perceptionWake.events({
+            type: url.searchParams.get('type') || 'all',
+            since: Number(url.searchParams.get('since') || 0),
+            limit: Number(url.searchParams.get('limit') || 20)
+          })
+        });
+      }
+
+      /**
        * Behavior-brain web lookup (A16). This is the Node network broker behind the
        * DeepSeek-harness `lookup_mod_content` tool. The language brain never sees a route
        * or tool for it; results are untrusted data and never an action.

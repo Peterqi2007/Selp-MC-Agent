@@ -166,6 +166,10 @@
       "timeoutMs": 20000
     }
   },
+  "_comment_perception": "A11 autonomous perception: edge events are pushed to the bound DeepSeek harness as agent input; the action brain can also pull the typed edge log with mc_perception(type=...). Set pushToHarness=false to keep perception local.",
+  "perception": {
+    "pushToHarness": true
+  },
   "behaviour": {
     "autoEat": true,
     "_comment_screens": "autoCloseScreens only ever closes a CONTAINER screen (chest/furnace/crafting/...) so the agent can walk. Chat, the Escape menu, options, anvils, signs, books and anything unrecognised belong to the operator and are waited on, never dismissed - set false to refuse even containers and report screen-open instead. chatScreenWaitMs is how long it waits for a screen that is not ours.",

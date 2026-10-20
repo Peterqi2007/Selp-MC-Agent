@@ -605,6 +605,13 @@ function request(port, method, requestPath, body) {
           query,
           count: options.count
         })
+      },
+      perceptionWake: {
+        seq: 2,
+        events: ({ type, since, limit }) => [
+          { seq: 1, type: 'threat:enter', detail: 'zombie' },
+          { seq: 2, type: 'weather:change', detail: 'rain' }
+        ].filter((event) => !type || type === 'all' || event.type === type || event.type.startsWith(`${type}:`)).slice(-limit)
       }
     };
     const server = await startServer(ctx);
@@ -636,6 +643,13 @@ function request(port, method, requestPath, body) {
         assert.strictEqual(lookup.body.untrusted, true);
         assert.strictEqual(lookup.body.results[0].untrusted, true);
         assert.match(lookup.body.results[0].url, /^https:\/\//);
+      });
+
+      const perception = await request(server.port, 'GET', '/perception?type=threat&limit=5');
+      await check('GET /perception returns typed autonomous-perception edges', () => {
+        assert.strictEqual(perception.status, 200);
+        assert.strictEqual(perception.body.ok, true);
+        assert(perception.body.events.some((event) => event.type === 'threat:enter'));
       });
       await check('GET /plan and GET /plan/:id expose the live record', async () => {
         const list = await request(server.port, 'GET', '/plan');

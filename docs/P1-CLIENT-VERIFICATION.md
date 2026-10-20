@@ -264,8 +264,8 @@ H1b 缺失时，M2 仍不能通过。
 A16 语言脑 `web_search`（无首选）真机通过、行为脑 `lookup_mod_content`（MC百科优先）
 代码/Node broker 通过，harness live lookup 未跑；审批已改为 persona 底线 gate + 原文转发，
 真实 gate allow/deny 2 条通过，harness bridge 未重载测试；记忆写入闭环已接（聊天/task/plan；
-say 不含 URL，来源存记忆审计）；A30 有 success/compress/failure/cancel 样本、缺 retry；
-A27/A28 未执行。
+say 不含 URL，来源存记忆审计）；感知 `/perception` + `mc_perception(type)` + push 已接，
+插件重载后测；A30 有 success/compress/failure/cancel 样本、缺 retry；A27/A28 未执行。
 
 ## 6. M4：代码技能生成、试运行与下线晋升
 

@@ -325,6 +325,16 @@ async function main() {
     });
     ctx.forwardToActionBrain = (text, meta) => bridge.forward(text, meta);
   }
+  const perceptionCfg = (cfg.agent && cfg.agent.perception) || {};
+  let perceptionBridge = null;
+  if (perceptionCfg.pushToHarness === true && chatCfg.actionBrain === 'harness') {
+    const { PerceptionBridge } = require('./chat/perceptionBridge');
+    perceptionBridge = new PerceptionBridge({
+      url: chatCfg.harnessUrl || 'http://127.0.0.1:8770',
+      log: new Logger('perception-bridge')
+    });
+    ctx.perceptionBridge = perceptionBridge;
+  }
 
   /**
    * Channel A0: addressed instructions (`@...`), disabled by default.
@@ -523,6 +533,11 @@ async function main() {
   if (ctx.perceptionWake) {
     ctx.perceptionWake.subscribe((event) => {
       log.info(`perception wake: ${event.type}${event.detail ? ` - ${event.detail}` : ''}`);
+      if (perceptionBridge && event.type !== 'chat:message') {
+        perceptionBridge.forward(event).catch((err) => {
+          log.debug(`perception push failed: ${err.message}`);
+        });
+      }
       if (event.type !== 'chat:message' && event.type !== 'weather:change' && event.type !== 'phase:change') return;
       if (typeof llm.speakUp !== 'function') return;
       llm.speakUp('perception', { detail: event.detail }).catch((err) => {

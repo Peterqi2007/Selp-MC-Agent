@@ -36,6 +36,9 @@ class PerceptionWake {
     this.seq = 0;
     this.counts = {};
     this.last = null;
+    /** Bounded edge history for the behavior-brain `mc_perception` tool. */
+    this.historyLimit = options.historyLimit || 100;
+    this.history = [];
     this._weather = undefined;
     this._isDay = undefined;
     this._chatAt = new Map();
@@ -110,11 +113,40 @@ class PerceptionWake {
     return () => this.subscribers.delete(handler);
   }
 
+  /**
+   * Read recent edges, optionally only one type family (`threat`, `weather`, `phase`,
+   * `chat`). The behavior brain's `mc_perception` tool uses this instead of guessing from
+   * the latest snapshot.
+   *
+   * @param {object} [options] { type, since, limit }
+   * @returns {Array<object>}
+   */
+  events(options = {}) {
+    const since = Number(options.since) || 0;
+    const limit = Math.min(Math.max(Number(options.limit) || 20, 1), 100);
+    const type = options.type && options.type !== 'all' ? String(options.type) : null;
+    return this.history
+      .filter((event) => event.seq > since)
+      .filter((event) => !type || event.type === type || event.type.startsWith(`${type}:`))
+      .slice(-limit);
+  }
+
+  /** Latest edge of one type family, or the global latest. */
+  latest(type = null) {
+    if (!type || type === 'all') return this.last;
+    for (let index = this.history.length - 1; index >= 0; index -= 1) {
+      const event = this.history[index];
+      if (event.type === type || event.type.startsWith(`${type}:`)) return event;
+    }
+    return null;
+  }
+
   status() {
     return {
       seq: this.seq,
       counts: { ...this.counts },
       last: this.last,
+      history: this.history.length,
       weather: this._weather,
       isDay: this._isDay,
       threats: this.threats.status()
@@ -125,6 +157,8 @@ class PerceptionWake {
     this.seq += 1;
     this.counts[event.type] = (this.counts[event.type] || 0) + 1;
     this.last = { ...event, seq: this.seq };
+    this.history.push(this.last);
+    while (this.history.length > this.historyLimit) this.history.shift();
     for (const handler of this.subscribers) {
       try {
         handler(this.last);
