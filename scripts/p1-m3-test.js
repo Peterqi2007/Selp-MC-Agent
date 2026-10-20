@@ -163,8 +163,8 @@ function makeBrain(stateOptions = null) {
   return brain;
 }
 
-async function startServer(ctx) {
-  const result = startStatusServer(ctx, { port: 0, host: '127.0.0.1' });
+async function startServer(ctx, options = {}) {
+  const result = startStatusServer(ctx, { port: 0, host: '127.0.0.1', ...options });
   await new Promise((resolve, reject) => {
     if (result.server.listening) return resolve();
     result.server.once('listening', resolve);
@@ -573,6 +573,63 @@ function request(port, method, requestPath, body) {
   }
 
   // --------------------------------------------------------------- HTTP API
+  // ------------------------------------------------- A28 event injection hook
+  process.stdout.write('\n4b. A28 event injection (duplicate / out-of-order / late)\n');
+  {
+    const { HarnessInjector } = require('../src/harness/inject');
+    const fixture = makeTurnService();
+    const { turns, planService, turnService } = fixture;
+    const injector = new HarnessInjector({ turnService, log: silent });
+
+    const begun = turnService.begin({ requestId: 'inj-turn' });
+    planService.submit({ planId: 'inj', requestId: 'inj-turn', steps: [{ id: 's', type: 'mine' }] }, { source: 'test' });
+    turnService.trackPlan(begun.turn.id, 'inj');
+    planService.start('inj');
+    await planService.waitFor('inj', 2000);
+    await waitForEvent(turnService.turnEvents, (event) => event.type === 'turn:resumable');
+    const resumes = () => turnService.turnEvents.since(0).filter((event) => event.type === 'turn:resumable');
+    const before = resumes().length;
+
+    const duplicate = injector.plan({ planId: 'inj', type: 'plan:completed' });
+    await sleep(20);
+    await check('a duplicate completion cannot wake the same turn twice', () => {
+      assert.strictEqual(before, 1);
+      assert.strictEqual(resumes().length, 1);
+      assert.strictEqual(duplicate.ok, true);
+    });
+
+    const outOfOrder = injector.plan({ planId: 'inj', type: 'plan:step' });
+    await check('a non-resumable (out-of-order) plan event is ignored', () => {
+      assert.strictEqual(outOfOrder.ok, true);
+      assert.strictEqual(outOfOrder.outcome.ignored, true);
+    });
+
+    // A TurnService admits one live turn at a time: close the resumed one before the next case.
+    assert.strictEqual(turnService.finish(begun.turn.id).ok, true);
+    const published = injector.turn({ turnId: begun.turn.id, planId: 'inj' });
+    await check('the injector can publish an extra resume on the SSE ring (plugin must dedupe)', () => {
+      assert.strictEqual(published.ok, true);
+      assert(published.eventId, 'injected events need their own eventId');
+      const injected = turnService.turnEvents.since(0).filter((event) => event.injected === true);
+      assert.strictEqual(injected.length, 1);
+      assert.strictEqual(injected[0].injected, true);
+    });
+
+    const begun2 = turnService.begin({ requestId: 'inj-cancel' });
+    planService.submit({ planId: 'inj2', requestId: 'inj-cancel', steps: [{ id: 'x', type: 'mine' }] }, { source: 'test' });
+    turnService.trackPlan(begun2.turn.id, 'inj2');
+    turnService.cancel(begun2.turn.id, 'player-stop');
+    const late = injector.plan({ planId: 'inj2', type: 'plan:completed' });
+    await sleep(20);
+    await check('a completion after cancel cannot revive the turn', () => {
+      assert.strictEqual(late.ok, true);
+      assert.strictEqual(late.outcome.ok, false);
+      assert.strictEqual(late.outcome.reason, 'no-turn-for-plan');
+      assert.strictEqual(resumes().filter((event) => event.planId === 'inj2').length, 0);
+      assert.strictEqual(turns.get(begun2.turn.id).state, 'cancelled');
+    });
+  }
+
   process.stdout.write('\n5. HTTP entry (/plan, /harness)\n');
   {
     const fixture = makePlanService();
@@ -749,6 +806,34 @@ function request(port, method, requestPath, body) {
         assert.strictEqual(status.status, 200);
         assert(status.body.turns.some((turn) => turn.id === turned.body.turn.id));
       });
+
+      const hookServer = await startServer(ctx, { testHooks: true });
+      try {
+        const disabled = await request(server.port, 'POST', '/harness/inject', {
+          kind: 'plan',
+          planId: 'http-inject',
+          type: 'plan:completed'
+        });
+        const enabled = await request(hookServer.port, 'POST', '/harness/inject', {
+          kind: 'plan',
+          planId: 'http-inject',
+          type: 'plan:completed'
+        });
+        const injectedTurn = await request(hookServer.port, 'POST', '/harness/inject', {
+          kind: 'turn',
+          turnId: turned.body.turn.id
+        });
+        await check('A28 injection exists only when testHooks is on', () => {
+          assert.strictEqual(disabled.status, 404, 'default agent must not expose injection');
+          assert.strictEqual(enabled.status, 200);
+          assert.strictEqual(enabled.body.ok, true);
+          assert.strictEqual(enabled.body.outcome.ok, false, 'no turn owns that plan');
+          assert.strictEqual(injectedTurn.status, 200);
+          assert.match(injectedTurn.body.eventId, /^injected\|turn:resumable/);
+        });
+      } finally {
+        hookServer.server.close();
+      }
 
       const waited = await request(server.port, 'POST', `/harness/turn/${encodeURIComponent(turned.body.turn.id)}/wait`, {
         taskId: 'http-task'

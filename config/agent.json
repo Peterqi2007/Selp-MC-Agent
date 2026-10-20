@@ -134,11 +134,12 @@
     "alertStateFile": true
   },
   "_comment_web": "Control panel. port null means 'bridgePort + 1'; set an explicit port to run a second agent on the same machine.",
-  "_comment_web": "The panel and the task-event stream share one server (P1 Q1: a second listener would race the port+1 fallback). eventsToken: when set, GET /events requires ?token= or 'Authorization: Bearer'; empty means localhost-only like the rest of the panel.",
+  "_comment_web": "The panel and the task-event stream share one server (P1 Q1: a second listener would race the port+1 fallback). eventsToken: when set, GET /events requires ?token= or 'Authorization: Bearer'; empty means localhost-only like the rest of the panel. testHooks: enables the A28 injection endpoint POST /harness/inject for duplicate/out-of-order turn events - keep false on a production agent (P1_TEST_HOOKS=on also enables it for offline fixtures).",
   "web": {
     "bind": "127.0.0.1",
     "port": null,
-    "eventsToken": ""
+    "eventsToken": "",
+    "testHooks": false
   },
   "bot": {
     "username": "AgentDeepSeek",

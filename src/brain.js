@@ -882,6 +882,21 @@ class Brain {
   // ---------------------------------------------------------------- planning
 
   async slowLoop() {
+    /**
+     * A28/A14: an unanswered question must not keep a plan parked forever.
+     *
+     * `ProposalDesk.sweep()` existed from S3 but nothing called it in the live loop; with
+     * `planner.mode=off` no new proposal is ever made, so the "swept on the next propose"
+     * comment never fired and a `wait_for_player` plan stayed parked past its TTL (live
+     * 2026-10-20). Sweep on every heartbeat, before the pause/attached gates: expiry is a
+     * fact about the question, not a request to plan. The `proposal:expired` listener below
+     * turns it into `resume(planId, false)` - no answer is still not consent.
+     */
+    try {
+      this.proposals.sweep();
+    } catch (err) {
+      this.log.warn(`proposal sweep failed: ${err.message}`);
+    }
     if (this.paused || this.stopped || !this.attached) return;
     /**
      * A TaskHub job owns the body right now.

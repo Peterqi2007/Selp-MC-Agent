@@ -848,6 +848,41 @@ function makeBrain() {
       );
       assert.strictEqual(far.ok, false);
     });
+    check('positionNear shares the walk primitive\'s measure (A13 s3)', () => {
+      /**
+       * Live 2026-10-20: the bot stood on the grass block above the target (dy=1) and
+       * stopped ~1.4 blocks away horizontally. Body.moveTo/GoToTask call that arrival;
+       * the old y-aware Manhattan here called it 2.3+ and failed the postcondition.
+       */
+      const { positionReached } = require('../src/planner/verifier');
+      const arrived = { position: { x: 1.4, y: 64, z: 0 } };
+      assert(
+        verifyStep(
+          { postconditions: { positionNear: { position: { x: 0, y: 63, z: 0 }, range: 2 } } },
+          arrived
+        ).ok
+      );
+      assert.strictEqual(positionReached({ x: 0, y: 64, z: 0 }, { x: 2.5, y: 64, z: 0 }, 2), false);
+      // The vertical tolerance is not unbounded: four blocks above is not "near".
+      assert.strictEqual(
+        verifyStep(
+          { postconditions: { positionNear: { position: { x: 0, y: 63, z: 0 }, range: 2 } } },
+          { position: { x: 0, y: 67, z: 0 } }
+        ).ok,
+        false
+      );
+      // An explicit verticalRange wins over the default.
+      assert(
+        verifyStep(
+          {
+            postconditions: {
+              positionNear: { position: { x: 0, y: 66, z: 0 }, range: 1, verticalRange: 4 }
+            }
+          },
+          { position: { x: 0, y: 64, z: 0 } }
+        ).ok
+      );
+    });
   }
 
   {
@@ -1882,15 +1917,23 @@ function makeBrain() {
     await brain.runPlan('pe');
     assert.strictEqual(brain.proposals.pending().candidate.type, 'plan_question');
     clock += brain.proposals.ttlMs + 1;
-    const expired = brain.proposals.sweep();
+    /**
+     * The live caller is the planner heartbeat, not a test-only `sweep()` call: with
+     * `planner.mode=off` nothing else ever proposes, so without slowLoop the plan stayed
+     * parked forever (live 2026-10-20).
+     */
+    await brain.slowLoop();
     await new Promise((resolve) => setTimeout(resolve, 10));
-    check('an unanswered plan question fails the step and stops the plan', () => {
-      assert(expired && expired.status === 'expired');
+    check('the planner heartbeat expires an unanswered question and stops the plan', () => {
       assert.deepStrictEqual(ran, ['a']);
       const plan = brain.plans.get('pe');
       assert.strictEqual(plan.steps.find((step) => step.id === 'w').status, 'failed');
       assert.strictEqual(plan.steps.find((step) => step.id === 'c').status, 'pending');
       assert.strictEqual(brain.proposals.pending(), null);
+      assert(
+        brain.proposals.status().recent.some((proposal) => proposal.status === 'expired'),
+        'the expired proposal must be recorded'
+      );
     });
   }
 

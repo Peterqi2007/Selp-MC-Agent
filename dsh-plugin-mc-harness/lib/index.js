@@ -406,6 +406,10 @@ function toolDefinitions({ controlUrl, record, log, runtime }) {
     description:
       'Submit a multi-step plan to the local Minecraft agent. Each step is one command-table ' +
       'action (mine/chop/goto/craft/sleep/...) or {type:"wait_for_player", question}. ' +
+      'Declare checkable postconditions in Node\'s declarative form, e.g. ' +
+      '{"inventoryAtLeast":{"minecraft:dirt":2}} or ' +
+      '{"positionNear":{"position":{"x":0,"y":64,"z":20},"range":2}} - a plan without a ' +
+      'postcondition cannot falsify a task that claims success. ' +
       'Node validates and runs it; do not also run the same steps with mc_step. ' +
       'With a bound live agent the plan resumes this conversation when it settles.',
     parameters: {
@@ -421,7 +425,26 @@ function toolDefinitions({ controlUrl, record, log, runtime }) {
               id: { type: 'string' },
               type: { type: 'string' },
               args: { type: 'object' },
-              question: { type: 'string' }
+              question: { type: 'string' },
+              preconditions: {
+                type: 'object',
+                description:
+                  'checked before the step runs: {inventoryAtLeast:{item:count}, ' +
+                  'positionNear:{position:{x,y,z},range,verticalRange?}, blockAt:{position,block}}'
+              },
+              postconditions: {
+                type: 'object',
+                description:
+                  'checked after the step claims success: {inventoryAtLeast, positionNear, blockAt}; ' +
+                  'a failed postcondition fails the step and stops the plan'
+              },
+              wait: { type: 'boolean', description: 'same as type:"wait_for_player"' },
+              methodId: { type: 'string', description: 'local method id to write the outcome back to' },
+              status: {
+                type: 'string',
+                enum: ['pending', 'done'],
+                description: 'only when replanning: echo finished steps as "done"; other statuses are refused'
+              }
             },
             required: ['id']
           }

@@ -42,10 +42,29 @@ const { PANEL_HTML, PANEL_JS } = require('./panel');
 const { Logger } = require('../util/logger');
 const { resolveTrigger, personaForConfig } = require('../llm/persona');
 const { streamEvents } = require('./eventStream');
+const { HarnessInjector } = require('../harness/inject');
 
 function startStatusServer(ctx, options = {}) {
   const log = new Logger('http');
-  const port = options.port || 8766;
+  /**
+   * A28 injection surface - test-only, default off.
+   *
+   * `POST /harness/inject` manufactures duplicate/out-of-order/cancelled events for the
+   * turn machinery so the "at most one wake-up per turn" claim can be exercised against a
+   * live agent. It is gated three ways: a config flag (`web.testHooks`), an explicit
+   * option (offline fixtures) or `P1_TEST_HOOKS=on`; otherwise the route does not exist.
+   */
+  const testHooks =
+    options.testHooks === true ||
+    (ctx.cfg && ctx.cfg.agent && ctx.cfg.agent.web && ctx.cfg.agent.web.testHooks === true) ||
+    process.env.P1_TEST_HOOKS === 'on';
+  let harnessInject = null;
+  /**
+   * `port: 0` means "pick a free port" - offline fixtures rely on it, and `|| 8766` used to
+   * silently turn 0 into 8766 (which then collided with a live agent on the same machine).
+   */
+  const requestedPort = options.port === undefined || options.port === null ? 8766 : Number(options.port);
+  const port = Number.isFinite(requestedPort) ? requestedPort : 8766;
   const host = options.host || (ctx.cfg && ctx.cfg.agent && ctx.cfg.agent.web && ctx.cfg.agent.web.bind) || '127.0.0.1';
   /**
    * Access log for the panel endpoints.
@@ -491,6 +510,31 @@ function startStatusServer(ctx, options = {}) {
         return json(res, 404, { ok: false, error: 'not found' });
       }
 
+      /**
+       * A28 injection (test hook; `web.testHooks` / `P1_TEST_HOOKS=on`).
+       *
+       *   GET  /harness/inject          what the injector is attached to
+       *   POST /harness/inject          {kind:'plan',  planId, type, ...}  -> TurnService.onPlanEvent
+       *                                 {kind:'turn',  turnId, type?, ...}  -> publish on the SSE ring
+       *
+       * Duplicate/out-of-order events go through the same entry points a real completion
+       * uses, so the test covers the real dedupe path instead of a mock of it.
+       */
+      if (url.pathname === '/harness/inject' && (req.method === 'GET' || req.method === 'POST')) {
+        if (!testHooks || !ctx.turnService) return json(res, 404, { ok: false, error: 'not found' });
+        harnessInject = harnessInject || new HarnessInjector({ turnService: ctx.turnService, log });
+        if (req.method === 'GET') return json(res, 200, harnessInject.status());
+        let body = {};
+        try {
+          body = JSON.parse((await readRaw(req)) || '{}');
+        } catch {
+          return json(res, 400, { ok: false, error: 'invalid JSON' });
+        }
+        const kind = String(body.kind || 'plan').toLowerCase();
+        const result = kind === 'turn' ? harnessInject.turn(body) : harnessInject.plan(body);
+        return json(res, result.ok ? 200 : 400, result);
+      }
+
       // ------------------------------------------------------------ panel
       if (req.method === 'GET' && (url.pathname === '/panel' || url.pathname === '/panel/')) {
         /**
@@ -789,11 +833,11 @@ function startStatusServer(ctx, options = {}) {
   });
 
   server.listen(port, host, () => {
-    boundPort = port;
-    log.info(`control panel on http://${host}:${port}/panel  (API: /ui/state, /command, /emergency-stop, /llm)`);
+    boundPort = server.address() && server.address().port ? server.address().port : port;
+    log.info(`control panel on http://${host}:${boundPort}/panel  (API: /ui/state, /command, /emergency-stop, /llm)`);
   });
   server.on('error', (err) => {
-    if (err.code === 'EADDRINUSE') {
+    if (err.code === 'EADDRINUSE' && port !== 0) {
       // Another agent (or an older instance) owns the port: not fatal, the bot itself is
       // what matters. Say so loudly, because a browser still pointed at the old port will
       // show an empty panel and look broken while a forgotten agent answers its commands.

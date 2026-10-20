@@ -18,6 +18,7 @@
  */
 
 const { Task } = require('./task');
+const { positionReached } = require('../planner/verifier');
 
 class GoToTask extends Task {
   /**
@@ -81,6 +82,16 @@ class GoToTask extends Task {
 
     if (reached) {
       const now = this.position;
+      /**
+       * The walk's own "arrived" and a plan step's `positionNear` postcondition must use
+       * the same measure (A13 live 2026-10-20): horizontal `range` plus a vertical
+       * tolerance. `body.moveTo()` reports arrival horizontally, so a second opinion here
+       * with a different metric would reject walks that did arrive - and a postcondition
+       * that disagrees with the task is a bug in the contract, not in the walking.
+       */
+      if (now && !positionReached(now, target, this.range)) {
+        return this.fail(`not-arrived: stopped at ${fmt(now)} outside ${this.range} blocks of ${fmt(target)}`);
+      }
       const travelled = from && now ? +Math.hypot(now.x - from.x, now.z - from.z).toFixed(2) : null;
       return this.succeed(`arrived at ${fmt(target)}${travelled === null ? '' : ` (moved ${travelled} blocks in ${ms}ms)`}`);
     }
