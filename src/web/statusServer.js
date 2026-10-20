@@ -233,6 +233,30 @@ function startStatusServer(ctx, options = {}) {
 
       // -------------------------------------------- plans (M3 live entry, localhost)
       /**
+       * Harness-generated proposal: the action brain decides what to propose; Node's
+       * ProposalDesk owns only the ask/cooldown/authorization lifecycle. With
+       * planner.mode=off this is the only autonomous-proposal source.
+       */
+      if (req.method === 'POST' && url.pathname === '/propose') {
+        if (!ctx.brain || typeof ctx.brain.proposeFromHarness !== 'function') {
+          return json(res, 503, { ok: false, error: 'proposal service unavailable' });
+        }
+        let body = {};
+        try {
+          body = JSON.parse((await readRaw(req)) || '{}');
+        } catch {
+          return json(res, 400, { ok: false, error: 'invalid JSON' });
+        }
+        const result = await ctx.brain.proposeFromHarness({
+          type: body.type,
+          name: body.name,
+          args: body.args,
+          reason: body.reason
+        });
+        return json(res, result.ok ? 202 : 400, result);
+      }
+
+      /**
        * `POST /plan` is the harness's plan-entry: a draft is validated by PlanService
        * (replan guard/budget), written through PlanStore and, unless `start:false`, run
        * through PlanRunner. The HTTP response is an acceptance, not a completion; clients

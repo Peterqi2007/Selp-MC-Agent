@@ -51,9 +51,9 @@
     "maxSidesteps": 2,
     "trace": "runtime/path-trace.jsonl"
   },
-  "_comment_planner": "Default is OFF for this operator profile: the agent must not start autonomous mining/chopping/tasks on login. mode='legacy' would execute the rule table's goal (P0 behaviour); 'proposals' only offers it for player approval (A25). Explicit !commands still run with mode='off'. proposalCooldownMs is how long a rejected/expired target is not proposed again; proposalTtlMs is how long a question waits for an answer (no answer is NOT consent).",
+  "_comment_planner": "M3 test policy: local planner is OFF. The DeepSeek harness is the only autonomous proposal/plan generator; it proposes via mc_propose and executes plans via mc_plan. Explicit !commands still run with mode='off'. proposalCooldownMs is how long a rejected/expired target is not proposed again; proposalTtlMs is how long a question waits for an answer (no answer is NOT consent).",
   "planner": {
-    "mode": "proposals",
+    "mode": "off",
     "proposalCooldownMs": 180000,
     "proposalTtlMs": 300000
   },

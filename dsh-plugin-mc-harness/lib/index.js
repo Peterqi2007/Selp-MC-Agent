@@ -202,6 +202,53 @@ function toolDefinitions({ controlUrl, record, log, runtime }) {
   };
 
   /**
+   * Harness-generated proposal. The action brain decides; Node's ProposalDesk owns the
+   * player-facing ask/cooldown/standing authorization. This is the only autonomous
+   * proposal source when planner.mode=off.
+   */
+  const propose = {
+    name: 'mc_propose',
+    description:
+      'Propose an autonomous action to the player (single command-table type + args). ' +
+      'Use this instead of executing immediately when the player has not asked for the ' +
+      'work. The player accepts/rejects through the existing proposal channel.',
+    parameters: {
+      type: 'object',
+      properties: {
+        type: { type: 'string', description: 'command-table type, e.g. goto/mine/chop/craft/sleep' },
+        name: { type: 'string', description: 'target label for cooldown/authorization; defaults to type' },
+        args: { type: 'object', description: 'task args' },
+        reason: { type: 'string', description: 'short player-facing reason' }
+      },
+      required: ['type'],
+      additionalProperties: false
+    },
+    output: {
+      schema: { type: 'string' },
+      render: (_args, value) => [{ type: 'text', text: value }]
+    },
+    async execute(args) {
+      const res = await fetch(`${controlUrl}/propose`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          type: args.type,
+          name: args.name,
+          args: args.args,
+          reason: args.reason
+        })
+      });
+      const payload = await res.json();
+      record.proposals.push({
+        type: args.type,
+        at: new Date().toISOString(),
+        ok: payload.ok === true
+      });
+      return JSON.stringify(payload);
+    }
+  };
+
+  /**
    * Task/plan memory shared with the behavior brain. Reads/writes the same Node
    * MemoryStore that Brain.rememberEvent fills from task/plan terminal events. This is
    * explicit grep/save, not automatic context injection.
@@ -511,7 +558,7 @@ function toolDefinitions({ controlUrl, record, log, runtime }) {
     }
   };
 
-  return [observe, perception, state, memory, step, lookupModContent, plan, planStatus, cancel, finish];
+  return [observe, perception, state, propose, memory, step, lookupModContent, plan, planStatus, cancel, finish];
 }
 
 /** Minimal SSE block parser for the harness turn stream. */
@@ -545,6 +592,7 @@ export function apply(ctx, config = {}) {
     steps: [],
     receipts: [],
     plans: [],
+    proposals: [],
     finish: null
   };
   let handle = null;
@@ -775,7 +823,7 @@ export function apply(ctx, config = {}) {
     for (const definition of toolDefinitions({ controlUrl, record, log, runtime })) {
       toolsCtx.tools.register(definition);
     }
-    log('registered mc_observe / mc_perception / mc_state / mc_memory / mc_step / lookup_mod_content / mc_plan / mc_plan_status / mc_cancel / mc_finish');
+    log('registered mc_observe / mc_perception / mc_state / mc_propose / mc_memory / mc_step / lookup_mod_content / mc_plan / mc_plan_status / mc_cancel / mc_finish');
   });
 
   const server = http.createServer(async (req, res) => {
@@ -880,6 +928,7 @@ export function apply(ctx, config = {}) {
       busy = true;
       record.observations.length = 0;
       record.perceptions.length = 0;
+      record.proposals.length = 0;
       record.memories.length = 0;
       record.lookups.length = 0;
       record.steps.length = 0;
@@ -920,6 +969,8 @@ export function apply(ctx, config = {}) {
           '(type = all/threat/weather/phase/chat) to read the edge events.',
           'Before executing a task, call mc_state(fields=[...]) ONCE and choose the fields',
           'needed by that task; do not poll it every tick and do not expect pushed state.',
+          'When the player has not explicitly asked for work, use mc_propose instead of',
+          'starting it; the local planner is off and the harness is the only proposal source.',
           'Use mc_memory(action=grep/save) to read or write shared task/plan memory;',
           'it is explicit, not automatic context injection.',
           'For a mod block/item the local registry/classification does not know, call',
@@ -967,6 +1018,7 @@ export function apply(ctx, config = {}) {
           receipts: record.receipts,
           observations: record.observations,
           perceptions: record.perceptions,
+          proposals: record.proposals,
           memories: record.memories,
           lookups: record.lookups,
           plans: record.plans,

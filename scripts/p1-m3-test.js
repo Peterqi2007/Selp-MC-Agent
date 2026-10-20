@@ -586,7 +586,19 @@ function request(port, method, requestPath, body) {
       body: { isReady: true, kind: 'test' },
       bodyKind: 'test',
       world: { summary: () => ({ ready: true }) },
-      brain: { status: () => ({ running: false }) },
+      brain: {
+        status: () => ({ running: false }),
+        proposeFromHarness: async (candidate) => ({
+          ok: true,
+          autoAccepted: false,
+          proposal: {
+            id: 'p-harness',
+            target: candidate.name || candidate.type,
+            candidate,
+            status: 'awaiting'
+          }
+        })
+      },
       events: fixture.events,
       turnEvents: turnService.turnEvents,
       planService: fixture.service,
@@ -676,6 +688,18 @@ function request(port, method, requestPath, body) {
         assert.strictEqual(state.body.ok, true);
         assert.strictEqual(state.body.fields.position.value.x, 0);
         assert.strictEqual(state.body.fields.inventory.value, 20);
+      });
+
+      const proposed = await request(server.port, 'POST', '/propose', {
+        type: 'goto',
+        args: { x: 1, y: 64, z: 1 },
+        reason: 'harness seeks a better view'
+      });
+      await check('POST /propose accepts only a harness-generated proposal', () => {
+        assert.strictEqual(proposed.status, 202);
+        assert.strictEqual(proposed.body.ok, true);
+        assert.strictEqual(proposed.body.proposal.candidate.type, 'goto');
+        assert.strictEqual(proposed.body.proposal.target, 'goto');
       });
 
       const saved = await request(server.port, 'POST', '/memory', {
@@ -863,6 +887,28 @@ function request(port, method, requestPath, body) {
       assert.match(entries[0].entry.text, /计划「dig a memory hole」/);
       assert(entries[0].entry.tags.includes('plan'));
     });
+  }
+
+  process.stdout.write('\n8. harness proposal source\n');
+  {
+    const brain = makeBrain();
+    const outcome = await brain.proposeFromHarness({
+      type: 'goto',
+      args: { x: 1, y: 64, z: 1 },
+      reason: 'harness wants a better view'
+    });
+    await check('planner.mode=off keeps the local proposer off', () => {
+      assert.strictEqual(brain.plannerMode, 'off');
+      assert.strictEqual(brain.lastDecision, null);
+    });
+    await check('the harness proposal is stored only as a proposal, not executed', () => {
+      assert(outcome.ok);
+      assert.strictEqual(outcome.autoAccepted, false);
+      assert(brain.proposals.pending());
+      assert.strictEqual(brain.activeTask, null);
+      assert.strictEqual(brain.queue.length, 0);
+    });
+    brain.rejectProposal();
   }
 
   const failed = results.filter((result) => !result.ok);

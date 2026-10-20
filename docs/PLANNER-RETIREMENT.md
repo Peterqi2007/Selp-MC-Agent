@@ -3,10 +3,11 @@
 > 2026-10-17 设计定稿；S0–S4 已离线交付，但 **S4 是“有范围退役”，不是删除全部 planner**。
 > 对应 [`P1-PLANNER-PLAN.md`](P1-PLANNER-PLAN.md) §1.10 与 §1.9 的动作脑接入。
 >
-> **当前状态（2026-10-20 核对）**：`slowLoop`、`evaluator`、`ProposalDesk` 仍在；
-> `config/agent.json` 的 `planner.mode` 是 `proposals`，所以自主侧只评估/提案，不直接执行；
-> `decide()/buildTask()` 与 `planner.mode` 作为 legacy 后端保留。真正多步计划的生成当前由
-> DSH 动作脑的 `mc_plan` 承担，Node `PlanService`/`PlanRunner` 负责校验与执行。
+> **当前状态（2026-10-20 核对）**：`slowLoop`、`evaluator`、`ProposalDesk` 仍在，但
+> `config/agent.json` 的 `planner.mode` 已调回 **`off`**：本地规则表不生成计划、不执行；
+> 自主 proposal 只能由 DSH harness 的 `mc_propose` 提出。`decide()/buildTask()` 与
+> `planner.mode` 作为 legacy 后端保留。真正多步计划的生成由 DSH 动作脑 `mc_plan` 承担，
+> Node `PlanService`/`PlanRunner` 负责校验与执行。
 >
 > | 退役项 | 状态 |
 > | --- | --- |
@@ -18,8 +19,8 @@
 > | “未经授权的自主执行”退役 | ✅ 当前 `proposals` 模式不直接执行 |
 >
 > 2026-10-18 `774db29` 曾把默认模式从 `legacy` 改成 `off`；2026-10-19 `d17e2a0` 又改成
-> `proposals` 并重新启用自主提案入口（真机 craft furnace 通过）。因此“planner 还活着”是
-> **配置重新启用提案层**，不是 S4 删掉的 legacy 执行代码复活。
+> `proposals` 并重新启用自主提案入口（真机 craft furnace 通过）。2026-10-20 为 M3 测试改为
+> **只测 DSH harness**，已将 `planner.mode` 调回 **`off`**；harness 通过 `mc_propose` 提案。
 >
 > 真机存活规则数"3～4 条"来自**操作员上一轮核对**（本文不重新取证）；P1–P10 的问题条目沿用
 > [`PLANNER-REFACTOR.md`](PLANNER-REFACTOR.md)，实施前仍须对照当时提交重新核实。
@@ -176,25 +177,27 @@ brain 任务释放身体（最多 `settleTimeoutMs`）；原实现是"取消后�
 
 | 项 | 现状 |
 | --- | --- |
-| `planner.mode` | `proposals`（`config/agent.json`） |
-| `Brain.slowLoop` | **仍存在并运行**，按模式分派；`proposals` 下只提案 |
+| `planner.mode` | **`off`**（2026-10-20，M3 改为只测 DSH harness） |
+| `Brain.slowLoop` | **仍存在但自主分支关闭**；`off` 下不评估、不提案、不执行 |
 | `decide()/buildTask()` | **仍存在**，作为 `legacy` 后端，供回退/直接任务构造 |
-| 自主执行 | 未经 accept/standing authorization 不执行；不是旧 `legacy` 自动派活 |
-| 多步计划生成 | 当前由 DSH 动作脑 `mc_plan` 生成；Node `PlanService` 校验、`PlanRunner` 执行 |
+| 自主 proposal | 只能由 DSH harness `mc_propose` 提出；本地 planner 不生成 |
+| 多步计划生成 | 由 DSH 动作脑 `mc_plan` 生成；Node `PlanService` 校验、`PlanRunner` 执行 |
 | legacy 全删 | **未完成**，S4 有意保留 |
 
 历史开关变化：
 
 - `774db29`（2026-10-18）：`planner.mode` 从 `legacy` 改为 `off`，默认关闭自主规划；
-- `d17e2a0`（2026-10-19）：从 `off` 改为 `proposals`，重新启用“规则评估 + 提案”入口。
+- `d17e2a0`（2026-10-19）：从 `off` 改为 `proposals`，重新启用“规则评估 + 提案”入口；
+- 2026-10-20：为 M3 只测 DSH harness，调回 `off`；harness 用 `mc_propose` 提案。
 
-因此“planner 还活着”是 **提案层被配置重新启用**，不是 S4 删除的代码复活。S4 的“完成”只覆盖
-“删除死代码 + 阶段审计”，不覆盖“删除 `slowLoop`/legacy 后端”。
+因此 10-19 的“planner 还活着”是 **提案层被配置重新启用**，不是 S4 删除的代码复活；
+2026-10-20 又调回 `off`，本地 planner 不再自主生成。S4 的“完成”只覆盖“删除死代码 +
+阶段审计”，不覆盖“删除 `slowLoop`/legacy 后端”。
 
 ### 9.3 真正完全退役仍缺
 
 1. 语言脑完全接管提案问答（当前 `chat.languageAgent=false`，仍走确定性入口/旧路径）；
-2. 默认模式稳定在 `proposals` 或 `off`，不再需要 `legacy` 回退；
+2. 默认模式稳定在 `off`，不再需要 `legacy` 回退；
 3. 删除 `decide()/buildTask()`、legacy 任务工厂和 `slowLoop` 的 legacy 分支；
 4. 更新 `plan:audit`，让“legacy 已删除”成为可验证断言；
 5. 真机验证 `!`/`do_task` 等价与提案授权口径。

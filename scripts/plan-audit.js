@@ -499,6 +499,9 @@ if (STAGE === 'p1') {
     if (!['legacy', 'proposals', 'off'].includes(planner.mode)) {
       throw new Error(`planner.mode must be legacy|proposals|off, got ${planner.mode}`);
     }
+    if (planner.mode !== 'off') {
+      throw new Error(`M3 test policy requires planner.mode=off, got ${planner.mode}`);
+    }
     const brain = read('src/brain.js');
     if (!/plannerCfg\.mode/.test(brain)) throw new Error('brain does not read planner.mode');
     if (!/PlannerCfg\.proposalCooldownMs|proposalCooldownMs/.test(brain)) throw new Error('cooldown is not consumed');
@@ -903,6 +906,9 @@ if (STAGE === 'p1') {
     }
     if (!/mc_state/.test(plugin) || !/\/observe/.test(server)) {
       throw new Error('pre-task state skill or Node /observe endpoint is missing');
+    }
+    if (!/mc_propose/.test(plugin) || !/\/propose/.test(server)) {
+      throw new Error('harness proposal tool or Node /propose endpoint is missing');
     }
     if (!/ctx\.chatMemory/.test(index)) throw new Error('chat memory is not attached to the live context');
     if (!/new CodeSkillService/.test(index) || !/ctx\.codeSkills/.test(index)) {
