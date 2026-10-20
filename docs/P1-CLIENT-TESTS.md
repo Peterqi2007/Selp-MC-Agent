@@ -96,9 +96,12 @@
   无法获取，不再取证）。A28 真机注入：重启客户端 + Agent（`P1_TEST_HOOKS=on`）后，长步骤 ~25s
   只结算唤醒一次、停靠 60s+ 无推进、同 turn 重复/乱序事件不二次唤醒、取消后 late event 不复活、
   问题到期 `expired`+plan failed（证据 `.tmp/a28-evidence-2026-10-20.md`）。
+  **A27 只读/异步**：`deepseek-flash @ api.deepseek.com` 真实回执可解析（`mc_state`/`mc_memory`/
+  `lookup_mod_content` untrusted），异步 `mc_plan` craft（turn-4）completed 且 post 成立，
+  lookup 未触发动作/权限（代码子项 A18–A20 留 M4）。
   证据：`runtime/` 下 plan/事件、`.tmp/m3-evidence-2026-10-20.md`（工作副本）、
   [`P1-M3.md`](P1-M3.md) §3.3–§3.5。
-- **未执行**：A27、A23–A25、R2–R4、F3 真机端点、M0-C1 的移动/挖矿/反射/GUI 负载。
+- **未执行**：A23–A25、R2–R4、F3 真机端点、M0-C1 的移动/挖矿/反射/GUI 负载。
   未测的阈值不得回填。
 - **夜间安全**：后续所有客户端窗口执行前先确认时间；夜里先睡觉（`client-real` 自动，
   或面板 `!sleep`），无床则停止测试。
