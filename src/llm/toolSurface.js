@@ -15,7 +15,7 @@
  */
 
 const SURFACES = {
-  language: ['observe', 'find_blocks', 'lookup_item', 'scan_around', 'say', 'silence'],
+  language: ['observe', 'find_blocks', 'lookup_item', 'scan_around', 'web_search', 'approve', 'say', 'silence'],
   action: ['do_task', 'do_skill', 'go_to', 'stop']
 };
 

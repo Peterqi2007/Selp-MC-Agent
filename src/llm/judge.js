@@ -15,12 +15,21 @@
  * string or an already-parsed object; this module never touches a socket or the body.
  */
 
-function buildPrompt(text) {
+function buildPrompt(text, persona = '') {
+  const personaText = String(persona || '').slice(0, 6000);
   return {
-    system:
-      'You are a strict gate for a Minecraft agent. Decide whether the player instruction is a ' +
-      'valid action request for the agent. Do not answer the request, do not rewrite it, do not ' +
-      'explain. Reply with exactly one JSON object: {"verdict":"allow"} or {"verdict":"deny"}.',
+    system: [
+      'You are the persona-bottom-line approval gate for a Minecraft agent.',
+      "Allow a player instruction unless it violates the persona's non-negotiable red lines; " +
+        'if it does, deny it.',
+      'Do NOT deny merely because the task is impossible, unclear, unsupported, technically ' +
+        'invalid, or because tools may be missing. Those still go to the action brain.',
+      'Do not answer the request, do not rewrite it, do not explain.',
+      'Reply with exactly one JSON object: {"verdict":"allow"} or {"verdict":"deny"}.',
+      personaText ? `Persona and non-negotiable red lines:\n${personaText}` : ''
+    ]
+      .filter(Boolean)
+      .join('\n'),
     user: `Instruction: ${JSON.stringify(String(text))}`
   };
 }
@@ -45,6 +54,7 @@ class InstructionJudge {
   constructor(options = {}) {
     this.complete = options.complete || null;
     this.timeoutMs = options.timeoutMs || 2000;
+    this.persona = options.persona || '';
   }
 
   /** @returns {Promise<{verdict:'allow'|'deny'}>} */
@@ -52,7 +62,7 @@ class InstructionJudge {
     if (!text || !String(text).trim()) throw new Error('empty-instruction');
     if (typeof this.complete !== 'function') throw new Error('no-complete');
 
-    const prompt = buildPrompt(text);
+    const prompt = buildPrompt(text, this.persona);
     let timer = null;
     const timeout = new Promise((resolve, reject) => {
       timer = setTimeout(() => reject(new Error('judge-timeout')), this.timeoutMs);

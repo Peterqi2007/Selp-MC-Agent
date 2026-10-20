@@ -313,6 +313,20 @@ async function main() {
   ctx.chatListener = chatListener;
 
   /**
+   * The approved natural-language path can be delivered to the DeepSeek harness (behavior
+   * brain) instead of the legacy Node chat/action loop. The bridge only forwards the
+   * original text; approval and rewriting stay outside it.
+   */
+  if (chatCfg.actionBrain === 'harness') {
+    const { HarnessBridge } = require('./chat/harnessBridge');
+    const bridge = new HarnessBridge({
+      url: chatCfg.harnessUrl || 'http://127.0.0.1:8770',
+      log: new Logger('harness-bridge')
+    });
+    ctx.forwardToActionBrain = (text, meta) => bridge.forward(text, meta);
+  }
+
+  /**
    * Channel A0: addressed instructions (`@...`), disabled by default.
    *
    * The judge is injected (a future LLM adapter sets `ctx.judgeInstruction`); with no judge
@@ -341,7 +355,18 @@ async function main() {
     const addressed = new AddressedHandler({
       gate,
       log,
-      dispatch: (text, meta) => ctx.chat.handle(text, (meta && meta.from) || 'addressed', { source: 'addressed' })
+      dispatch: (text, meta) => {
+        /**
+         * The gate is the persona-bottom-line approval tool. An allowed instruction is the
+         * player's ORIGINAL text; when configured, hand it to the DeepSeek harness (action
+         * brain) unchanged. The legacy Node chat loop remains the fallback only when the
+         * harness path is not configured.
+         */
+        if (typeof ctx.forwardToActionBrain === 'function') {
+          return ctx.forwardToActionBrain(text, meta);
+        }
+        return ctx.chat.handle(text, (meta && meta.from) || 'addressed', { source: 'addressed' });
+      }
     });
     chatListener.onAddressed = (text, line) => addressed.handle(text, { line });
     ctx.addressedHandler = addressed;
@@ -385,10 +410,10 @@ async function main() {
   const codeCfg = (cfg.agent && cfg.agent.codeSkills) || {};
   const searchCfg = codeCfg.search || {};
   /**
-   * Web search belongs to the behavior brain, not the language brain. The DeepSeek harness
-   * calls the `lookup_mod_content` tool -> Node `/lookup_mod_content` -> this broker. The
-   * language surface must not expose it: a talk-only brain must not be able to reach the
-   * network or turn a web result into an action.
+   * Two search surfaces share the trusted WebSearch broker but not a tool:
+   *   - language brain: `web_search`, read-only knowledge supplement, no preferred source;
+   *   - behavior brain: `lookup_mod_content`, Node broker, MC百科/Minecraft Wiki priority.
+   * Neither surface can turn a result into an action; the language brain has no executor.
    */
   let webSearch = null;
   if (searchCfg.enabled !== false) {
@@ -402,6 +427,12 @@ async function main() {
       log: new Logger('webSearch')
     });
     ctx.webSearch = webSearch;
+    /**
+     * Language brain: a read-only knowledge supplement with no source priority. It must
+     * not reuse the behavior brain's MC百科/Minecraft Wiki ordering.
+     */
+    ctx.languageSearch = (query, options = {}) =>
+      webSearch.search(query, { ...options, preferred: false });
     log.info(
       `web lookup ${webSearch.configured ? 'online' : 'configured-off'} ` +
         `(${webSearch.baseUrl}/v1/tools/search)`
@@ -530,6 +561,11 @@ async function main() {
    * goes to LanguageAgent (read/say/silence only). Execution requests inside it are refused
    * and do NOT fall back to the action path; only a model outage falls back.
    */
+  /**
+   * Persona-bottom-line gate used by the language brain's `approve` tool. It is the same
+   * judge as the addressed channel; it never approves action feasibility, only red lines.
+   */
+  ctx.approvalGate = (text) => ctx.llm.judgeInstruction(text);
   let languageDialogue = null;
   if (dialogueTrigger && chatCfg.languageAgent && llm && llm.client) {
     const { LanguageAgent } = require('./llm/languageAgent');

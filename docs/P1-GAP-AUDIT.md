@@ -27,7 +27,7 @@
 | §1.5.2 | 按用途采集/分频 | **部分** | `refreshPlan` 按预算/关键字段给出待刷新集合；**Mod 采集边界与真机测量未做** |
 | §1.5.3 | 观察契约/缓存/订阅/最小威胁观测 | **部分** | 客户端快照 `observedAt` + `refreshPlan` + `ThreatObserver` 边沿事件；**未接模型唤醒** |
 | §1.6.1 | 分类记忆 | **部分** | `MemoryStore` 三类 + 检索 + 持久化，**被 suggestMethod/语言 prompt 只读读取**；尚未驱动规划决策 |
-| §1.6.2 | 两个学习入口（搜索/指导） | **部分** | 方法库/回答记忆 + 计划执行回写 + `suggestMethod`/`!method` 检索入口；**行为脑 `lookup_mod_content`/`webSearch.js` 已实现，harness live lookup 与结果复用未测** |
+| §1.6.2 | 两个学习入口（搜索/指导） | **部分** | 方法库/回答记忆 + 计划执行回写 + `suggestMethod`/`!method` 检索入口；**语言脑 `web_search`（无首选）真机通过；行为脑 `lookup_mod_content`（MC百科优先）代码/Node broker 通过，harness live lookup 与结果复用未测** |
 | §1.7.1 | 代码技能目录/生命周期 | **部分** | manifest、目录布局（candidates/promoted + 指针）、晋升/回退/下线、promoted-only 检索；**真实试运行未做** |
 | §1.7.2 | 受限执行/后置验证/隔离 | **仅契约** | `RestrictedRunner` 只 dry-run；无真实受限执行（A19） |
 | §1.7.3 | 动作脑工具面/语言脑收窄 | **部分** | 两套清单、`say/silence`、语言 agent、可选对话通道；persona 指令未接 |

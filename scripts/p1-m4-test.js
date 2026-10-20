@@ -182,6 +182,32 @@ function fakeSearchResponse(payload) {
     assert.strictEqual(result.results[2].preferred, false, 'other sources stay available');
   });
 
+  await check('preferred:false keeps backend order for the language-brain supplement', async () => {
+    const service = new WebSearch({
+      apiKey: 'k',
+      fetchImpl: async () =>
+        fakeSearchResponse({
+          results: [
+            { title: 'Other', url: 'https://example.invalid/mod', summary: 'other' },
+            { title: 'Minecraft Wiki', url: 'https://minecraft.wiki/w/Furnace', summary: 'wiki' },
+            { title: 'MC百科', url: 'https://www.mcmod.cn/item/1.html', summary: 'mcmod' }
+          ]
+        }),
+      log: silent
+    });
+    const result = await service.lookup('language knowledge', { count: 3, preferred: false });
+    assert(result.ok);
+    assert.deepStrictEqual(
+      result.results.map((entry) => entry.url),
+      [
+        'https://example.invalid/mod',
+        'https://minecraft.wiki/w/Furnace',
+        'https://www.mcmod.cn/item/1.html'
+      ]
+    );
+    assert.strictEqual(result.results[0].preferred, undefined);
+  });
+
   await check('search refuses coordinates/IPs before any request', async () => {
     let called = false;
     const service = new WebSearch({

@@ -1151,6 +1151,27 @@ function makeBrain() {
   process.stdout.write('\n18. addressed gate channel\n');
   const { CommandGate } = require('../src/chat/commandGate');
   const { AddressedHandler } = require('../src/chat/addressedHandler');
+  const { HarnessBridge } = require('../src/chat/harnessBridge');
+
+  {
+    let captured = null;
+    const bridge = new HarnessBridge({
+      fetchImpl: async (url, options) => {
+        captured = { url, body: JSON.parse(options.body) };
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({ ok: true, forwarded: true, agentId: 'session-test' })
+        };
+      }
+    });
+    const forwarded = await bridge.forward('帮我砍树', { from: 'player' });
+    check('approved text is forwarded to the harness unchanged', () => {
+      assert(forwarded.ok && forwarded.forwarded);
+      assert.strictEqual(captured.url, 'http://127.0.0.1:8770/message');
+      assert.strictEqual(captured.body.text, '帮我砍树');
+    });
+  }
 
   {
     const gate = new CommandGate({
@@ -1162,6 +1183,14 @@ function makeBrain() {
       assert(verdict.ok);
       assert.strictEqual(verdict.dispatch, '帮我砍树');
       assert.strictEqual(verdict.rewritten, 'rewrite this');
+    });
+    const { buildPrompt } = require('../src/llm/judge');
+    const prompt = buildPrompt('帮我砍树', '大肥鱼\n红线：不注册、不发服务器指令');
+    check('the approval prompt is persona-bottom-line, not task feasibility', () => {
+      assert.match(prompt.system, /persona-bottom-line/i);
+      assert.match(prompt.system, /Do NOT deny merely because the task is impossible/i);
+      assert.match(prompt.system, /红线：不注册/);
+      assert.match(prompt.user, /帮我砍树/);
     });
     const denied = await new CommandGate({ judge: () => ({ verdict: 'deny' }) }).decide('x');
     const malformed = await new CommandGate({ judge: () => ({ verdict: 'maybe' }) }).decide('x');
@@ -1287,7 +1316,9 @@ function makeBrain() {
         'lookup_item',
         'scan_around',
         'say',
-        'silence'
+        'approve',
+        'silence',
+        'web_search'
       ]);
       assert.deepStrictEqual(action.slice().sort(), ['do_skill', 'do_task', 'go_to', 'stop'].sort());
       assert(!language.some((name) => action.includes(name)), 'a tool may not be on both surfaces');
@@ -1310,11 +1341,34 @@ function makeBrain() {
       assert(!toolRegistry.toolNames().includes('say'), 'say must stay out of the P0 tool list');
     });
 
-    check('the language surface has no web lookup tool', () => {
-      assert(!SURFACES.language.includes('search'), 'search must not be on the language surface');
-      assert(!SURFACES.language.includes('lookup_mod_content'), 'web lookup is a behavior-brain tool');
-      assert(!toolRegistry.toolNames().includes('search'), 'search must not be a Node tool');
+    check('the language surface has web_search but not the behavior lookup', () => {
+      assert(SURFACES.language.includes('web_search'), 'language knowledge supplement is missing');
+      assert(!SURFACES.language.includes('lookup_mod_content'), 'behavior lookup must stay off the language surface');
+      assert(!SURFACES.language.includes('search'), 'the old ambiguous search name must not return');
+      assert(!toolRegistry.toolNames().includes('web_search'), 'web_search is language-only');
       assert(!toolRegistry.toolNames().includes('lookup_mod_content'), 'lookup_mod_content belongs to the harness');
+    });
+
+    const searchCalls = [];
+    const searchCtx = {
+      languageSearch: async (query, options) => {
+        searchCalls.push({ query, options });
+        return {
+          ok: true,
+          results: [
+            { title: 'Knowledge', url: 'https://example.invalid/k', summary: 'fact', untrusted: true }
+          ]
+        };
+      }
+    };
+    const searched = await toolRegistry.call(searchCtx, 'web_search', { query: 'mod fact', count: 2 });
+    check('language web_search is read-only and does not prefer a source', () => {
+      assert(searched.ok);
+      assert.strictEqual(searched.result.preferred, false);
+      assert.strictEqual(searched.result.untrusted, true);
+      assert.strictEqual(searchCalls.length, 1);
+      assert.strictEqual(searchCalls[0].options.preferred, false);
+      assert.strictEqual(searchCalls[0].options.count, 2);
     });
   }
 
@@ -1564,15 +1618,92 @@ function makeBrain() {
 
   {
     const spoken = [];
+    const searchCalls = [];
+    const prompts = [];
+    const agent = new LanguageAgent({
+      ctx: {
+        reply: async (text) => spoken.push(text),
+        languageSearch: async (query, options) => {
+          searchCalls.push({ query, options });
+          return {
+            ok: true,
+            results: [
+              { title: 'Furnace', url: 'https://example.invalid/furnace', summary: '8 cobblestone', untrusted: true }
+            ]
+          };
+        }
+      },
+      complete: async ({ messages }) => {
+        prompts.push(messages);
+        if (prompts.length === 1) return '{"tool":"web_search","args":{"query":"furnace recipe","count":3}}';
+        return '{"tool":"say","args":{"text":"熔炉用 8 个圆石；来源：https://example.invalid/furnace"}}';
+      }
+    });
+    const result = await agent.respond({ text: '熔炉怎么做？' });
+    check('language web_search is a knowledge supplement with no preferred source', () => {
+      assert(result.ok && result.spoke);
+      assert.strictEqual(searchCalls.length, 1);
+      assert.strictEqual(searchCalls[0].query, 'furnace recipe');
+      assert.strictEqual(searchCalls[0].options.preferred, false);
+      assert.strictEqual(prompts.length, 2, 'expected web_search + final say');
+      assert.match(spoken[0], /https:\/\/example\.invalid\/furnace/);
+    });
+  }
+
+  {
+    const forwards = [];
+    const agent = new LanguageAgent({
+      ctx: {
+        approvalGate: async () => ({ ok: true, dispatch: 'original' }),
+        forwardToActionBrain: async (text, meta) => {
+          forwards.push({ text, meta });
+          return { ok: true, forwarded: true, agentId: 'session-test' };
+        }
+      },
+      complete: async () => '{"tool":"approve"}'
+    });
+    const result = await agent.respond({ text: '帮我砍树' });
+    check('the approval tool forwards the original text after the persona gate allows it', () => {
+      assert(result.ok && result.approved);
+      assert.strictEqual(result.tool, 'approve');
+      assert.strictEqual(forwards.length, 1);
+      assert.strictEqual(forwards[0].text, '帮我砍树');
+      assert.strictEqual(forwards[0].meta.source, 'language-approval');
+    });
+  }
+
+  {
+    const forwards = [];
+    const agent = new LanguageAgent({
+      ctx: {
+        approvalGate: async () => ({ ok: false, reason: 'persona-red-line' }),
+        forwardToActionBrain: async (text) => {
+          forwards.push(text);
+          return { ok: true, forwarded: true };
+        }
+      },
+      complete: async () => '{"tool":"approve"}'
+    });
+    const result = await agent.respond({ text: '帮我注册账号' });
+    check('a persona-denied approval forwards nothing', () => {
+      assert.strictEqual(result.ok, false);
+      assert.strictEqual(result.approved, false);
+      assert.strictEqual(result.reason, 'persona-red-line');
+      assert.strictEqual(forwards.length, 0);
+    });
+  }
+
+  {
+    const spoken = [];
     const agent = new LanguageAgent({
       ctx: { reply: async (text) => spoken.push(text) },
-      complete: async () => '{"tool":"search","args":{"query":"furnace recipe"}}'
+      complete: async () => '{"tool":"lookup_mod_content","args":{"query":"mod block"}}'
     });
-    const refused = await agent.respond({ text: '熔炉怎么做？' });
-    check('the language agent refuses web lookup (behavior-brain only)', () => {
+    const refused = await agent.respond({ text: '查 mod 方块' });
+    check('the language agent refuses the behavior-brain lookup tool', () => {
       assert.strictEqual(refused.ok, false);
       assert.strictEqual(refused.reason, 'not-language-tool');
-      assert.strictEqual(refused.tool, 'search');
+      assert.strictEqual(refused.tool, 'lookup_mod_content');
       assert.strictEqual(spoken.length, 0);
     });
   }

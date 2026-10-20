@@ -170,6 +170,8 @@ function toolDefinitions({ controlUrl, record, log, runtime }) {
           title: entry.title,
           url: entry.url,
           summary: entry.summary,
+          preferred: entry.preferred,
+          preferredSource: entry.preferredSource,
           untrusted: true
         })),
         error: payload.error || payload.reason || null
@@ -633,6 +635,48 @@ export function apply(ctx, config = {}) {
       if (!live) return jsonReply(res, 404, { ok: false, error: `live agent not found: ${agentId}` });
       runtime.bind(live, live.id || agentId);
       return jsonReply(res, 200, { ok: true, agentId: runtime.agentId });
+    }
+    /**
+     * Language-brain -> action-brain message bridge. The approval gate has already checked
+     * the persona bottom line and forwards the ORIGINAL player text; this endpoint only
+     * delivers it to the bound live harness conversation, unchanged. It does not approve,
+     * rewrite, or execute anything itself.
+     */
+    if (req.method === 'POST' && url.pathname === '/message') {
+      if (!runtime.agent || typeof runtime.agent.followup !== 'function') {
+        return jsonReply(res, 409, { ok: false, error: 'no-live-agent' });
+      }
+      let body = '';
+      for await (const chunk of req) body += chunk;
+      let text = '';
+      try {
+        const parsed = JSON.parse(body || '{}');
+        text = String(parsed.text || '');
+      } catch {
+        return jsonReply(res, 400, { ok: false, error: 'invalid JSON' });
+      }
+      if (!text.trim()) return jsonReply(res, 400, { ok: false, error: 'text is required' });
+      const message = {
+        id: `mc-message-${crypto.randomUUID()}`,
+        role: 'user',
+        content: [{ type: 'text', text }],
+        source: {
+          kind: 'user',
+          rpcId: `mc-message-${Date.now()}`,
+          clientTimeZone: 'UTC'
+        }
+      };
+      try {
+        await runtime.agent.followup(message);
+      } catch (error) {
+        return jsonReply(res, 500, { ok: false, error: error.message });
+      }
+      return jsonReply(res, 200, {
+        ok: true,
+        forwarded: true,
+        agentId: runtime.agentId,
+        chars: text.length
+      });
     }
     if (req.method === 'GET' && url.pathname === '/agents') {
       const agents = typeof ctx.get === 'function' ? ctx.get('agents') : null;

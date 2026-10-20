@@ -132,7 +132,10 @@ class WebSearch {
 
   /**
    * @param {string} query
-   * @param {object} [options] { count, needContent, oriQuestion }
+   * @param {object} [options] { count, needContent, oriQuestion, preferred }
+   *   `preferred:false` keeps the backend order and is used by the language brain's
+   *   `web_search` knowledge supplement; the behavior-brain `lookup_mod_content` keeps
+   *   the MC百科/Minecraft Wiki re-rank.
    * @returns {Promise<{ok:boolean, reason?:string, results?:Array, cached?:boolean}>}
    */
   async search(query, options = {}) {
@@ -148,11 +151,16 @@ class WebSearch {
       return { ok: false, reason: 'privacy-filtered', detail: unsafe };
     }
     const count = Math.min(Math.max(Number(options.count) || 5, 1), this.countMax);
-    const key = fingerprint(`${clean}|${count}|${options.needContent ? 1 : 0}`);
+    const usePreferred = options.preferred !== false;
+    const key = fingerprint(`${clean}|${count}|${options.needContent ? 1 : 0}|${usePreferred ? 1 : 0}`);
     const cached = this.cache[key];
     if (cached && this.now() - cached.at < 1000 * 60 * 60 * 24) {
       this.stats.cachedHits += 1;
-      return { ok: true, cached: true, results: rankPreferred(cached.results, this.preferredSources) };
+      return {
+        ok: true,
+        cached: true,
+        results: usePreferred ? rankPreferred(cached.results, this.preferredSources) : cached.results
+      };
     }
 
     this.stats.calls += 1;
@@ -189,7 +197,7 @@ class WebSearch {
         .filter(Boolean)
         .slice(0, count)
         .map((result) => ({ ...result, content: result.content.slice(0, this.maxContentBytes) }));
-      const results = rankPreferred(normalized, this.preferredSources);
+      const results = usePreferred ? rankPreferred(normalized, this.preferredSources) : normalized;
       this._writeCache(key, clean, results);
       this.stats.ok += 1;
       return { ok: true, cached: false, results };

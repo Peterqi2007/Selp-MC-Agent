@@ -874,7 +874,10 @@ class LlmCore {
    */
   async judgeInstruction(text) {
     const { InstructionJudge } = require('./judge');
+    const persona = personaFor(this.ctx, this.cfg);
+    const personaText = [persona.name, persona.body].filter(Boolean).join('\n').slice(0, 6000);
     const judge = new InstructionJudge({
+      persona: personaText,
       complete: async (prompt) => {
         if (!this.client || typeof this.client.complete !== 'function') throw new Error('no-client');
         const result = await this.client.complete({

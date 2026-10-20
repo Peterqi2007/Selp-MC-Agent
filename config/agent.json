@@ -91,6 +91,8 @@
     "conversationGuard": false,
     "addressedPrefix": null,
     "gateTimeoutMs": 8000,
+    "actionBrain": "harness",
+    "harnessUrl": "http://127.0.0.1:8770",
     "languageAgent": false,
     "participate": false,
     "participateMaxTokens": 120,
