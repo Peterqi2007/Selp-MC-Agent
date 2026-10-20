@@ -1646,7 +1646,9 @@ function makeBrain() {
       assert.strictEqual(searchCalls[0].query, 'furnace recipe');
       assert.strictEqual(searchCalls[0].options.preferred, false);
       assert.strictEqual(prompts.length, 2, 'expected web_search + final say');
-      assert.match(spoken[0], /https:\/\/example\.invalid\/furnace/);
+      assert.doesNotMatch(spoken[0], /https?:\/\//, 'game chat must not contain source URLs');
+      assert.doesNotMatch(result.text, /https?:\/\//);
+      assert.deepStrictEqual(result.sources, ['https://example.invalid/furnace']);
     });
   }
 
@@ -1766,6 +1768,31 @@ function makeBrain() {
     check('a spoken language reply does not fall back', () => {
       assert(result.ok && result.spoke);
       assert.strictEqual(fallbackCalls, 0);
+    });
+  }
+
+  {
+    const { MemoryStore } = require('../src/memory/store');
+    const memory = new MemoryStore();
+    const dialogue = new LanguageDialogue({
+      memory,
+      agent: {
+        respond: async () => ({
+          ok: true,
+          spoke: true,
+          tool: 'say',
+          text: '熔炉用 8 个圆石',
+          sources: ['https://example.invalid/furnace']
+        })
+      }
+    });
+    const result = await dialogue.handle('熔炉怎么做');
+    check('a language turn writes chat memory, including sources for audit', () => {
+      assert(result.remembered);
+      const entries = memory.recall('', { tags: ['chat'] });
+      assert(entries.length >= 1);
+      assert.strictEqual(entries[0].entry.data.sources[0], 'https://example.invalid/furnace');
+      assert.match(entries[0].entry.text, /大肥鱼回答/);
     });
   }
 

@@ -18,7 +18,28 @@ class LanguageDialogue {
   constructor(deps = {}) {
     this.agent = deps.agent || null;
     this.fallback = deps.fallback || null;
+    /** Shared MemoryStore: chat turns are written here so the language prompt can recall them. */
+    this.memory = deps.memory || null;
     this.log = deps.log || { info() {}, warn() {}, debug() {} };
+  }
+
+  _remember(text, result) {
+    if (!this.memory || typeof this.memory.remember !== 'function') return false;
+    const reply = result && result.text ? String(result.text).slice(0, 500) : null;
+    const sources = result && Array.isArray(result.sources) ? result.sources.slice(0, 5) : [];
+    const entry = `玩家说：${text}${reply ? `；大肥鱼回答：${reply}` : ''}`;
+    try {
+      const stored = this.memory.remember('relational', {
+        text: entry.slice(0, 1200),
+        tags: ['chat'],
+        source: 'language-dialogue',
+        data: { playerText: text, reply, sources, tool: (result && result.tool) || null }
+      });
+      return !!(stored && stored.ok);
+    } catch (err) {
+      this.log.warn(`chat memory write failed: ${err.message}`);
+      return false;
+    }
   }
 
   async handle(text, line, meta = {}) {
@@ -32,7 +53,8 @@ class LanguageDialogue {
       result = { ok: false, reason: 'agent-error', error: err.message };
     }
     if (result && result.ok) {
-      return { ok: true, spoke: !!result.spoke, result };
+      const remembered = this._remember(text, result);
+      return { ok: true, spoke: !!result.spoke, result, remembered };
     }
 
     const reason = (result && result.reason) || 'unknown';

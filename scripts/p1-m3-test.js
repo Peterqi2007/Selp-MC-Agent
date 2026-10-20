@@ -767,6 +767,47 @@ function request(port, method, requestPath, body) {
     fs.rmSync(tempRoot, { recursive: true, force: true });
   }
 
+  process.stdout.write('\n7. memory write closure\n');
+  {
+    const brain = makeBrain();
+    const first = brain.events.publish({
+      type: 'task:done',
+      taskId: 'task-mem',
+      reason: 'collected 1 dirt'
+    });
+    const recalled = brain.memoryStore.recall('task-mem');
+    await check('a terminal task event writes an episodic memory entry', () => {
+      assert(first);
+      assert.strictEqual(recalled.length, 1);
+      assert.match(recalled[0].entry.text, /task-mem/);
+      assert.match(recalled[0].entry.text, /collected 1 dirt/);
+      assert.strictEqual(recalled[0].entry.source, 'task-event');
+    });
+
+    const duplicate = brain.events.publish({
+      type: 'task:done',
+      taskId: 'task-mem',
+      reason: 'collected 1 dirt'
+    });
+    await check('the event-id dedupe prevents a duplicate memory write', () => {
+      assert.strictEqual(duplicate, null);
+      assert.strictEqual(brain.memoryStore.recall('task-mem').length, 1);
+    });
+
+    brain.plans.applyDraft({
+      planId: 'mem-plan',
+      goal: 'dig a memory hole',
+      steps: [{ id: 's', type: 'mine' }]
+    });
+    brain.events.publish({ type: 'plan:completed', planId: 'mem-plan', reason: 'done' });
+    await check('a terminal plan event writes a natural-language memory entry', () => {
+      const entries = brain.memoryStore.recall('memory hole');
+      assert(entries.length >= 1);
+      assert.match(entries[0].entry.text, /计划「dig a memory hole」/);
+      assert(entries[0].entry.tags.includes('plan'));
+    });
+  }
+
   const failed = results.filter((result) => !result.ok);
   process.stdout.write(`\n${'='.repeat(64)}\n`);
   process.stdout.write(`P1 M3 live-entry contract: ${results.length - failed.length}/${results.length} checks passed\n`);

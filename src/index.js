@@ -598,6 +598,7 @@ async function main() {
     });
     languageDialogue = new LanguageDialogue({
       agent,
+      memory: ctx.memoryStore,
       fallback: async (text) => {
         const snap = ctx.body.snapshot();
         return llm.handle(text, {

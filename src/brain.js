@@ -191,6 +191,12 @@ class Brain {
     this.memoryStore = new MemoryStore();
     ctx.memoryStore = this.memoryStore;
     /**
+     * Memory write closure: task/plan terminal events become episodic entries that the
+     * language prompt can recall. The event hub already dedupes by eventId, so a repeated
+     * completion cannot be written twice.
+     */
+    this._memoryUnsubscribe = this.events.subscribe((event) => this.rememberEvent(event));
+    /**
      * Holds: the single table of "why is the brain not working" (src/core/holds.js).
      *
      * `paused` / `stopped` / `autoPlanDisabled` are accessors over it, kept because the
@@ -1108,6 +1114,59 @@ class Brain {
   }
 
   // ------------------------------------------------------------- task runner
+
+  /**
+   * Turn one terminal task/plan event into a natural-language episodic memory entry.
+   * This is the write side of the shared-memory loop; `LanguageAgent.memoryFor` and the
+   * method/answer libraries read it later.
+   *
+   * @param {object} event TaskEvents event
+   * @returns {boolean} true when a new memory entry was written
+   */
+  rememberEvent(event) {
+    if (!event || typeof event.type !== 'string' || !this.memoryStore) return false;
+    let text;
+    let tags;
+    let source;
+    let data;
+    if (event.type === 'task:done' || event.type === 'task:failed' || event.type === 'task:cancelled') {
+      const status = event.type.split(':')[1];
+      const taskId = event.taskId || event.name || 'task';
+      const reason = event.reason ? String(event.reason).slice(0, 400) : '';
+      text = `任务 ${taskId} ${status}${reason ? `：${reason}` : ''}`;
+      tags = ['task', String(taskId)];
+      source = 'task-event';
+      data = {
+        taskId,
+        planId: event.planId || null,
+        stepId: event.stepId || null,
+        status,
+        reason: reason || null
+      };
+    } else if (
+      event.type === 'plan:completed' ||
+      event.type === 'plan:failed' ||
+      event.type === 'plan:cancelled'
+    ) {
+      const status = event.type.split(':')[1];
+      const plan = this.plans && typeof this.plans.get === 'function' ? this.plans.get(event.planId) : null;
+      const goal = plan && plan.goal ? String(plan.goal).slice(0, 240) : '';
+      const reason = event.reason ? String(event.reason).slice(0, 400) : '';
+      text = `计划${goal ? `「${goal}」` : ''} ${status}${reason ? `：${reason}` : ''}`;
+      tags = ['plan', String(event.planId || '')];
+      source = 'plan-event';
+      data = { planId: event.planId || null, status, reason: reason || null };
+    } else {
+      return false;
+    }
+    try {
+      const stored = this.memoryStore.remember('episodic', { text, tags, source, data });
+      return !!(stored && stored.ok);
+    } catch (err) {
+      this.log.warn(`task memory write failed: ${err.message}`);
+      return false;
+    }
+  }
 
   /**
    * M4/A19: the only task-submission surface for a sandboxed code skill.
