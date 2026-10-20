@@ -119,7 +119,7 @@ src/codeSkills/ manifest, generator, store, directory, sandboxRunner, sandboxWor
                service, generation, catalog
 src/llm/knowledge/ webSearch（DeepSeek /v1/tools/search；语言脑 web_search 无首选，行为脑 lookup_mod_content 优先 MC百科）
 src/llm/       judge, toolSurface, languageAgent
-src/world/     freshness, refreshPlan, threatObserver, perceptionWake
+src/world/     freshness, refreshPlan, threatObserver, perceptionWake, observation
 src/learning/  methodLibrary, answerMemory
 src/memory/    store
 src/codeSkills/ manifest, store, catalog, runner, generator, directory

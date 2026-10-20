@@ -2369,6 +2369,183 @@ function makeBrain() {
     });
   }
 
+  // ------------------------------------------------------ observation cache
+  process.stdout.write('\n35c. observation cache contract\n');
+  {
+    const { ObservationCache } = require('../src/world/observation');
+    let clock = 1000;
+    let refreshes = 0;
+    const snapshot = {
+      ready: true,
+      body: 'mock',
+      dimension: 'minecraft:overworld',
+      position: { x: 0, y: 64, z: 0 },
+      health: 20,
+      food: 20,
+      inventory: { 'minecraft:dirt': 3 },
+      hostiles: [
+        { id: 'near', name: 'zombie', position: { x: 2, y: 64, z: 0 } },
+        { id: 'far', name: 'skeleton', position: { x: 20, y: 64, z: 0 } }
+      ],
+      players: [{ name: 'p', id: 1, position: { x: 1, y: 64, z: 0 } }],
+      time: { isDay: true, day: 1, timeOfDay: 1000 },
+      weather: { raining: false, thundering: false },
+      blocks: { cells: { '0,63,0': 'grass_block', '20,63,0': 'stone' } },
+      dead: false
+    };
+    const body = {
+      kind: 'mock',
+      connected: true,
+      snapshot: () => snapshot,
+      refresh: async () => {
+        refreshes += 1;
+      }
+    };
+    const cache = new ObservationCache({ body, now: () => clock });
+
+    const first = await cache.observe({ fields: ['position', 'health'], purpose: 'task' });
+    await check('observe returns per-field timestamps, revision, dimension and source', () => {
+      assert.strictEqual(refreshes, 1);
+      assert(first.ok);
+      assert.strictEqual(first.fields.position.value.x, 0);
+      assert.strictEqual(first.fields.position.observedAt, 1000);
+      assert.strictEqual(first.fields.position.revision, first.revision);
+      assert.strictEqual(first.fields.position.dimension, 'minecraft:overworld');
+      assert.strictEqual(first.fields.position.source, 'mock');
+      assert.strictEqual(first.fields.position.valid, true);
+    });
+
+    clock = 1100;
+    const fresh = await cache.observe({ fields: ['position', 'health'], purpose: 'task' });
+    await check('a fresh cache does not trigger another refresh', () => {
+      assert.strictEqual(refreshes, 1);
+      assert.strictEqual(fresh.fields.position.ageMs, 100);
+      assert.strictEqual(fresh.fields.position.valid, true);
+    });
+
+    clock = 2100;
+    const refreshedPosition = await cache.observe({ fields: ['position'], purpose: 'task' });
+    await check('only the requested stale field is restamped after a refresh', () => {
+      assert.strictEqual(refreshes, 2);
+      assert.strictEqual(refreshedPosition.fields.position.observedAt, 2100);
+      assert.strictEqual(cache.cache.get('health').observedAt, 1000, 'health must keep its older stamp');
+      assert.strictEqual(cache.cache.get('position').observedAt, 2100);
+    });
+
+    const staleHealth = await cache.observe({ fields: ['health'], purpose: 'task' });
+    await check('a later field request refreshes only after its own TTL', () => {
+      assert.strictEqual(refreshes, 3);
+      assert.strictEqual(staleHealth.fields.health.observedAt, 2100);
+    });
+
+    clock = 2300;
+    const area = await cache.observe({
+      fields: ['hostiles'],
+      area: { x: 0, y: 64, z: 0, radius: 8 }
+    });
+    await check('area filters position-bearing values without dropping the field metadata', () => {
+      assert.strictEqual(area.fields.hostiles.value.length, 1);
+      assert.strictEqual(area.fields.hostiles.value[0].id, 'near');
+      assert.deepStrictEqual(area.fields.hostiles.area.radius, 8);
+    });
+
+    const unavailable = await cache.observe({ fields: ['oxygen'] });
+    await check('fields the body does not expose return unknown/unavailable, never invented values', () => {
+      assert.strictEqual(unavailable.ok, false);
+      assert.strictEqual(unavailable.fields.oxygen.unavailable, true);
+      assert.strictEqual(unavailable.fields.oxygen.known, false);
+      assert.strictEqual(unavailable.fields.oxygen.value, null);
+    });
+  }
+
+  {
+    const { ObservationCache } = require('../src/world/observation');
+    let refreshes = 0;
+    let release;
+    const gate = new Promise((resolve) => {
+      release = resolve;
+    });
+    const body = {
+      kind: 'mock',
+      connected: true,
+      snapshot: () => ({ ready: true, dimension: 'minecraft:overworld', position: { x: 1, y: 64, z: 1 } }),
+      refresh: async () => {
+        refreshes += 1;
+        await gate;
+      }
+    };
+    const cache = new ObservationCache({ body, now: () => 1000 });
+    const one = cache.observe({ fields: ['position'] });
+    const two = cache.observe({ fields: ['position'] });
+    release();
+    const [a, b] = await Promise.all([one, two]);
+    await check('concurrent same-field requests share one refresh', () => {
+      assert.strictEqual(refreshes, 1);
+      assert(a.ok && b.ok);
+      assert.strictEqual(a.revision, b.revision);
+      assert.strictEqual(a.fields.position.observedAt, b.fields.position.observedAt);
+    });
+  }
+
+  {
+    const { ObservationCache } = require('../src/world/observation');
+    let clock = 1000;
+    let fail = false;
+    const snapshot = {
+      ready: true,
+      dimension: 'minecraft:overworld',
+      position: { x: 0, y: 64, z: 0 }
+    };
+    const body = {
+      kind: 'mock',
+      connected: true,
+      snapshot: () => snapshot,
+      refresh: async () => {
+        if (fail) throw new Error('offline');
+      }
+    };
+    const cache = new ObservationCache({ body, now: () => clock });
+    const first = await cache.observe({ fields: ['position'] });
+    fail = true;
+    clock = 3000;
+    const failed = await cache.observe({ fields: ['position'] });
+    await check('refresh failure returns stale with the last successful time, not current truth', () => {
+      assert(first.ok);
+      assert.strictEqual(failed.ok, false);
+      assert.strictEqual(failed.fields.position.known, true);
+      assert.strictEqual(failed.fields.position.stale, true);
+      assert.strictEqual(failed.fields.position.valid, false);
+      assert.strictEqual(failed.fields.position.observedAt, first.fields.position.observedAt);
+      assert.strictEqual(failed.lastSuccessAt, 1000);
+    });
+  }
+
+  {
+    const { ObservationCache } = require('../src/world/observation');
+    let clock = 1000;
+    const snapshot = {
+      ready: true,
+      dimension: 'minecraft:overworld',
+      position: { x: 0, y: 64, z: 0 }
+    };
+    const body = {
+      kind: 'mock',
+      connected: true,
+      snapshot: () => snapshot,
+      refresh: async () => {}
+    };
+    const cache = new ObservationCache({ body, now: () => clock });
+    await cache.observe({ fields: ['position'] });
+    snapshot.dimension = 'minecraft:the_nether';
+    clock = 2000;
+    const changed = await cache.observe({ fields: ['position'] });
+    await check('dimension change invalidates the cache before restamping', () => {
+      assert.strictEqual(changed.fields.position.dimension, 'minecraft:the_nether');
+      assert.strictEqual(cache.status().invalidatedReason, 'dimension-change');
+      assert.strictEqual(changed.fields.position.observedAt, 2000);
+    });
+  }
+
   // ------------------------------------------------------ classified memory
   process.stdout.write('\n36. classified memory\n');
   {
