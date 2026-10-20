@@ -26,7 +26,7 @@
 | §1.5.1 | 感知证据边界 | **已落地（文档）** | M0 基线、问题复核、测量模板 |
 | §1.5.2 | 按用途采集/分频 | **部分** | `refreshPlan` 按预算/关键字段给出待刷新集合；**Mod 采集边界与真机测量未做** |
 | §1.5.3 | 观察契约/缓存/订阅/最小威胁观测 | **部分** | `ObservationCache` 已实现 per-field observedAt/revision/dimension/source/area、按 TTL 的 single-flight refresh、失败 stale/lastSuccessAt、维度/死亡/断线失效；**尚未接入语言/动作脑**；反射边沿仍走 `PerceptionWake` |
-| §1.6.1 | 分类记忆 | **部分** | `MemoryStore` 三类 + 检索 + 持久化；**写入闭环已接**：聊天轮次（LanguageDialogue）与 task/plan 终态事件（Brain.rememberEvent）写入 episodic/relational，语言 prompt 可 recall；尚未驱动规划决策 |
+| §1.6.1 | 分类记忆 | **部分** | `MemoryStore` 三类 + 中文 unigram/bigram 检索 + 持久化；`ChatMemory` 持久化聊天 save/grep/context/compact；task/plan 终态写 episodic；`/memory` + `mc_memory` 显式共享给行为脑；尚未驱动规划决策 |
 | §1.6.2 | 两个学习入口（搜索/指导） | **部分** | 方法库/回答记忆 + 计划执行回写 + `suggestMethod`/`!method` 检索入口；**语言脑 `web_search`（无首选）真机通过；行为脑 `lookup_mod_content`（MC百科优先）代码/Node broker 通过，harness live lookup 与结果复用未测** |
 | §1.7.1 | 代码技能目录/生命周期 | **部分** | manifest、目录布局（candidates/promoted + 指针）、晋升/回退/下线、promoted-only 检索；**真实试运行未做** |
 | §1.7.2 | 受限执行/后置验证/隔离 | **仅契约** | `RestrictedRunner` 只 dry-run；无真实受限执行（A19） |

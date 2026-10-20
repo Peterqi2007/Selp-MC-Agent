@@ -2585,11 +2585,21 @@ function makeBrain() {
       tags: ['steve'],
       source: 'chat'
     });
+    memory.remember('semantic', {
+      text: '熔炉需要八个圆石合成',
+      tags: ['熔炉', '合成'],
+      source: 'wiki'
+    });
     check('classified memory keeps the three categories apart', () => {
       const counts = memory.status().counts;
       assert.strictEqual(counts.episodic, 1);
-      assert.strictEqual(counts.semantic, 1);
+      assert.strictEqual(counts.semantic, 2);
       assert.strictEqual(counts.relational, 1);
+    });
+    check('Chinese query recall matches a longer Chinese sentence', () => {
+      const hits = memory.recall('熔炉', { category: 'semantic' });
+      assert(hits.length >= 1);
+      assert.match(hits[0].entry.text, /熔炉需要/);
     });
     const hits = memory.recall('iron', { category: 'episodic' });
     check('recall filters by category and scores tokens', () => {
@@ -2620,6 +2630,90 @@ function makeBrain() {
       const hits = restored.memoryStore.recall('diamonds');
       assert.strictEqual(hits.length, 1);
       assert.match(hits[0].entry.text, /iron pick/);
+    });
+  }
+
+  // ------------------------------------------------------ chat memory
+  process.stdout.write('\n36b. persistent chat memory\n');
+  {
+    const { ChatMemory } = require('../src/memory/chatMemory');
+    let changes = 0;
+    const chat = new ChatMemory({
+      maxEntries: 4,
+      keepRecent: 2,
+      now: () => 1000,
+      onChange: () => {
+        changes += 1;
+      }
+    });
+    chat.saveTurn({
+      text: '熔炉怎么做',
+      reply: '八个圆石围成一圈',
+      sources: ['https://example.invalid/furnace'],
+      tool: 'say'
+    });
+    check('chat memory saves the turn and keeps sources out of spoken text', () => {
+      assert.strictEqual(chat.entries.length, 2);
+      assert.strictEqual(chat.entries[0].role, 'user');
+      assert.strictEqual(chat.entries[1].role, 'assistant');
+      assert.deepStrictEqual(chat.entries[1].sources, ['https://example.invalid/furnace']);
+      assert.doesNotMatch(chat.entries[1].text, /https?:\/\//);
+      assert(changes >= 1);
+    });
+    check('chat memory grep is Chinese-aware', () => {
+      const hits = chat.grep('熔炉');
+      assert(hits.length >= 1);
+      assert.match(hits[0].entry.text, /熔炉/);
+    });
+    const context = chat.context({ query: '熔炉', budgetChars: 500 });
+    check('chat memory injects bounded context with roles', () => {
+      assert(context.length >= 1);
+      assert(context.every((message) => typeof message.role === 'string' && typeof message.content === 'string'));
+      assert(context.some((message) => message.role === 'user' && /熔炉/.test(message.content)));
+    });
+    chat.saveTurn({ text: '那工作台呢', reply: '四个木板' });
+    chat.saveTurn({ text: '木头在哪', reply: '树上' });
+    check('chat memory compacts old turns into one summary', () => {
+      assert.strictEqual(chat.entries[0].role, 'summary');
+      assert(chat.entries.some((entry) => entry.role === 'summary'));
+      assert(chat.entries.length <= 4);
+    });
+    const restored = new ChatMemory();
+    restored.restore(chat.toJSON());
+    check('chat memory survives serialization and keeps summary/entries', () => {
+      assert.strictEqual(restored.entries.length, chat.entries.length);
+      assert.strictEqual(restored.entries[0].role, 'summary');
+      assert.strictEqual(restored.grep('工作台').length >= 1, true);
+    });
+  }
+
+  {
+    const { LanguageDialogue } = require('../src/chat/languageDialogue');
+    const savedTurns = [];
+    const requested = [];
+    const chatMemory = {
+      context: ({ query }) => {
+        requested.push(query);
+        return [{ role: 'system', content: 'persisted summary' }];
+      },
+      saveTurn: (turn) => savedTurns.push(turn)
+    };
+    const dialogue = new LanguageDialogue({
+      chatMemory,
+      agent: {
+        respond: async (request) => {
+          assert.strictEqual(request.history[0].content, 'persisted summary');
+          return { ok: true, spoke: true, tool: 'say', text: '好' };
+        }
+      }
+    });
+    const result = await dialogue.handle('继续');
+    check('LanguageDialogue injects persistent context and saves the turn', () => {
+      assert(result.ok);
+      assert.deepStrictEqual(requested, ['继续']);
+      assert.strictEqual(savedTurns.length, 1);
+      assert.strictEqual(savedTurns[0].text, '继续');
+      assert.strictEqual(savedTurns[0].reply, '好');
     });
   }
 

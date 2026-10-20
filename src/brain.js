@@ -48,6 +48,7 @@ const { AnswerMemory } = require('./learning/answerMemory');
 const { Budget } = require('./planner/budget');
 const { ConversationState } = require('./chat/conversation');
 const { MemoryStore } = require('./memory/store');
+const { ChatMemory } = require('./memory/chatMemory');
 const nodePath = require('path');
 const { bare } = require('./world/items');
 /**
@@ -190,6 +191,12 @@ class Brain {
     /** M3: classified memory (episodic/semantic/relational); ctx.memory is untouched. */
     this.memoryStore = new MemoryStore();
     ctx.memoryStore = this.memoryStore;
+    /** Persistent language-chat memory: save/grep/context/compact, captured with state. */
+    this.chatMemory = new ChatMemory({
+      onChange: () => this.scheduleStateSave(),
+      log: this.log
+    });
+    ctx.chatMemory = this.chatMemory;
     /**
      * Memory write closure: task/plan terminal events become episodic entries that the
      * language prompt can recall. The event hub already dedupes by eventId, so a repeated
@@ -1403,6 +1410,7 @@ class Brain {
       budget: this.budget ? this.budget.status() : null,
       conversation: this.conversation ? this.conversation.status() : null,
       memoryStore: this.memoryStore ? this.memoryStore.status() : null,
+    chatMemory: this.chatMemory ? this.chatMemory.status() : null,
       completedGoals: this.completedGoals.slice(-10),
       memory: this.ctx.memory.summary()
     };

@@ -131,6 +131,55 @@ function startStatusServer(ctx, options = {}) {
       }
 
       /**
+       * Task/plan memory shared with the behavior brain. The DSH `mc_memory` tool uses
+       * this endpoint: grep reads saved episodic/task/plan/action-brain entries; save writes
+       * natural text with source/conditions. It is not automatic context injection.
+       */
+      if (url.pathname === '/memory' && (req.method === 'GET' || req.method === 'POST')) {
+        if (!ctx.memoryStore || typeof ctx.memoryStore.recall !== 'function') {
+          return json(res, 503, { ok: false, error: 'memory unavailable' });
+        }
+        if (req.method === 'GET') {
+          const tags = String(url.searchParams.get('tags') || '')
+            .split(',')
+            .map((tag) => tag.trim())
+            .filter(Boolean);
+          const sources = String(url.searchParams.get('sources') || '')
+            .split(',')
+            .map((source) => source.trim())
+            .filter(Boolean);
+          const hits = ctx.memoryStore.recall(url.searchParams.get('query') || '', {
+            category: url.searchParams.get('category') || undefined,
+            source: url.searchParams.get('source') || undefined,
+            sources,
+            tags,
+            limit: Math.min(Math.max(Number(url.searchParams.get('limit') || 10), 1), 100)
+          });
+          return json(res, 200, {
+            ok: true,
+            entries: hits.map(({ entry, score }) => ({ ...entry, score }))
+          });
+        }
+        let body = {};
+        try {
+          body = JSON.parse((await readRaw(req)) || '{}');
+        } catch {
+          return json(res, 400, { ok: false, error: 'invalid JSON' });
+        }
+        const text = String(body.text || '').trim();
+        if (!text) return json(res, 400, { ok: false, error: 'text required' });
+        const stored = ctx.memoryStore.remember(body.category || 'episodic', {
+          text,
+          tags: Array.isArray(body.tags) ? body.tags : [],
+          source: body.source || 'action-brain',
+          data: body.data || null
+        });
+        if (!stored.ok) return json(res, 400, { ok: false, error: stored.reason });
+        if (ctx.brain && typeof ctx.brain.scheduleStateSave === 'function') ctx.brain.scheduleStateSave();
+        return json(res, 201, { ok: true, entry: stored.entry });
+      }
+
+      /**
        * Behavior-brain web lookup (A16). This is the Node network broker behind the
        * DeepSeek-harness `lookup_mod_content` tool. The language brain never sees a route
        * or tool for it; results are untrusted data and never an action.

@@ -892,6 +892,16 @@ if (STAGE === 'p1') {
     if (!/\/lookup_mod_content/.test(server)) {
       throw new Error('the Node /lookup_mod_content broker endpoint is missing');
     }
+    const chatMemory = read('src/memory/chatMemory.js');
+    for (const needle of ['saveTurn', 'grep(', 'context(', 'compact(']) {
+      if (!new RegExp(needle.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).test(chatMemory)) {
+        throw new Error(`ChatMemory is missing ${needle}`);
+      }
+    }
+    if (!/mc_memory/.test(plugin) || !/\/memory/.test(server)) {
+      throw new Error('task/plan memory tool or Node /memory endpoint is missing');
+    }
+    if (!/ctx\.chatMemory/.test(index)) throw new Error('chat memory is not attached to the live context');
     if (!/new CodeSkillService/.test(index) || !/ctx\.codeSkills/.test(index)) {
       throw new Error('the live agent does not instantiate the code-skill service');
     }

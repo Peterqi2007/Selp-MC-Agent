@@ -22,12 +22,33 @@ const STOP = new Set([
   'for', 'i', 'you', 'we', 'me', 'my', 'your', 'it', 'this', 'that', 'with', 'from'
 ]);
 
-function tokens(text) {
-  return String(text || '')
+function cjkTokens(sequence) {
+  const chars = [...sequence];
+  const out = [];
+  for (const char of chars) out.push(char);
+  for (let index = 0; index < chars.length - 1; index += 1) {
+    out.push(chars[index] + chars[index + 1]);
+  }
+  return out;
+}
+
+/**
+ * Lexical tokens with deterministic CJK unigram + bigram expansion.
+ *
+ * Whitespace tokenization alone makes every Chinese sentence one token ("熔炉怎么做"), so a
+ * query for "熔炉" could never match. The expansion keeps English behavior and gives Chinese
+ * queries character/bigram overlap without a segmenter dependency.
+ */
+function tokenize(text) {
+  const expanded = String(text || '')
     .toLowerCase()
-    .replace(/[^\p{L}\p{N}\s]/gu, ' ')
-    .split(/\s+/)
-    .filter((token) => token && !STOP.has(token));
+    .replace(/([\p{Script=Han}]+)/gu, (_match, sequence) => ` ${cjkTokens(sequence).join(' ')} `);
+  return [...new Set(
+    expanded
+      .replace(/[^\p{L}\p{N}\s]/gu, ' ')
+      .split(/\s+/)
+      .filter((token) => token && !STOP.has(token))
+  )];
 }
 
 class MemoryStore {
@@ -63,15 +84,17 @@ class MemoryStore {
    * @returns {Array<{entry:object, score:number}>}
    */
   recall(query, options = {}) {
-    const wanted = new Set(tokens(query));
+    const wanted = new Set(tokenize(query));
     const limit = options.limit || 5;
     const requiredTags = (options.tags || []).map(String);
     const scored = [];
     for (const entry of this.entries.values()) {
       if (options.category && entry.category !== options.category) continue;
+      if (options.source && entry.source !== options.source) continue;
+      if (Array.isArray(options.sources) && options.sources.length && !options.sources.includes(entry.source)) continue;
       if (requiredTags.length && !requiredTags.every((tag) => entry.tags.includes(tag))) continue;
       let score = 0;
-      const have = new Set(tokens(entry.text));
+      const have = new Set(tokenize(entry.text));
       for (const token of wanted) if (have.has(token)) score += 2;
       for (const tag of requiredTags) if (entry.tags.includes(tag)) score += 1;
       if (!wanted.size && !requiredTags.length) score = 1; // browse
@@ -125,4 +148,4 @@ class MemoryStore {
   }
 }
 
-module.exports = { MemoryStore, CATEGORIES };
+module.exports = { MemoryStore, CATEGORIES, tokenize };

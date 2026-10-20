@@ -33,7 +33,9 @@ function captureState(brain) {
     conversation:
       brain.conversation && typeof brain.conversation.toJSON === 'function' ? brain.conversation.toJSON() : null,
     memoryStore:
-      brain.memoryStore && typeof brain.memoryStore.toJSON === 'function' ? brain.memoryStore.toJSON() : null
+      brain.memoryStore && typeof brain.memoryStore.toJSON === 'function' ? brain.memoryStore.toJSON() : null,
+    chatMemory:
+      brain.chatMemory && typeof brain.chatMemory.toJSON === 'function' ? brain.chatMemory.toJSON() : null
   };
 }
 
@@ -51,7 +53,8 @@ function restoreState(brain, data) {
     methods: false,
     answers: false,
     conversation: false,
-    memoryStore: false
+    memoryStore: false,
+    chatMemory: false
   };
   if (data.plans && brain.plans && typeof brain.plans.restore === 'function') {
     restored.plans = brain.plans.restore(data.plans);
@@ -96,6 +99,9 @@ function restoreState(brain, data) {
   }
   if (data.memoryStore && brain.memoryStore && typeof brain.memoryStore.restore === 'function') {
     restored.memoryStore = brain.memoryStore.restore(data.memoryStore);
+  }
+  if (data.chatMemory && brain.chatMemory && typeof brain.chatMemory.restore === 'function') {
+    restored.chatMemory = brain.chatMemory.restore(data.chatMemory);
   }
   return { ok: true, restored, savedAt: data.savedAt || null };
 }

@@ -20,13 +20,27 @@ class LanguageDialogue {
     this.fallback = deps.fallback || null;
     /** Shared MemoryStore: chat turns are written here so the language prompt can recall them. */
     this.memory = deps.memory || null;
+    /** Persistent chat log: save/grep/context/compact (state file). */
+    this.chatMemory = deps.chatMemory || null;
     this.log = deps.log || { info() {}, warn() {}, debug() {} };
   }
 
   _remember(text, result) {
-    if (!this.memory || typeof this.memory.remember !== 'function') return false;
     const reply = result && result.text ? String(result.text).slice(0, 500) : null;
     const sources = result && Array.isArray(result.sources) ? result.sources.slice(0, 5) : [];
+    if (this.chatMemory && typeof this.chatMemory.saveTurn === 'function') {
+      try {
+        this.chatMemory.saveTurn({
+          text,
+          reply,
+          sources,
+          tool: (result && result.tool) || null
+        });
+      } catch (err) {
+        this.log.warn(`chat log write failed: ${err.message}`);
+      }
+    }
+    if (!this.memory || typeof this.memory.remember !== 'function') return false;
     const entry = `玩家说：${text}${reply ? `；大肥鱼回答：${reply}` : ''}`;
     try {
       const stored = this.memory.remember('relational', {
@@ -46,9 +60,14 @@ class LanguageDialogue {
     if (!this.agent || typeof this.agent.respond !== 'function') {
       return { ok: false, reason: 'no-agent' };
     }
+    const injected =
+      this.chatMemory && typeof this.chatMemory.context === 'function'
+        ? this.chatMemory.context({ query: text, budgetChars: 4000 })
+        : [];
+    const history = [...injected, ...(Array.isArray(meta.history) ? meta.history : [])];
     let result;
     try {
-      result = await this.agent.respond({ text, history: meta.history });
+      result = await this.agent.respond({ text, history });
     } catch (err) {
       result = { ok: false, reason: 'agent-error', error: err.message };
     }

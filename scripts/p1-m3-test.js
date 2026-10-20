@@ -31,6 +31,7 @@ const { PlanService } = require('../src/core/planService');
 const { TaskEvents } = require('../src/core/taskEvents');
 const { TurnLifecycle } = require('../src/core/turnLifecycle');
 const { HarnessAdapter } = require('../src/harness/adapter');
+const { MemoryStore } = require('../src/memory/store');
 const { TurnService } = require('../src/harness/turnService');
 const { startStatusServer } = require('../src/web/statusServer');
 
@@ -612,7 +613,8 @@ function request(port, method, requestPath, body) {
           { seq: 1, type: 'threat:enter', detail: 'zombie' },
           { seq: 2, type: 'weather:change', detail: 'rain' }
         ].filter((event) => !type || type === 'all' || event.type === type || event.type.startsWith(`${type}:`)).slice(-limit)
-      }
+      },
+      memoryStore: new MemoryStore({ now: () => 1000 })
     };
     const server = await startServer(ctx);
     try {
@@ -650,6 +652,20 @@ function request(port, method, requestPath, body) {
         assert.strictEqual(perception.status, 200);
         assert.strictEqual(perception.body.ok, true);
         assert(perception.body.events.some((event) => event.type === 'threat:enter'));
+      });
+
+      const saved = await request(server.port, 'POST', '/memory', {
+        text: '挖矿计划需要先合成木镐',
+        tags: ['挖矿', '计划'],
+        category: 'episodic',
+        source: 'action-brain'
+      });
+      const recalled = await request(server.port, 'GET', `/memory?query=${encodeURIComponent('挖矿')}&sources=action-brain`);
+      await check('POST/GET /memory expose shared task memory to the behavior brain', () => {
+        assert.strictEqual(saved.status, 201);
+        assert.strictEqual(saved.body.ok, true);
+        assert.strictEqual(recalled.status, 200);
+        assert(recalled.body.entries.some((entry) => /挖矿计划/.test(entry.text)));
       });
       await check('GET /plan and GET /plan/:id expose the live record', async () => {
         const list = await request(server.port, 'GET', '/plan');
@@ -750,6 +766,7 @@ function request(port, method, requestPath, body) {
     );
     brain.planService.start('persist');
     await brain.planService.waitFor('persist', 2000);
+    brain.chatMemory.saveTurn({ text: '重启前的聊天', reply: '记住了' });
     brain.saveStateNow();
     await check('a waiting plan, its question and budget are written atomically', () => {
       const saved = JSON.parse(fs.readFileSync(stateFile, 'utf8'));
@@ -758,6 +775,7 @@ function request(port, method, requestPath, body) {
       assert(saved.proposals.current && saved.proposals.current.candidate.type === 'plan_question');
       assert(saved.planService.budgets.some(([planId]) => planId === 'persist'));
       assert(saved.budget && saved.budget.limits, 'the main planning budget must persist');
+      assert(saved.chatMemory && saved.chatMemory.entries.some((entry) => /重启前的聊天/.test(entry.text)));
       const waiting = saved.plans.plans.find((plan) => plan.planId === 'persist').steps.find((step) => step.status === 'waiting');
       assert(waiting, 'the waiting step must be persisted');
     });
@@ -772,6 +790,7 @@ function request(port, method, requestPath, body) {
       assert.strictEqual(pending.candidate.args.planId, 'persist');
       assert.strictEqual(restored.planService.active, null, 'restore must not start a run');
       assert.strictEqual(restored.planService.budgets.has('persist'), true);
+      assert.strictEqual(restored.chatMemory.grep('重启前').length >= 1, true, 'chat memory restored');
       const completed = restored.events.since(0).filter((event) => event.type === 'task:done');
       assert.strictEqual(completed.length, 0, 'restore must not replay a task');
       assert.strictEqual(restored.planRunner.busy, false);

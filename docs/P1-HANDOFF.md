@@ -121,7 +121,7 @@ src/llm/knowledge/ webSearch（DeepSeek /v1/tools/search；语言脑 web_search 
 src/llm/       judge, toolSurface, languageAgent
 src/world/     freshness, refreshPlan, threatObserver, perceptionWake, observation
 src/learning/  methodLibrary, answerMemory
-src/memory/    store
+src/memory/    store, chatMemory
 src/codeSkills/ manifest, store, catalog, runner, generator, directory
 src/computer/  windowPolicy, guard
 src/harness/   adapter, resumeBridge, turnService
