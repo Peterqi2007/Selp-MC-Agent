@@ -327,10 +327,14 @@ class ClientModBody extends Body {
     this._statePollBusy = false;
   }
 
-  /** Refresh the cached snapshot if it is stale. */
-  async refresh(force = false) {
+  /**
+   * Strict refresh result: keeps the old `refresh()` contract (return snapshot, tolerate
+   * errors) while giving the perception cache a way to distinguish success from a stale
+   * fallback.
+   */
+  async refreshStrict(force = false) {
     if (!force && this._snapshot && Date.now() - this._snapshotAt < this._snapshotTtlMs) {
-      return this._snapshot;
+      return { ok: true, cached: true, state: this._snapshot };
     }
     try {
       const state = await this.request('/state', { timeoutMs: 4000 });
@@ -340,13 +344,19 @@ class ClientModBody extends Body {
       this.connected = true;
       this._lastRefreshErrorAt = null;
       this._lastRefreshError = null;
-      return state;
+      return { ok: true, cached: false, state };
     } catch (err) {
       this.lastError = err;
       this._lastRefreshErrorAt = Date.now();
       this._lastRefreshError = err.message;
-      return this._snapshot; // keep serving the last known state rather than nothing
+      return { ok: false, cached: false, state: this._snapshot, error: err.message };
     }
+  }
+
+  /** Refresh the cached snapshot if it is stale. */
+  async refresh(force = false) {
+    const result = await this.refreshStrict(force);
+    return result.state || this._snapshot;
   }
 
   // ------------------------------------------------------------ perception

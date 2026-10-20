@@ -370,8 +370,17 @@ class ObservationCache {
     const startedAt = this.now();
     this._inflight = (async () => {
       try {
-        if (typeof this.refresh === 'function') await this.refresh();
-        else if (this.body && typeof this.body.refresh === 'function') await this.body.refresh(true);
+        if (typeof this.refresh === 'function') {
+          const outcome = await this.refresh();
+          if (outcome && outcome.ok === false) throw new Error(outcome.error || outcome.reason || 'refresh-failed');
+        } else if (this.body && typeof this.body.refreshStrict === 'function') {
+          const outcome = await this.body.refreshStrict(true);
+          if (!outcome || outcome.ok !== true) {
+            throw new Error((outcome && (outcome.error || outcome.reason)) || 'refresh-failed');
+          }
+        } else if (this.body && typeof this.body.refresh === 'function') {
+          await this.body.refresh(true);
+        }
       } catch (err) {
         this.lastError = err.message;
         return { ok: false, reason: 'refresh-failed', error: err.message, ms: this.now() - startedAt };

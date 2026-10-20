@@ -49,6 +49,9 @@ workstations / modDevices / farmland` 当前 body 不暴露，返回 `unavailabl
 
 - 默认只采必要自身状态：position/health/food/dimension/time/weather。
 - 按字段 TTL 刷新；同字段未过期不发请求。
+- 实际刷新默认走 `body.refreshStrict(true)`：一次完整 `/state` HTTP 请求，返回
+  `{ok,cached,state,error}`；失败不会被当成成功快照。没有 `refreshStrict` 的旧 body
+  才回退到 `body.refresh(true)`（它保留旧行为，会返回最后快照，无法区分失败）。
 - 一次 refresh 只给本次请求的字段打时间戳；其他缓存字段保留旧 `observedAt`。
 - 同字段并发请求合并为一个 single-flight refresh。
 - 维度变化、死亡、断线清空缓存。

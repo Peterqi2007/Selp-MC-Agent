@@ -2546,6 +2546,25 @@ function makeBrain() {
     });
   }
 
+  {
+    const { ObservationCache } = require('../src/world/observation');
+    const body = {
+      kind: 'mock',
+      connected: true,
+      snapshot: () => ({ ready: true, dimension: 'minecraft:overworld', position: { x: 0, y: 64, z: 0 } }),
+      refresh: async () => ({ ready: true }),
+      refreshStrict: async () => ({ ok: false, error: 'offline', state: null })
+    };
+    const cache = new ObservationCache({ body, now: () => 2000 });
+    const result = await cache.observe({ fields: ['position'] });
+    await check('a strict refresh failure is not stamped as fresh', () => {
+      assert.strictEqual(result.ok, false);
+      assert.strictEqual(result.refresh.reason, 'refresh-failed');
+      assert.strictEqual(result.fields.position.known, false);
+      assert.strictEqual(result.fields.position.stale, true);
+    });
+  }
+
   // ------------------------------------------------------ classified memory
   process.stdout.write('\n36. classified memory\n');
   {
