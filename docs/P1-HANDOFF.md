@@ -113,7 +113,7 @@ npm run p1:baseline -- --suites  # 记录提交/配置指纹/套件结果到 run
 src/core/      taskEvents, planStore, planService, taskSlot, capabilities, stateStore,
                sessionState, planRunner, turnLifecycle
 src/planner/   evaluator, proposals, budget, verifier, draftGuard, planQuestions
-src/chat/      commandGate, addressedHandler, harnessBridge, perceptionBridge, conversation,
+src/chat/      commandGate, addressedHandler, harnessBridge, conversation,
                languageDialogue, chatParticipation, proposalChat
 src/codeSkills/ manifest, generator, store, directory, sandboxRunner, sandboxWorker,
                service, generation, catalog

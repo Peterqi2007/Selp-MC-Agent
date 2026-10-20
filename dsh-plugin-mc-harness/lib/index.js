@@ -142,6 +142,66 @@ function toolDefinitions({ controlUrl, record, log, runtime }) {
   };
 
   /**
+   * Pre-task state skill (explicit, no push). The action brain chooses the field names it
+   * needs for the task once, before acting; it is not injected every tick.
+   */
+  const state = {
+    name: 'mc_state',
+    description:
+      'Pre-task state observation skill. Call it ONCE before executing a task and choose ' +
+      'the fields required by that task (e.g. position, health, food, inventory, hostiles, ' +
+      'target, blocks, players, nearbyItems). Returns per-field observedAt/age/revision/' +
+      'stale metadata. Do not poll it every tick; state is not pushed automatically.',
+    parameters: {
+      type: 'object',
+      properties: {
+        fields: {
+          type: 'array',
+          items: { type: 'string' },
+          description: 'field names or groups for this task, e.g. ["position","inventory"] or ["threat","self"]'
+        },
+        area: {
+          type: 'object',
+          description: 'optional {x,y,z,radius} or {min,max} filter for position-bearing fields'
+        },
+        maxAgeMs: { type: 'integer', description: 'override freshness budget for this call' },
+        purpose: {
+          type: 'string',
+          enum: ['survival', 'task', 'decision', 'answer', 'explore'],
+          description: 'freshness policy for this observation'
+        }
+      },
+      required: ['fields'],
+      additionalProperties: false
+    },
+    output: {
+      schema: { type: 'string' },
+      render: (_args, value) => [{ type: 'text', text: value }]
+    },
+    async execute(args) {
+      const res = await fetch(`${controlUrl}/observe`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          fields: args.fields,
+          area: args.area,
+          maxAgeMs: args.maxAgeMs,
+          purpose: args.purpose || 'task'
+        })
+      });
+      if (!res.ok) throw new Error(`mc_state HTTP ${res.status}`);
+      const payload = await res.json();
+      record.observations.push({
+        kind: 'pre-task-state',
+        fields: args.fields,
+        at: new Date().toISOString(),
+        revision: payload.revision || null
+      });
+      return JSON.stringify(payload);
+    }
+  };
+
+  /**
    * Task/plan memory shared with the behavior brain. Reads/writes the same Node
    * MemoryStore that Brain.rememberEvent fills from task/plan terminal events. This is
    * explicit grep/save, not automatic context injection.
@@ -451,7 +511,7 @@ function toolDefinitions({ controlUrl, record, log, runtime }) {
     }
   };
 
-  return [observe, perception, memory, step, lookupModContent, plan, planStatus, cancel, finish];
+  return [observe, perception, state, memory, step, lookupModContent, plan, planStatus, cancel, finish];
 }
 
 /** Minimal SSE block parser for the harness turn stream. */
@@ -715,7 +775,7 @@ export function apply(ctx, config = {}) {
     for (const definition of toolDefinitions({ controlUrl, record, log, runtime })) {
       toolsCtx.tools.register(definition);
     }
-    log('registered mc_observe / mc_perception / mc_memory / mc_step / lookup_mod_content / mc_plan / mc_plan_status / mc_cancel / mc_finish');
+    log('registered mc_observe / mc_perception / mc_state / mc_memory / mc_step / lookup_mod_content / mc_plan / mc_plan_status / mc_cancel / mc_finish');
   });
 
   const server = http.createServer(async (req, res) => {
@@ -791,52 +851,6 @@ export function apply(ctx, config = {}) {
         chars: text.length
       });
     }
-    /**
-     * Autonomous-perception input for the behavior brain (diagram: agent Input). Node
-     * pushes an edge-triggered perception event here; the bound harness conversation sees
-     * it as a user-visible event and can call mc_perception for the typed record. This is
-     * not an instruction and cannot change permissions by itself.
-     */
-    if (req.method === 'POST' && url.pathname === '/perception') {
-      if (!runtime.agent || typeof runtime.agent.followup !== 'function') {
-        return jsonReply(res, 409, { ok: false, error: 'no-live-agent' });
-      }
-      let body = '';
-      for await (const chunk of req) body += chunk;
-      let event = null;
-      try {
-        const parsed = JSON.parse(body || '{}');
-        event = parsed && typeof parsed === 'object' ? parsed : null;
-      } catch {
-        return jsonReply(res, 400, { ok: false, error: 'invalid JSON' });
-      }
-      if (!event || !event.type) return jsonReply(res, 400, { ok: false, error: 'type is required' });
-      const text = [
-        'PERCEPTION EVENT (autonomous input, not a player instruction):',
-        `type=${event.type}${event.seq !== undefined ? ` seq=${event.seq}` : ''}`,
-        event.detail ? `detail=${event.detail}` : null,
-        'Use mc_perception(type=...) if you need the typed edge log before deciding.'
-      ]
-        .filter(Boolean)
-        .join('\n');
-      const message = {
-        id: `mc-perception-${crypto.randomUUID()}`,
-        role: 'user',
-        content: [{ type: 'text', text }],
-        source: {
-          kind: 'user',
-          rpcId: `mc-perception-${Date.now()}`,
-          clientTimeZone: 'UTC'
-        }
-      };
-      try {
-        await runtime.agent.followup(message);
-      } catch (error) {
-        return jsonReply(res, 500, { ok: false, error: error.message });
-      }
-      record.perceptions.push({ type: event.type, at: new Date().toISOString(), pushed: true });
-      return jsonReply(res, 200, { ok: true, forwarded: true, agentId: runtime.agentId, type: event.type });
-    }
     if (req.method === 'GET' && url.pathname === '/agents') {
       const agents = typeof ctx.get === 'function' ? ctx.get('agents') : null;
       const live = agents && typeof agents.list === 'function' ? agents.list() : [];
@@ -904,6 +918,8 @@ export function apply(ctx, config = {}) {
           'goto <x> <y> <z>, mine <block> <n>, chop <n>, stop, status.',
           'On a perception wake or before planning after a change, call mc_perception',
           '(type = all/threat/weather/phase/chat) to read the edge events.',
+          'Before executing a task, call mc_state(fields=[...]) ONCE and choose the fields',
+          'needed by that task; do not poll it every tick and do not expect pushed state.',
           'Use mc_memory(action=grep/save) to read or write shared task/plan memory;',
           'it is explicit, not automatic context injection.',
           'For a mod block/item the local registry/classification does not know, call',

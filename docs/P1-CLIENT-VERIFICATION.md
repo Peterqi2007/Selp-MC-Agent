@@ -265,8 +265,9 @@ A16 语言脑 `web_search`（无首选）真机通过、行为脑 `lookup_mod_co
 代码/Node broker 通过，harness live lookup 未跑；审批已改为 persona 底线 gate + 原文转发，
 真实 gate allow/deny 2 条通过，harness bridge 未重载测试；记忆已接中文召回、
 `ChatMemory` save/grep/context/compact 持久化、task/plan `/memory`+`mc_memory` 工具；
-say 不含 URL，来源存记忆审计；感知 `/perception` + `mc_perception(type)` + push 已接，
-插件重载后测；A30 有 success/compress/failure/cancel 样本、缺 retry；A27/A28 未执行。
+say 不含 URL，来源存记忆审计；感知 `/perception` 仅显式拉取（无主动 push），新增
+`mc_state(fields)` 供动作脑任务前按需取状态，插件重载后测；A30 有
+success/compress/failure/cancel 样本、缺 retry；A27/A28 未执行。
 
 ## 6. M4：代码技能生成、试运行与下线晋升
 

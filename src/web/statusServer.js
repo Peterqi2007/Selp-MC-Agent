@@ -131,6 +131,29 @@ function startStatusServer(ctx, options = {}) {
       }
 
       /**
+       * Explicit state observation for the behavior brain's pre-task state skill.
+       * No push: the action brain asks once with the fields it needs.
+       */
+      if (req.method === 'POST' && url.pathname === '/observe') {
+        if (!ctx.observation || typeof ctx.observation.observe !== 'function') {
+          return json(res, 503, { ok: false, error: 'observation unavailable' });
+        }
+        let body = {};
+        try {
+          body = JSON.parse((await readRaw(req)) || '{}');
+        } catch {
+          return json(res, 400, { ok: false, error: 'invalid JSON' });
+        }
+        const result = await ctx.observation.observe({
+          fields: body.fields,
+          area: body.area,
+          maxAgeMs: body.maxAgeMs,
+          purpose: body.purpose
+        });
+        return json(res, 200, result);
+      }
+
+      /**
        * Task/plan memory shared with the behavior brain. The DSH `mc_memory` tool uses
        * this endpoint: grep reads saved episodic/task/plan/action-brain entries; save writes
        * natural text with source/conditions. It is not automatic context injection.

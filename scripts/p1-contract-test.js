@@ -1152,7 +1152,6 @@ function makeBrain() {
   const { CommandGate } = require('../src/chat/commandGate');
   const { AddressedHandler } = require('../src/chat/addressedHandler');
   const { HarnessBridge } = require('../src/chat/harnessBridge');
-  const { PerceptionBridge } = require('../src/chat/perceptionBridge');
 
   {
     let captured = null;
@@ -1171,23 +1170,6 @@ function makeBrain() {
       assert(forwarded.ok && forwarded.forwarded);
       assert.strictEqual(captured.url, 'http://127.0.0.1:8770/message');
       assert.strictEqual(captured.body.text, '帮我砍树');
-    });
-  }
-
-  {
-    let captured = null;
-    const bridge = new PerceptionBridge({
-      fetchImpl: async (url, options) => {
-        captured = { url, body: JSON.parse(options.body) };
-        return { ok: true, status: 200, json: async () => ({ ok: true, forwarded: true }) };
-      }
-    });
-    const forwarded = await bridge.forward({ type: 'threat:enter', seq: 3, detail: 'zombie' });
-    check('a perception edge is pushed to the harness with its type intact', () => {
-      assert(forwarded.ok && forwarded.forwarded);
-      assert.strictEqual(captured.url, 'http://127.0.0.1:8770/perception');
-      assert.strictEqual(captured.body.type, 'threat:enter');
-      assert.strictEqual(captured.body.seq, 3);
     });
   }
 

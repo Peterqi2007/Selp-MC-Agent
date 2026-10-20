@@ -901,6 +901,9 @@ if (STAGE === 'p1') {
     if (!/mc_memory/.test(plugin) || !/\/memory/.test(server)) {
       throw new Error('task/plan memory tool or Node /memory endpoint is missing');
     }
+    if (!/mc_state/.test(plugin) || !/\/observe/.test(server)) {
+      throw new Error('pre-task state skill or Node /observe endpoint is missing');
+    }
     if (!/ctx\.chatMemory/.test(index)) throw new Error('chat memory is not attached to the live context');
     if (!/new CodeSkillService/.test(index) || !/ctx\.codeSkills/.test(index)) {
       throw new Error('the live agent does not instantiate the code-skill service');

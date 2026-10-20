@@ -614,7 +614,20 @@ function request(port, method, requestPath, body) {
           { seq: 2, type: 'weather:change', detail: 'rain' }
         ].filter((event) => !type || type === 'all' || event.type === type || event.type.startsWith(`${type}:`)).slice(-limit)
       },
-      memoryStore: new MemoryStore({ now: () => 1000 })
+      memoryStore: new MemoryStore({ now: () => 1000 }),
+      observation: {
+        observe: async ({ fields, purpose }) => ({
+          ok: true,
+          revision: 1,
+          purpose,
+          fields: Object.fromEntries(
+            (Array.isArray(fields) ? fields : [fields]).filter(Boolean).map((field) => [
+              field,
+              { value: field === 'position' ? { x: 0, y: 64, z: 0 } : 20, valid: true }
+            ])
+          )
+        })
+      }
     };
     const server = await startServer(ctx);
     try {
@@ -652,6 +665,17 @@ function request(port, method, requestPath, body) {
         assert.strictEqual(perception.status, 200);
         assert.strictEqual(perception.body.ok, true);
         assert(perception.body.events.some((event) => event.type === 'threat:enter'));
+      });
+
+      const state = await request(server.port, 'POST', '/observe', {
+        fields: ['position', 'inventory'],
+        purpose: 'task'
+      });
+      await check('POST /observe is the explicit pre-task state skill, not a push', () => {
+        assert.strictEqual(state.status, 200);
+        assert.strictEqual(state.body.ok, true);
+        assert.strictEqual(state.body.fields.position.value.x, 0);
+        assert.strictEqual(state.body.fields.inventory.value, 20);
       });
 
       const saved = await request(server.port, 'POST', '/memory', {
