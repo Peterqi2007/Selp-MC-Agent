@@ -41,7 +41,7 @@ const HELP = [
   '!chop [n] - gather n logs (walk -> break -> collect)',
   '!mine <block> [n] - mine n blocks',
   '!goto <x> <y> <z> - walk there using pathfinding',
-  '!collect - pick up nearby dropped items',
+  '!collect - pick up dropped items within 15x15x15 (fresh scan, A* walk)',
   '!eat [food] - eat the best food carried (or a named item)',
   '!equip <item> - hold an item from the inventory',
   '!armor - equip the best armour pieces carried',
@@ -244,10 +244,7 @@ class ChatController {
         this.say(`去砍 ${count} 根木头`);
         return this.enqueue(new ChopWoodTask(ctx, { count }));
       },
-      collect: () => {
-        this.say('去捡东西');
-        return this.enqueue(new ChopWoodTask(ctx, { count: 1, searchRadius: 24 }));
-      },
+      collect: () => this.runSkill('collect', {}),
       hunt: (args) => this.enqueue(new HuntTask(ctx, { count: Number(args[0]) || 3 })),
       eat: (args) => this.runSkill('eat', args[0] ? { food: args[0] } : {}),
       equip: (args) => {

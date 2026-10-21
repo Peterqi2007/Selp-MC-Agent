@@ -20,6 +20,7 @@ require('./crafting');
 require('./smelting');
 require('./farming');
 require('./mining');
+require('./collect');
 require('./fishing');
 
 module.exports = registry;

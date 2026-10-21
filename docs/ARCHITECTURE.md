@@ -190,7 +190,7 @@ mineflayer→ controller.connect()，在 'spawn' 事件里 rearm/scan/rescue/too
 }
 ```
 
-当前 18 个技能：
+当前 20 个技能：
 
 | 分类 | 技能 |
 | --- | --- |
@@ -199,7 +199,7 @@ mineflayer→ controller.connect()，在 'spawn' 事件里 rearm/scan/rescue/too
 | 战斗 | `attack` `defend` |
 | 移动 | `explore` `come` |
 | 生产 | `craft` `smelt` `farm` `sleep` |
-| 采集 | `mine_ore`（报价选矿 + tunnel + 台账） `fish` |
+| 采集 | `mine_ore`（报价选矿 + tunnel + 台账） `collect`（15×15×15 新鲜扫描 + A* 走位） `fish` |
 
 两个入口共用同一张表：
 
@@ -592,7 +592,7 @@ Places        ──► runtime/places.json；LLM 轨迹 ──► runtime/llm-t
 | --- | --- | --- |
 | `npm run selftest` | 模块图 / 插件 / 寻路 / 三原语 / 意图 Schema / 工具白名单 / 死亡处理 | 176/176 |
 | `npm run p0:verify` | 一次跑 8 个套件（path/tasks/llm:dry/control/roleplay/clientmod/selftest/plan:audit） | 8/8 |
-| `npm run skills:test` | 19 个技能（含采矿报价/台账/防坠落/垫柱/共享收集、战斗与枪械） | 57/57 |
+| `npm run skills:test` | 20 个技能（含采矿报价/台账/防坠落/垫柱/共享收集、collect 新鲜扫描、战斗与枪械） | 64/64（2026-10-21） |
 | `npm run client:test` | 假 Mod 协议（含 tunnel / pillar / verdict / 空闲刷新 / shoot / retreat） | 73/73 |
 | `npm run clientmod:test` | clientmod 躯体角色扮演端到端 | 11/11 |
 | `npm run mining:entry:test` | 统一挖矿入口 A 系列（含 A10 规划器停牌键、A11 全矿种深板岩矩阵） | 25/25 |

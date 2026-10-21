@@ -679,7 +679,15 @@ class ClientModBody extends Body {
 
     const snap = this.snapshot();
     const from = snap && snap.position;
-    if (from) {
+    /**
+     * `pathfind: true` skips the client's straight-line walker for near targets.
+     *
+     * The shortcut below is fine for ordinary walks, but a caller that must know whether a
+     * route is actually walkable (the collect skill: a drop behind a wall has to come back
+     * as "blocked", not as a body pressing into the wall) wants the planned route. Phrase
+     * the hop inside `directRange` as a real A* plan instead.
+     */
+    if (options.pathfind !== true && from) {
       const flat = Math.hypot(position.x - from.x, position.z - from.z);
       if (flat < this.directRange && Math.abs(position.y - from.y) <= 1) {
         return this._rawMoveTo(position, options);

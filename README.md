@@ -129,7 +129,7 @@ bot 指向外部服务器，沿用前请先检查 `config/agent.json`。
 
 ## 2. 现在能做什么
 
-技能目录（`src/skills/`，19 个，全部可用 MockBody / 协议假 Mod 离线测试）：
+技能目录（`src/skills/`，20 个，全部可用 MockBody / 协议假 Mod 离线测试）：
 
 | 分类 | 技能 |
 | --- | --- |
@@ -138,7 +138,7 @@ bot 指向外部服务器，沿用前请先检查 `config/agent.json`。
 | 战斗 | `attack` `defend` `shoot`（TACZ 枪械） |
 | 移动 | `explore` `come` |
 | 生产 | `craft` `smelt` `farm` `sleep` |
-| 采集 | `mine_ore`（统一入口 + 报价选矿 + 走挖一体 tunnel + 逐格垫柱 + 共享收集/入包证据） `fish` |
+| 采集 | `mine_ore`（统一入口 + 报价选矿 + 走挖一体 tunnel + 逐格垫柱 + 共享收集/入包证据） `collect`（15×15×15 新鲜扫描 + A* 走位，零进展即失败） `fish` |
 
 LLM 层（`src/llm/`，生产配置已开启 `toolCalling`）：8 个工具 —— 只读
 `observe` `find_blocks` `lookup_item` `scan_around`，有副作用 `do_task` `do_skill` `go_to` `stop`；
@@ -206,6 +206,10 @@ LLM 层（`src/llm/`，生产配置已开启 `toolCalling`）：8 个工具 —�
   y 容差、战斗 v3、TACZ 枪械与 server `dayTime` 昼夜判断、**TACZ `HoldToAim` 右键瞄准修复**——反编译
   `AimKey` 后改为持有真实 `AIM_KEY` 映射，见 `docs/COMBAT-PLAN.md` §六）；已 `client:install` 覆盖 PCL 版本目录。
   改 Mod 后必须重装（`npm run client:install`）并重启客户端。本次瞄准修复**未做真机验证**（按操作员要求）。
+* **`!collect` 假实现修复（2026-10-21）**：旧 handler 只是 `ChopWoodTask(1)`（“捡东西”=砍一根木头）。
+  现注册为独立技能 `collect`：**强制新鲜快照**（`refreshStrict(true)`，失败不退回缓存）→ 以玩家为中心
+  15×15×15 找掉落物 → 逐个 `moveTo(..., {pathfind:true})` 走 A* → 走位零进展（位移与距目标都没减少）
+  返回失败；`do_task('collect')` 也透传失败，不再假成功。离线 `skills:test 64/64`；**未做客户端测试**。
 * **规划器（自主决策）专项**：`slowLoop → decide() → runTask` 这条回路的问题与 **`!` 命令回路**、
   **LLM `do_task`/`do_skill` 回路**分开记账——已核实 10 条（含 `shelter` 规则静默死规则、`light` 无能力闸门、
   矿石路径零进展判定失效）与重构债 7 条见 [`docs/PLANNER-REFACTOR.md`](docs/PLANNER-REFACTOR.md)。
@@ -394,7 +398,7 @@ Invoke-RestMethod -Uri http://127.0.0.1:8766/ui/state
 ├─ src\
 │  ├─ index.js                 # 装配与生命周期
 │  ├─ brain.js                 # 快反射（600ms）+ 慢规划 双循环
-│  ├─ skills\                  # 19 个确定性技能 + miningPlan（报价/几何/台账）
+│  ├─ skills\                  # 20 个确定性技能 + miningPlan（报价/几何/台账）
 │  ├─ body\                    # Body 契约与实现：clientmod / mineflayer / mock
 │  ├─ core\                    # taskHub / recoveryLadder / permissions / places / holds / failure
 │  ├─ llm\                     # LLM 回合与 8 个工具（tools\）
@@ -423,7 +427,7 @@ Invoke-RestMethod -Uri http://127.0.0.1:8766/ui/state
 | `npm run client:build` / `client:install` | 构建 / 安装控制 Mod | 主线 |
 | `npm run client:test` | 假 Mod 协议测试（含 pillar 回执/隧道保护/空闲刷新/shoot/retreat） | 73/73 |
 | `npm run clientmod:test` | clientmod 躯体角色扮演路径 | 11/11 |
-| `npm run skills:test` | 技能库（含采矿/垫柱/护甲/武器/进食/枪械选枪与反卡死、战斗租约） | 57/57 |
+| `npm run skills:test` | 技能库（含采矿/垫柱/护甲/武器/进食/枪械选枪与反卡死、战斗租约、collect 新鲜扫描） | 64/64 |
 | `npm run mining:entry:test` | 统一挖矿入口 A 系列（含 A10 规划器停牌键、A11 全矿种深板岩矩阵） | 25/25 |
 | `npm run mining:collection:test` | 掉落物收集 C 系列 | 24/24 |
 | `npm run mining:recovery:test` | LLM 异常接管 R 系列（脚本化模型） | 18/18 |

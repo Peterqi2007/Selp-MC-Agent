@@ -85,7 +85,21 @@ async function doTask(ctx, args, options = {}) {
     line = `mine ${dispatched.blocks.join(',')} ${dispatched.count}`;
   }
 
-  return dispatch(ctx, line, options, { task });
+  const result = await dispatch(ctx, line, options, { task });
+  /**
+   * `collect` is now a synchronous skill, not a queued task: its result travels in
+   * `detail` and can be `ok:false`. Task receipts never carry `detail.ok`, so this only
+   * rewrites skill outcomes - without it a blocked pickup would reach the model as
+   * `ok:true, accepted:true` (the false-success pattern A06 forbids).
+   */
+  if (result && result.detail && result.detail.ok === false) {
+    return fold({
+      ok: false,
+      error: result.detail.reason || `${task} failed`,
+      failure: result.detail.failure || 'unknown'
+    });
+  }
+  return result;
 }
 
 /**

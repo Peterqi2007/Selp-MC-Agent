@@ -442,6 +442,28 @@ check('TACZ right-click aim holds the mod aim key (HoldToAim)', () => {
   return 'AIM_KEY held via setDown + re-assert + unconditional release';
 });
 
+check('the collect command is a real skill, not a chop alias', () => {
+  // The 2026-10-21 operator finding: `!collect` said "pick up dropped items" but actually
+  // queued ChopWoodTask(1) - "collect" meant "chop one log". The command must call the
+  // registered skill, and that skill must do the three things that make it honest:
+  // fresh reads (no cached snapshot), a 15x15x15 scan, and an A* walk.
+  const commands = read('src/chat/commands.js');
+  const collect = read('src/skills/collect.js');
+  if (!/collect:\s*\(\)\s*=>\s*this\.runSkill\('collect'/.test(commands)) {
+    throw new Error('!collect no longer dispatches the collect skill');
+  }
+  if (/collect:\s*\(\)\s*=>\s*\{[\s\S]{0,200}?ChopWoodTask/.test(commands)) {
+    throw new Error('!collect is back to the chop alias');
+  }
+  if (!/refreshStrict\(true\)/.test(collect) || !/nearbyItems/.test(collect)) {
+    throw new Error('collect does not scan a fresh body snapshot');
+  }
+  if (!/BOX_HALF\s*=\s*7/.test(collect)) throw new Error('the scan box is no longer 15x15x15');
+  if (!/pathfind:\s*true/.test(collect)) throw new Error('collect no longer asks for A* pathfinding');
+  if (!/PROGRESS_EPS/.test(collect)) throw new Error('collect lost its zero-progress failure');
+  return 'fresh 15x15x15 scan + pathfind:true + zero-progress failure';
+});
+
 check('the P0 exclusions are still exclusions', () => {
   const brain = read('src/brain.js');
   const evaluator = read('src/planner/evaluator.js');

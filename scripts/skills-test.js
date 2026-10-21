@@ -129,7 +129,7 @@ function quickMove(slots) {
     const names = skills.names();
     const required = [
       'equip', 'eat', 'drop', 'armor', 'place', 'use_on',
-      'attack', 'defend', 'explore', 'come', 'withdraw', 'deposit', 'craft'
+      'attack', 'defend', 'explore', 'come', 'withdraw', 'deposit', 'craft', 'collect'
     ];
     const missing = required.filter((name) => !names.includes(name));
     expect(!missing.length, `missing skills: ${missing.join(', ')}`);
@@ -1452,6 +1452,121 @@ function quickMove(slots) {
     });
     expect(result.sleeps >= 1, `expected a sleep, got ${JSON.stringify(result)}`);
     expect(result.catches >= 1, `expected fishing to resume in the morning, got ${JSON.stringify(result)}`);
+    return result.detail;
+  });
+
+  // ------------------------------------------------------------------ collect
+  process.stdout.write('\n9. collect - fresh 15x15x15 scan, A* walk, honest block failure\n');
+
+  await scenario('collect walks to the nearest drops and verifies the pickup', async () => {
+    const body = new MockBody(cfg, { start: { x: 0, y: 64, z: 0 } });
+    await body.connect();
+    body.drops = [
+      { name: 'minecraft:diamond', count: 2, position: { x: 6, y: 64, z: 0 } },
+      { name: 'minecraft:dirt', count: 3, position: { x: 0, y: 64, z: -4 } }
+    ];
+    const result = await skills.run('collect', makeCtx(body), {});
+    expect(result.ok && result.picked === 2, `expected 2 pickups, got ${JSON.stringify(result)}`);
+    expect(body.inventory['minecraft:diamond'] === 2, `diamond ${body.inventory['minecraft:diamond']}`);
+    expect(body.inventory['minecraft:dirt'] === 3, `dirt ${body.inventory['minecraft:dirt']}`);
+    expect(
+      body.history.filter((h) => h.action === 'pickup').length === 2,
+      'both drops should have entered the inventory'
+    );
+    return result.detail;
+  });
+
+  await scenario('collect ignores drops outside the 15x15x15 box and fails honestly', async () => {
+    const body = new MockBody(cfg, { start: { x: 0, y: 64, z: 0 } });
+    await body.connect();
+    body.drops = [{ name: 'minecraft:emerald', count: 1, position: { x: 8, y: 64, z: 0 } }];
+    const result = await skills.run('collect', makeCtx(body), {});
+    expect(!result.ok && result.failure === 'target_lost', `expected target_lost, got ${JSON.stringify(result)}`);
+    expect(!body.inventory['minecraft:emerald'], 'the drop 8 blocks away must not be collected');
+    return result.reason;
+  });
+
+  await scenario('collect returns failure when a walk makes zero progress', async () => {
+    class BlockedBody extends Body {
+      constructor(cfg) {
+        super(cfg);
+        this.kind = 'blocked-stub';
+        this.position = { x: 0, y: 64, z: 0 };
+      }
+      async connect() {}
+      async disconnect() {}
+      snapshot() {
+        return {
+          ready: true,
+          position: { ...this.position },
+          nearbyItems: [{ id: 'd1', name: 'minecraft:diamond', position: { x: 4, y: 64, z: 0 }, distance: 4 }]
+        };
+      }
+      async refreshStrict() {
+        return { ok: true, cached: false, state: this.snapshot() };
+      }
+      async moveTo() {
+        this.lastMove = { ok: false, reason: 'blocked' };
+        return false;
+      }
+    }
+    const body = new BlockedBody(cfg);
+    const result = await skills.run('collect', makeCtx(body), {});
+    expect(!result.ok && result.failure === 'no_path', `expected no_path, got ${JSON.stringify(result)}`);
+    expect(/zero progress|blocked/.test(result.reason), `reason should name the block: ${result.reason}`);
+    expect(result.picked === 0, 'nothing may be counted as picked');
+    return result.reason;
+  });
+
+  await scenario('collect refreshes instead of reading the cached snapshot, and asks for pathfinding', async () => {
+    class FreshBody extends Body {
+      constructor(cfg) {
+        super(cfg);
+        this.kind = 'fresh-stub';
+        this.position = { x: 0, y: 64, z: 0 };
+        this.fresh = false;
+        this.moves = [];
+        this.drops = [{ id: 'd1', name: 'minecraft:diamond', position: { x: 2, y: 64, z: 0 }, distance: 2 }];
+      }
+      async connect() {}
+      async disconnect() {}
+      snapshot() {
+        return {
+          ready: true,
+          position: { ...this.position },
+          nearbyItems: this.fresh ? this.drops.map((d) => ({ ...d })) : []
+        };
+      }
+      async refreshStrict() {
+        this.fresh = true;
+        return { ok: true, cached: false, state: this.snapshot() };
+      }
+      async moveTo(position, options) {
+        this.moves.push({ position, options });
+        this.position = { ...position };
+        this.drops = [];
+        return true;
+      }
+    }
+    const body = new FreshBody(cfg);
+    const result = await skills.run('collect', makeCtx(body), {});
+    expect(result.ok && result.picked === 1, `a cached read would find no drops: ${JSON.stringify(result)}`);
+    expect(body.moves.length === 1, `expected one walk, got ${body.moves.length}`);
+    expect(body.moves[0].options.pathfind === true, 'the walk must ask for pathfinding (A*)');
+    return 'refreshed + pathfind';
+  });
+
+  await scenario('collect count bounds how many drops one call takes', async () => {
+    const body = new MockBody(cfg, { start: { x: 0, y: 64, z: 0 } });
+    await body.connect();
+    body.drops = [
+      { name: 'minecraft:apple', count: 1, position: { x: 2, y: 64, z: 0 } },
+      { name: 'minecraft:apple', count: 1, position: { x: 6, y: 64, z: 0 } },
+      { name: 'minecraft:apple', count: 1, position: { x: 7, y: 64, z: 0 } }
+    ];
+    const result = await skills.run('collect', makeCtx(body), { count: 1 });
+    expect(result.ok && result.picked === 1, `expected one pickup, got ${JSON.stringify(result)}`);
+    expect(body.drops.length === 2, `two drops should remain, saw ${body.drops.length}`);
     return result.detail;
   });
 

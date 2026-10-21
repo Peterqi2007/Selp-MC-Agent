@@ -320,6 +320,18 @@ async function buildAgent(options = {}) {
     return `${logs} logs collected, replied "${replies[0].text}"`;
   });
 
+  await scenario('!collect picks up drops instead of chopping a log', async () => {
+    const agent = await buildAgent();
+    agent.body.drops.push({ name: 'minecraft:apple', count: 2, position: { x: 2, y: 64, z: 0 } });
+    await agent.say('!collect');
+    const apples = agent.body.inventory['minecraft:apple'] || 0;
+    const dug = agent.body.history.filter((h) => h.action === 'dig').length;
+    expect(apples === 2, `expected 2 apples from the drop, have ${apples}`);
+    expect(dug === 0, `!collect must not dig, saw ${dug} dig(s)`);
+    agent.stop();
+    return `collected ${apples} apples, dug ${dug} blocks`;
+  });
+
   await scenario('!mine without a pickaxe fails with the honest reason', async () => {
     const agent = await buildAgent({ inventory: {} });
     await agent.say('!mine stone 4');

@@ -790,7 +790,12 @@ class LlmCore {
     if (action.type === 'stop') line = 'stop';
     else if (action.type === 'go_to') line = `goto ${action.x} ${action.y} ${action.z}`;
     else if (action.task === 'chop') line = `chop ${action.args.count || 8}`;
-    else if (action.task === 'collect') line = `collect ${action.args.count || 1}`;
+    /**
+     * `collect` takes no count: the skill scans its own 15x15x15 box and decides what is
+     * reachable. The old `count || 1` was an artefact of the chop-alias implementation and
+     * would silently cap a pickup request at one drop.
+     */
+    else if (action.task === 'collect') line = 'collect';
     else if (action.task === 'mine') {
       const names = (Array.isArray(action.args.block) ? action.args.block : [action.args.block])
         .map((n) => String(n || '').replace(/^minecraft:/, '').trim())
