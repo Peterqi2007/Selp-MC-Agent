@@ -46,7 +46,7 @@
 | A25 | 自主提案（接受/拒绝/不答/另派） | 客户端 + 玩家 | 四条路径各若干次 | **`planner.mode=off`；自主 proposal 只能由 DSH harness `mc_propose` 提出，本地 planner 不生成**；未接受不执行；拒绝后 3 分钟不重复；不答非同意；离线 `planner:test` 只覆盖 ProposalDesk 生命周期，真机 harness 提案未执行 | 未执行 |
 | A26 | 回归/降级（真机） | 客户端 | 行走、破坏、拾取、取消、双通道；关模型/搜索/CU | 不退化；无 LLM 时 `!` 与反射仍工作 | **部分通过（2026-10-17）**：协议 23/23、登录+寻路 7/7、砍树 PASS、独立 mine 2/2 PASS；`--dig stone` 前置点位失败；取消/反射/双通道未测 |
 | A28 | 事件唤醒与单规划者（真机） | 客户端 + 事件注入 | 步骤 >11 秒、等待 60 秒、重复/乱序/取消后事件 | 无事件不调模型；事件只推进所属任务一次 | **PASS（2026-10-20 真机注入）**：mine 4 dirt 步骤 ~25s 仅结算时 1 次 resume；停靠 60s+ 无推进；同 turn 重复 completed → `turn-running`、乱序 step → `ignored`；取消后 late completed → `no-turn-for-plan`；问题到期 → `expired`+plan failed |
-| A29 | 会话丢失与恢复（真机） | 客户端 + 宿主重启 | 部分完成/等回答时关闭宿主 | 恢复目标/版本/步骤/问题；不重放动作 | **部分通过（2026-10-20）**：硬杀 Node Agent 重启后计划/问题/预算恢复、不重放；"旧 session 输出失效"未单独造 |
+| A29 | 会话丢失与恢复（真机） | 客户端 + 宿主重启 | 部分完成/等回答时关闭宿主 | 恢复目标/版本/步骤/问题；不重放动作 | **PASS（2026-10-21）**：`a29-old`/`turn-1` running（mine 8 dirt）硬杀重启 → plan **pending v1/s1 pending**、turns=0、budget 3/2/2、world dirt 32/pos 不变（无重放）；注入旧 `plan:completed` → `no-turn-for-plan`；注入旧 `turn:resumable`（已发布 eventId）→ plugin turns=[]、DSH 会话 mtime 不变、plan/世界不变（旧 session 输出失效）；A17 另证 waiting/question 恢复与 `!answer` 继续 |
 
 ## 2. 需要客户端 / 服务器的 RETIREMENT 判据
 
