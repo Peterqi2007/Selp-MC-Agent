@@ -134,7 +134,23 @@ class Brain {
       log: this.log
     });
     ctx.planRunner = this.planRunner;
-    this.planQuestions = new PlanQuestionBridge({ plans: this.plans, proposals: this.proposals });
+    this.planQuestions = new PlanQuestionBridge({
+      plans: this.plans,
+      proposals: this.proposals,
+      /**
+       * A14: announce the question in the player's channel. `ctx.reply` may be absent in
+       * fixtures; a failed announcement must never disturb the parked plan.
+       */
+      notify: (text) => {
+        try {
+          if (this.ctx && typeof this.ctx.reply === 'function') {
+            Promise.resolve(this.ctx.reply(text, { why: 'plan-question' })).catch(() => {});
+          }
+        } catch {
+          /* announcing a question must never break the plan */
+        }
+      }
+    });
     ctx.planQuestions = this.planQuestions;
     /**
      * M3 live entry: the missing submit/start/cancel/answer surface for plans. It writes
@@ -1101,6 +1117,96 @@ class Brain {
       return { ...settled, accepted: true, plan: this.planService.get(planId) };
     }
     return this.planRunner.resume(planId, answer);
+  }
+
+  /**
+   * A14: a free-text player answer to a parked `wait_for_player` question.
+   *
+   * The answer is not just a "yes": it is remembered with its conditions, written to the
+   * shared memory store (`mc_memory` can recall it), forwarded to the bound action brain,
+   * and only then resumes the plan. Progress is kept; the model gets the answer text plus
+   * the resume event, so it can continue with the information instead of asking again.
+   */
+  async answerPlanQuestion(text, options = {}) {
+    const answer = String(text || '').trim();
+    if (!answer) return { ok: false, reason: 'empty-answer' };
+
+    let pending = this.proposals.pending();
+    if (!pending || !pending.candidate || pending.candidate.type !== 'plan_question') {
+      /** After a restart the plan can be waiting while the proposal is gone: re-ask once. */
+      const waiting = this.planService
+        ? this.planService.list().find((plan) => plan.state === 'waiting' && plan.planId)
+        : null;
+      if (waiting) this.planQuestions.ask(waiting.planId);
+      pending = this.proposals.pending();
+    }
+    if (!pending || !pending.candidate || pending.candidate.type !== 'plan_question') {
+      return { ok: false, reason: 'no-plan-question' };
+    }
+    const args = pending.candidate.args || {};
+    const planId = args.planId;
+    const stepId = args.stepId || null;
+    if (!planId) return { ok: false, reason: 'no-plan-question' };
+    const question = pending.reason || pending.candidate.reason || `plan ${planId}`;
+
+    const snap =
+      this.ctx && this.ctx.body && typeof this.ctx.body.snapshot === 'function'
+        ? this.ctx.body.snapshot()
+        : null;
+    const dimension = snap && (snap.dimension || (snap.world && snap.world.dimension));
+    const conditions = dimension ? { dimension } : {};
+    const fact = this.answers
+      ? this.answers.remember({ question, answer, conditions, source: 'player' })
+      : null;
+    const memory = this.memoryStore
+      ? this.memoryStore.remember('episodic', {
+          text: `玩家回答计划问题「${question}」：${answer}`,
+          tags: ['a14', 'player-answer', String(planId), stepId].filter(Boolean),
+          source: 'player-answer',
+          data: { planId, stepId, question, answer }
+        })
+      : null;
+
+    /** The action brain must see the answer before the resume event tells it to continue. */
+    let forwarded = null;
+    if (this.ctx && typeof this.ctx.forwardToActionBrain === 'function') {
+      try {
+        forwarded = await this.ctx.forwardToActionBrain(
+          `[PLAYER ANSWER] plan=${planId} step=${stepId || '-'} question="${question}" answer="${answer}"`,
+          { source: 'player-answer' }
+        );
+      } catch (err) {
+        forwarded = { ok: false, reason: err.message };
+      }
+    }
+
+    let resumed;
+    if (this.planService) {
+      const started = this.planService.resume(planId, true, { reason: 'player-answer' });
+      if (!started.ok) {
+        return { ok: false, reason: started.reason || 'resume-failed', fact, memory, forwarded };
+      }
+      resumed = { ok: true, planId };
+    } else if (this.planRunner) {
+      resumed = await this.planRunner.resume(planId, true).catch((err) => ({ ok: false, reason: err.message }));
+    } else {
+      return { ok: false, reason: 'no-plan-runner', fact, memory, forwarded };
+    }
+    /** Mark the question answered only after the plan actually resumed. */
+    if (this.proposals && typeof this.proposals.accept === 'function') {
+      this.proposals.accept(pending.id, { by: options.by || 'player', note: 'answer' });
+    }
+    return {
+      ok: true,
+      planId,
+      stepId,
+      question,
+      answer,
+      fact,
+      memory: memory && memory.entry ? memory.entry : null,
+      forwarded,
+      resumed
+    };
   }
 
   /** Player accepted a proposal: build the task and enqueue it as an explicit directive. */

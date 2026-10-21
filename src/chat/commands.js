@@ -69,6 +69,7 @@ const HELP = [
   '!store - deposit loot in a chest',
   '!task status|stop - the background task slot',
   '!proposal status|accept [always]|reject - answer the planner\'s proposal',
+  '!answer <text> - answer a waiting plan question (forwarded to the action brain)',
   '!state status|save - persisted session state (off by default)',
   '!method <goal> - look up a local method and remembered answer',
   '!area add|list|show|delete - named areas (permission rules can point at them)',
@@ -435,14 +436,55 @@ class ChatController {
         }
         const status = ctx.brain.proposals.status();
         if (status.pending) {
+          const isPlanQuestion = status.pending.type === 'plan_question';
           this.say(
             `提案 ${status.pending.id}「${status.pending.target}」：${status.pending.reason || '（无说明）'}；` +
-              '发 !proposal accept 或 !proposal reject'
+              (isPlanQuestion
+                ? '回答：!answer <你的回答>，或 !proposal accept / !proposal reject'
+                : '发 !proposal accept 或 !proposal reject')
           );
         } else {
           this.say('现在没有待答的提案');
         }
         return status;
+      },
+
+      /**
+       * A14: free-text answer to a parked plan question, forwarded to the action brain.
+       *
+       * `!proposal accept` only says "yes"; the plan question can require information
+       * ("where is the crafting table?"). The text is remembered with its conditions,
+       * written to shared memory, forwarded to the bound harness conversation, and the
+       * plan resumes - the model continues instead of asking the same question again.
+       */
+      answer: async (args) => {
+        const text = args.join(' ').trim();
+        if (!text) {
+          this.say('用法：!answer <你的回答>');
+          return { ok: false, reason: 'usage' };
+        }
+        if (!ctx.brain || typeof ctx.brain.answerPlanQuestion !== 'function') {
+          this.say('这个版本没有计划问答通道');
+          return { ok: false, reason: 'answer-channel-unavailable' };
+        }
+        const result = await ctx.brain.answerPlanQuestion(text, { by: 'player' });
+        if (!result.ok) {
+          this.say(
+            result.reason === 'no-plan-question'
+              ? '现在没有待回答的计划问题'
+              : `回答没送到（${result.reason}）`
+          );
+          return result;
+        }
+        const forwardedOk = !!(result.forwarded && result.forwarded.ok);
+        this.say(
+          forwardedOk
+            ? `已记录回答并转给动作脑，计划继续（${result.planId}）`
+            : `已记录回答，计划继续（${result.planId}）；动作脑没收到（${
+                (result.forwarded && result.forwarded.reason) || '未接线'
+              }）`
+        );
+        return result;
       },
 
       /**

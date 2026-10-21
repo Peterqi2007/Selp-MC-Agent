@@ -187,6 +187,8 @@ followup 打进 live 对话，模型答完一个回合就结束——长任务�
 - 依赖 DSH 侧挂载 `@deepseek-ai/dsh-goal` + `@deepseek-ai/dsh-goal-round-driver` +
   `@deepseek-ai/dsh-tool-goal`；缺失时 goal 模式返回 **503**，不会静默退化成文本。
 - 离线断言：`npm run plugin:goal:test`（goal 创建/GET/pause/resume/409/replace/text 兼容/503）。
+- 玩家回答 `wait_for_player`：Node 的 `!answer <text>` 把回答记入 AnswerMemory/MemoryStore 并
+  forward 到本对话（`[PLAYER ANSWER]`），随后 resume 计划；插件 objective 已提示模型不要重复问。
 
 **真机验证（2026-10-21，真实 Forge 客户端）**：goal `goal-4c197708…`（maxGoalRounds=8，采集 2 泥土 →
 合成 4 木棍 → 走到 (0,64,40) 两格内）：

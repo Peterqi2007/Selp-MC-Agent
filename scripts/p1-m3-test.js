@@ -502,6 +502,83 @@ function request(port, method, requestPath, body) {
     });
   }
 
+  // ------------------------------------------------ A14 answer channel
+  process.stdout.write('\n3b. A14 plan-question answer channel\n');
+  {
+    const { PlanQuestionBridge } = require('../src/planner/planQuestions');
+    const { AnswerMemory } = require('../src/learning/answerMemory');
+
+    const notices = [];
+    const bridge = new PlanQuestionBridge({
+      plans: {
+        get: () => ({ planId: 'q', steps: [{ id: 'w', status: 'waiting', question: '工作台在哪？' }] })
+      },
+      proposals: {
+        propose: () => ({
+          ok: true,
+          proposal: { id: 'p1', candidate: { type: 'plan_question', args: { planId: 'q', stepId: 'w' } } }
+        })
+      },
+      notify: (text) => notices.push(text)
+    });
+    const asked = bridge.ask('q');
+    await check('a parked plan announces its question with the !answer hint', () => {
+      assert.strictEqual(asked.ok, true);
+      assert.strictEqual(notices.length, 1, `expected one announcement, got ${notices.length}`);
+      assert(/工作台在哪/.test(notices[0]), 'announcement must carry the question');
+      assert(/!answer/.test(notices[0]), 'announcement must teach !answer');
+    });
+
+    const forwarded = [];
+    const accepted = [];
+    const resumed = [];
+    const brain = Object.create(Brain.prototype);
+    brain.ctx = {
+      body: { snapshot: () => ({ dimension: 'minecraft:overworld' }) },
+      forwardToActionBrain: async (text) => {
+        forwarded.push(text);
+        return { ok: true };
+      }
+    };
+    brain.proposals = {
+      pending: () => ({
+        id: 'p1',
+        candidate: { type: 'plan_question', args: { planId: 'q', stepId: 'w' }, reason: '工作台在哪？' }
+      }),
+      accept: (id, options) => {
+        accepted.push({ id, options });
+        return { ok: true };
+      }
+    };
+    brain.planService = {
+      resume: (planId, answer, options) => {
+        resumed.push({ planId, answer, options });
+        return { ok: true };
+      }
+    };
+    brain.answers = new AnswerMemory();
+    brain.memoryStore = new MemoryStore();
+    brain.planQuestions = { ask: () => ({ ok: false }) };
+    const answered = await brain.answerPlanQuestion('在 (6,63,34)');
+    await check('!answer remembers with conditions, forwards to the action brain and resumes', () => {
+      assert.strictEqual(answered.ok, true);
+      assert.strictEqual(answered.forwarded.ok, true);
+      assert.strictEqual(forwarded.length, 1);
+      assert(
+        /工作台在哪/.test(forwarded[0]) && /6,63,34/.test(forwarded[0]),
+        'forwarded text must carry question + answer'
+      );
+      assert.strictEqual(resumed.length, 1);
+      assert.strictEqual(resumed[0].answer, true);
+      assert.strictEqual(accepted.length, 1);
+      const status = brain.answers.status();
+      assert.strictEqual(status.facts, 1);
+      assert.strictEqual(status.last.answer, '在 (6,63,34)');
+      assert.strictEqual(status.last.conditions.dimension, 'minecraft:overworld');
+      assert.strictEqual(brain.memoryStore.recall('6,63,34').length, 1);
+    });
+  }
+
   // ------------------------------------------------------------- turn layer
   process.stdout.write('\n4. TurnService resume/cancel\n');
   {

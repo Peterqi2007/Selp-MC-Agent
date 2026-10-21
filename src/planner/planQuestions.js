@@ -17,6 +17,12 @@ class PlanQuestionBridge {
   constructor(deps = {}) {
     this.plans = deps.plans;
     this.proposals = deps.proposals;
+    /**
+     * A14: a parked plan must actually *ask the player*. ProposalDesk only stores the
+     * question; without this hook the question existed only for `!proposal status` or the
+     * raw HTTP resume, so a player in game saw the bot stop silently.
+     */
+    this.notify = typeof deps.notify === 'function' ? deps.notify : null;
     if (!this.plans || !this.proposals) throw new Error('PlanQuestionBridge needs plans and proposals');
   }
 
@@ -50,6 +56,16 @@ class PlanQuestionBridge {
       if (!pending || (pending.candidate && pending.candidate.type !== 'plan_question')) {
         this.proposals.supersede(`plan-question ${planId}/${step.id}`);
         result = this.proposals.propose(candidate);
+      }
+    }
+    if (result.ok && !result.autoAccepted && this.notify) {
+      try {
+        this.notify(
+          `有问题：${question}（计划 ${planId}）。回答：!answer <你的回答>` +
+            '，或 !proposal accept / !proposal reject'
+        );
+      } catch {
+        /* announcing a question must never break the parked plan */
       }
     }
     return { ...result, planId, stepId: step.id, question };
