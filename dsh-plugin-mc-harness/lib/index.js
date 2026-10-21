@@ -1044,12 +1044,54 @@ export function apply(ctx, config = {}) {
       const action = url.pathname.endsWith('/pause') ? 'pause' : 'resume';
       try {
         const view = goals[action](live, { id: current.id, revision: current.revision });
+        /**
+         * Pause is a brake on the body too, not only on future goal rounds.
+         *
+         * A running Node plan/turn would keep the character working after the goal was
+         * paused (and its settle event would wake this conversation once more). Cancel the
+         * plugin-owned harness turns (TurnService.cancel also cancels their plans) and, as a
+         * fallback for turn-less plans, the active plan from `/plan`.
+         */
+        const cancelledTurns = [];
+        const cancelledPlans = [];
+        if (action === 'pause') {
+          for (const turnId of [...runtime.activeTurns.keys()]) {
+            try {
+              await fetch(`${controlUrl}/harness/turn/${encodeURIComponent(turnId)}/cancel`, {
+                method: 'POST',
+                headers: { 'content-type': 'application/json' },
+                body: JSON.stringify({ reason: 'goal-paused' })
+              });
+            } catch {
+              /* best effort: the goal is paused even if the local agent is unreachable */
+            }
+            runtime.forgetTurn(turnId);
+            cancelledTurns.push(turnId);
+          }
+          try {
+            const listRes = await fetch(`${controlUrl}/plan`);
+            const list = await listRes.json();
+            const activePlan = list && list.active && list.active.planId;
+            if (activePlan) {
+              await fetch(`${controlUrl}/plan/${encodeURIComponent(activePlan)}/cancel`, {
+                method: 'POST',
+                headers: { 'content-type': 'application/json' },
+                body: JSON.stringify({ reason: 'goal-paused' })
+              });
+              cancelledPlans.push(activePlan);
+            }
+          } catch {
+            /* no local plan service: nothing to cancel */
+          }
+        }
         log(`goal ${action}: ${current.id}`);
         return jsonReply(res, 200, {
           ok: true,
           action,
           agentId: live.id || agentId || null,
-          goal: view
+          goal: view,
+          cancelledTurns,
+          cancelledPlans
         });
       } catch (error) {
         return jsonReply(res, 409, {

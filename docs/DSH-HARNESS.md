@@ -175,7 +175,7 @@ followup 打进 live 对话，模型答完一个回合就结束——长任务�
 | `POST /goal {agentId?, goal, maxGoalRounds?, replace?}` | **默认 goal 模式**：通过 `ctx.goals.create` 为 live 对话创建 durable goal（objective = 工具契约 + `GOAL: ...`），由 `dsh-goal-round-driver` 在"active + armed + idle"时不断续轮；模型用 `update_goal` 的 `complete`/`blocked` 收尾（连续 3 轮同一阻塞才允许 blocked） |
 | `POST /goal {..., mode:"text"}` | 保留旧的单条 followup（H1a/H1b 断言依赖一轮回执）；`npm run dsh:h1` 已显式传 `mode:"text"` |
 | `GET /goal[?agentId=]` | 读当前 goal（id/revision/objective/phase/roundsStarted/maxGoalRounds/activation/blockedReason） |
-| `POST /goal/pause {agentId?}` | **人为暂停**：`ctx.goals.pause` → 立刻 disarm，round driver 不再续轮；返回 `{action:'pause', goal}` |
+| `POST /goal/pause {agentId?}` | **人为暂停**：`ctx.goals.pause` → 立刻 disarm；同时取消插件已知的 harness turn（连带其计划）和无 turn 的活动计划，**身体也停**；返回 `{action:'pause', goal, cancelledTurns, cancelledPlans}` |
 | `POST /goal/resume {agentId?}` | **人为恢复**：`ctx.goals.resume` → 重新 arm（轮次还有余量时），并清掉旧 blocker；返回 `{action:'resume', goal}` |
 | `replace:true` | 当前 goal 不是 complete 时先 `clear` 再 create（否则返回 `409 goal-exists`） |
 
