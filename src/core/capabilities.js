@@ -31,7 +31,17 @@ const SPECS = {
     menu: true,
     reason: 'this body has neither a recipe database nor a crafting menu'
   },
-  deposit: { flag: 'supportsDeposit', label: 'chest storage', reason: 'this body has no container support' },
+  deposit: {
+    label: 'chest storage',
+    /**
+     * 2026-10-21: the `deposit` skill goes through the open-menu + slot-click path, and the
+     * old mineflayer `bot.openContainer` task was removed in the store/deposit unification.
+     * `supportsDeposit` is therefore no longer read here: a body either has the menu API or
+     * it reports storage as unsupported (the mineflayer body is the latter now).
+     */
+    menu: true,
+    reason: 'this body has no container menu (storage needs menu/clickSlot)'
+  },
   hunting: { flag: 'supportsHunting', label: 'hunting', reason: 'this body cannot see or fight animals' },
   light: { host: 'mineflayer', label: 'placing torches', reason: 'this body has no mineflayer instance' },
   shelter: { host: 'mineflayer', label: 'building a shelter', reason: 'this body has no mineflayer instance' }
@@ -53,11 +63,17 @@ function capabilities(ctx) {
   for (const [name, spec] of Object.entries(SPECS)) {
     const byFlag = spec.flag ? !!(body && body[spec.flag]) : false;
     const byMenu = spec.menu === true && menuCapable(body);
-    const supported = spec.flag
-      ? byFlag || byMenu
-      : spec.host === 'mineflayer'
-        ? hasBot
-        : false;
+    /**
+     * `menu` is a first-class capability (not just a fallback of `flag`): deposit has no
+     * flag any more, and crafting wants the menu path even when the body lacks a recipe DB.
+     */
+    const supported = byMenu
+      ? true
+      : spec.flag
+        ? byFlag
+        : spec.host === 'mineflayer'
+          ? hasBot
+          : false;
     table[name] = { name, supported, reason: supported ? null : spec.reason, label: spec.label };
   }
   return table;

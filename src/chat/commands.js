@@ -54,7 +54,8 @@ const HELP = [
   '!shoot [type|player <name>] [weapon] - shoot with a TACZ gun (16 blocks, 32 for snipers)',
   '!explore [distance] [direction] - walk somewhere new',
   '!withdraw <item> [n] - take items out of a nearby chest',
-  '!deposit [item] - store items in a nearby chest',
+  '!deposit <item> <count> - store exactly that many in a pure container (builds a chest if needed)',
+  '!store <item> <count> - alias of !deposit',
   '!come <player> - walk to a visible player',
   '!look <yaw> <pitch> - turn the camera to absolute angles (degrees)',
   '!lookat <x> <y> <z> - look at a coordinate',
@@ -295,7 +296,7 @@ class ChatController {
         if (!args[0]) throw new Error('usage: !withdraw <item> [count]');
         return this.runSkill('withdraw', { item: args[0], count: Number(args[1]) || 1 });
       },
-      deposit: (args) => this.runSkill('deposit', args[0] ? { item: args[0] } : {}),
+      deposit: (args) => this.depositCommand(args),
       come: (args) => {
         if (!args[0]) throw new Error('usage: !come <player>');
         return this.runSkill('come', { player: args[0] });
@@ -357,7 +358,7 @@ class ChatController {
       },
       shelter: () => this.enqueue(new ShelterTask(ctx)),
       light: (args) => this.enqueue(new LightTask(ctx, { count: Number(args[0]) || 4 })),
-      store: () => this.enqueue(new DepositTask(ctx)),
+      store: (args) => this.depositCommand(args),
       /**
        * `ctx.onGoal` never existed - this called undefined in production and every
        * `!goal ...` answered with "ctx.onGoal is not a function" (found by the A-series
@@ -797,6 +798,24 @@ class ChatController {
       }
       return receipt;
     });
+  }
+
+  /**
+   * `!deposit <item> <count>` and `!store <item> <count>` are the same command (2026-10-21).
+   *
+   * Both item and count are required: the deposit skill no longer has an implicit
+   * "everything except tools" mode. The task runs in the background because it may walk up
+   * to 15 blocks and craft+place a chest, and the command endpoint must answer immediately.
+   */
+  depositCommand(args = []) {
+    const item = String(args[0] || '').trim();
+    const count = Number(args[1]);
+    if (!item || !Number.isFinite(count) || count < 1) {
+      throw new Error('usage: !deposit <item> <count> (alias: !store <item> <count>)');
+    }
+    const capped = Math.min(Math.floor(count), 2304);
+    this.say(`去存 ${capped} 个 ${item}`);
+    return this.enqueue(new DepositTask(this.ctx, { item, count: capped }));
   }
 
   /**

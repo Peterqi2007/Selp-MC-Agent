@@ -1,135 +1,119 @@
 'use strict';
 
 /**
- * Task: store loot in a chest.
+ * DepositTask: the task-layer adapter around the `deposit` skill.
  *
- * Two modes:
- *   - with an existing chest in range: deposit everything except the keep-list
- *   - without one: craft a chest from planks and place it, then deposit
+ * `!deposit`, `!store`, the planner's `deposit` rule and `!goal ... 存东西` all go through
+ * this one path (2026-10-21 unification). The old implementation drove mineflayer's container
+ * API directly and was dead on the client-mod body. The skill behind this adapter uses the
+ * menu primitives both bodies share (`useOn/menu/clickSlot`), walks with A*, and
+ * crafts+places a chest when the scan finds none.
  *
- * Keeps the agent's inventory free, which matters a lot because a full inventory
- * silently breaks mining (drops are never picked up).
+ * Explicit callers pass `{ item, count }`. The autonomous entries (planner rule, goal router)
+ * have nobody to ask, so this adapter picks the biggest non-tool stack in the bag and
+ * deposits all of it - the skill itself still requires a concrete item+count.
  */
 
 const { Task } = require('./task');
-const { countItem, isLog } = require('../world/items');
-const { sleep, placeBlockAgainst } = require('../core/movement');
+const { ctxWithSignal } = require('../core/taskHub');
+const { bare, isFood } = require('../world/items');
 
-const DEFAULT_KEEP = [
-  'crafting_table', 'furnace', 'torch', 'coal', 'charcoal', 'stick',
-  'bread', 'cooked_beef', 'cooked_porkchop', 'cooked_chicken', 'cooked_mutton', 'apple',
-  'water_bucket', 'bucket', 'shield'
-];
+/** Tools and armour are never the "loot" an autonomous deposit should stash. */
+const TOOL_OR_ARMOR = /_(pickaxe|axe|shovel|hoe|sword|helmet|chestplate|leggings|boots)$/;
+/** Survival essentials the old keep-list protected; the explicit command can still store them. */
+const KEEP_FOR_AUTONOMY = /^(crafting_table|furnace|torch|coal|charcoal|stick|bucket|water_bucket|shield)$/;
 
 class DepositTask extends Task {
+  /**
+   * @param {object} ctx
+   * @param {object} options
+   *   - item:  item to store (optional for the planner/goal path)
+   *   - count: how many (optional for the planner/goal path)
+   *   - plus timeoutMs/priority/description
+   */
   constructor(ctx, options = {}) {
     super(ctx, {
       name: 'deposit',
-      description: options.description || 'store items in a chest',
-      timeoutMs: options.timeoutMs || 90000
+      description:
+        options.description ||
+        (options.item ? `deposit ${options.count || '?'} ${options.item}` : 'deposit the biggest loot stack'),
+      timeoutMs: options.timeoutMs || 300000,
+      priority: options.priority
     });
-    this.keep = new Set([...(options.keep || []), ...DEFAULT_KEEP]);
+    this.item = options.item ? bare(options.item) : null;
+    const count = Number(options.count);
+    this.count = Number.isFinite(count) && count > 0 ? Math.floor(count) : null;
+    /** Items the skill verified as moved; the planner's comparable progress value. */
     this.deposited = 0;
+    /** Cancellation token handed to the skill through the scoped context. */
+    this._signal = null;
   }
 
   progress() {
     return this.deposited;
   }
 
+  /**
+   * The autonomous path has no operator to ask what to store. Pick the biggest non-tool
+   * item in the bag (the inventory snapshot aggregates by item name) and deposit all of it;
+   * when the inventory is nearly full, repeated runs drain it one item type at a time.
+   */
+  async deriveTarget() {
+    const body = this.body;
+    if (!body) return null;
+    if (typeof body.refreshStrict === 'function') {
+      const outcome = await body.refreshStrict(true).catch(() => null);
+      if (!outcome || outcome.ok !== true) return null;
+    } else if (typeof body.refresh === 'function') {
+      await body.refresh(true).catch(() => null);
+    }
+    const snap = typeof body.snapshot === 'function' ? body.snapshot() : null;
+    const stacks = Object.entries((snap && snap.inventory) || {})
+      .filter(([name, count]) => {
+        const item = bare(name);
+        return (
+          Number(count) > 0 &&
+          !TOOL_OR_ARMOR.test(item) &&
+          !KEEP_FOR_AUTONOMY.test(item) &&
+          !isFood(item)
+        );
+      })
+      .map(([name, count]) => ({ item: bare(name), count: Number(count) }))
+      .sort((a, b) => b.count - a.count);
+    return stacks[0] || null;
+  }
+
   async run() {
-    const { bot, world, nav, log } = this.ctx;
-    let chest = world.nearestContainer(32);
-
-    if (!chest) {
-      log.info('no chest nearby, crafting one');
-      const made = await this.craftChest();
-      if (!made) return this.fail('no chest and could not craft one');
-      chest = await this.placeChest();
-      if (!chest) return this.fail('could not place chest');
+    let item = this.item;
+    let count = this.count;
+    if (!item || !count) {
+      const target = await this.deriveTarget();
+      if (!target) return this.fail('nothing to deposit: no non-tool item in the inventory');
+      item = target.item;
+      count = target.count;
     }
 
-    const reached = await nav.gotoTouchable(chest, { timeoutMs: 20000 });
-    if (!reached) return this.fail('chest unreachable');
-
-    let container;
-    try {
-      container = await bot.openContainer(chest);
-    } catch (err) {
-      return this.fail(`could not open chest: ${err.message}`);
-    }
-
-    try {
-      for (const item of bot.inventory.items()) {
-        if (this.keep.has(item.name)) continue;
-        if (isTool(item.name)) continue;
-        try {
-          await container.deposit(item.type, null, item.count);
-          this.deposited += item.count;
-        } catch (err) {
-          log.debug(`deposit ${item.name} failed: ${err.message}`);
-        }
-        if (this.cancelled) break;
-      }
-    } finally {
-      try {
-        container.close();
-      } catch {
-        /* ignore */
-      }
-    }
-    this.checkpoint();
-    if (this.deposited === 0) return this.fail('nothing to deposit');
-    return this.succeed(`deposited ${this.deposited} items`);
+    const skills = require('../skills');
+    this._signal = { cancelled: false, reason: null };
+    const result = await skills.run('deposit', ctxWithSignal(this.ctx, this._signal), { item, count });
+    this.deposited = Number.isFinite(result.deposited) ? result.deposited : 0;
+    return {
+      ...result,
+      ok: result.ok !== false,
+      reason:
+        result.reason ||
+        result.detail ||
+        (result.ok === false ? 'deposit failed' : `deposited ${this.deposited} ${item}`)
+    };
   }
 
-  async craftChest() {
-    if (countItem(this.ctx.bot, 'chest') > 0) return true;
-    const planks = countItem(this.ctx.bot, 'chest_planks') || countPlanks(this.ctx.bot);
-    if (planks >= 8) {
-      const ok = await this.ctx.craft({ item: 'chest', count: 1, requireTable: true }).catch(() => false);
-      if (ok && countItem(this.ctx.bot, 'chest') > 0) return true;
+  cancel() {
+    if (this._signal) {
+      this._signal.cancelled = true;
+      this._signal.reason = 'task cancelled';
     }
-    // Convert logs to planks first if needed.
-    const logItem = this.ctx.bot.inventory.items().find((i) => isLog(i.name));
-    if (logItem) {
-      await this.ctx.craft({ item: logItem.name.replace(/_log$/, '_planks'), count: 4, requireTable: false }).catch(() => {});
-      const ok = await this.ctx.craft({ item: 'chest', count: 1, requireTable: true }).catch(() => false);
-      if (ok && countItem(this.ctx.bot, 'chest') > 0) return true;
-    }
-    return countItem(this.ctx.bot, 'chest') > 0;
-  }
-
-  async placeChest() {
-    const { bot, log } = this.ctx;
-    const item = bot.inventory.items().find((i) => i.name === 'chest');
-    if (!item) return null;
-    const base = bot.entity.position.floored();
-    for (const [dx, dz] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
-      const ground = bot.blockAt(base.offset(dx, -1, dz));
-      const space = bot.blockAt(base.offset(dx, 0, dz));
-      if (!ground || !space) continue;
-      if (ground.name === 'air' || ground.name === 'water') continue;
-      if (space.name !== 'air' && space.name !== 'grass') continue;
-      const ok = await placeBlockAgainst(this.ctx.controller, 'chest', ground, { x: 0, y: 1, z: 0 });
-      if (ok) {
-        await sleep(300);
-        const placed = bot.blockAt(base.offset(dx, 0, dz));
-        if (placed && /chest|barrel/.test(placed.name)) {
-          log.info('chest placed');
-          return placed;
-        }
-      }
-    }
-    return null;
+    super.cancel();
   }
 }
 
-function isTool(name) {
-  return /_(pickaxe|axe|shovel|sword|hoe|helmet|chestplate|leggings|boots)$/.test(name);
-}
-
-function countPlanks(bot) {
-  return bot.inventory.items().filter((i) => /_planks$/.test(i.name)).reduce((s, i) => s + i.count, 0);
-}
-
-module.exports = { DepositTask, DEFAULT_KEEP };
+module.exports = { DepositTask };

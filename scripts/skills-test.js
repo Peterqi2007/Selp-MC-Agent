@@ -13,6 +13,7 @@ const { MockBody } = require('../src/body/mockBody');
 const { Body } = require('../src/body/body');
 const { loadConfig } = require('../src/util/config');
 const skills = require('../src/skills');
+const { isPureContainer } = require('../src/skills/containers');
 const combatState = require('../src/world/combatState');
 
 const cfg = loadConfig({ profile: null });
@@ -71,10 +72,24 @@ class MenuBody extends Body {
   async connect() {}
   async disconnect() {}
   snapshot() {
+    if (this.script && typeof this.script.snapshot === 'function') return this.script.snapshot();
     return { ready: true, inventory: {}, position: { x: 0, y: 64, z: 0 }, players: [] };
   }
-  async moveTo() {
-    return true;
+  async refresh() {
+    return this.snapshot();
+  }
+  async refreshStrict() {
+    return { ok: true, cached: false, state: this.snapshot() };
+  }
+  async moveTo(position, options = {}) {
+    this.calls.push({ call: 'moveTo', position, options });
+    return this.script && typeof this.script.moveTo === 'function' ? this.script.moveTo(position, options) : true;
+  }
+  async place(itemName, referenceBlock, faceVector) {
+    this.calls.push({ call: 'place', itemName, referenceBlock, faceVector });
+    return this.script && typeof this.script.place === 'function'
+      ? this.script.place(itemName, referenceBlock, faceVector)
+      : false;
   }
   async menu() {
     this.calls.push({ call: 'menu' });
@@ -1261,35 +1276,280 @@ function quickMove(slots) {
     return result.detail;
   });
 
-  await scenario('deposit keeps tools by default and reports an empty bag honestly', async () => {
-    let open = false;
-    const clicked = [];
-    const body = new MenuBody(cfg, {
-      menu: () =>
-        open
-          ? {
-              open: true,
-              containerId: 7,
-              menuClass: 'ChestMenu',
-              slots: [
-                { i: 27, item: 'minecraft:iron_pickaxe', count: 1, player: true },
-                { i: 28, item: 'minecraft:cobblestone', count: 32, player: true },
-                { i: 0, item: 'null', count: 0, player: false }
-              ]
-            }
-          : { open: true, containerId: 0, menuClass: 'InventoryMenu', slots: [] },
-      useOn: () => {
-        open = true;
-      },
-      click: (slot) => clicked.push(slot)
+  /**
+   * A menu body that actually models the clicks the deposit skill performs.
+   *
+   * `MenuBody` records calls but never moves a stack, which is enough for withdraw/craft but
+   * cannot prove "exactly N items" or "the split returns the remainder". This stub keeps the
+   * player slots, the container slots and the carried stack coherent, using the vanilla
+   * semantics (quick-move = whole stack, right-click = one item).
+   */
+  class ChestBody extends Body {
+    constructor(cfg, { slots = [], position = { x: 0, y: 64, z: 0 }, containerAt = { x: 3, y: 64, z: 0 } } = {}) {
+      super(cfg);
+      this.kind = 'chest-stub';
+      this.position = { ...position };
+      this.containerAt = { ...containerAt };
+      this.open = false;
+      this.calls = [];
+      this.extraInventory = {};
+      this.slots = slots.map((slot) => ({ ...slot }));
+      this.carried = { item: 'null', count: 0 };
+    }
+
+    async connect() {}
+    async disconnect() {}
+
+    inventory() {
+      const inventory = { ...this.extraInventory };
+      for (const slot of this.slots) {
+        if (!slot.player || !slot.count || slot.item === 'null') continue;
+        inventory[slot.item] = (inventory[slot.item] || 0) + slot.count;
+      }
+      return inventory;
+    }
+
+    snapshot() {
+      return { ready: true, position: { ...this.position }, inventory: this.inventory(), players: [] };
+    }
+
+    async refresh() {
+      return this.snapshot();
+    }
+
+    async refreshStrict() {
+      return { ok: true, cached: false, state: this.snapshot() };
+    }
+
+    async menu() {
+      if (!this.open) return { open: true, containerId: 0, menuClass: 'InventoryMenu', slots: [] };
+      return {
+        open: true,
+        containerId: 7,
+        menuClass: 'ChestMenu',
+        slots: this.slots.map((slot) => ({ ...slot })),
+        carried: { ...this.carried }
+      };
+    }
+
+    async clickSlot(index, options = {}) {
+      const mode = options.mode || 'pickup';
+      const button = options.button === undefined ? 0 : options.button;
+      this.calls.push({ call: 'click', slot: index, mode, button });
+      const slot = this.slots.find((entry) => entry.i === index);
+      if (!slot) return false;
+      if (mode === 'quickmove') {
+        if (!slot.count) return true;
+        const target = this.slots.find(
+          (entry) => entry.player === false && (entry.count === 0 || (entry.item === slot.item && entry.count < 64))
+        );
+        if (!target) return true;
+        const moved = Math.min(slot.count, 64 - target.count);
+        target.item = slot.item;
+        target.count += moved;
+        slot.count -= moved;
+        if (slot.count === 0) slot.item = 'null';
+        return true;
+      }
+      if (button === 1) {
+        if (!this.carried.count) return true;
+        if (slot.count === 0) {
+          slot.item = this.carried.item;
+          slot.count = 1;
+        } else if (slot.item === this.carried.item && slot.count < 64) {
+          slot.count += 1;
+        } else {
+          return false;
+        }
+        this.carried.count -= 1;
+        if (!this.carried.count) this.carried = { item: 'null', count: 0 };
+        return true;
+      }
+      if (!this.carried.count) {
+        this.carried = { item: slot.item, count: slot.count };
+        slot.item = 'null';
+        slot.count = 0;
+        return true;
+      }
+      const room = 64 - slot.count;
+      const moved = Math.min(room, this.carried.count);
+      if (moved <= 0) return false;
+      if (slot.count === 0) slot.item = this.carried.item;
+      slot.count += moved;
+      this.carried.count -= moved;
+      if (!this.carried.count) this.carried = { item: 'null', count: 0 };
+      return true;
+    }
+
+    async useOn(position) {
+      this.calls.push({ call: 'useOn', position });
+      this.open = true;
+      return true;
+    }
+
+    async closeMenu() {
+      this.calls.push({ call: 'close' });
+      this.open = false;
+      return true;
+    }
+
+    async moveTo(position, options = {}) {
+      this.calls.push({ call: 'moveTo', position, options });
+      this.position = { ...position };
+      return true;
+    }
+
+    async place(itemName, referenceBlock) {
+      this.calls.push({ call: 'place', itemName, referenceBlock });
+      const name = itemName.includes(':') ? itemName : `minecraft:${itemName}`;
+      if (this.extraInventory[name]) {
+        this.extraInventory[name] -= 1;
+        if (this.extraInventory[name] <= 0) delete this.extraInventory[name];
+      }
+      this.containerAt = { x: referenceBlock.x, y: referenceBlock.y + 1, z: referenceBlock.z };
+      return true;
+    }
+  }
+
+  await scenario('deposit walks (A*) to the nearest pure container and deposits exactly the requested count', async () => {
+    const body = new ChestBody(cfg, {
+      containerAt: { x: 3, y: 64, z: 0 },
+      slots: [
+        { i: 0, item: 'null', count: 0, player: false },
+        { i: 27, item: 'minecraft:cobblestone', count: 32, player: true },
+        { i: 28, item: 'minecraft:dirt', count: 10, player: true }
+      ]
     });
     await body.connect();
     const ctx = makeCtx(body);
     ctx.world = { findBlocksMatching: () => [{ position: { x: 3, y: 64, z: 0 }, name: 'minecraft:chest' }] };
-    const result = await skills.run('deposit', ctx, {});
-    expect(result.ok, `expected deposit to work, got ${result.reason}`);
-    expect(clicked.length === 1 && clicked[0] === 28, `expected only the cobblestone to move, clicked ${JSON.stringify(clicked)}`);
+    const result = await skills.run('deposit', ctx, { item: 'cobblestone', count: 5 });
+    expect(result.ok && result.deposited === 5, `expected 5 deposited, got ${JSON.stringify(result)}`);
+    const playerCobble = body.slots
+      .filter((slot) => slot.player && slot.item === 'minecraft:cobblestone')
+      .reduce((sum, slot) => sum + slot.count, 0);
+    const chestCobble = body.slots
+      .filter((slot) => !slot.player && slot.item === 'minecraft:cobblestone')
+      .reduce((sum, slot) => sum + slot.count, 0);
+    expect(playerCobble === 27 && chestCobble === 5, `player=${playerCobble} chest=${chestCobble}`);
+    expect(body.carried.count === 0, 'the split must return the remainder to the bag');
+    const walk = body.calls.find((call) => call.call === 'moveTo');
+    expect(walk && walk.options.pathfind === true, 'the walk must ask for A* pathfinding');
+    expect(body.calls.some((call) => call.call === 'close'), 'the chest should have been closed');
     return result.detail;
+  });
+
+  await scenario('deposit only considers pure containers inside the 15x15x9 box', async () => {
+    const body = new ChestBody(cfg, {
+      containerAt: { x: 6, y: 64, z: 0 },
+      slots: [
+        { i: 0, item: 'null', count: 0, player: false },
+        { i: 27, item: 'minecraft:dirt', count: 8, player: true }
+      ]
+    });
+    await body.connect();
+    const ctx = makeCtx(body);
+    ctx.world = {
+      findBlocksMatching: () => [
+        { position: { x: 2, y: 64, z: 0 }, name: 'minecraft:drawer' }, // not a pure container
+        { position: { x: 6, y: 64, z: 0 }, name: 'minecraft:chest' }, // chosen
+        { position: { x: 8, y: 64, z: 0 }, name: 'minecraft:barrel' } // outside the x half
+      ]
+    };
+    const result = await skills.run('deposit', ctx, { item: 'dirt', count: 8 });
+    expect(result.ok, `expected success, got ${JSON.stringify(result)}`);
+    const walk = body.calls.find((call) => call.call === 'moveTo');
+    expect(walk && walk.position.x === 6, `walked to ${JSON.stringify(walk && walk.position)}`);
+    expect(isPureContainer('minecraft:chest') && isPureContainer('minecraft:barrel'));
+    expect(isPureContainer('lootr:lootr_chest') && isPureContainer('minecraft:trapped_chest'));
+    expect(isPureContainer('minecraft:white_shulker_box') && isPureContainer('ironchest:iron_chest'));
+    expect(!isPureContainer('minecraft:drawer') && !isPureContainer('minecraft:cabinet'));
+    expect(!isPureContainer('minecraft:crate') && !isPureContainer('minecraft:crafting_table'));
+    return 'chest chosen; drawer and out-of-box barrel ignored';
+  });
+
+  await scenario('deposit requires item and count and refuses a short bag before touching anything', async () => {
+    const body = new ChestBody(cfg, {
+      slots: [{ i: 27, item: 'minecraft:dirt', count: 3, player: true }]
+    });
+    const ctx = makeCtx(body);
+    ctx.world = { findBlocksMatching: () => [] };
+    const noItem = await skills.run('deposit', ctx, { count: 1 });
+    expect(!noItem.ok && /missing parameter "item"/.test(noItem.reason), noItem.reason);
+    const noCount = await skills.run('deposit', ctx, { item: 'dirt' });
+    expect(!noCount.ok && /missing parameter "count"/.test(noCount.reason), noCount.reason);
+    const short = await skills.run('deposit', ctx, { item: 'dirt', count: 5 });
+    expect(!short.ok && /only 3 dirt/.test(short.reason), short.reason);
+    expect(body.calls.length === 0, `nothing should have been opened/clicked: ${JSON.stringify(body.calls)}`);
+    return short.reason;
+  });
+
+  await scenario('deposit crafts and places a chest when none is in range', async () => {
+    const body = new ChestBody(cfg, {
+      slots: [
+        { i: 0, item: 'null', count: 0, player: false },
+        { i: 27, item: 'minecraft:dirt', count: 6, player: true }
+      ]
+    });
+    await body.connect();
+    const ctx = makeCtx(body);
+    ctx.world = {
+      findBlocksMatching: () => [],
+      blockAtAbsolute: (position) => {
+        if (
+          body.containerAt &&
+          position.x === body.containerAt.x &&
+          position.y === body.containerAt.y &&
+          position.z === body.containerAt.z
+        ) {
+          return { name: 'minecraft:chest', position: { ...position } };
+        }
+        if (position.y === 63) return { name: 'minecraft:stone', position: { ...position } };
+        return { name: 'minecraft:air', position: { ...position } };
+      }
+    };
+    const craftSkill = skills.get('craft');
+    const realRun = craftSkill.run;
+    let craftCalls = 0;
+    craftSkill.run = async () => {
+      craftCalls += 1;
+      body.extraInventory['minecraft:chest'] = 1;
+      return { ok: true, produced: 1, detail: 'crafted 1x chest' };
+    };
+    try {
+      const result = await skills.run('deposit', ctx, { item: 'dirt', count: 6 });
+      expect(result.ok, `expected the built-chest deposit to work, got ${JSON.stringify(result)}`);
+      expect(craftCalls === 1, `the craft skill should be called once, saw ${craftCalls}`);
+      expect(result.deposited === 6, `deposited ${result.deposited}`);
+      const place = body.calls.find((call) => call.call === 'place');
+      expect(place && place.itemName === 'chest', `expected a chest placement, got ${JSON.stringify(place)}`);
+      return 'craft -> place -> deposit';
+    } finally {
+      craftSkill.run = realRun;
+    }
+  });
+
+  await scenario('DepositTask derives the biggest non-tool stack for the autonomous path', async () => {
+    const body = new ChestBody(cfg, {
+      slots: [
+        { i: 0, item: 'null', count: 0, player: false },
+        { i: 27, item: 'minecraft:dirt', count: 6, player: true },
+        { i: 28, item: 'minecraft:apple', count: 9, player: true },
+        { i: 29, item: 'minecraft:iron_pickaxe', count: 1, player: true }
+      ]
+    });
+    await body.connect();
+    const ctx = makeCtx(body);
+    ctx.world = { findBlocksMatching: () => [{ position: { x: 3, y: 64, z: 0 }, name: 'minecraft:chest' }] };
+    const { DepositTask } = require('../src/tasks/deposit');
+    const task = new DepositTask(ctx, {});
+    const result = await task.execute();
+    expect(result.ok, `expected the derived deposit to work, got ${JSON.stringify(result)}`);
+    expect(task.progress() === 6, `expected 6 dirt deposited, progress=${task.progress()}`);
+    expect(body.slots.find((slot) => slot.i === 27).count === 0, 'the dirt should have moved');
+    expect(body.slots.find((slot) => slot.i === 28).count === 9, 'food must stay in the bag');
+    expect(body.slots.find((slot) => slot.i === 29).count === 1, 'the tool must stay in the bag');
+    return result.reason;
   });
 
   // ------------------------------------------------------------------ farming + sleep

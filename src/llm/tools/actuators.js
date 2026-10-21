@@ -19,7 +19,7 @@ const { dispatchMining } = require('../../core/miningDispatch');
 const { ctxWithSignal } = require('../../core/taskHub');
 
 /** Task names the model may request, matching the intent enum in src/llm/intent.js. */
-const TASK_NAMES = ['chop', 'mine', 'collect'];
+const TASK_NAMES = ['chop', 'mine', 'collect', 'deposit'];
 /** Upper bound on how much one request may ask for; beyond it the reply is a refusal. */
 const MAX_COUNT = 256;
 /**
@@ -63,6 +63,34 @@ async function doTask(ctx, args, options = {}) {
   const count = inner.count === undefined ? undefined : Number(inner.count);
   if (count !== undefined && (!Number.isFinite(count) || count <= 0 || count > MAX_COUNT)) {
     return fold({ ok: false, error: `count must be between 1 and ${MAX_COUNT}`, failure: 'bad_argument' });
+  }
+
+  /**
+   * Generic storage has no item/count: `deposit` is the one task whose target is derived by
+   * the task adapter (biggest non-tool stack). Explicit item+count requests stay on the
+   * validated skill path (`do_skill deposit`) or the `!deposit` command.
+   */
+  if (task === 'deposit') {
+    if (!ctx.brain) return fold({ ok: false, error: 'no brain available', failure: 'internal' });
+    const depositSkill = skills.get('deposit');
+    const gate =
+      depositSkill && typeof depositSkill.available === 'function'
+        ? depositSkill.available(ctx)
+        : { ok: false, reason: 'deposit is not available on this body' };
+    if (gate.ok === false) {
+      return fold({ ok: false, error: gate.reason || 'deposit is not available on this body', failure: 'unsupported' });
+    }
+    const { DepositTask } = require('../../tasks/deposit');
+    const receipt = await ctx.brain.enqueue(new DepositTask(ctx), {
+      level: 'directive',
+      source: options.source || 'llm'
+    });
+    return {
+      ok: receipt.accepted !== false,
+      ...receipt,
+      task,
+      ...(receipt.accepted === false ? { error: receipt.reason || 'deposit refused' } : {})
+    };
   }
 
   let line;

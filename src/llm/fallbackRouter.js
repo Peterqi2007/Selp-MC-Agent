@@ -100,7 +100,12 @@ const RULES = [
   {
     name: 'deposit',
     pattern: /(存起来|收起来|放进箱|存进箱|存一下|存东西|\bdeposit\b|\bstore\b)/i,
-    build: () => ({ type: 'skill', skill: 'deposit', args: {} }),
+    /**
+     * Generic "store things" has no item/count to name. That is the autonomous path: the
+     * deposit task picks the biggest non-tool stack and runs the same skill the explicit
+     * `!deposit <item> <count>` command drives (2026-10-21 unification).
+     */
+    build: () => ({ type: 'task', task: 'deposit', args: {} }),
     say: '去存东西'
   },
   {

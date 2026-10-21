@@ -107,7 +107,7 @@
 | **Q3** | 所有权检查重复：`slowLoop` 的 `activeTask`（`:467`）与 TaskHub 的 `task` hold（`taskHub.js:140`）各管一套 | 同上 |
 | **Q4** | 规划器状态全在内存，重启即忘；`memory.js` 有持久化能力却未接上（含 P5 的黑名单） | `:95-99` + `src/core/memory.js` |
 | **Q5** | SAFE MODE、idle 告警、`blockedGoal` 混在 brain 内，没有可观测的规划器状态机（`planning idle` 每 20 tick 才 warn 一次） | `:489`、`blockedGoal :93/756` |
-| **Q6** | 规划器仍以 `src/tasks/*` 为主干，与技能层双轨；只有矿石有适配器（`MineOreTask`） | `:18-25` + `src/tasks/mineOre.js` |
+| **Q6** | 规划器仍以 `src/tasks/*` 为主干，与技能层双轨；矿石有适配器（`MineOreTask`），**2026-10-21 起 deposit 也改为技能适配器**（`DepositTask` → `skills.run('deposit')`，`!store`/`!deposit` 共用） | `:18-25` + `src/tasks/mineOre.js` / `src/tasks/deposit.js` |
 | **Q7** | "零进展"与"失败"是两套语义（成功分支 vs 失败分支），没有统一的停滞模型；技能层另有第三套（monitor 六触发） | `:695` / `:736`；`src/core/miningProgress.js:25-32` |
 
 ---

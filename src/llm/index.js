@@ -786,6 +786,30 @@ class LlmCore {
       };
     }
 
+    /**
+     * Generic storage ("把东西存起来" / "store my stuff") has no item/count to name. That is
+     * the autonomous path: enqueue the deposit task, which picks the biggest non-tool stack
+     * and runs the same skill the explicit `!deposit <item> <count>` command drives.
+     * A request that names an item and count still goes through the validated skill path.
+     */
+    if (action.type === 'task' && action.task === 'deposit') {
+      const actuators = require('./tools/actuators');
+      const result = await actuators.doTask(
+        this.ctx,
+        { task: 'deposit' },
+        { source: context.source || 'llm' }
+      );
+      return {
+        ok: result.ok !== false,
+        line: 'deposit',
+        accepted: result.accepted !== false,
+        async: true,
+        taskId: null,
+        detail: result,
+        reason: result.error || result.reason || null
+      };
+    }
+
     let line;
     if (action.type === 'stop') line = 'stop';
     else if (action.type === 'go_to') line = `goto ${action.x} ${action.y} ${action.z}`;

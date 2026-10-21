@@ -97,12 +97,13 @@ const TOOLS = [
     name: 'do_task',
     kind: 'write',
     description:
-      'Start one of the three gathering tasks. Returns an acceptance receipt immediately; ' +
-      'the result arrives later as a task event (do not poll).',
+      'Start one of the gathering/storage tasks. Returns an acceptance receipt immediately; ' +
+      'the result arrives later as a task event (do not poll). `deposit` stores the biggest ' +
+      'non-tool stack; for a specific item/count use do_skill deposit.',
     parameters: {
       type: 'object',
       properties: {
-        task: { type: 'string', enum: ['chop', 'mine', 'collect'] },
+        task: { type: 'string', enum: ['chop', 'mine', 'collect', 'deposit'] },
         args: {
           type: 'object',
           properties: {

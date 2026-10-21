@@ -54,11 +54,28 @@ function capabilities(ctx) {
     chop: 'walk to a tree, break the trunk, collect the dropped logs',
     mine: 'stone and ores need a pickaxe at (or above) the block tier; dirt, sand, gravel, logs and modded blocks need NO tool - a shovel/axe only speeds them up',
     collect: 'walk over nearby dropped items so the client picks them up',
+    deposit: 'store the biggest non-tool loot stack in a pure container (walks with A*, builds a chest if needed)',
     stop: 'stop everything immediately'
   };
   const toolNames = new Set(toolRegistry.toolNames());
   if (toolNames.has('go_to')) push({ name: 'go_to', available: true, note: gatherNotes.go_to });
-  for (const task of actuators.TASK_NAMES) push({ name: task, available: true, note: gatherNotes[task] || '' });
+  for (const task of actuators.TASK_NAMES) {
+    /**
+     * `deposit` is a task that runs a menu-backed skill, so it follows the skill's
+     * availability. The other tasks are body-agnostic and keep their unconditional entry.
+     */
+    const gate =
+      task === 'deposit'
+        ? (skills.get('deposit') && typeof skills.get('deposit').available === 'function'
+            ? skills.get('deposit').available(ctx || {})
+            : { ok: false, reason: 'deposit is not available on this body' })
+        : { ok: true };
+    push({
+      name: task,
+      available: gate.ok !== false,
+      note: (gatherNotes[task] || '') + (gate.ok === false ? ` - unavailable: ${gate.reason}` : '')
+    });
+  }
   if (toolNames.has('stop')) push({ name: 'stop', available: true, note: gatherNotes.stop });
 
   /* 2. The skill catalogue, straight from the live registry (availability included). */
@@ -82,11 +99,6 @@ function capabilities(ctx) {
       name: 'light',
       note: 'place torches when the area is dark (`!light`); crafts them from coal/charcoal + sticks',
       unavailable: 'the !light task is mineflayer-only; on this body use place/use_on with a torch'
-    },
-    {
-      name: 'store',
-      note: 'deposit loot into a chest (`!store`); crafts and places a chest when none is nearby',
-      unavailable: 'the !store task is mineflayer-only; on this body use deposit/withdraw'
     },
     {
       name: 'hunt',

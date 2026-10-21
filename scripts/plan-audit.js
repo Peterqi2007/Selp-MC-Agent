@@ -166,8 +166,15 @@ check('C: the planned tools (P0 + Phase-3 do_skill + scan_around), and no say to
 check('C: the intent action enum is the five-value whitelist', () => {
   const intent = require(path.join(ROOT, 'src/llm/intent.js'));
   if (intent.ACTION_TYPES.join(',') !== 'task,go_to,stop,skill') throw new Error(`ACTION_TYPES = ${intent.ACTION_TYPES}`);
-  if (intent.TASK_NAMES.join(',') !== 'chop,mine,collect') throw new Error(`TASK_NAMES = ${intent.TASK_NAMES}`);
-  return 'task/go_to/stop + chop/mine/collect';
+  /**
+   * 2026-10-21: `deposit` joined the task vocabulary for the unified store path - generic
+   * "store things" has no item/count, while `!deposit <item> <count>` stays explicit. It is
+   * still a closed enum; `craft` and friends are not task names.
+   */
+  if (intent.TASK_NAMES.join(',') !== 'chop,mine,collect,deposit') {
+    throw new Error(`TASK_NAMES = ${intent.TASK_NAMES}`);
+  }
+  return 'task/go_to/stop + chop/mine/collect/deposit';
 });
 
 check('C: capability self-reflection exists as list_capabilities()', () => {
@@ -503,8 +510,45 @@ check('the P0 exclusions are still exclusions', () => {
   // M1b moved the flags into the one capability table; check the whole planner surface.
   const plannerSource = brain + evaluator + capabilities;
   if (!/supportsHunting/.test(plannerSource)) throw new Error('hunting is not capability-gated');
-  if (!/supportsDeposit/.test(plannerSource)) throw new Error('storing is not capability-gated');
-  return 'no standalone fishing task; hunt/store gated on body capability';
+  // 2026-10-21: deposit is menu-gated (the old supportsDeposit flag died with the mineflayer task).
+  if (!/deposit:[\s\S]{0,800}?menu:\s*true/.test(capabilities)) throw new Error('storing is not menu-gated');
+  return 'no standalone fishing task; hunt gated, deposit menu-gated';
+});
+
+check('deposit/store are one implementation with a 15x15x9 pure-container scan', () => {
+  // 2026-10-21: the old `!store` task drove mineflayer's bot.openContainer while `!deposit`
+  // was a menu skill - two implementations, one of them dead on the live client-mod body.
+  // They now share one command helper, one task adapter and one skill. The operator also
+  // fixed the scan: 15x15 in x/z, +/-4 in y, pure containers only, A* walk, and a
+  // craft+place fallback when no container is in range.
+  const commands = read('src/chat/commands.js');
+  const containers = read('src/skills/containers.js');
+  const task = read('src/tasks/deposit.js');
+  if (
+    !/deposit:\s*\(args\)\s*=>\s*this\.depositCommand\(args\)/.test(commands) ||
+    !/store:\s*\(args\)\s*=>\s*this\.depositCommand\(args\)/.test(commands)
+  ) {
+    throw new Error('!deposit and !store no longer share depositCommand');
+  }
+  if (/ctx\.bot|openContainer/.test(task)) throw new Error('DepositTask is back to a direct mineflayer implementation');
+  if (!/skills\.run\('deposit'/.test(task)) throw new Error('DepositTask does not run the deposit skill');
+  if (!/BOX_HALF = 7/.test(containers) || !/VERTICAL_HALF = 4/.test(containers)) {
+    throw new Error('the container scan is no longer 15x15(x/z) x 9(y)');
+  }
+  if (!/isPureContainer/.test(containers) || !/_chest\$|_barrel\$/.test(containers)) {
+    throw new Error('the pure-container whitelist is missing');
+  }
+  if (!/pathfind: true/.test(containers)) throw new Error('deposit no longer walks with A*');
+  if (!/skills\s*\.run\('craft'/.test(containers) || !/skills\s*\.run\('place'/.test(containers)) {
+    throw new Error('deposit no longer crafts/places a chest when none is nearby');
+  }
+  if (
+    !/item:\s*\{\s*type:\s*'string',\s*required:\s*true\s*\}/.test(containers) ||
+    !/count:\s*\{\s*type:\s*'number',\s*required:\s*true/.test(containers)
+  ) {
+    throw new Error('item and count must be required deposit parameters');
+  }
+  return 'one path; item+count required; 15x15x9 pure containers; A*; craft+place fallback';
 });
 
 check('every config key the plan adds is actually consumed', () => {

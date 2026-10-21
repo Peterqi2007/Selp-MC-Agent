@@ -356,6 +356,38 @@ async function buildAgent(options = {}) {
     return '!fish -> FishTask; mc_plan/mc_propose accept fish';
   });
 
+  await scenario('!deposit and !store share the deposit task and require item+count', async () => {
+    const agent = await buildAgent();
+    // Pause the drain so the assertions see the queued tasks instead of running them.
+    agent.brain.paused = true;
+    const queued = [];
+    const original = agent.brain.enqueue.bind(agent.brain);
+    agent.brain.enqueue = (task, options) => {
+      queued.push(task);
+      return original(task, options);
+    };
+    await agent.chat.handle('deposit dirt 5', 'test');
+    await agent.chat.handle('store dirt 7', 'test');
+    expect(
+      queued.length === 2 && queued.every((task) => task.name === 'deposit'),
+      `expected two deposit tasks, got ${JSON.stringify(queued.map((task) => task.name))}`
+    );
+    expect(queued[0].item === 'dirt' && queued[0].count === 5, `first ${queued[0].item}/${queued[0].count}`);
+    expect(queued[1].item === 'dirt' && queued[1].count === 7, `second ${queued[1].item}/${queued[1].count}`);
+    for (const line of ['deposit dirt', 'store dirt', 'deposit']) {
+      let refused = null;
+      try {
+        await agent.chat.handle(line, 'test');
+      } catch (err) {
+        refused = err.message;
+      }
+      expect(refused && /usage: !deposit/.test(refused), `${line} should be refused with a usage error, got ${refused}`);
+    }
+    expect(queued.length === 2, 'a refused command must not queue anything');
+    agent.stop();
+    return 'deposit/store unified; item+count required';
+  });
+
   await scenario('!mine without a pickaxe fails with the honest reason', async () => {
     const agent = await buildAgent({ inventory: {} });
     await agent.say('!mine stone 4');
@@ -991,9 +1023,11 @@ async function buildAgent(options = {}) {
     const byName = Object.fromEntries(body.capabilities.map((c) => [c.name, c]));
     const names = body.capabilities.map((c) => c.name);
     expect(new Set(names).size === names.length, `the capability table has duplicates: ${names.join(', ')}`);
-    for (const name of ['store', 'light']) {
+    for (const name of ['light']) {
       expect(byName[name] && byName[name].available === false, `${name} is mineflayer-only and must read unavailable here`);
     }
+    // `store` is no longer a separate task: `!store` is an alias of `!deposit` (2026-10-21).
+    expect(!byName.store, 'store must not be advertised as a separate capability any more');
     // `fish` used to be listed twice - once as the implemented skill (yes) and once as an
     // old "Phase 5" promise (no). The registry is the single source now.
     expect(byName.fish && byName.fish.available === true, 'fish must follow the skill registry, not the old Phase 5 list');
