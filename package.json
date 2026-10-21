@@ -24,6 +24,7 @@
     "bridge": "node scripts/bridge-client.js health",
     "bridge:state": "node scripts/bridge-client.js state",
     "plugin:receipt:test": "node scripts/plugin-receipt-test.mjs",
+    "plugin:goal:test": "node scripts/plugin-goal-test.mjs",
     "forge:test": "node scripts/test-forge.js",
     "inspect:server": "node scripts/inspect-server.js",
     "mods:report": "node scripts/mods-report.js",

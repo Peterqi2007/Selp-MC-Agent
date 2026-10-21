@@ -164,9 +164,31 @@ curl -X POST http://127.0.0.1:8766/plan -H "content-type: application/json" ^
 **未在真实 DSH 上验证**：本次只做了 Node/mock 冒烟；重装并重启 DSH 后，M3 的 A28/F2
 才具备真机证据。若插件未重启，`mc_plan` 不存在，旧工具面只能逐条 `mc_step`。
 
+### 动作脑目标注入：持久 goal（2026-10-20 改）
+
+旧的 `POST /goal` 是**一次性文本**：插件把一段 "You are the Minecraft action planner..." 的
+followup 打进 live 对话，模型答完一个回合就结束——长任务做一两步就"放弃"。现在默认改为
+**创建持久目标**：
+
+| 入口 | 行为 |
+| --- | --- |
+| `POST /goal {agentId?, goal, maxGoalRounds?, replace?}` | **默认 goal 模式**：通过 `ctx.goals.create` 为 live 对话创建 durable goal（objective = 工具契约 + `GOAL: ...`），由 `dsh-goal-round-driver` 在"active + armed + idle"时不断续轮；模型用 `update_goal` 的 `complete`/`blocked` 收尾（连续 3 轮同一阻塞才允许 blocked） |
+| `POST /goal {..., mode:"text"}` | 保留旧的单条 followup（H1a/H1b 断言依赖一轮回执）；`npm run dsh:h1` 已显式传 `mode:"text"` |
+| `GET /goal[?agentId=]` | 读当前 goal（id/revision/objective/phase/roundsStarted/maxGoalRounds/activation） |
+| `replace:true` | 当前 goal 不是 complete 时先 `clear` 再 create（否则返回 `409 goal-exists`） |
+
+- `runtime.bind` 仍在创建前执行：计划结算的 `turn:resumable` 续轮逻辑不变。
+- `/health` 增加 `goal` 字段；插件不等待 idle（目标续轮是后台的，调用方轮询 `/goal`）。
+- 依赖 DSH 侧挂载 `@deepseek-ai/dsh-goal` + `@deepseek-ai/dsh-goal-round-driver` +
+  `@deepseek-ai/dsh-tool-goal`；缺失时 goal 模式返回 **503**，不会静默退化成文本。
+- 离线断言：`npm run plugin:goal:test`（goal 创建/GET/409/replace/text 兼容/503）。
+
 ### 边界
 
 - 隐藏 agent 不做 H1；live `/goal` 要求预先存在一个 DSH 对话。
+- 动作脑 `/goal` 默认创建持久 goal（依赖 `dsh-goal` + `dsh-goal-round-driver`）；H1a/H1b 走
+  `mode:"text"` 的一次性回执。goal 的 complete/blocked 由模型经 `update_goal` 决定，
+  插件不再用文本暗示"完成/放弃"。
 - H1b 允许只读 `status`/`observe`，不允许 `mine`/`chop`/`goto`/`stop` 等 body 动作。
 - 插件工具注册在全局 tools 上；H1 使用 live 对话，不创建独立测试 session。
 - `mc_plan` 的步骤是命令表动作；没有 `postconditions` 的计划无法证伪任务自报

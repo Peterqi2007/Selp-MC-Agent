@@ -1,0 +1,188 @@
+/**
+ * Offline verification for `/goal` **goal mode** (no DSH, no Minecraft).
+ *
+ * The action brain used to get one text followup per goal, which ends after a turn or two.
+ * Goal mode creates a durable `dsh-goal` goal instead, so `dsh-goal-round-driver` can keep
+ * scheduling rounds until the model completes or blocks it. This harness applies the real
+ * plugin with fake `agents`/`goals` services and a stub SSE control endpoint, then asserts:
+ *
+ *   - default POST /goal creates a goal (no followup, objective carries the GOAL text);
+ *   - GET /goal returns the current goal;
+ *   - a second goal without replace is refused with `goal-exists`;
+ *   - `replace:true` clears the current goal and creates a new one (maxGoalRounds passed);
+ *   - `mode:"text"` still uses the legacy single followup (H1 callers);
+ *   - without a goals service, goal mode fails loudly instead of silently falling back.
+ */
+import http from 'node:http';
+import { fileURLToPath, pathToFileURL } from 'node:url';
+import path from 'node:path';
+
+const ROOT = path.resolve(fileURLToPath(new URL('..', import.meta.url)));
+const silent = { info() {}, warn() {}, debug() {}, error() {} };
+
+function assert(cond, message) {
+  if (!cond) throw new Error(message);
+}
+
+function freePort() {
+  return new Promise((resolve, reject) => {
+    const s = http.createServer();
+    s.listen(0, '127.0.0.1', () => {
+      const port = s.address().port;
+      s.close(() => resolve(port));
+    });
+    s.on('error', reject);
+  });
+}
+
+/** Stub control endpoint: keeps the turn SSE open so the plugin does not retry. */
+function startControlStub() {
+  return new Promise((resolve) => {
+    const server = http.createServer((req, res) => {
+      if (String(req.url || '').startsWith('/harness/events')) {
+        res.writeHead(200, { 'content-type': 'text/event-stream' });
+        res.write(': connected\n\n');
+        return;
+      }
+      res.writeHead(404, { 'content-type': 'application/json' });
+      res.end('{}');
+    });
+    server.listen(0, '127.0.0.1', () => resolve({ server, port: server.address().port }));
+  });
+}
+
+function request(port, method, pathname, body) {
+  return new Promise((resolve, reject) => {
+    const data = body === undefined ? null : JSON.stringify(body);
+    const req = http.request(
+      {
+        host: '127.0.0.1',
+        port,
+        path: pathname,
+        method,
+        headers: data
+          ? { 'content-type': 'application/json', 'content-length': Buffer.byteLength(data) }
+          : {}
+      },
+      (res) => {
+        let s = '';
+        res.on('data', (d) => (s += d));
+        res.on('end', () => {
+          let parsed = null;
+          try {
+            parsed = JSON.parse(s);
+          } catch {
+            parsed = { raw: s };
+          }
+          resolve({ status: res.statusCode, body: parsed });
+        });
+      }
+    );
+    req.on('error', reject);
+    if (data) req.write(data);
+    req.end();
+  });
+}
+
+function makeWorld({ withGoals = true } = {}) {
+  const created = [];
+  const cleared = [];
+  const followups = [];
+  let current = null;
+  const agent = {
+    id: 'live-1',
+    status: 'idle',
+    session: { seq: 0, deriveMessages: () => [] },
+    followup: async (message) => followups.push(message),
+    whenIdle: async () => {}
+  };
+  const agents = { get: (id) => (id === 'live-1' ? agent : null), list: () => [agent] };
+  const goals = withGoals
+    ? {
+        get: () => current,
+        create: (_agent, request) => {
+          created.push(request);
+          current = {
+            id: `goal-${created.length}`,
+            revision: 1,
+            objective: request.objective,
+            phase: 'active',
+            roundsStarted: 0,
+            maxGoalRounds: request.maxGoalRounds || 256,
+            activation: 'armed'
+          };
+          return current;
+        },
+        clear: (_agent, ref) => {
+          cleared.push(ref);
+          current = null;
+          return { id: ref.id, revision: ref.revision + 1 };
+        }
+      }
+    : null;
+  const ctx = {
+    logger: silent,
+    get: (name) => (name === 'agents' ? agents : name === 'goals' ? goals : null),
+    inject: (names, callback) => callback({ tools: { register: () => {} }, agents }),
+    effect: (fn) => {
+      const cleanup = fn();
+      if (typeof cleanup === 'function') ctx.cleanups.push(cleanup);
+    },
+    cleanups: []
+  };
+  return { ctx, created, cleared, followups, agent };
+}
+
+async function main() {
+  const control = await startControlStub();
+  const pluginPort = await freePort();
+  const world = makeWorld();
+  const mod = await import(pathToFileURL(path.join(ROOT, 'dsh-plugin-mc-harness', 'lib', 'index.js')).href);
+  await mod.apply(world.ctx, { port: pluginPort, controlUrl: `http://127.0.0.1:${control.port}` });
+
+  const first = await request(pluginPort, 'POST', '/goal', { agentId: 'live-1', goal: 'mine 2 dirt' });
+  assert(first.status === 202, `goal mode must return 202, got ${first.status}`);
+  assert(first.body.mode === 'goal', 'response must name goal mode');
+  assert(first.body.goal && first.body.goal.id === 'goal-1', 'a durable goal must be created');
+  assert(/GOAL: mine 2 dirt/.test(first.body.goal.objective), 'objective must carry the goal text');
+  assert(world.followups.length === 0, 'goal mode must not inject a text followup');
+
+  const read = await request(pluginPort, 'GET', '/goal');
+  assert(read.status === 200 && read.body.goal && read.body.goal.id === 'goal-1', 'GET /goal must return the goal');
+
+  const duplicate = await request(pluginPort, 'POST', '/goal', { agentId: 'live-1', goal: 'mine 3 dirt' });
+  assert(duplicate.status === 409 && duplicate.body.error === 'goal-exists', 'active goal must refuse a new one');
+
+  const replaced = await request(pluginPort, 'POST', '/goal', {
+    agentId: 'live-1',
+    goal: 'mine 3 dirt',
+    replace: true,
+    maxGoalRounds: 5
+  });
+  assert(replaced.status === 202, `replace must create a new goal, got ${replaced.status}`);
+  assert(world.cleared.length === 1 && world.cleared[0].id === 'goal-1', 'replace must clear the old goal');
+  assert(world.created.length === 2 && world.created[1].maxGoalRounds === 5, 'maxGoalRounds must pass through');
+
+  const legacy = await request(pluginPort, 'POST', '/goal', { agentId: 'live-1', goal: 'legacy', mode: 'text' });
+  assert(legacy.status === 200 && legacy.body.ok === true, 'text mode must keep the legacy response');
+  assert(world.followups.length === 1, 'text mode must still use one followup');
+
+  // No goals service: goal mode must fail loudly, not silently degrade to chat.
+  const noGoalWorld = makeWorld({ withGoals: false });
+  const secondPort = await freePort();
+  await mod.apply(noGoalWorld.ctx, { port: secondPort, controlUrl: `http://127.0.0.1:${control.port}` });
+  const unavailable = await request(secondPort, 'POST', '/goal', { agentId: 'live-1', goal: 'x' });
+  assert(unavailable.status === 503, 'missing goal service must be a loud 503');
+
+  for (const cleanup of [...world.ctx.cleanups, ...noGoalWorld.ctx.cleanups].reverse()) {
+    try { await cleanup(); } catch { /* closing anyway */ }
+  }
+  await new Promise((resolve) => control.server.close(resolve));
+  control.server.closeAllConnections?.();
+  console.log('goal mode: PASS (durable goal, GET, goal-exists, replace, text fallback, loud 503)');
+}
+
+main().catch((err) => {
+  console.error('goal mode: FAIL -', err.message);
+  process.exit(1);
+});

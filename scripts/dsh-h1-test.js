@@ -35,7 +35,12 @@ async function goal(goalText, timeoutMs = 180000) {
     const res = await fetch(`${BASE}/goal`, {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ goal: goalText, ...(process.env.DSH_AGENT_ID ? { agentId: process.env.DSH_AGENT_ID } : {}) }),
+      body: JSON.stringify({
+        goal: goalText,
+        // H1a/H1b assert one turn's receipts; the action brain uses durable goals by default.
+        mode: 'text',
+        ...(process.env.DSH_AGENT_ID ? { agentId: process.env.DSH_AGENT_ID } : {})
+      }),
       signal: controller.signal
     });
     return { status: res.status, body: await res.json() };
