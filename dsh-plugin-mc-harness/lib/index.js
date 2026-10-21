@@ -1013,6 +1013,53 @@ export function apply(ctx, config = {}) {
         goal: goalOf(live)
       });
     }
+    /**
+     * Human pause/resume for the injected goal.
+     *
+     * The model completes or blocks its own goal; a human still needs a brake that is not a
+     * chat message. Pause disarms continuation immediately (the round driver stops), resume
+     * rearms it while the round cap has capacity and clears a former blocker — the goal
+     * service owns both transitions, this endpoint only supplies the current {id,revision}.
+     */
+    if (req.method === 'POST' && (url.pathname === '/goal/pause' || url.pathname === '/goal/resume')) {
+      let body = '';
+      for await (const chunk of req) body += chunk;
+      let parsed = {};
+      try {
+        parsed = JSON.parse(body || '{}');
+      } catch {
+        return jsonReply(res, 400, { ok: false, error: 'invalid JSON' });
+      }
+      const agents = typeof ctx.get === 'function' ? ctx.get('agents') : null;
+      const agentId = String(parsed.agentId || url.searchParams.get('agentId') || runtime.agentId || '').trim();
+      const live =
+        agentId && agents && typeof agents.get === 'function' ? agents.get(agentId) : runtime.agent;
+      if (!live) return jsonReply(res, 404, { ok: false, error: 'no-live-agent' });
+      const goals = goalsService();
+      if (!goals || typeof goals.pause !== 'function' || typeof goals.resume !== 'function') {
+        return jsonReply(res, 503, { ok: false, error: 'goal service unavailable' });
+      }
+      const current = goalOf(live);
+      if (!current) return jsonReply(res, 404, { ok: false, error: 'no-goal' });
+      const action = url.pathname.endsWith('/pause') ? 'pause' : 'resume';
+      try {
+        const view = goals[action](live, { id: current.id, revision: current.revision });
+        log(`goal ${action}: ${current.id}`);
+        return jsonReply(res, 200, {
+          ok: true,
+          action,
+          agentId: live.id || agentId || null,
+          goal: view
+        });
+      } catch (error) {
+        return jsonReply(res, 409, {
+          ok: false,
+          error: error.code || `goal-${action}-failed`,
+          message: error.message,
+          goal: goalOf(live)
+        });
+      }
+    }
     if (req.method === 'POST' && url.pathname === '/goal') {
       if (busy) return jsonReply(res, 409, { ok: false, error: 'busy' });
       let body = '';

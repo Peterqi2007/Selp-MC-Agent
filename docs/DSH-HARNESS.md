@@ -174,14 +174,19 @@ followup 打进 live 对话，模型答完一个回合就结束——长任务�
 | --- | --- |
 | `POST /goal {agentId?, goal, maxGoalRounds?, replace?}` | **默认 goal 模式**：通过 `ctx.goals.create` 为 live 对话创建 durable goal（objective = 工具契约 + `GOAL: ...`），由 `dsh-goal-round-driver` 在"active + armed + idle"时不断续轮；模型用 `update_goal` 的 `complete`/`blocked` 收尾（连续 3 轮同一阻塞才允许 blocked） |
 | `POST /goal {..., mode:"text"}` | 保留旧的单条 followup（H1a/H1b 断言依赖一轮回执）；`npm run dsh:h1` 已显式传 `mode:"text"` |
-| `GET /goal[?agentId=]` | 读当前 goal（id/revision/objective/phase/roundsStarted/maxGoalRounds/activation） |
+| `GET /goal[?agentId=]` | 读当前 goal（id/revision/objective/phase/roundsStarted/maxGoalRounds/activation/blockedReason） |
+| `POST /goal/pause {agentId?}` | **人为暂停**：`ctx.goals.pause` → 立刻 disarm，round driver 不再续轮；返回 `{action:'pause', goal}` |
+| `POST /goal/resume {agentId?}` | **人为恢复**：`ctx.goals.resume` → 重新 arm（轮次还有余量时），并清掉旧 blocker；返回 `{action:'resume', goal}` |
 | `replace:true` | 当前 goal 不是 complete 时先 `clear` 再 create（否则返回 `409 goal-exists`） |
+
+- `pause`/`resume` 只使用当前 `{id, revision}`；没有 goal → **404 no-goal**，服务缺失 → **503**，
+  版本过期/非法相位 → **409**（带 goal 服务的错误码）。
 
 - `runtime.bind` 仍在创建前执行：计划结算的 `turn:resumable` 续轮逻辑不变。
 - `/health` 增加 `goal` 字段；插件不等待 idle（目标续轮是后台的，调用方轮询 `/goal`）。
 - 依赖 DSH 侧挂载 `@deepseek-ai/dsh-goal` + `@deepseek-ai/dsh-goal-round-driver` +
   `@deepseek-ai/dsh-tool-goal`；缺失时 goal 模式返回 **503**，不会静默退化成文本。
-- 离线断言：`npm run plugin:goal:test`（goal 创建/GET/409/replace/text 兼容/503）。
+- 离线断言：`npm run plugin:goal:test`（goal 创建/GET/pause/resume/409/replace/text 兼容/503）。
 
 ### 边界
 

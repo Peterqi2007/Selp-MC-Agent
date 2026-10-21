@@ -87,6 +87,8 @@ function request(port, method, pathname, body) {
 function makeWorld({ withGoals = true } = {}) {
   const created = [];
   const cleared = [];
+  const paused = [];
+  const resumed = [];
   const followups = [];
   let current = null;
   const agent = {
@@ -117,6 +119,16 @@ function makeWorld({ withGoals = true } = {}) {
           cleared.push(ref);
           current = null;
           return { id: ref.id, revision: ref.revision + 1 };
+        },
+        pause: (_agent, ref) => {
+          paused.push(ref);
+          current = { ...current, phase: 'paused', revision: current.revision + 1, activation: 'disarmed' };
+          return current;
+        },
+        resume: (_agent, ref) => {
+          resumed.push(ref);
+          current = { ...current, phase: 'active', revision: current.revision + 1, activation: 'armed' };
+          return current;
         }
       }
     : null;
@@ -130,7 +142,7 @@ function makeWorld({ withGoals = true } = {}) {
     },
     cleanups: []
   };
-  return { ctx, created, cleared, followups, agent };
+  return { ctx, created, cleared, paused, resumed, followups, agent };
 }
 
 async function main() {
@@ -149,6 +161,16 @@ async function main() {
 
   const read = await request(pluginPort, 'GET', '/goal');
   assert(read.status === 200 && read.body.goal && read.body.goal.id === 'goal-1', 'GET /goal must return the goal');
+
+  const paused = await request(pluginPort, 'POST', '/goal/pause', { agentId: 'live-1' });
+  assert(paused.status === 200 && paused.body.action === 'pause', 'pause must return 200');
+  assert(paused.body.goal.phase === 'paused' && paused.body.goal.activation === 'disarmed', 'pause must stop continuation');
+  assert(world.paused.length === 1 && world.paused[0].id === 'goal-1', 'pause must use the current {id,revision}');
+
+  const resumed = await request(pluginPort, 'POST', '/goal/resume', { agentId: 'live-1' });
+  assert(resumed.status === 200 && resumed.body.action === 'resume', 'resume must return 200');
+  assert(resumed.body.goal.phase === 'active' && resumed.body.goal.activation === 'armed', 'resume must rearm');
+  assert(world.resumed.length === 1 && world.resumed[0].revision === paused.body.goal.revision, 'resume must use the paused revision');
 
   const duplicate = await request(pluginPort, 'POST', '/goal', { agentId: 'live-1', goal: 'mine 3 dirt' });
   assert(duplicate.status === 409 && duplicate.body.error === 'goal-exists', 'active goal must refuse a new one');
@@ -174,12 +196,19 @@ async function main() {
   const unavailable = await request(secondPort, 'POST', '/goal', { agentId: 'live-1', goal: 'x' });
   assert(unavailable.status === 503, 'missing goal service must be a loud 503');
 
-  for (const cleanup of [...world.ctx.cleanups, ...noGoalWorld.ctx.cleanups].reverse()) {
+  // Pause with no current goal is a clear 404, not a silent no-op.
+  const emptyWorld = makeWorld();
+  const emptyPort = await freePort();
+  await mod.apply(emptyWorld.ctx, { port: emptyPort, controlUrl: `http://127.0.0.1:${control.port}` });
+  const noGoal = await request(emptyPort, 'POST', '/goal/pause', { agentId: 'live-1' });
+  assert(noGoal.status === 404 && noGoal.body.error === 'no-goal', 'pause without a goal must be 404');
+
+  for (const cleanup of [...world.ctx.cleanups, ...noGoalWorld.ctx.cleanups, ...emptyWorld.ctx.cleanups].reverse()) {
     try { await cleanup(); } catch { /* closing anyway */ }
   }
   await new Promise((resolve) => control.server.close(resolve));
   control.server.closeAllConnections?.();
-  console.log('goal mode: PASS (durable goal, GET, goal-exists, replace, text fallback, loud 503)');
+  console.log('goal mode: PASS (durable goal, GET, pause/resume, goal-exists, replace, text fallback, loud 503)');
 }
 
 main().catch((err) => {
