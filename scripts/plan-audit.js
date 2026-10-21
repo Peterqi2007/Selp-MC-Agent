@@ -419,6 +419,29 @@ check('no Java change is required for P0 (the M3 cancellation holds)', () => {
   return 'moveto + dig + itemDrops all present: no new mod endpoint was needed';
 });
 
+check('TACZ right-click aim holds the mod aim key (HoldToAim)', () => {
+  // Decompiled tacz-1.20.1-1.1.8-hotfix: AimKey's Forge client-tick handler rewrites the
+  // aim state to AIM_KEY.isDown() while HoldToAim is on (the shipped default), so calling
+  // only IClientPlayerGunOperator.aim(true) is reverted on the next tick and the scope
+  // never rises - the 2026-10-21 "right-click aim is broken" live bug. The bridge must
+  // hold the real mapping and every stop path must release it.
+  const bridge = read('mod-client/src/main/java/dev/agentclient/TaczBridge.java');
+  const actions = read('mod-client/src/main/java/dev/agentclient/ClientActions.java');
+  if (!/com\.tacz\.guns\.client\.input\.AimKey/.test(bridge)) {
+    throw new Error('TACZ AimKey is not resolved: HoldToAim would override each aim() call');
+  }
+  if (!/AIM_KEY/.test(bridge) || !/setDown\(/.test(bridge)) {
+    throw new Error('the real aim key is never held down');
+  }
+  if (!/isAim\(operator\)/.test(actions)) {
+    throw new Error('gunTick does not re-assert an aim TACZ dropped itself');
+  }
+  if (!/TaczBridge\.aim\(TaczBridge\.operator\(mc\.player\), false\)/.test(actions)) {
+    throw new Error('a stop path still links the aim release to a non-null operator');
+  }
+  return 'AIM_KEY held via setDown + re-assert + unconditional release';
+});
+
 check('the P0 exclusions are still exclusions', () => {
   const brain = read('src/brain.js');
   const evaluator = read('src/planner/evaluator.js');

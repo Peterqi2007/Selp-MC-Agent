@@ -1,5 +1,6 @@
 package dev.agentclient;
 
+import net.minecraft.client.KeyMapping;
 import net.minecraft.client.player.LocalPlayer;
 import net.minecraft.resources.ResourceLocation;
 import net.minecraft.world.item.ItemStack;
@@ -37,7 +38,10 @@ final class TaczBridge {
     private static boolean available = false;
 
     private static Method fromLocalPlayer;
-    private static Method aim;
+    private static Method aimMethod;
+    private static Method isAimMethod;
+    /** TACZ's own aim key mapping; null when the mod predates AimKey. */
+    private static KeyMapping aimKey;
     private static Method chargeShoot;
     private static Method shoot;
     private static Method reload;
@@ -51,6 +55,9 @@ final class TaczBridge {
 
     /** Last reflection failure on the fire path; surfaced via /progress for diagnostics. */
     private static volatile String fireError = null;
+
+    /** Last reflection/key failure on the aim path; surfaced via /progress for diagnostics. */
+    private static volatile String aimError = null;
 
     /** gunId -> gun type ("rifle"/"sniper"/...); "unknown" is a valid, cached answer. */
     private static final Map<String, String> TYPE_CACHE = new HashMap<>();
@@ -71,7 +78,8 @@ final class TaczBridge {
         try {
             Class<?> operator = Class.forName("com.tacz.guns.api.client.gameplay.IClientPlayerGunOperator");
             fromLocalPlayer = operator.getMethod("fromLocalPlayer", LocalPlayer.class);
-            aim = operator.getMethod("aim", boolean.class);
+            aimMethod = operator.getMethod("aim", boolean.class);
+            isAimMethod = operator.getMethod("isAim");
             chargeShoot = operator.getMethod("chargeShoot", boolean.class);
             shoot = operator.getMethod("shoot");
             reload = operator.getMethod("reload");
@@ -87,6 +95,26 @@ final class TaczBridge {
             indexGetType = index.getMethod("getType");
             available = true;
             AgentClientMod.LOGGER.info("tacz bridge resolved (client operator) - gun verbs enabled");
+            /**
+             * TACZ's own aim key (decompiled tacz-1.20.1-1.1.8-hotfix): {@code AimKey} is
+             * a Forge subscriber whose client-tick handler forces the aim state to
+             * {@code AIM_KEY.isDown()} whenever {@code HoldToAim} is true - the shipped
+             * default, and true in this client's tacz-client.toml. Calling
+             * {@code IClientPlayerGunOperator.aim(true)} alone is therefore reverted on the
+             * next tick and the scope never rises (the live "right-click aim is broken"
+             * bug). Resolve the mapping in its own try so an older TACZ without AimKey
+             * still keeps the operator bridge.
+             */
+            try {
+                Class<?> aimKeyClass = Class.forName("com.tacz.guns.client.input.AimKey");
+                Object mapping = aimKeyClass.getField("AIM_KEY").get(null);
+                if (mapping instanceof KeyMapping key) {
+                    aimKey = key;
+                    AgentClientMod.LOGGER.info("tacz aim key resolved - hold-to-aim supported");
+                }
+            } catch (Throwable ignored) {
+                aimKey = null;
+            }
         } catch (Throwable e) {
             available = false;
             AgentClientMod.LOGGER.info("tacz not present - gun verbs will report tacz_unavailable");
@@ -199,14 +227,67 @@ final class TaczBridge {
         }
     }
 
-    static void aim(Object op, boolean on) {
-        if (op == null || !available) {
+    /**
+     * Hold/release TACZ's own aim key mapping.
+     *
+     * This is what a real right-click does to the mod: {@code KeyMapping.set(key, down)}
+     * forwards to each mapping's {@code setDown}, so the mapping's {@code isDown()} - the
+     * exact value {@code AimKey.onAimHoldingPreInput} reads every client tick - flips.
+     * Writing the field directly through the public {@code setDown} keeps it independent
+     * of the player's key bindings (rebinding the aim key does not break automation).
+     */
+    private static void holdAimKey(boolean down) {
+        resolve();
+        KeyMapping key = aimKey;
+        if (key == null) {
             return;
         }
         try {
-            aim.invoke(op, on);
-        } catch (Throwable ignored) {
+            key.setDown(down);
+        } catch (Throwable e) {
+            aimError = e.getClass().getSimpleName() + ": " + (e.getMessage() == null ? "" : e.getMessage());
         }
+    }
+
+    /** True when TACZ reports the gun as aimed (client prediction). */
+    static boolean isAim(Object op) {
+        if (op == null || !available) {
+            return false;
+        }
+        try {
+            Object value = isAimMethod.invoke(op);
+            return value instanceof Boolean b && b;
+        } catch (Throwable e) {
+            return false;
+        }
+    }
+
+    /**
+     * Aim or lower the gun.
+     *
+     * Two configs exist: {@code HoldToAim=true} (default) needs the real key held, because
+     * TACZ's tick handler is the authority; {@code HoldToAim=false} (toggle) ignores the
+     * key and needs the operator call. Doing both makes aiming work under either config,
+     * and the isAim check avoids spamming {@code ClientMessagePlayerAim} every tick.
+     */
+    static void aim(Object op, boolean on) {
+        holdAimKey(on);
+        if (!available || op == null) {
+            return;
+        }
+        try {
+            if (isAim(op) != on) {
+                aimMethod.invoke(op, on);
+            }
+            aimError = null;
+        } catch (Throwable e) {
+            aimError = e.getClass().getSimpleName() + ": " + (e.getMessage() == null ? "" : e.getMessage());
+        }
+    }
+
+    /** Human-readable reason for the last failed aim() call; null after a clean call. */
+    static String lastAimError() {
+        return aimError;
     }
 
     static void reload(Object op) {

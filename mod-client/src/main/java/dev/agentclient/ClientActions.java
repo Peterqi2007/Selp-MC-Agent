@@ -613,9 +613,10 @@ public final class ClientActions {
             mc.gameMode.stopDestroyBlock();
         }
         Object operator = TaczBridge.operator(mc.player);
-        if (operator != null) {
-            TaczBridge.aim(operator, false);
-        }
+        // Release unconditionally: with TACZ's HoldToAim the aim key is the authority, and
+        // the operator is null when TACZ/player is gone - the old null check left the key
+        // (and the scope) held into the next action.
+        TaczBridge.aim(operator, false);
     }
 
     /** Stop whatever continuous action is running. */
@@ -1045,6 +1046,12 @@ public final class ClientActions {
         String lastResult;
         /** Reflection failure text from the last fire attempt (diagnostics). */
         String fireError;
+        /** TACZ's client aim flag, cached for the progress report. */
+        boolean aiming;
+        /** Client scope progress 0..1, cached for the progress report. */
+        float aimProgress;
+        /** Reflection failure text from the last aim attempt (diagnostics). */
+        String aimError;
         /**
          * Cached for progressJson. /progress is served on an HTTP thread, so the report
          * must never read game state - these fields are refreshed during tick() only.
@@ -1081,13 +1088,25 @@ public final class ClientActions {
          * Aim first, shoot second: the scope needs time to come up and rounds fired
          * during the ADS transition are thrown away. Stay aimed (right mouse held) for
          * the whole visit - that is the "长按右键瞄准 ... 松开右键" contract.
+         *
+         * Decompiled TACZ (1.20.1-1.1.8-hotfix) shows why the operator call alone is not
+         * enough: `AimKey` subscribes to the client tick and, with HoldToAim=true (the
+         * shipped default), rewrites the aim state to `AIM_KEY.isDown()` every tick. The
+         * bridge therefore also holds the real aim key; here we only re-assert when TACZ
+         * dropped the aim itself (draw animation, state lock) so the burst never waits
+         * out AIM_READY_TIMEOUT and fires un-aimed.
          */
         if (!s.aimHeld) {
             TaczBridge.aim(operator, true);
             s.aimHeld = true;
             s.aimStartedAt = System.currentTimeMillis();
+        } else if (!TaczBridge.isAim(operator)) {
+            TaczBridge.aim(operator, true);
         }
-        boolean aimReady = TaczBridge.aimingProgress(operator) >= 0.95F
+        s.aiming = TaczBridge.isAim(operator);
+        s.aimProgress = TaczBridge.aimingProgress(operator);
+        s.aimError = TaczBridge.lastAimError();
+        boolean aimReady = s.aimProgress >= 0.95F
                 || System.currentTimeMillis() - s.aimStartedAt > AIM_READY_TIMEOUT_MS;
         if (!aimReady) {
             return "aiming";
@@ -1192,15 +1211,18 @@ public final class ClientActions {
         }
     }
 
-    /** Lower the gun: release the aim state and the right-mouse key. */
+    /**
+     * Lower the gun: release the aim state, the real aim key and the right-mouse key.
+     *
+     * The key release is unconditional: with HoldToAim the key state - not the operator
+     * call - is what keeps the scope up, and the operator is null whenever the player or
+     * TACZ has gone away. A stuck key would aim the next action.
+     */
     private void gunRelease(GunFireState s) {
-        if (s.aimHeld) {
-            Object operator = TaczBridge.operator(mc.player);
-            if (operator != null) {
-                TaczBridge.aim(operator, false);
-            }
-            s.aimHeld = false;
-        }
+        TaczBridge.aim(TaczBridge.operator(mc.player), false);
+        s.aimHeld = false;
+        s.aiming = false;
+        s.aimProgress = 0.0F;
         setKeyInClient("use", false);
     }
 
@@ -1312,11 +1334,14 @@ public final class ClientActions {
             map.put("failed", Json.bool(failed));
             map.put("reason", Json.str(reason == null ? "" : reason));
             map.put("blocked", Json.bool(state.blockedSince > 0L));
+            map.put("aiming", Json.bool(state.aiming));
+            map.put("aimProgress", Json.num(state.aimProgress));
             map.put("magazine", Json.num(state.magazine));
             map.put("gunType", Json.str(state.gunType == null ? "" : state.gunType));
             map.put("distance", Json.num(state.distance));
             map.put("lastResult", Json.str(state.lastResult == null ? "" : state.lastResult));
             map.put("fireError", Json.str(state.fireError == null ? "" : state.fireError));
+            map.put("aimError", Json.str(state.aimError == null ? "" : state.aimError));
             map.put("cooldown", Json.num(state.cooldown));
             return Json.obj(map);
         }
@@ -1410,10 +1435,13 @@ public final class ClientActions {
             map.put("failed", Json.bool(failed));
             map.put("reason", Json.str(reason == null ? "" : reason));
             map.put("blocked", Json.bool(state.blockedSince > 0L));
+            map.put("aiming", Json.bool(state.aiming));
+            map.put("aimProgress", Json.num(state.aimProgress));
             map.put("magazine", Json.num(state.magazine));
             map.put("gunType", Json.str(state.gunType == null ? "" : state.gunType));
             map.put("distance", Json.num(state.distance));
             map.put("fireError", Json.str(state.fireError == null ? "" : state.fireError));
+            map.put("aimError", Json.str(state.aimError == null ? "" : state.aimError));
             map.put("cooldown", Json.num(state.cooldown));
             return Json.obj(map);
         }

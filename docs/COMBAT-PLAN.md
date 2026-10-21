@@ -4,6 +4,8 @@
 > （`mod-client/dist/agent-client-1.0.0.jar` 75000 字节，2026-10-13 17:37 构建，与 PCL 版本目录在装的 jar
 > 字节一致，已在 10-13 17:38 / 22:03 两个真机会话中加载）。**枪械开火、PvP 与遮挡行为已真机验证**（见 §四开头）；
 > 撤退 / 冲锋 / 反卡死三项仍待操作员按 §四 逐条确认。
+> **2026-10-21 追加**：TACZ 右键瞄准修复（反编译 `AimKey` 的 HoldToAim 覆写，改为按住真实
+> `AIM_KEY`；jar 76522 字节，见 §六）——本轮**未做真机客户端测试**（按操作员要求）。
 > 关联提交：`16687a0`（战斗 v3）、`3ba591a`（枪械真机开火 + fireError 诊断）、`1998777`（战斗租约 + `not_a_gun` 自恢复）。
 
 ## 一、四条线
@@ -100,3 +102,42 @@
 - `reload` 端点和 `ClientModBody.reload()` 保留，作为一次可诊断的显式尝试。
 
 仍需真机确认：现代动力枪是否 `inventoryAmmo=true`，以及 `tacz:ammo` 是否与它的 ammo id 匹配。
+
+## 六、TACZ 右键瞄准修复（2026-10-21）
+
+**故障**：枪械交战（`!shoot`、反射迎战、`retreat fire`）不会真正开镜。机制上
+`getClientAimingProgress()` 永远到不了 0.95，2.5s 兜底超时后按“没有 ADS 的枪”放行，
+于是未瞄准就开火；服务器侧 `isAiming` 也在被逐 tick 翻转。
+
+**反编译证据**（`mods/tacz-1.20.1-1.1.8-hotfix.jar`，`javap`；本机客户端
+`versions/1.20.1-Forge_47.4.10/config/tacz-client.toml` 实为 `HoldToAim = true`）：
+
+- `com.tacz.guns.client.input.AimKey` 是 `@Mod.EventBusSubscriber`，`onAimHoldingPreInput`
+  （`TickEvent.ClientTickEvent`，`@SubscribeEvent`）每个 tick 执行
+  `boolean aiming = AIM_KEY.isDown(); ... if (operator.isAim() != aiming) operator.aim(aiming);`。
+  `AIM_KEY` 是 `KeyMapping`（默认鼠标右键 1），受 `KeyConfig.HOLD_TO_AIM` 控制，**默认 true**。
+- `LocalPlayerAim.aim(boolean)` 只写 `data.clientIsAiming` 并发 `ClientMessagePlayerAim`；
+  `tickAimingProgress()` 依据该字段推进/清零 `clientAimingProgress`。所以只调
+  `IClientPlayerGunOperator.aim(true)` 时，下一 tick 就被 `HoldToAim` 处理器改回
+  `AIM_KEY.isDown() == false`，进度起不来。
+- 真实右键路径是 `MouseHandler` → `KeyMapping.set(key, held)` → `KeyMapping.setDown(held)`：
+  **键位映射的 `isDown` 才是 TACZ 认的“右键按住”**，操作员用鼠标时一直成立，自动化只调 API 时不然。
+
+**修复（Mod 侧）**：
+
+- `TaczBridge` 反射解析 `AimKey.AIM_KEY`（独立 try：旧 TACZ 缺该类也不影响枪械桥）；
+  `aim(op, on)` 先 `AIM_KEY.setDown(on)`，再在 `isAim() != on` 时调
+  `IClientPlayerGunOperator.aim(on)`——前者覆盖 `HoldToAim=true`，后者覆盖
+  `HoldToAim=false` 的开关式瞄准；`isAim` 守卫避免逐 tick 重复发 `ClientMessagePlayerAim`；
+- `ClientActions.gunTick` 每 tick 缓存 `isAim()` / `aimingProgress()` 到 `GunFireState`：
+  TACZ 自己清掉瞄准（拔枪动画 `clientDrawTimestamp`、`clientStateLock`）后立即重新
+  `aim(true)`，不再空等 2.5s 兜底开火；`/progress` 新增 `aiming` / `aimProgress` / `aimError`；
+- 所有停止路径（`releaseAllKeys`、`gunRelease`、动作替换/停止/异常/死亡）**无条件**释放
+  aim 键——旧代码在 `operator == null` 时跳过释放，键会卡住并让下一次动作继续开镜。
+
+**验证**：`gradlew build --offline` 通过，`mod-client/dist/agent-client-1.0.0.jar` **76522 字节**，
+已 `npm run client:install` 覆盖 PCL 版本目录（需重启客户端生效）。离线：
+`client:test 74/74`、`control:test 38/38`、`skills:test 59/59`、`selftest 177/177`、
+`plan:audit --stage p1 100/100`（新增一条“瞄准必须按 hold-to-aim 持键”的静态审计）。
+**按操作员要求本轮不做真机客户端测试**；真机恢复后看 `/progress.aimProgress` 是否升到 ≥0.95 即可确认。
+

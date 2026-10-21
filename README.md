@@ -192,7 +192,7 @@ LLM 层（`src/llm/`，生产配置已开启 `toolCalling`）：8 个工具 —�
   `path:test 35/35`、`clientmod:test 11/11`、`verify:roleplay 34/34`、`llm:dry` 路由 67/67 + 工具 43/43（明细见 §8）。
 * P1 离线（2026-10-18 实跑）：`p1:verify`（P0 8/8 + `planner:test 32/32` + `p1:contract:test 158/158` +
   `p1:m3:test 25/25` + `p1:m6:test 10/10` + `p1:m7:test 9/9` + `p1:m4:test 12/12` +
-  `p1:fault:test 7/7` + `plan:audit --stage p1 99/99`）；真机/模型项**部分执行**：
+  `p1:fault:test 7/7` + `plan:audit --stage p1 100/100`）；真机/模型项**部分执行**：
   `client:verify 23/23`、登录+寻路 7/7、砍树 PASS、独立 mine 一次 2/2 / 厚土柱 0/2、
   `--dig stone` 点位失败、持久化 save/重启恢复部分通过、夜间门禁会中止；
   其余未执行项见 `docs/P1-CLIENT-TESTS.md`。
@@ -202,9 +202,10 @@ LLM 层（`src/llm/`，生产配置已开启 `toolCalling`）：8 个工具 —�
   A23–A30、A27、F2 **仍未执行**；M5 因 CU 未授权继续 BLOCKED。详见
   `docs/P1-CLIENT-VERIFICATION.md`、`docs/M1-CLIENT-TEST-2026-10-17.md`、
   `docs/M2-CLIENT-TEST-2026-10-17.md`、`docs/P1-M4-SANDBOX.md`。
-* 控制 Mod：`mod-client/dist/agent-client-1.0.0.jar` **75631 字节**（2026-10-18 16:29 构建，含 WalkTo 严格到达
-  y 容差、战斗 v3、TACZ 枪械与 server `dayTime` 昼夜判断）；已 `client:install`，与 PCL 版本目录在装的 jar
-  字节一致（sha256 相同），并已在真机会话中加载。改 Mod 后必须重装（`npm run client:install`）并重启客户端。
+* 控制 Mod：`mod-client/dist/agent-client-1.0.0.jar` **76522 字节**（2026-10-21 19:03 构建，含 WalkTo 严格到达
+  y 容差、战斗 v3、TACZ 枪械与 server `dayTime` 昼夜判断、**TACZ `HoldToAim` 右键瞄准修复**——反编译
+  `AimKey` 后改为持有真实 `AIM_KEY` 映射，见 `docs/COMBAT-PLAN.md` §六）；已 `client:install` 覆盖 PCL 版本目录。
+  改 Mod 后必须重装（`npm run client:install`）并重启客户端。本次瞄准修复**未做真机验证**（按操作员要求）。
 * **规划器（自主决策）专项**：`slowLoop → decide() → runTask` 这条回路的问题与 **`!` 命令回路**、
   **LLM `do_task`/`do_skill` 回路**分开记账——已核实 10 条（含 `shelter` 规则静默死规则、`light` 无能力闸门、
   矿石路径零进展判定失效）与重构债 7 条见 [`docs/PLANNER-REFACTOR.md`](docs/PLANNER-REFACTOR.md)。
