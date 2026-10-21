@@ -188,6 +188,16 @@ followup 打进 live 对话，模型答完一个回合就结束——长任务�
   `@deepseek-ai/dsh-tool-goal`；缺失时 goal 模式返回 **503**，不会静默退化成文本。
 - 离线断言：`npm run plugin:goal:test`（goal 创建/GET/pause/resume/409/replace/text 兼容/503）。
 
+**真机验证（2026-10-21，真实 Forge 客户端）**：goal `goal-4c197708…`（maxGoalRounds=8，采集 2 泥土 →
+合成 4 木棍 → 走到 (0,64,40) 两格内）：
+- rounds **4/8** 后 phase=complete（revision 4，disarmed）；终态 dirt 23≥22、stick 42≥42、
+  position (-0.56,64,40.1) 距目标 0.57≤2；
+- 中途 `POST /goal/pause` → 200（phase=paused，cancelledTurns=[turn-1]，
+  cancelledPlans=[plan-1792558850024-de10r]）；复查该 plan cancelled、`brain.current=null`、queue=0；
+  `POST /goal/resume` → active/armed，随后继续跑完并 complete；
+- 会话日志有 5 条 `<goal_round>` 与 `get_goal`/`update_goal` 调用；证据见
+  `runtime` 计划记录与 `.tmp/goal-real-client-2026-10-21.md`（工作副本）。
+
 ### 边界
 
 - 隐藏 agent 不做 H1；live `/goal` 要求预先存在一个 DSH 对话。
