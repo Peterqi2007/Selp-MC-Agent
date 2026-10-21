@@ -478,16 +478,41 @@ function toolDefinitions({ controlUrl, record, log, runtime }) {
       });
       const receipt = await res.json();
       if (receipt && receipt.turnId) runtime.trackTurn(receipt.turnId, receipt.planId);
-      record.plans.push({ planId: receipt && receipt.planId, turnId: receipt && receipt.turnId, at: new Date().toISOString() });
+      /**
+       * The local agent's rejection is part of the result, not noise to be dropped.
+       *
+       * Without `error`, a refused replan (409 `budget-exhausted`) used to look exactly
+       * like "no live agent bound": the model could only guess from persisted budget or
+       * the draft-guard source (live A15, 2026-10-20). Keep the HTTP status and Node's
+       * `error`/`detail`/`activeTurn` so the action brain can react to the real reason.
+       */
+      const error =
+        receipt && (receipt.error || (receipt.detail && receipt.detail.reason) || null);
+      record.plans.push({
+        planId: receipt && receipt.planId,
+        turnId: receipt && receipt.turnId,
+        at: new Date().toISOString(),
+        httpStatus: res.status,
+        ok: !!(receipt && receipt.ok),
+        error
+      });
       return JSON.stringify({
-        ok: receipt.ok === true,
-        planId: receipt.planId || body.planId || null,
-        turnId: receipt.turnId || null,
-        state: receipt.state || null,
-        async: !!receipt.turnId,
-        hint: receipt.turnId
-          ? 'The plan is running; this conversation will be resumed when it settles. Do not duplicate it with mc_step.'
-          : 'No bound live agent: poll mc_plan_status with the planId.'
+        ok: !!(receipt && receipt.ok),
+        httpStatus: res.status,
+        planId: (receipt && receipt.planId) || body.planId || null,
+        turnId: (receipt && receipt.turnId) || null,
+        state: (receipt && receipt.state) || null,
+        version: receipt && Number.isFinite(receipt.version) ? receipt.version : null,
+        async: !!(receipt && receipt.turnId),
+        error,
+        detail: (receipt && receipt.detail) || null,
+        activeTurn: (receipt && receipt.activeTurn) || null,
+        hint:
+          !receipt || receipt.ok !== true
+            ? 'The local agent rejected this plan; read error/detail before changing anything. Do not retry the same step repeatedly and do not bypass this with mc_step.'
+            : receipt.turnId
+              ? 'The plan is running; this conversation will be resumed when it settles. Do not duplicate it with mc_step.'
+              : 'No bound live agent: poll mc_plan_status with the planId.'
       });
     }
   };
