@@ -20,6 +20,7 @@ const { CraftTask } = require('./tasks/craft');
 const { GoToTask } = require('./tasks/goto');
 const { MineBlockTask } = require('./tasks/mineBlock');
 const { MineOreTask } = require('./tasks/mineOre');
+const { FishTask } = require('./tasks/fish');
 const { ShelterTask } = require('./tasks/shelter');
 const { HuntTask } = require('./tasks/hunt');
 const { LightTask } = require('./tasks/light');
@@ -1672,6 +1673,7 @@ const TASK_BUILDERS = {
   goto: (ctx, args) => new GoToTask(ctx, args),
   mine: (ctx, args) => new MineBlockTask(ctx, args),
   'mine-ore': (ctx, args) => new MineOreTask(ctx, args),
+  fish: (ctx, args) => new FishTask(ctx, args),
   light: (ctx, args) => new LightTask(ctx, args)
 };
 

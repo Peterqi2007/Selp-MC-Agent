@@ -26,6 +26,7 @@ const { BodyWorldView } = require('../src/world/bodyWorldView');
 const { ChopWoodTask } = require('../src/tasks/chopWood');
 const { MineBlockTask, dropOf } = require('../src/tasks/mineBlock');
 const { GoToTask } = require('../src/tasks/goto');
+const { FishTask } = require('../src/tasks/fish');
 const { loadConfig } = require('../src/util/config');
 
 const log = { debug() {}, info() {}, warn() {}, error() {} };
@@ -1188,6 +1189,64 @@ function treeBlocks(x, z, height, species = 'oak', options = {}) {
     const res = await planner.plan({ x: 4, y: 64, z: 0 });
     expect(res.status === STATUS.SUCCESS, `with the guard off this should succeed, got ${res.status} (${res.reason})`);
     return 'guard disabled -> route allowed';
+  });
+
+  // ---------------------------------------------------------------- task adapters
+  process.stdout.write('\n4. task adapter - fish (DSH plan step + !fish)\n');
+
+  /** A stone bank next to deep-enough open water: the geometry the fish skill expects. */
+  function fishPondBlocks() {
+    const blocks = [];
+    const cx = 7;
+    const radius = 4;
+    for (let x = cx - radius; x <= cx + radius; x += 1) {
+      for (let z = -radius; z <= radius; z += 1) {
+        blocks.push({ name: 'water', position: { x, y: 62, z } });
+        blocks.push({ name: 'water', position: { x, y: 63, z } });
+        for (let y = 64; y <= 68; y += 1) blocks.push({ name: 'air', position: { x, y, z } });
+      }
+    }
+    for (let x = 0; x <= 2; x += 1) {
+      for (let z = -4; z <= 4; z += 1) {
+        blocks.push({ name: 'stone', position: { x, y: 63, z } });
+        blocks.push({ name: 'air', position: { x, y: 64, z } });
+        blocks.push({ name: 'air', position: { x, y: 65, z } });
+      }
+    }
+    return blocks;
+  }
+
+  const fishBody = () =>
+    new MockBody(cfg, {
+      start: { x: 0, y: 64, z: 0 },
+      blocks: fishPondBlocks(),
+      inventory: { 'minecraft:fishing_rod': 1 },
+      bitesAfter: 1,
+      rodUses: 6
+    });
+
+  await scenario('FishTask runs the fish skill and reports catches as progress', async () => {
+    const body = fishBody();
+    await body.connect();
+    const task = new FishTask(makeCtx(body, cfg), { count: 1, maxMs: 30000, eatAt: 1 });
+    const res = await task.execute();
+    expect(res.ok, `expected success, got ${JSON.stringify(res)}`);
+    expect(task.progress() >= 1, `progress should count catches, got ${task.progress()}`);
+    expect((body.inventory['minecraft:cod'] || 0) >= 1, 'the catch should be in the bag');
+    return `${task.progress()} catch(es), ${res.reason}`;
+  });
+
+  await scenario('FishTask cancellation reaches the skill loop', async () => {
+    const body = fishBody();
+    await body.connect();
+    const task = new FishTask(makeCtx(body, cfg), { count: 4, maxMs: 60000, eatAt: 1 });
+    const running = task.execute();
+    await new Promise((resolve) => setTimeout(resolve, 250));
+    task.cancel();
+    const res = await running;
+    expect(!res.ok, `a cancelled fish run must fail, got ${JSON.stringify(res)}`);
+    expect(res.failure === 'interrupted', `expected interrupted, got ${JSON.stringify(res)}`);
+    return res.reason;
   });
 
   // ---------------------------------------------------------------- summary

@@ -29,6 +29,7 @@ const { LightTask } = require('../tasks/light');
 const { ChopWoodTask } = require('../tasks/chopWood');
 const { MineBlockTask } = require('../tasks/mineBlock');
 const { MineOreTask } = require('../tasks/mineOre');
+const { FishTask } = require('../tasks/fish');
 const { GoToTask } = require('../tasks/goto');
 const { inventorySummary } = require('../world/items');
 const { Logger } = require('../util/logger');
@@ -59,6 +60,7 @@ const HELP = [
   '!lookat <x> <y> <z> - look at a coordinate',
   '!target - what is under the crosshair right now',
   '!smelt <item> [n] - smelt in a nearby furnace',
+  '!fish [n] - fish for food (cast, wait for the bite, sleep at night)',
   '!farm [radius] - harvest ripe crops, till soil, plant seeds',
   '!sleep - sleep in a nearby bed until morning',
   '!goal <text> - queue a goal in words',
@@ -341,6 +343,17 @@ class ChatController {
       smelt: (args) => {
         if (!args[0]) throw new Error('usage: !smelt <item> [count]');
         return this.runSkill('smelt', { item: args[0], count: Number(args[1]) || 1 });
+      },
+      /**
+       * Fishing is a task, not an inline skill: the default budget is 15 minutes and the
+       * command endpoint (`POST /command`, used by the panel and the DSH plugin) must
+       * answer immediately. The task keeps cancellation/`!task status`/events intact.
+       */
+      fish: (args) => {
+        const count = Number(args[0]);
+        const options = Number.isFinite(count) && count > 0 ? { count: Math.min(count, 256) } : {};
+        this.say(options.count ? `去钓鱼，最多 ${options.count} 条` : '去钓鱼');
+        return this.enqueue(new FishTask(ctx, options));
       },
       shelter: () => this.enqueue(new ShelterTask(ctx)),
       light: (args) => this.enqueue(new LightTask(ctx, { count: Number(args[0]) || 4 })),

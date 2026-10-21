@@ -332,6 +332,30 @@ async function buildAgent(options = {}) {
     return `collected ${apples} apples, dug ${dug} blocks`;
   });
 
+  await scenario('!fish queues the fish task and DSH plans accept fish as a step type', async () => {
+    const agent = await buildAgent();
+    // Pause the drain so the assertion sees the queued task instead of starting a
+    // multi-minute fishing run on the fixture.
+    agent.brain.paused = true;
+    let queued = null;
+    const original = agent.brain.enqueue.bind(agent.brain);
+    agent.brain.enqueue = (task, options) => {
+      queued = task;
+      return original(task, options);
+    };
+    const receipt = await agent.chat.handle('fish 2', 'test');
+    expect(receipt && receipt.ok === true, `!fish was refused: ${JSON.stringify(receipt)}`);
+    expect(queued && queued.name === 'fish', `expected a FishTask, got ${queued && queued.name}`);
+    expect(queued.maxCatches === 2, `!fish 2 should cap at 2 catches, got ${queued.maxCatches}`);
+    const types = agent.brain.planService.knownStepTypes;
+    expect(
+      types && types.has('fish'),
+      `fish is not a known plan/proposal step type (${types ? [...types].join(',') : 'none'})`
+    );
+    agent.stop();
+    return '!fish -> FishTask; mc_plan/mc_propose accept fish';
+  });
+
   await scenario('!mine without a pickaxe fails with the honest reason', async () => {
     const agent = await buildAgent({ inventory: {} });
     await agent.say('!mine stone 4');

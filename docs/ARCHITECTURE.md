@@ -205,7 +205,8 @@ mineflayer→ controller.connect()，在 'spawn' 事件里 rearm/scan/rescue/too
 
 * `!` 指令（`src/chat/commands.js`）——新操作（eat/equip/armor/place/use/attack/explore/withdraw/
   deposit/come/craft/smelt/farm/sleep…）走 `runSkill()`；老操作（mine/chop/hunt/shelter/light/store/goto）
-  仍指旧任务层；
+  仍指旧任务层；`fish` 走 `FishTask` 适配器（任务层包装 `fish` 技能，供 `mc_plan`/`mc_propose`
+  的 `fish` 步骤与 `!fish` 共用）；
 * LLM 的 `do_skill` / `do_task` 工具（`src/llm/tools/actuators.js`）。
 
 **`src/skills/miningPlan.js`（numen 式采矿的核心）**：
@@ -590,20 +591,22 @@ Places        ──► runtime/places.json；LLM 轨迹 ──► runtime/llm-t
 
 | 套件 | 覆盖 | 现状（2026-10-14 实测） |
 | --- | --- | --- |
-| `npm run selftest` | 模块图 / 插件 / 寻路 / 三原语 / 意图 Schema / 工具白名单 / 死亡处理 | 176/176 |
+| `npm run selftest` | 模块图 / 插件 / 寻路 / 三原语 / 意图 Schema / 工具白名单 / 死亡处理 | 177/177 |
 | `npm run p0:verify` | 一次跑 8 个套件（path/tasks/llm:dry/control/roleplay/clientmod/selftest/plan:audit） | 8/8 |
-| `npm run skills:test` | 20 个技能（含采矿报价/台账/防坠落/垫柱/共享收集、collect 新鲜扫描、战斗与枪械） | 64/64（2026-10-21） |
-| `npm run client:test` | 假 Mod 协议（含 tunnel / pillar / verdict / 空闲刷新 / shoot / retreat） | 73/73 |
+| `npm run skills:test` | 20 个技能（含采矿报价/台账/防坠落/垫柱/共享收集、collect 新鲜扫描、fish 任务适配器、战斗与枪械） | 64/64（2026-10-21） |
+| `npm run client:test` | 假 Mod 协议（含 tunnel / pillar / verdict / 空闲刷新 / shoot / retreat） | 74/74 |
 | `npm run clientmod:test` | clientmod 躯体角色扮演端到端 | 11/11 |
 | `npm run mining:entry:test` | 统一挖矿入口 A 系列（含 A10 规划器停牌键、A11 全矿种深板岩矩阵） | 25/25 |
 | `npm run mining:collection:test` | 掉落物共享收集 C 系列 | 24/24 |
 | `npm run mining:recovery:test` | LLM 异常接管 R 系列（脚本化模型，不调付费模型） | 18/18 |
 | `npm run verify:roleplay` | 角色扮演审计（无游戏、无网络） | 34/34 |
-| `npm run path:test` / `tasks:test` / `control:test` / `llm:dry` / `plan:audit` | 寻路 35 / 三原语 52 / 双通道+面板+反射 37 / 路由 67+工具 43 / 计划符合性 29 | 全绿 |
+| `npm run path:test` / `tasks:test` / `control:test` / `llm:dry` / `plan:audit` | 寻路 35 / 三原语 57 / 双通道+面板+反射 40 / 路由 67+工具 43 / 计划符合性 32（p1 102） | 全绿 |
 | `npm run client:verify` / `scripts/client-real.js` | 真机协议验收 / 三原语验收 | 需要客户端在跑 |
 
 离线全绿 ≠ 真机通过：真机测试需要操作员确认环境（`start.ps1` → 面板 → 按 REWRITE-PLAN §12 清单）。
 计数口径：本表为 2026-10-14 实跑值（与 `README.md` §8 同源）；改代码后请重跑 `npm run p0:verify` 与相关套件并同步两处。
+2026-10-21 复跑（fish 入口 + collect 修复）：`selftest 177/177`、`skills:test 64/64`、`tasks:test 57/57`、
+`control:test 40/40`、`client:test 74/74`、`p1:contract:test 206/206`、`plan:audit 32/32`（`--stage p1 102/102`）。
 
 ---
 

@@ -111,6 +111,23 @@ register({
     const body = ctx.body;
     const deadline = Date.now() + params.maxMs;
     const stats = { catches: 0, sleeps: 0, casts: 0, openCasts: 0, closedCasts: 0, ate: 0, collected: 0 };
+    /**
+     * Cancellation hook for the task-layer adapter (`!fish`, plan steps, TaskHub).
+     *
+     * Fishing spends most of its time waiting for a bite (up to `biteTimeoutMs`), so the
+     * token is checked inside the waits as well: `!stop` must not sit out the next 45 s.
+     */
+    const signal = ctx.taskSignal || null;
+    const cancelled = () => !!(signal && signal.cancelled);
+    const interrupted = () => ({
+      ok: false,
+      failure: 'interrupted',
+      reason: (signal && signal.reason) || 'cancelled',
+      catches: stats.catches,
+      sleeps: stats.sleeps,
+      casts: stats.casts,
+      detail: `cancelled after ${stats.catches} catch(es)`
+    });
     const blockedWater = new Set();
     const waterKey = (position) => `${position.x},${position.y},${position.z}`;
 
@@ -307,6 +324,7 @@ register({
     /** The chosen bank. Picked and walked to ONCE; only nightfall moves the bot again. */
     let spot = null;
     for (;;) {
+      if (cancelled()) return interrupted();
       if (Date.now() > deadline) {
         return {
           ok: true,
@@ -574,7 +592,7 @@ register({
         await body.useItem().catch(() => false);
         stats.casts += 1;
         const castUntil = Date.now() + 2500;
-        while (Date.now() < castUntil) {
+        while (Date.now() < castUntil && !cancelled()) {
           await sleep(250);
           current = await refresh(ctx);
           if (current.fishing) break;
@@ -607,7 +625,7 @@ register({
       // Wait for the bite.
       const biteUntil = Date.now() + params.biteTimeoutMs;
       let bit = false;
-      while (Date.now() < biteUntil) {
+      while (Date.now() < biteUntil && !cancelled()) {
         await sleep(250);
         const state = await refresh(ctx);
         if (!rodInBag(state)) break;
@@ -618,6 +636,7 @@ register({
           break;
         }
       }
+      if (cancelled()) return interrupted();
 
       // Reel in (also on a timeout, so a stale hook never blocks the next cast).
       // The bag is counted BEFORE the reel: the fish lands the moment the rod is pulled,
@@ -629,7 +648,7 @@ register({
       await body.useItem().catch(() => false);
       const reelUntil = Date.now() + 3000;
       let after = await refresh(ctx);
-      while (after.fishing && Date.now() < reelUntil) {
+      while (after.fishing && Date.now() < reelUntil && !cancelled()) {
         await sleep(250);
         after = await refresh(ctx);
       }

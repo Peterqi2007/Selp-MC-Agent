@@ -464,17 +464,47 @@ check('the collect command is a real skill, not a chop alias', () => {
   return 'fresh 15x15x15 scan + pathfind:true + zero-progress failure';
 });
 
+check('fish is exposed as a command and registered for DSH plans', () => {
+  // 2026-10-21: fish existed only as a skill (reachable via do_skill/fallback), so the DSH
+  // action brain could not use it through !fish, mc_plan or mc_propose. The task adapter is
+  // the registration point: TASK_BUILDERS feeds PlanService.knownStepTypes.
+  const commands = read('src/chat/commands.js');
+  const brain = read('src/brain.js');
+  const task = read('src/tasks/fish.js');
+  const fishing = read('src/skills/fishing.js');
+  if (!/fish:\s*\(args\)\s*=>/.test(commands) || !/new FishTask/.test(commands)) {
+    throw new Error('!fish does not enqueue the FishTask');
+  }
+  if (!/fish:\s*\(ctx, args\)\s*=>\s*new FishTask/.test(brain)) {
+    throw new Error('fish is not in TASK_BUILDERS, so mc_plan/mc_propose reject it');
+  }
+  if (!/skills\.run\('fish'/.test(task) || !/ctxWithSignal/.test(task)) {
+    throw new Error('FishTask does not run the fish skill with a cancellation token');
+  }
+  if (!/ctx\.taskSignal/.test(fishing) || !/cancelled\(\)/.test(fishing)) {
+    throw new Error('the fish skill ignores its cancellation token');
+  }
+  return '!fish -> FishTask; fish step type; skill honours taskSignal';
+});
+
 check('the P0 exclusions are still exclusions', () => {
   const brain = read('src/brain.js');
   const evaluator = read('src/planner/evaluator.js');
   const capabilities = read('src/core/capabilities.js');
-  // Fishing was cancelled; hunting/light/store are capability-gated per body.
-  if (exists('src/tasks/fish.js')) throw new Error('FishingTask should not exist (cancelled in P0)');
+  /**
+   * P0 cancelled a standalone `FishingTask`. Phase 3 later shipped the `fish` *skill*, and
+   * 2026-10-21 added `FishTask` as a thin adapter so DSH plans and `!fish` share it. The
+   * exclusion that still matters is "no second fishing implementation": the task layer may
+   * only exist if it delegates to the registered skill.
+   */
+  if (exists('src/tasks/fish.js') && !/skills\.run\('fish'/.test(read('src/tasks/fish.js'))) {
+    throw new Error('FishingTask came back as a standalone implementation (P0 cancelled it)');
+  }
   // M1b moved the flags into the one capability table; check the whole planner surface.
   const plannerSource = brain + evaluator + capabilities;
   if (!/supportsHunting/.test(plannerSource)) throw new Error('hunting is not capability-gated');
   if (!/supportsDeposit/.test(plannerSource)) throw new Error('storing is not capability-gated');
-  return 'no fishing; hunt/store gated on body capability (capabilities table)';
+  return 'no standalone fishing task; hunt/store gated on body capability';
 });
 
 check('every config key the plan adds is actually consumed', () => {
