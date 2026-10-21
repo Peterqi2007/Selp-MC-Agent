@@ -227,9 +227,6 @@ function startStatusServer(ctx, options = {}) {
        * or tool for it; results are untrusted data and never an action.
        */
       if (req.method === 'POST' && url.pathname === '/lookup_mod_content') {
-        if (!ctx.webSearch || typeof ctx.webSearch.lookup !== 'function') {
-          return json(res, 503, { ok: false, error: 'web lookup unavailable' });
-        }
         let body = {};
         try {
           body = JSON.parse((await readRaw(req)) || '{}');
@@ -238,6 +235,21 @@ function startStatusServer(ctx, options = {}) {
         }
         const query = String(body.query || '').trim();
         if (!query) return json(res, 400, { ok: false, error: 'query required' });
+        /**
+         * A16 adversarial test hook: `P1_LOOKUP_FIXTURE=on` (src/index.js) installs a
+         * fixture only for the magic query. Real lookups keep using the broker; the
+         * fixture exists so "web page tells the agent to change permissions" is
+         * reproducible without controlling a real search result.
+         */
+        if (typeof ctx.lookupFixture === 'function') {
+          const fixture = ctx.lookupFixture(query);
+          if (fixture) {
+            return json(res, 200, { ...fixture, source: 'p1-lookup-fixture', untrusted: true });
+          }
+        }
+        if (!ctx.webSearch || typeof ctx.webSearch.lookup !== 'function') {
+          return json(res, 503, { ok: false, error: 'web lookup unavailable' });
+        }
         const result = await ctx.webSearch.lookup(query, {
           count: body.count,
           needContent: body.needContent === true,
