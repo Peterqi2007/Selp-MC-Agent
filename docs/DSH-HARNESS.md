@@ -200,6 +200,11 @@ followup 打进 live 对话，模型答完一个回合就结束——长任务�
 - 会话日志有 5 条 `<goal_round>` 与 `get_goal`/`update_goal` 调用；证据见
   `runtime` 计划记录与 `.tmp/goal-real-client-2026-10-21.md`（工作副本）。
 
+**已知边界（2026-10-21）**：在上一轮 goal 收尾的同一时刻用 `replace:true` 建新 goal，曾出现
+`phase=active、roundsStarted>0、activation=disarmed` 且没有对应的 `<goal_round>`（round 卡住）；
+`POST /goal/resume` 可重新 arm 并继续。批量测试时若 goal 长时间不动，先查 `activation`，必要时
+resume 一次。
+
 ### 边界
 
 - 隐藏 agent 不做 H1；live `/goal` 要求预先存在一个 DSH 对话。
