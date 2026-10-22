@@ -25,6 +25,7 @@ const { HuntTask } = require('../tasks/hunt');
 const { ShelterTask } = require('../tasks/shelter');
 const { CraftTask } = require('../tasks/craft');
 const { DepositTask } = require('../tasks/deposit');
+const { WithdrawTask } = require('../tasks/withdraw');
 const { LightTask } = require('../tasks/light');
 const { ChopWoodTask } = require('../tasks/chopWood');
 const { MineBlockTask } = require('../tasks/mineBlock');
@@ -53,7 +54,7 @@ const HELP = [
   '!defend [range] - fight hostiles that come close',
   '!shoot [type|player <name>] [weapon] - shoot with a TACZ gun (16 blocks, 32 for snipers)',
   '!explore [distance] [direction] - walk somewhere new',
-  '!withdraw <item> [n] - take items out of a nearby chest',
+  '!withdraw <item> [n] - take exactly that many from pure containers within 15x15x9 (background task)',
   '!deposit <item> <count> - store exactly that many in a pure container (builds a chest if needed)',
   '!store <item> <count> - alias of !deposit',
   '!come <player> - walk to a visible player',
@@ -292,10 +293,7 @@ class ChatController {
         return this.runSkill('shoot', params);
       },
       explore: (args) => this.runSkill('explore', { distance: Number(args[0]) || 16, direction: args[1] }),
-      withdraw: (args) => {
-        if (!args[0]) throw new Error('usage: !withdraw <item> [count]');
-        return this.runSkill('withdraw', { item: args[0], count: Number(args[1]) || 1 });
-      },
+      withdraw: (args) => this.withdrawCommand(args),
       deposit: (args) => this.depositCommand(args),
       come: (args) => {
         if (!args[0]) throw new Error('usage: !come <player>');
@@ -816,6 +814,26 @@ class ChatController {
     const capped = Math.min(Math.floor(count), 2304);
     this.say(`去存 ${capped} 个 ${item}`);
     return this.enqueue(new DepositTask(this.ctx, { item, count: capped }));
+  }
+
+  /**
+   * `!withdraw <item> [count]` (2026-10-21 optimization).
+   *
+   * The skill now walks to each pure container with A* and reads it for the item, so the
+   * command runs as a background task like deposit; the HTTP command endpoint must answer
+   * immediately instead of blocking for the walk. `item` is required, `count` defaults to 1.
+   */
+  withdrawCommand(args = []) {
+    const item = String(args[0] || '').trim();
+    if (!item) throw new Error('usage: !withdraw <item> [count]');
+    let count = 1;
+    if (args[1] !== undefined) {
+      const parsed = Number(args[1]);
+      if (!Number.isFinite(parsed) || parsed < 1) throw new Error('usage: !withdraw <item> [count]');
+      count = Math.min(Math.floor(parsed), 2304);
+    }
+    this.say(`去取 ${count} 个 ${item}`);
+    return this.enqueue(new WithdrawTask(this.ctx, { item, count }));
   }
 
   /**

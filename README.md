@@ -228,6 +228,16 @@ LLM 层（`src/llm/`，生产配置已开启 `toolCalling`）：8 个工具 —�
   （无 item/count 的“把东西存起来”由任务推导最大非工具堆）。旧 **mineflayer 直连容器实现已删除**：
   统一后 `deposit` 需要菜单 API，mineflayer body 会诚实报告不支持（clientmod 不受影响）。离线 `skills:test 68/68`、
   `control:test 41/41`、`plan:audit 33/33`（p1 103/103）；**未做客户端测试**。
+* **`withdraw` 优化 + 任务适配器（2026-10-21）**：`withdraw` 与 `deposit` 共用 **15×15(x/z) × 9(y)**
+  纯容器扫描和 `pathfind:true` 的 **A\*** 走位；候选按距离排序，逐个打开并**读取箱子内是否有所需物品**，
+  没有就关箱继续下一个。菜单必须是纯容器（Chest/Barrel/Shulker；工作台/熔炉等非纯菜单拒绝/跳过）。
+  取物按 count **精确**：整叠 shift-click；最后一叠“拿起→右键往背包逐件放→余量放回箱子”；
+  每个箱子搬完重读菜单核对容器侧实际减少量，必要时**跨多个箱子累计**到 count，不足则诚实失败。
+  `!withdraw` 改为后台 `WithdrawTask`（`item` 必填，`count` 默认 1）；`WithdrawTask` 已进入
+  `TASK_BUILDERS` → `PlanService.knownStepTypes`，DSH 的 `mc_plan`/`mc_propose` 可直接使用
+  `withdraw` 步骤；DSH 插件说明已同步并 `dsh:install` 到 profile（需重启 DSH 生效）。
+  离线 `skills:test 71/71`、`control:test 42/42`、`plan:audit 34/34`（p1 104/104）、
+  `selftest 179/179`；**未做客户端测试**。
 * **规划器（自主决策）专项**：`slowLoop → decide() → runTask` 这条回路的问题与 **`!` 命令回路**、
   **LLM `do_task`/`do_skill` 回路**分开记账——已核实 10 条（含 `shelter` 规则静默死规则、`light` 无能力闸门、
   矿石路径零进展判定失效）与重构债 7 条见 [`docs/PLANNER-REFACTOR.md`](docs/PLANNER-REFACTOR.md)。
@@ -297,7 +307,7 @@ LLM 层（`src/llm/`，生产配置已开启 `toolCalling`）：8 个工具 —�
 !craft <item> [n] / !smelt <item> [n] / !farm [r] / !sleep / !fish [n]
 !eat [food] / !equip <item> / !armor / !drop <item> [n]
 !place <item> <x> <y> <z> / !use <x> <y> <z> / !attack / !defend
-!explore [距离] [方向] / !come <玩家> / !withdraw <item> [n]
+!explore [距离] [方向] / !come <玩家> / !withdraw <item> [n]   # withdraw 为后台任务，扫描 15×15×9 纯容器并读箱
 !deposit <item> <count> / !store <item> <count>   # 同一条命令；范围内无箱子会自动做并放下一个
 !task status / !task stop          # 后台任务槽
 !area … / !route …                 # 命名区域 / 路线（route plan 只算不走）
@@ -446,17 +456,17 @@ Invoke-RestMethod -Uri http://127.0.0.1:8766/ui/state
 | `npm run client:build` / `client:install` | 构建 / 安装控制 Mod | 主线 |
 | `npm run client:test` | 假 Mod 协议测试（含 pillar 回执/隧道保护/空闲刷新/shoot/retreat） | 74/74 |
 | `npm run clientmod:test` | clientmod 躯体角色扮演路径 | 11/11 |
-| `npm run skills:test` | 技能库（含采矿/垫柱/护甲/武器/进食/枪械选枪与反卡死、战斗租约、collect 新鲜扫描、deposit 精确搬运） | 68/68 |
+| `npm run skills:test` | 技能库（含采矿/垫柱/护甲/武器/进食/枪械选枪与反卡死、战斗租约、collect 新鲜扫描、deposit 精确搬运、withdraw 读箱/跨箱精确取物） | 71/71 |
 | `npm run mining:entry:test` | 统一挖矿入口 A 系列（含 A10 规划器停牌键、A11 全矿种深板岩矩阵） | 25/25 |
 | `npm run mining:collection:test` | 掉落物收集 C 系列 | 24/24 |
 | `npm run mining:recovery:test` | LLM 异常接管 R 系列（脚本化模型） | 18/18 |
-| `npm run selftest` | 全量离线自检 | 177/177 |
+| `npm run selftest` | 全量离线自检 | 179/179 |
 | `npm run p0:verify` | P0 全量验收（一次跑 8 个套件） | 8/8 |
 | `npm run path:test` | 寻路场景（含跨网格子目标接力、河流与桥、陡坎不乱走、游泳过湖） | 31/31 |
 | `npm run tasks:test` | 三原语（走 / 挖 / 捡）+ FishTask 适配器 | 57/57 |
 | `npm run llm:dry` | 意图路由 / Schema / 工具白名单 / 完工播报去重 | 路由 67/67 · 工具 43/43 |
-| `npm run control:test` | 双通道 + 面板 + 死亡处理 + 反射路由 + 战斗反射 | 41/41 |
-| `npm run plan:audit` | 计划书 §11 符合性 | 33/33（`--stage p1` 103/103） |
+| `npm run control:test` | 双通道 + 面板 + 死亡处理 + 反射路由 + 战斗反射 | 42/42 |
+| `npm run plan:audit` | 计划书 §11 符合性 | 34/34（`--stage p1` 104/104） |
 | `npm run inspect:server` / `mods:report` | 连服前体检 / Mod 知识报告 | 辅助 |
 | `npm run body:info` | 查看可用 body 与当前选择 | 辅助 |
 | `npm start` / `npm run server:setup` | 本地无头服务器 + 旧流程（`--no-agent` 只起服） | 历史 / 兼容 |
@@ -521,7 +531,7 @@ P0 已于 2026-10-16 收官（`p0:verify` 8/8、`plan:audit` 29/29）；[`docs/P
 
 ```powershell
 npm run p0:verify      # 离线全量（约 1 分钟，8 个套件）
-npm run selftest       # 176/176：模块图 / 插件 / 寻路 / 三原语 / 意图 Schema / 工具白名单 / 死亡处理
+npm run selftest       # 179/179：模块图 / 插件 / 寻路 / 三原语 / 意图 Schema / 工具白名单 / 死亡处理
 npm run mining:entry:test      # 25/25：统一挖矿入口（含全矿种深板岩矩阵）
 npm run mining:collection:test # 24/24：共享收集
 npm run mining:recovery:test   # 18/18：LLM 接管（脚本化模型）

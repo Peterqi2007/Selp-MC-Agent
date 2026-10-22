@@ -74,6 +74,7 @@ async function main() {
     'src/tasks/hunt',
     'src/tasks/light',
     'src/tasks/deposit',
+    'src/tasks/withdraw',
     'src/chat/commands',
     'src/web/statusServer',
     'src/mods/knowledge',
@@ -233,7 +234,8 @@ async function main() {
     ['src/tasks/shelter', 'ShelterTask', {}],
     ['src/tasks/hunt', 'HuntTask', { count: 2 }],
     ['src/tasks/light', 'LightTask', { count: 2 }],
-    ['src/tasks/deposit', 'DepositTask', {}]
+    ['src/tasks/deposit', 'DepositTask', {}],
+    ['src/tasks/withdraw', 'WithdrawTask', {}]
   ];
   for (const [mod, klass, options] of taskModules) {
     check(`build ${klass}`, () => {

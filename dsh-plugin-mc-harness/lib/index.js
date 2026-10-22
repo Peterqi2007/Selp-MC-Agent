@@ -215,7 +215,7 @@ function toolDefinitions({ controlUrl, record, log, runtime }) {
     parameters: {
       type: 'object',
       properties: {
-        type: { type: 'string', description: 'command-table type, e.g. goto/mine/chop/craft/sleep/fish' },
+        type: { type: 'string', description: 'command-table type, e.g. goto/mine/chop/craft/sleep/fish/withdraw' },
         name: { type: 'string', description: 'target label for cooldown/authorization; defaults to type' },
         args: { type: 'object', description: 'task args' },
         reason: { type: 'string', description: 'short player-facing reason' }
@@ -311,7 +311,7 @@ function toolDefinitions({ controlUrl, record, log, runtime }) {
     name: 'mc_step',
     description:
       'Execute ONE Minecraft action through the local agent, e.g. "goto 70 64 32", ' +
-      '"mine dirt 2", "chop 2", "fish 3", "stop". Never send multiple actions in one call.',
+      '"mine dirt 2", "chop 2", "fish 3", "withdraw dirt 5", "stop". Never send multiple actions in one call.',
     parameters: {
       type: 'object',
       properties: {
@@ -405,7 +405,7 @@ function toolDefinitions({ controlUrl, record, log, runtime }) {
     name: 'mc_plan',
     description:
       'Submit a multi-step plan to the local Minecraft agent. Each step is one command-table ' +
-      'action (mine/chop/goto/craft/sleep/fish/...) or {type:"wait_for_player", question}. ' +
+      'action (mine/chop/goto/craft/sleep/fish/withdraw/...) or {type:"wait_for_player", question}. ' +
       'Declare checkable postconditions in Node\'s declarative form, e.g. ' +
       '{"inventoryAtLeast":{"minecraft:dirt":2}} or ' +
       '{"positionNear":{"position":{"x":0,"y":64,"z":20},"range":2}} - a plan without a ' +
@@ -1221,7 +1221,7 @@ export function apply(ctx, config = {}) {
           'command-table action, or wait_for_player); the harness will resume this conversation',
           'when the plan settles. Do not also replay the same steps with mc_step.',
           'Commands are the local agent command table, without the leading "!":',
-          'goto <x> <y> <z>, mine <block> <n>, chop <n>, fish [n], stop, status.',
+          'goto <x> <y> <z>, mine <block> <n>, chop <n>, fish [n], withdraw <item> <n>, stop, status.',
           'On a perception wake or before planning after a change, call mc_perception',
           '(type = all/threat/weather/phase/chat) to read the edge events.',
           'Before executing a task, call mc_state(fields=[...]) ONCE and choose the fields',

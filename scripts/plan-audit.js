@@ -551,6 +551,49 @@ check('deposit/store are one implementation with a 15x15x9 pure-container scan',
   return 'one path; item+count required; 15x15x9 pure containers; A*; craft+place fallback';
 });
 
+check('withdraw shares the scan, reads chests, verifies exact count and is a DSH task', () => {
+  // 2026-10-21: withdraw used to scan 8 blocks with the broad
+  // `chest|barrel|crate|shulker|drawer|cabinet|sack` regex, never walked to the chest, took
+  // whole stacks and counted `moved += slot.count` without re-reading the menu. It now uses
+  // the same pure-container scan/box and A* as deposit, reads each chest for the item,
+  // accumulates the exact count, verifies the container-side delta, and has a task adapter
+  // (`withdraw`) so mc_plan/mc_propose can use it.
+  const commands = read('src/chat/commands.js');
+  const containers = read('src/skills/containers.js');
+  const task = read('src/tasks/withdraw.js');
+  const brain = read('src/brain.js');
+  if (!/withdraw:\s*\(args\)\s*=>\s*this\.withdrawCommand\(args\)/.test(commands)) {
+    throw new Error('!withdraw does not use withdrawCommand');
+  }
+  if (!/new WithdrawTask/.test(commands) || !/new WithdrawTask/.test(brain)) {
+    throw new Error('withdraw has no command/task-adapter wiring');
+  }
+  if (!/withdraw:\s*\(ctx,\s*args\)\s*=>\s*new WithdrawTask/.test(brain)) {
+    throw new Error('withdraw is not in TASK_BUILDERS (mc_plan/mc_propose cannot call it)');
+  }
+  if (/ctx\.bot|openContainer/.test(task)) throw new Error('WithdrawTask is a direct mineflayer implementation');
+  if (!/skills\.run\('withdraw'/.test(task)) throw new Error('WithdrawTask does not run the withdraw skill');
+  if (!/async function findContainers/.test(containers) || !/positions = await findContainers\(ctx\)/.test(containers)) {
+    throw new Error('withdraw does not use the shared 15x15x9 container list');
+  }
+  if (!/BOX_HALF = 7/.test(containers) || !/VERTICAL_HALF = 4/.test(containers)) {
+    throw new Error('the shared scan box is not 15x15(x/z) x 9(y)');
+  }
+  if (!/countInMenuContainer\(menu, item\)/.test(containers)) {
+    throw new Error('withdraw does not read the chest contents for the item');
+  }
+  if (!/isPureContainerMenu/.test(containers)) throw new Error('withdraw does not validate a pure-container menu');
+  if (!/pathfind: true/.test(containers)) throw new Error('withdraw does not walk with A*');
+  if (!/transferFromMenu/.test(containers) || !/withdrew only/.test(containers)) {
+    throw new Error('withdraw does not verify the exact transferred count');
+  }
+  if (!/remaining -= transfer\.moved/.test(containers)) throw new Error('withdraw does not accumulate across chests');
+  if (!/count:\s*\{\s*type:\s*'number',\s*default:\s*1/.test(containers)) {
+    throw new Error('withdraw count must be optional with a default of 1');
+  }
+  return 'shared 15x15x9 scan; reads chests; A*; exact count + verification; mc_plan/mc_propose step';
+});
+
 check('every config key the plan adds is actually consumed', () => {
   /**
    * The plan is explicit: "新配置项全部必须真的被消费，否则不写进文档".

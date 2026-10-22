@@ -51,6 +51,7 @@ const taskMakers = [
   ['chop-wood', () => new (require('../src/tasks/chopWood').ChopWoodTask)(baseCtx(), { count: 1 })],
   ['craft', () => new (require('../src/tasks/craft').CraftTask)(baseCtx(), { item: 'stick', count: 1 })],
   ['deposit', () => new (require('../src/tasks/deposit').DepositTask)(baseCtx(), {})],
+  ['withdraw', () => new (require('../src/tasks/withdraw').WithdrawTask)(baseCtx(), {})],
   ['gather-wood', () => new (require('../src/tasks/gatherWood').GatherWoodTask)(baseCtx(), { count: 1 })],
   ['go-to', () => new (require('../src/tasks/goto').GoToTask)(baseCtx(), { position: { x: 0, y: 64, z: 0 } })],
   ['harvest', () => new (require('../src/tasks/harvest').HarvestTask)(baseCtx(), { block: 'dirt', count: 1 })],

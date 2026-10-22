@@ -6,14 +6,14 @@
  * Built on the three menu primitives the control mod exposes - `useon` to open, `menu` to
  * read the slots, `click` to move stacks - which is exactly how a player does it.
  *
- * The two skills are not symmetric any more (2026-10-21):
- *   - `withdraw` keeps the legacy nearest-container scan (8 blocks, broad names) and
- *     quick-moves whole stacks;
- *   - `deposit` is the optimized path: a 15x15(x/z) x 9(y) scan whitelisted to pure
- *     containers, an A* walk to the target, an exact item/count transfer, and a
- *     craft+place fallback when nothing is in range.
+ * Both skills share the same optimized container path (2026-10-21):
+ *   - a 15x15(x/z) x 9(y) scan whitelisted to pure containers;
+ *   - an A* walk (`pathfind: true`) to each candidate;
+ *   - an exact item/count transfer with a post-transfer menu check;
+ *   - `deposit` crafts/places a chest when nothing is in range;
+ *   - `withdraw` reads each chest and skips the ones that do not hold the item.
  *
- * Both are marked `beta`: they work through the mod's click path, but no one has moved a
+ * They are marked `beta`: they work through the mod's click path, but no one has moved a
  * stack on a live server yet.
  */
 
@@ -21,54 +21,18 @@ const { register } = require('./registry');
 const { bare } = require('../world/items');
 const { FAILURE } = require('../core/failure');
 
-const CONTAINER_BLOCK = /(chest|barrel|crate|shulker|drawer|cabinet|sack)/;
-
-function menuCapable(body) {
-  return !!(body && typeof body.menu === 'function' && typeof body.clickSlot === 'function');
-}
-
-/** Find a nearby container block, when the caller did not name coordinates. */
-function nearestContainer(ctx, maxDistance = 8) {
-  const world = ctx.world;
-  if (!world || typeof world.findBlocksMatching !== 'function') return null;
-  const list = world.findBlocksMatching((name) => CONTAINER_BLOCK.test(bare(name)), { maxDistance, count: 1 });
-  return list && list.length ? list[0] : null;
-}
-
-/** Open a container: use explicit coordinates, or whatever chest is nearby. */
-async function openContainer(ctx, params) {
-  const body = ctx.body;
-  const existing = await body.menu();
-  if (existing && existing.open && existing.menuClass && !/InventoryMenu/.test(existing.menuClass)) {
-    return { ok: true, menu: existing, opened: false };
-  }
-  let position = null;
-  if (params.x !== undefined && params.y !== undefined && params.z !== undefined) {
-    position = { x: params.x, y: params.y, z: params.z };
-  } else {
-    position = nearestContainer(ctx, 8);
-  }
-  if (!position) return { ok: false, reason: 'no container in range (pass x/y/z to name one)' };
-  if (typeof body.useOn !== 'function') return { ok: false, reason: 'this body cannot open containers' };
-  await body.useOn(position, { face: { x: 0, y: 1, z: 0 } });
-  const menu = await body.menu();
-  if (!menu || !menu.open) return { ok: false, reason: `no menu opened at ${position.x},${position.y},${position.z}` };
-  if (/InventoryMenu/.test(menu.menuClass || '')) return { ok: false, reason: 'the block did not open a container menu' };
-  return { ok: true, menu, opened: true, position };
-}
-
-/* --------------------------------------------------------------- deposit helpers
+/* --------------------------------------------------------------- scan + transfer helpers
  *
- * `!deposit` and `!store` share this one implementation (2026-10-21):
- *   - the caller names the item and the count (no "everything except tools" mode);
- *   - the container scan is 15x15 in x/z (+/-7) and 9 tall (y +/-4), whitelisted to pure
- *     containers only (chest / trapped chest / ender chest / barrel / shulker box and the
- *     modded `*_chest`, `*_barrel`, `*_shulker_box` variants). Drawers, cabinets, crates,
- *     sacks etc. are deliberately not storage targets;
- *   - the walk to the container uses the A* navigator (`pathfind: true`), not the client's
+ * `deposit` and `withdraw` share the same container scan and exact-count transfer rules
+ * (2026-10-21):
+ *   - the scan is 15x15 in x/z (+/-7) and 9 tall (y +/-4), whitelisted to pure containers
+ *     only (chest / trapped chest / ender chest / barrel / shulker box and the modded
+ *     `*_chest`, `*_barrel`, `*_shulker_box` variants). Drawers, cabinets, crates, sacks
+ *     etc. are deliberately not storage targets;
+ *   - the walk to a container uses the A* navigator (`pathfind: true`), not the client's
  *     straight-line walker;
- *   - when nothing is in range, a chest is crafted through the `craft` skill and placed
- *     through the `place` skill, then used.
+ *   - deposit crafts/places a chest when nothing is in range; withdraw reads each chest in
+ *     the box and skips the ones that do not hold the requested item.
  */
 
 /** 15 cells per axis in x/z, centred on the player. */
@@ -145,6 +109,15 @@ function countInMenu(menu, itemName) {
   return total;
 }
 
+/** Sum one item across the container part of an open menu (what withdraw can take). */
+function countInMenuContainer(menu, itemName) {
+  let total = 0;
+  for (const slot of (menu && menu.slots) || []) {
+    if (slot && slot.player === false && bare(slot.item || '') === itemName) total += Number(slot.count) || 0;
+  }
+  return total;
+}
+
 /** First container-side slot with room for one more item of this kind. */
 function containerRoom(menu, itemName) {
   for (const slot of (menu && menu.slots) || []) {
@@ -155,6 +128,25 @@ function containerRoom(menu, itemName) {
   return null;
 }
 
+/** First player-side slot with room for one more item of this kind (withdraw direction). */
+function playerRoom(menu, itemName) {
+  for (const slot of (menu && menu.slots) || []) {
+    if (!slot || slot.player !== true) continue;
+    if (Number(slot.count) === 0) return slot;
+    if (bare(slot.item || '') === itemName && Number(slot.count) < 64) return slot;
+  }
+  return null;
+}
+
+/**
+ * The open menu must belong to a pure container. Class names cover vanilla
+ * (`ChestMenu`, `BarrelMenu`, `ShulkerBoxMenu`) and the common modded subclasses
+ * (`IronChestMenu`, `LootrChestMenu`, ...).
+ */
+function isPureContainerMenu(menu) {
+  return !!(menu && /chest|barrel|shulker/i.test(menu.menuClass || ''));
+}
+
 function blockAt(ctx, position) {
   const world = ctx.world;
   if (!world) return null;
@@ -163,28 +155,31 @@ function blockAt(ctx, position) {
   return null;
 }
 
-/** Pure container inside the 15x15(x/z) x 9(y) box, nearest first. */
-async function findContainer(ctx) {
+/** All pure containers in the 15x15(x/z) x 9(y) box, nearest first. */
+async function findContainers(ctx) {
   const snap = await freshSnapshot(ctx);
   const here = snap && snap.position;
-  if (!here) return null;
+  if (!here) return [];
   const world = ctx.world;
   const found =
     world && typeof world.findBlocksMatching === 'function'
       ? world.findBlocksMatching((name) => isPureContainer(name), { maxDistance: 12, count: 64 })
       : [];
-  return (
-    found
-      .filter((block) => block && block.position && isPureContainer(block.name))
-      .filter(
-        (block) =>
-          Math.abs(block.position.x - here.x) <= BOX_HALF &&
-          Math.abs(block.position.z - here.z) <= BOX_HALF &&
-          Math.abs(block.position.y - here.y) <= VERTICAL_HALF
-      )
-      .map((block) => ({ ...block, distance: distance(here, block.position) }))
-      .sort((a, b) => a.distance - b.distance)[0] || null
-  );
+  return found
+    .filter((block) => block && block.position && isPureContainer(block.name))
+    .filter(
+      (block) =>
+        Math.abs(block.position.x - here.x) <= BOX_HALF &&
+        Math.abs(block.position.z - here.z) <= BOX_HALF &&
+        Math.abs(block.position.y - here.y) <= VERTICAL_HALF
+    )
+    .map((block) => ({ ...block, distance: distance(here, block.position) }))
+    .sort((a, b) => a.distance - b.distance);
+}
+
+/** The nearest pure container (deposit needs one target; withdraw iterates the list). */
+async function findContainer(ctx) {
+  return (await findContainers(ctx))[0] || null;
 }
 
 async function walkToContainer(ctx, position) {
@@ -211,8 +206,15 @@ async function openContainerAt(ctx, position) {
   if (!menu || !menu.open) {
     return { ok: false, failure: FAILURE.TARGET_LOST, reason: `no container menu opened at ${fmt(position)}` };
   }
-  if (/InventoryMenu/.test(menu.menuClass || '')) {
-    return { ok: false, failure: FAILURE.TARGET_LOST, reason: 'the block did not open a container menu' };
+  if (!isPureContainerMenu(menu)) {
+    // The selected block opened a crafting table/furnace/other screen (or nothing at all).
+    // Close what we just opened and let the caller try the next candidate.
+    await body.closeMenu().catch(() => false);
+    return {
+      ok: false,
+      failure: FAILURE.TARGET_LOST,
+      reason: `the block at ${fmt(position)} opened ${menu.menuClass || 'a non-container menu'}, not a pure container`
+    };
   }
   return { ok: true, menu, opened: true };
 }
@@ -317,14 +319,15 @@ async function buildChest(ctx, cancelled) {
 }
 
 /**
- * Deposit exactly `want` items from one oversized stack.
+ * Move exactly `want` items from one oversized source stack, in either direction.
  *
  * Quick-move moves whole stacks, so the requested count cannot be met by shift-clicking when
- * the stack is bigger. This is the vanilla split: pick the stack up, right-click the target
- * slot once per item, then put the remainder back. The remainder is returned in `finally`
- * so a cancelled/failed split never leaves items on the cursor.
+ * the stack is bigger. This is the vanilla split: pick the stack up, right-click the
+ * destination slot once per item, then put the remainder back. `roomFor` decides which side
+ * is the destination (`containerRoom` for deposit, `playerRoom` for withdraw); the remainder
+ * is returned in `finally` so a cancelled/failed split never leaves items on the cursor.
  */
-async function splitDeposit(ctx, source, itemName, want, cancelled) {
+async function splitMove(ctx, source, itemName, want, cancelled, { roomFor, fullReason = 'the destination is full' } = {}) {
   const body = ctx.body;
   const click = (slot, button) =>
     body.clickSlot(slot, { mode: 'pickup', button, attempts: 1, waitMs: 120 }).catch(() => false);
@@ -342,12 +345,12 @@ async function splitDeposit(ctx, source, itemName, want, cancelled) {
       }
       const menu = await body.menu().catch(() => null);
       if (!menu || !menu.open) {
-        failure = { reason: 'the container closed mid-deposit' };
+        failure = { reason: 'the container closed mid-transfer' };
         break;
       }
-      const room = containerRoom(menu, itemName);
+      const room = typeof roomFor === 'function' ? roomFor(menu, itemName) : null;
       if (!room) {
-        failure = { reason: 'the container is full' };
+        failure = { reason: fullReason };
         break;
       }
       const ok = await click(room.i, 1);
@@ -365,10 +368,73 @@ async function splitDeposit(ctx, source, itemName, want, cancelled) {
   return failure ? { ok: false, placed, ...failure } : { ok: true, placed };
 }
 
+/**
+ * Take exactly `want` of `item` from the open menu's container side.
+ *
+ * Whole stacks are quick-moved; an oversized stack is split towards the player slots. The
+ * menu is re-read afterwards and the actual container-side delta must equal `want`, so a
+ * refused click or a full bag is a failure, not an optimistic success.
+ */
+async function transferFromMenu(ctx, menu, itemName, want, cancelled) {
+  const body = ctx.body;
+  const before = countInMenuContainer(menu, itemName);
+  if (before < want) {
+    return {
+      ok: false,
+      failure: FAILURE.NO_MATERIAL,
+      moved: 0,
+      reason: `the container has only ${before} ${itemName} (asked ${want})`
+    };
+  }
+  let remaining = want;
+  let failure = null;
+  const sources = (menu.slots || [])
+    .filter((slot) => slot.player === false && bare(slot.item || '') === itemName && Number(slot.count) > 0)
+    .sort((a, b) => a.count - b.count);
+  for (const slot of sources) {
+    if (remaining <= 0) break;
+    if (cancelled()) {
+      failure = { cancelled: true, reason: (ctx.taskSignal && ctx.taskSignal.reason) || 'cancelled' };
+      break;
+    }
+    if (Number(slot.count) <= remaining) {
+      const ok = await body.clickSlot(slot.i, { mode: 'quickmove' }).catch(() => false);
+      if (ok) remaining -= Number(slot.count);
+      continue;
+    }
+    const split = await splitMove(ctx, slot, itemName, remaining, cancelled, {
+      roomFor: playerRoom,
+      fullReason: 'the bag is full'
+    });
+    remaining -= split.placed;
+    if (!split.ok) {
+      failure = split;
+      break;
+    }
+  }
+  const afterMenu = await body.menu().catch(() => null);
+  const after = afterMenu ? countInMenuContainer(afterMenu, itemName) : before;
+  const moved = Math.max(0, before - after);
+  if (failure) {
+    return { ...failure, moved, failure: failure.cancelled ? FAILURE.INTERRUPTED : FAILURE.UNKNOWN };
+  }
+  if (moved !== want) {
+    return {
+      ok: false,
+      failure: FAILURE.UNKNOWN,
+      moved,
+      reason: `withdrew only ${moved} of ${want} ${itemName} - the bag may be full or the click was refused`
+    };
+  }
+  return { ok: true, moved };
+}
+
 register({
   name: 'withdraw',
   title: '从箱子取物',
-  description: 'Take an item out of a nearby (or named) chest into the inventory.',
+  description:
+    'Take exactly <count> of <item> from pure containers within 15x15(x/z) x 9(y): reads ' +
+    'each chest for the item, walks with A*, and verifies the transfer.',
   beta: true,
   params: {
     item: { type: 'string', required: true },
@@ -377,27 +443,133 @@ register({
     y: { type: 'number' },
     z: { type: 'number' }
   },
-  available: (ctx) => (menuCapable(ctx.body) ? { ok: true } : { ok: false, reason: 'this body cannot move items through a menu' }),
+  available: (ctx) => {
+    const body = ctx.body || {};
+    const capable = ['menu', 'clickSlot', 'useOn', 'moveTo'].every((method) => typeof body[method] === 'function');
+    return capable
+      ? { ok: true }
+      : { ok: false, reason: 'this body cannot withdraw items (needs menu/clickSlot/useOn/moveTo)' };
+  },
   async run(ctx, params) {
     const body = ctx.body;
-    const opened = await openContainer(ctx, params);
-    if (!opened.ok) return opened;
-    const menu = opened.menu;
-    const sources = menu.slots
-      .filter((slot) => slot.player === false && bare(slot.item || '') === bare(params.item) && slot.count > 0)
-      .sort((a, b) => b.count - a.count);
-    if (!sources.length) {
-      if (opened.opened) await body.closeMenu();
-      return { ok: false, reason: `the container has no ${bare(params.item)}` };
+    const item = bare(params.item);
+    const count = params.count;
+    const signal = ctx.taskSignal || null;
+    const cancelled = () => !!(signal && signal.cancelled);
+    const stop = () => ({
+      ok: false,
+      failure: FAILURE.INTERRUPTED,
+      reason: (signal && signal.reason) || 'cancelled'
+    });
+
+    // An operator-opened pure container is read first. If it has none of the item, close it
+    // so the search can open another chest; a crafting table/furnace must not be used.
+    let existing = null;
+    const current = await body.menu().catch(() => null);
+    if (current && current.open && current.menuClass && !/InventoryMenu/.test(current.menuClass)) {
+      if (!isPureContainerMenu(current)) {
+        return {
+          ok: false,
+          failure: FAILURE.REFUSED,
+          reason: `a ${current.menuClass} is open - close it before withdrawing (storage needs a chest/barrel/shulker)`
+        };
+      }
+      if (countInMenuContainer(current, item) > 0) existing = current;
+      else await body.closeMenu().catch(() => false);
     }
+
+    /**
+     * The scan is the same 15x15(x/z) x 9(y) box as deposit. Explicit coordinates override
+     * the scan (and are still checked against the pure-container whitelist).
+     */
+    let positions = [];
+    if (params.x !== undefined && params.y !== undefined && params.z !== undefined) {
+      const position = { x: params.x, y: params.y, z: params.z };
+      const block = blockAt(ctx, position);
+      if (block && !isPureContainer(block.name)) {
+        return {
+          ok: false,
+          failure: FAILURE.TARGET_LOST,
+          reason: `${bare(block.name)} at ${fmt(position)} is not a pure container`
+        };
+      }
+      positions = [{ position }];
+    } else {
+      positions = await findContainers(ctx);
+    }
+
+    const queue = [];
+    if (existing) queue.push({ position: null, menu: existing, opened: false });
+    for (const candidate of positions) queue.push({ position: candidate.position, opened: true });
+    if (!queue.length) {
+      return {
+        ok: false,
+        failure: FAILURE.TARGET_LOST,
+        reason: 'no pure container within 15x15x9 blocks'
+      };
+    }
+
     let moved = 0;
-    for (const slot of sources) {
-      if (moved >= params.count) break;
-      await body.clickSlot(slot.i, { mode: 'quickmove' });
-      moved += slot.count;
+    let remaining = count;
+    const searched = [];
+    for (const entry of queue) {
+      if (remaining <= 0) break;
+      if (cancelled()) {
+        return { ...stop(), withdrawn: moved };
+      }
+      let menu = entry.menu;
+      if (!menu) {
+        const walked = await walkToContainer(ctx, entry.position);
+        if (!walked.ok) {
+          searched.push({ position: entry.position, error: walked.reason });
+          continue;
+        }
+        if (cancelled()) return { ...stop(), withdrawn: moved };
+        const opened = await openContainerAt(ctx, entry.position);
+        if (!opened.ok) {
+          searched.push({ position: entry.position, error: opened.reason });
+          continue;
+        }
+        menu = opened.menu;
+        entry.menu = menu;
+        entry.opened = true;
+      }
+
+      const available = countInMenuContainer(menu, item);
+      if (available <= 0) {
+        searched.push({ position: entry.position, available: 0 });
+        if (entry.opened) await body.closeMenu().catch(() => false);
+        continue;
+      }
+      const take = Math.min(available, remaining);
+      const transfer = await transferFromMenu(ctx, menu, item, take, cancelled);
+      if (entry.opened) {
+        await body.closeMenu().catch(() => false);
+      } else if (remaining - take > 0) {
+        // The operator's open chest is not enough; close it to walk to the next one.
+        await body.closeMenu().catch(() => false);
+      }
+      if (!transfer.ok) {
+        return { ...transfer, withdrawn: moved + (transfer.moved || 0) };
+      }
+      moved += transfer.moved;
+      remaining -= transfer.moved;
+      searched.push({ position: entry.position, available, took: transfer.moved });
     }
-    if (opened.opened) await body.closeMenu();
-    return { ok: true, detail: `withdrew ${moved} ${bare(params.item)} (asked ${params.count})`, moved };
+
+    if (remaining > 0) {
+      const openedAny = searched.some((entry) => entry.available !== undefined);
+      return {
+        ok: false,
+        failure: openedAny ? FAILURE.NO_MATERIAL : FAILURE.TARGET_LOST,
+        reason:
+          moved === 0
+            ? `no reachable pure container has ${item} within 15x15x9`
+            : `only found ${moved} ${item} in nearby containers (asked ${count})`,
+        withdrawn: moved
+      };
+    }
+    return { ok: true, withdrawn: moved, item, detail: `withdrew ${moved} ${item}` };
   }
 });
 
@@ -455,7 +627,7 @@ register({
     let container = null;
     const current = await body.menu().catch(() => null);
     if (current && current.open && current.menuClass && !/InventoryMenu/.test(current.menuClass)) {
-      if (/chest|barrel|shulker/i.test(current.menuClass)) {
+      if (isPureContainerMenu(current)) {
         opened = { menu: current, opened: false };
       } else {
         return {
@@ -527,7 +699,10 @@ register({
         continue;
       }
       // The stack is bigger than what is left: split it so the count is exact.
-      const split = await splitDeposit(ctx, slot, item, remaining, cancelled);
+      const split = await splitMove(ctx, slot, item, remaining, cancelled, {
+        roomFor: containerRoom,
+        fullReason: 'the container is full'
+      });
       remaining -= split.placed;
       if (!split.ok) {
         failure = split.cancelled ? { ...stop(), cancelled: true } : split;

@@ -1245,35 +1245,279 @@ function quickMove(slots) {
   // ------------------------------------------------------------------ containers
   process.stdout.write('\n6. containers - withdraw / deposit (beta, menu path)\n');
 
-  await scenario('withdraw opens a nearby chest, quick-moves the item, and closes it', async () => {
-    let open = false;
-    const body = new MenuBody(cfg, {
-      menu: () =>
-        open
-          ? {
-              open: true,
-              containerId: 7,
-              menuClass: 'ChestMenu',
-              slots: [
-                { i: 0, item: 'minecraft:iron_ingot', count: 5, player: false },
-                { i: 27, item: 'null', count: 0, player: true }
-              ]
-            }
-          : { open: true, containerId: 0, menuClass: 'InventoryMenu', slots: [] },
-      useOn: () => {
-        open = true;
+  /**
+   * A multi-chest menu body for withdraw.
+   *
+   * `ChestBody` models one container; withdraw now walks to several chests and reads each
+   * one for the item, so this stub keeps a chest per position plus one player inventory and
+   * switches the open menu with `useOn`.
+   */
+  class WithdrawBody extends Body {
+    constructor(cfg, { chests = [], playerSlots = [], position = { x: 0, y: 64, z: 0 } } = {}) {
+      super(cfg);
+      this.kind = 'withdraw-stub';
+      this.position = { ...position };
+      this.chests = chests.map((chest) => ({
+        position: { ...chest.position },
+        menuClass: chest.menuClass || 'ChestMenu',
+        slots: chest.slots.map((slot) => ({ ...slot }))
+      }));
+      this.playerSlots = playerSlots.map((slot) => ({ ...slot }));
+      this.active = null;
+      this.open = false;
+      this.carried = { item: 'null', count: 0 };
+      this.calls = [];
+    }
+
+    async connect() {}
+    async disconnect() {}
+
+    inventory() {
+      const inventory = {};
+      for (const slot of this.playerSlots) {
+        if (!slot.count || slot.item === 'null') continue;
+        inventory[slot.item] = (inventory[slot.item] || 0) + slot.count;
       }
+      return inventory;
+    }
+
+    snapshot() {
+      return { ready: true, position: { ...this.position }, inventory: this.inventory(), players: [] };
+    }
+
+    async refresh() {
+      return this.snapshot();
+    }
+
+    async refreshStrict() {
+      return { ok: true, cached: false, state: this.snapshot() };
+    }
+
+    slots() {
+      return this.active ? [...this.active.slots, ...this.playerSlots] : [];
+    }
+
+    async menu() {
+      if (!this.open || !this.active) return { open: true, containerId: 0, menuClass: 'InventoryMenu', slots: [] };
+      return {
+        open: true,
+        containerId: 7,
+        menuClass: this.active.menuClass,
+        slots: this.slots().map((slot) => ({ ...slot })),
+        carried: { ...this.carried }
+      };
+    }
+
+    async useOn(position) {
+      this.calls.push({ call: 'useOn', position });
+      this.active =
+        this.chests.find(
+          (chest) =>
+            chest.position.x === position.x && chest.position.y === position.y && chest.position.z === position.z
+        ) || null;
+      this.open = !!this.active;
+      return this.open;
+    }
+
+    async closeMenu() {
+      this.calls.push({ call: 'close' });
+      this.open = false;
+      this.active = null;
+      return true;
+    }
+
+    async moveTo(position, options = {}) {
+      this.calls.push({ call: 'moveTo', position, options });
+      this.position = { ...position };
+      return true;
+    }
+
+    async clickSlot(index, options = {}) {
+      const mode = options.mode || 'pickup';
+      const button = options.button === undefined ? 0 : options.button;
+      this.calls.push({ call: 'click', slot: index, mode, button });
+      const slots = this.slots();
+      const slot = slots.find((entry) => entry.i === index);
+      if (!slot) return false;
+      if (mode === 'quickmove') {
+        if (!slot.count) return true;
+        const target = slots.find(
+          (entry) => entry.player !== slot.player && (entry.count === 0 || (entry.item === slot.item && entry.count < 64))
+        );
+        if (!target) return true;
+        const moved = Math.min(slot.count, 64 - target.count);
+        target.item = slot.item;
+        target.count += moved;
+        slot.count -= moved;
+        if (slot.count === 0) slot.item = 'null';
+        return true;
+      }
+      if (button === 1) {
+        if (!this.carried.count) return true;
+        if (slot.count === 0) {
+          slot.item = this.carried.item;
+          slot.count = 1;
+        } else if (slot.item === this.carried.item && slot.count < 64) {
+          slot.count += 1;
+        } else {
+          return false;
+        }
+        this.carried.count -= 1;
+        if (!this.carried.count) this.carried = { item: 'null', count: 0 };
+        return true;
+      }
+      if (!this.carried.count) {
+        this.carried = { item: slot.item, count: slot.count };
+        slot.item = 'null';
+        slot.count = 0;
+        return true;
+      }
+      const room = 64 - slot.count;
+      const moved = Math.min(room, this.carried.count);
+      if (moved <= 0) return false;
+      if (slot.count === 0) slot.item = this.carried.item;
+      slot.count += moved;
+      this.carried.count -= moved;
+      if (!this.carried.count) this.carried = { item: 'null', count: 0 };
+      return true;
+    }
+  }
+
+  await scenario('withdraw walks (A*) to a chest that holds the item and takes exactly the count', async () => {
+    const body = new WithdrawBody(cfg, {
+      playerSlots: [{ i: 27, item: 'null', count: 0, player: true }],
+      chests: [
+        {
+          position: { x: 2, y: 64, z: 0 },
+          slots: [{ i: 0, item: 'minecraft:stone', count: 64, player: false }]
+        },
+        {
+          position: { x: 6, y: 64, z: 0 },
+          slots: [{ i: 0, item: 'minecraft:iron_ingot', count: 10, player: false }]
+        }
+      ]
     });
     await body.connect();
     const ctx = makeCtx(body);
-    ctx.world = { findBlocksMatching: () => [{ position: { x: 3, y: 64, z: 0 }, name: 'minecraft:chest' }] };
+    ctx.world = {
+      findBlocksMatching: () => [
+        { position: { x: 2, y: 64, z: 0 }, name: 'minecraft:chest' },
+        { position: { x: 6, y: 64, z: 0 }, name: 'minecraft:chest' }
+      ]
+    };
     const result = await skills.run('withdraw', ctx, { item: 'iron_ingot', count: 5 });
-    expect(result.ok, `expected withdraw to work, got ${result.reason}`);
-    expect(result.moved === 5, `moved ${result.moved}`);
-    const quickMove = body.calls.find((call) => call.call === 'click');
-    expect(quickMove && quickMove.slot === 0 && quickMove.mode === 'quickmove', `click was ${JSON.stringify(quickMove)}`);
-    expect(body.calls.some((call) => call.call === 'close'), 'the chest should have been closed');
+    expect(result.ok && result.withdrawn === 5, `expected 5 withdrawn, got ${JSON.stringify(result)}`);
+    expect(body.calls.filter((call) => call.call === 'moveTo').length === 2, 'both chests should have been walked to');
+    expect(
+      body.calls.filter((call) => call.call === 'moveTo').every((call) => call.options.pathfind === true),
+      'the walk must ask for A* pathfinding'
+    );
+    const walked = body.calls.filter((call) => call.call === 'moveTo').map((call) => call.position.x);
+    expect(walked.join(',') === '2,6', `walked ${walked.join(',')}`);
+    const chest = body.chests.find((entry) => entry.position.x === 6);
+    expect(chest.slots[0].count === 5, `the chest should keep 5, has ${chest.slots[0].count}`);
+    expect(body.playerSlots[0].count === 5, `the bag should have 5, has ${body.playerSlots[0].count}`);
+    expect(body.carried.count === 0, 'the split must return the remainder to the chest');
+    expect(body.calls.filter((call) => call.call === 'close').length === 2, 'both opened chests should be closed');
     return result.detail;
+  });
+
+  await scenario('withdraw accumulates the exact count across multiple chests', async () => {
+    const body = new WithdrawBody(cfg, {
+      playerSlots: [{ i: 27, item: 'null', count: 0, player: true }],
+      chests: [
+        {
+          position: { x: 2, y: 64, z: 0 },
+          slots: [{ i: 0, item: 'minecraft:iron_ingot', count: 3, player: false }]
+        },
+        {
+          position: { x: 5, y: 64, z: 0 },
+          slots: [{ i: 0, item: 'minecraft:iron_ingot', count: 10, player: false }]
+        }
+      ]
+    });
+    await body.connect();
+    const ctx = makeCtx(body);
+    ctx.world = {
+      findBlocksMatching: () => [
+        { position: { x: 2, y: 64, z: 0 }, name: 'minecraft:chest' },
+        { position: { x: 5, y: 64, z: 0 }, name: 'minecraft:chest' }
+      ]
+    };
+    const result = await skills.run('withdraw', ctx, { item: 'iron_ingot', count: 8 });
+    expect(result.ok && result.withdrawn === 8, `expected 8 withdrawn, got ${JSON.stringify(result)}`);
+    expect(body.chests[0].slots[0].count === 0, `first chest should be empty, has ${body.chests[0].slots[0].count}`);
+    expect(body.chests[1].slots[0].count === 5, `second chest should keep 5, has ${body.chests[1].slots[0].count}`);
+    expect(body.playerSlots[0].count === 8, `the bag should have 8, has ${body.playerSlots[0].count}`);
+    expect(body.calls.filter((call) => call.call === 'close').length === 2, 'both chests should be closed');
+    return result.detail;
+  });
+
+  await scenario('withdraw ignores chests outside 15x15x9 and checks the menu is a pure container', async () => {
+    const outside = new WithdrawBody(cfg, {
+      playerSlots: [{ i: 27, item: 'null', count: 0, player: true }],
+      chests: [
+        {
+          position: { x: 8, y: 64, z: 0 },
+          slots: [{ i: 0, item: 'minecraft:iron_ingot', count: 10, player: false }]
+        }
+      ]
+    });
+    const ctx = makeCtx(outside);
+    ctx.world = {
+      findBlocksMatching: () => [{ position: { x: 8, y: 64, z: 0 }, name: 'minecraft:chest' }]
+    };
+    const far = await skills.run('withdraw', ctx, { item: 'iron_ingot', count: 3 });
+    expect(!far.ok && /15x15x9/.test(far.reason), `got ${JSON.stringify(far)}`);
+    expect(outside.calls.length === 0, 'no walk/open for a chest outside the box');
+
+    const table = new WithdrawBody(cfg, {
+      playerSlots: [{ i: 27, item: 'null', count: 0, player: true }],
+      chests: [
+        {
+          position: { x: 2, y: 64, z: 0 },
+          menuClass: 'CraftingScreen',
+          slots: [{ i: 0, item: 'minecraft:iron_ingot', count: 10, player: false }]
+        }
+      ]
+    });
+    const tableCtx = makeCtx(table);
+    tableCtx.world = {
+      findBlocksMatching: () => [{ position: { x: 2, y: 64, z: 0 }, name: 'minecraft:chest' }]
+    };
+    const nonPure = await skills.run('withdraw', tableCtx, { item: 'iron_ingot', count: 3 });
+    expect(!nonPure.ok && /no reachable pure container/.test(nonPure.reason), `got ${JSON.stringify(nonPure)}`);
+    expect(table.playerSlots[0].count === 0, 'nothing may move from a non-pure menu');
+    return 'range and menu-class checks hold';
+  });
+
+  await scenario('WithdrawTask adapts item/count and reports progress', async () => {
+    const body = new WithdrawBody(cfg, {
+      playerSlots: [{ i: 27, item: 'null', count: 0, player: true }],
+      chests: [
+        {
+          position: { x: 2, y: 64, z: 0 },
+          slots: [{ i: 0, item: 'minecraft:iron_ingot', count: 6, player: false }]
+        }
+      ]
+    });
+    await body.connect();
+    const ctx = makeCtx(body);
+    ctx.world = {
+      findBlocksMatching: () => [{ position: { x: 2, y: 64, z: 0 }, name: 'minecraft:chest' }]
+    };
+    const { WithdrawTask } = require('../src/tasks/withdraw');
+    const task = new WithdrawTask(ctx, { item: 'iron_ingot', count: 4 });
+    const result = await task.execute();
+    expect(result.ok, `expected the task to succeed, got ${JSON.stringify(result)}`);
+    expect(task.progress() === 4, `progress=${task.progress()}`);
+    expect(body.playerSlots[0].count === 4, `bag has ${body.playerSlots[0].count}`);
+    expect(body.chests[0].slots[0].count === 2, `chest has ${body.chests[0].slots[0].count}`);
+
+    const empty = new WithdrawTask(ctx, {});
+    const failed = await empty.execute();
+    expect(!failed.ok && /needs an item/.test(failed.reason), `missing item: ${JSON.stringify(failed)}`);
+    return result.reason;
   });
 
   /**

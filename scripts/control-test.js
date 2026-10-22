@@ -388,6 +388,37 @@ async function buildAgent(options = {}) {
     return 'deposit/store unified; item+count required';
   });
 
+  await scenario('!withdraw queues a WithdrawTask and is a known plan step', async () => {
+    const agent = await buildAgent();
+    agent.brain.paused = true;
+    const queued = [];
+    const original = agent.brain.enqueue.bind(agent.brain);
+    agent.brain.enqueue = (task, options) => {
+      queued.push(task);
+      return original(task, options);
+    };
+    await agent.chat.handle('withdraw dirt 3', 'test');
+    expect(queued.length === 1 && queued[0].name === 'withdraw', `queued ${JSON.stringify(queued.map((task) => task.name))}`);
+    expect(queued[0].item === 'dirt' && queued[0].count === 3, `withdraw ${queued[0].item}/${queued[0].count}`);
+    const types = agent.brain.planService.knownStepTypes;
+    expect(
+      types && types.has('withdraw'),
+      `withdraw is not a known plan/proposal step type (${types ? [...types].join(',') : 'none'})`
+    );
+    for (const line of ['withdraw', 'withdraw dirt 0', 'withdraw dirt abc']) {
+      let refused = null;
+      try {
+        await agent.chat.handle(line, 'test');
+      } catch (err) {
+        refused = err.message;
+      }
+      expect(refused && /usage: !withdraw/.test(refused), `${line} should be refused with a usage error, got ${refused}`);
+    }
+    expect(queued.length === 1, 'a refused command must not queue anything');
+    agent.stop();
+    return '!withdraw -> WithdrawTask; mc_plan/mc_propose accept withdraw';
+  });
+
   await scenario('!mine without a pickaxe fails with the honest reason', async () => {
     const agent = await buildAgent({ inventory: {} });
     await agent.say('!mine stone 4');
