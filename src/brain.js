@@ -26,6 +26,7 @@ const { HuntTask } = require('./tasks/hunt');
 const { LightTask } = require('./tasks/light');
 const { DepositTask } = require('./tasks/deposit');
 const { WithdrawTask } = require('./tasks/withdraw');
+const { FollowTask } = require('./tasks/follow');
 const { Logger } = require('./util/logger');
 const { sleep } = require('./core/movement');
 const { Holds } = require('./core/holds');
@@ -1668,6 +1669,7 @@ class Brain {
 const TASK_BUILDERS = {
   deposit: (ctx, args) => new DepositTask(ctx, args),
   withdraw: (ctx, args) => new WithdrawTask(ctx, args),
+  follow: (ctx, args) => new FollowTask(ctx, args),
   hunt: (ctx, args) => new HuntTask(ctx, args),
   'chop-wood': (ctx, args) => new ChopWoodTask(ctx, args),
   craft: (ctx, args) => new CraftTask(ctx, args),

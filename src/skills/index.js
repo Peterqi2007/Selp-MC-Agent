@@ -12,6 +12,7 @@ const registry = require('./registry');
 
 // Registration order is the help order; keep it grouped by area.
 require('./movement');
+require('./follow');
 require('./inventory');
 require('./blocks');
 require('./combat');

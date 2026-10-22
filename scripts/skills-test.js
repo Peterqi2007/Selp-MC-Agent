@@ -1796,6 +1796,136 @@ function quickMove(slots) {
     return result.reason;
   });
 
+  /**
+   * A follow stub: the target moves while the first A* move is still running, so the skill
+   * must poll it again, interrupt the stale route and plan a second move.
+   */
+  class FollowBody extends Body {
+    constructor(
+      cfg,
+      { playerName = 'Target', playerAt = { x: 10, y: 64, z: 0 }, position = { x: 0, y: 64, z: 0 }, hasPlayer = true } = {}
+    ) {
+      super(cfg);
+      this.kind = 'follow-stub';
+      this.position = { ...position };
+      this.players = hasPlayer
+        ? [{ name: playerName, id: 1, position: { ...playerAt }, distance: 0 }]
+        : [];
+      this.refreshCount = 0;
+      this.moves = [];
+      this.interrupted = false;
+    }
+
+    async connect() {}
+    async disconnect() {}
+
+    snapshot() {
+      return {
+        ready: true,
+        position: { ...this.position },
+        players: this.players.map((player) => ({ ...player, position: { ...player.position } }))
+      };
+    }
+
+    async refresh() {
+      return this.snapshot();
+    }
+
+    async refreshStrict() {
+      this.refreshCount += 1;
+      return { ok: true, cached: false, state: this.snapshot() };
+    }
+
+    async moveTo(position, options = {}) {
+      const call = this.moves.length + 1;
+      this.moves.push({ position: { ...position }, options });
+      return new Promise((resolve) => {
+        const started = Date.now();
+        const timer = setInterval(() => {
+          if (this.interrupted) {
+            this.interrupted = false;
+            clearInterval(timer);
+            resolve(false);
+            return;
+          }
+          // The player runs two blocks while the first route is being walked.
+          if (call === 1 && Date.now() - started >= 250) {
+            this.players[0].position = { x: 12, y: 64, z: 0 };
+          }
+          // The second route reaches the player.
+          if (call >= 2 && Date.now() - started >= 60) {
+            this.position = { ...position };
+            clearInterval(timer);
+            resolve(true);
+            return;
+          }
+          if (Date.now() - started > (options.timeoutMs || 6000)) {
+            clearInterval(timer);
+            resolve(false);
+          }
+        }, 20);
+      });
+    }
+
+    interrupt() {
+      this.interrupted = true;
+    }
+  }
+
+  await scenario('follow re-reads the player while walking and replans when they move', async () => {
+    const body = new FollowBody(cfg);
+    await body.connect();
+    const ctx = makeCtx(body);
+    const result = await skills.run('follow', ctx, { player: 'Target', durationMs: 1200, pollMs: 100 });
+    expect(result.ok, `expected follow to work, got ${JSON.stringify(result)}`);
+    expect(body.moves.length >= 2, `expected at least two moves, got ${body.moves.length}`);
+    expect(body.moves[0].position.x === 10, `first move aimed at ${body.moves[0].position.x}`);
+    expect(body.moves[1].position.x === 12, `second move aimed at ${body.moves[1].position.x}`);
+    expect(
+      body.moves.every((move) => move.options.pathfind === true),
+      'every follow move must ask for A* pathfinding'
+    );
+    expect(body.refreshCount >= 5, `expected high-frequency polling, refreshCount=${body.refreshCount}`);
+    expect(result.repaths >= 1, `expected a repath after the player moved, got ${result.repaths}`);
+    return result.detail;
+  });
+
+  await scenario('follow fails honestly when the target is invisible or beyond pathfinding range', async () => {
+    const missing = new FollowBody(cfg, { hasPlayer: false });
+    const missingCtx = makeCtx(missing);
+    const lost = await skills.run('follow', missingCtx, { player: 'Target', durationMs: 1000, pollMs: 100 });
+    expect(!lost.ok && /not visible/.test(lost.reason), `got ${JSON.stringify(lost)}`);
+    expect(missing.moves.length === 0, 'an invisible target must not start a walk');
+
+    const far = new FollowBody(cfg, { playerAt: { x: 30, y: 64, z: 0 } });
+    const farCtx = makeCtx(far);
+    const beyond = await skills.run('follow', farCtx, { player: 'Target', durationMs: 1000, pollMs: 100 });
+    expect(!beyond.ok && /beyond the pathfinding range/.test(beyond.reason), `got ${JSON.stringify(beyond)}`);
+    expect(far.moves.length === 0, 'a target outside the pathfinding range must not start a walk');
+    return 'lost and out-of-range handled';
+  });
+
+  await scenario('FollowTask adapts player/duration and reports polling samples', async () => {
+    const body = new FollowBody(cfg, { playerAt: { x: 2, y: 64, z: 0 } });
+    body.moveTo = async (position) => {
+      body.position = { ...position };
+      return true;
+    };
+    await body.connect();
+    const ctx = makeCtx(body);
+    const { FollowTask } = require('../src/tasks/follow');
+    const task = new FollowTask(ctx, { player: 'Target', durationMs: 1000, pollMs: 100 });
+    const result = await task.execute();
+    expect(result.ok, `expected the task to succeed, got ${JSON.stringify(result)}`);
+    expect(task.progress() > 0, `progress=${task.progress()}`);
+    expect(body.refreshCount >= 3, `refreshCount=${body.refreshCount}`);
+
+    const nameless = new FollowTask(ctx, {});
+    const failed = await nameless.execute();
+    expect(!failed.ok && /needs a player name/.test(failed.reason), `missing player: ${JSON.stringify(failed)}`);
+    return result.reason;
+  });
+
   // ------------------------------------------------------------------ farming + sleep
   process.stdout.write('\n7. farming and sleep (Phase 2)\n');
 

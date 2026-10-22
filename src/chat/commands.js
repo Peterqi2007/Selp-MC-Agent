@@ -26,6 +26,7 @@ const { ShelterTask } = require('../tasks/shelter');
 const { CraftTask } = require('../tasks/craft');
 const { DepositTask } = require('../tasks/deposit');
 const { WithdrawTask } = require('../tasks/withdraw');
+const { FollowTask } = require('../tasks/follow');
 const { LightTask } = require('../tasks/light');
 const { ChopWoodTask } = require('../tasks/chopWood');
 const { MineBlockTask } = require('../tasks/mineBlock');
@@ -58,6 +59,7 @@ const HELP = [
   '!deposit <item> <count> - store exactly that many in a pure container (builds a chest if needed)',
   '!store <item> <count> - alias of !deposit',
   '!come <player> - walk to a visible player',
+  '!follow <player> [seconds] - follow a player with high-frequency position polling + A* (default 300s)',
   '!look <yaw> <pitch> - turn the camera to absolute angles (degrees)',
   '!lookat <x> <y> <z> - look at a coordinate',
   '!target - what is under the crosshair right now',
@@ -93,7 +95,6 @@ class ChatController {
     this.prefix = options.prefix || '!';
     this.log = new Logger('chat');
     this.attached = false;
-    this.followTarget = null;
     /**
      * Who to attribute the instruction currently being handled to. Set per `handle()` call
      * so an LLM-dispatched command is tagged `llm` even though it travels through this same
@@ -194,7 +195,6 @@ class ChatController {
         if (ctx.turnService) ctx.turnService.cancelAll('!stop');
         ctx.nav.stop();
         if (ctx.body && typeof ctx.body.interrupt === 'function') ctx.body.interrupt('!stop');
-        this.followTarget = null;
         this.say('停下来了（自动规划已暂停，发 !resume 继续）');
       },
       pause: () => {
@@ -378,11 +378,16 @@ class ChatController {
         return receipt;
       },
       follow: (args) => {
-        const name = args[0];
-        if (!name) throw new Error('usage: !follow <player>');
-        this.followTarget = name;
-        this.startFollowLoop();
-        this.say(`following ${name}`);
+        const name = String(args[0] || '').trim();
+        if (!name) throw new Error('usage: !follow <player> [seconds]');
+        let seconds = 300;
+        if (args[1] !== undefined) {
+          const parsed = Number(args[1]);
+          if (!Number.isFinite(parsed) || parsed < 1) throw new Error('usage: !follow <player> [seconds]');
+          seconds = Math.min(Math.floor(parsed), 3600);
+        }
+        this.say(`跟着 ${name}（${seconds}s）`);
+        return this.enqueue(new FollowTask(this.ctx, { player: name, durationMs: seconds * 1000 }));
       },
       home: async () => {
         const shelter = ctx.memory.landmark('shelter');
@@ -874,23 +879,6 @@ class ChatController {
     return this.enqueue(routed.task);
   }
 
-  startFollowLoop() {
-    if (this.followTimer) return;
-    this.followTimer = setInterval(async () => {
-      const target = this.followTarget && this.bot && this.bot.players ? this.bot.players[this.followTarget] : null;
-      if (!target || !target.entity) {
-        this.followTarget = null;
-        clearInterval(this.followTimer);
-        this.followTimer = null;
-        return;
-      }
-      const distance = this.bot.entity.position.distanceTo(target.entity.position);
-      if (distance > 4) {
-        await this.ctx.nav.goto(target.entity.position, { range: 3, timeoutMs: 8000, canDig: true, freshMovements: true });
-      }
-    }, 1500);
-  }
-
   /**
    * Execute a command programmatically (chat listener / HTTP API / tests).
    *
@@ -934,7 +922,6 @@ class ChatController {
     return {
       prefix: this.prefix,
       attached: this.attached,
-      followTarget: this.followTarget,
       commands: Object.keys(this.handlers),
       recent: this.history.slice(-8)
     };

@@ -594,6 +594,33 @@ check('withdraw shares the scan, reads chests, verifies exact count and is a DSH
   return 'shared 15x15x9 scan; reads chests; A*; exact count + verification; mc_plan/mc_propose step';
 });
 
+check('follow polls the target at high frequency, replans with A* and is a DSH task', () => {
+  // 2026-10-21: `!follow` used to be a 1.5s mineflayer `bot.players` timer outside the task
+  // layer. It is now a registered skill + FollowTask, with a fresh /state poll while the A*
+  // move runs, an interrupt/replan when the player moves, and a 24-block pathfinding leash.
+  const commands = read('src/chat/commands.js');
+  const skill = read('src/skills/follow.js');
+  const task = read('src/tasks/follow.js');
+  const brain = read('src/brain.js');
+  if (!/new FollowTask\(this\.ctx/.test(commands)) {
+    throw new Error('follow has no command/task-adapter wiring');
+  }
+  if (!/follow:\s*\(ctx,\s*args\)\s*=>\s*new FollowTask/.test(brain)) {
+    throw new Error('follow is not in TASK_BUILDERS (mc_plan/mc_propose cannot call it)');
+  }
+  if (/ctx\.bot|openContainer/.test(task)) throw new Error('FollowTask is a direct mineflayer implementation');
+  if (!/skills\.run\('follow'/.test(task)) throw new Error('FollowTask does not run the follow skill');
+  if (!/refreshStrict\(true\)/.test(skill)) throw new Error('follow does not take a fresh /state for the target');
+  if (!/pollMs:[\s\S]{0,100}?default:\s*150/.test(skill)) throw new Error('follow poll interval is not 150ms by default');
+  if (!/maxRange:[\s\S]{0,100}?default:\s*24/.test(skill)) throw new Error('follow pathfinding leash is not 24 blocks');
+  if (!/REPATH_DISTANCE/.test(skill) || !/body\.interrupt/.test(skill)) {
+    throw new Error('follow does not interrupt/replan when the target moves');
+  }
+  if (!/pathfind: true/.test(skill)) throw new Error('follow does not walk with A*');
+  if (!/not visible/.test(skill)) throw new Error('follow does not report a lost target honestly');
+  return 'fresh polling every 150ms; A* + interrupt/replan; 24-block leash; mc_plan/mc_propose step';
+});
+
 check('every config key the plan adds is actually consumed', () => {
   /**
    * The plan is explicit: "新配置项全部必须真的被消费，否则不写进文档".

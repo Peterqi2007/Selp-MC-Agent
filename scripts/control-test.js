@@ -419,6 +419,37 @@ async function buildAgent(options = {}) {
     return '!withdraw -> WithdrawTask; mc_plan/mc_propose accept withdraw';
   });
 
+  await scenario('!follow queues a FollowTask and is a known plan step', async () => {
+    const agent = await buildAgent();
+    agent.brain.paused = true;
+    const queued = [];
+    const original = agent.brain.enqueue.bind(agent.brain);
+    agent.brain.enqueue = (task, options) => {
+      queued.push(task);
+      return original(task, options);
+    };
+    await agent.chat.handle('follow Target 5', 'test');
+    expect(queued.length === 1 && queued[0].name === 'follow', `queued ${JSON.stringify(queued.map((task) => task.name))}`);
+    expect(queued[0].player === 'Target' && queued[0].durationMs === 5000, `follow ${queued[0].player}/${queued[0].durationMs}`);
+    const types = agent.brain.planService.knownStepTypes;
+    expect(
+      types && types.has('follow'),
+      `follow is not a known plan/proposal step type (${types ? [...types].join(',') : 'none'})`
+    );
+    for (const line of ['follow', 'follow Target 0', 'follow Target abc']) {
+      let refused = null;
+      try {
+        await agent.chat.handle(line, 'test');
+      } catch (err) {
+        refused = err.message;
+      }
+      expect(refused && /usage: !follow/.test(refused), `${line} should be refused with a usage error, got ${refused}`);
+    }
+    expect(queued.length === 1, 'a refused command must not queue anything');
+    agent.stop();
+    return '!follow -> FollowTask; mc_plan/mc_propose accept follow';
+  });
+
   await scenario('!mine without a pickaxe fails with the honest reason', async () => {
     const agent = await buildAgent({ inventory: {} });
     await agent.say('!mine stone 4');

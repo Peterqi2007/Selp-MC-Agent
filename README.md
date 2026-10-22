@@ -129,14 +129,14 @@ bot 指向外部服务器，沿用前请先检查 `config/agent.json`。
 
 ## 2. 现在能做什么
 
-技能目录（`src/skills/`，20 个，全部可用 MockBody / 协议假 Mod 离线测试）：
+技能目录（`src/skills/`，21 个，全部可用 MockBody / 协议假 Mod 离线测试）：
 
 | 分类 | 技能 |
 | --- | --- |
 | 物品 | `equip` `eat` `drop` `armor` |
 | 方块与交互 | `place` `use_on` `withdraw` `deposit` |
 | 战斗 | `attack` `defend` `shoot`（TACZ 枪械） |
-| 移动 | `explore` `come` |
+| 移动 | `explore` `come` `follow`（高频读玩家位置 + A* 重规划） |
 | 生产 | `craft` `smelt` `farm` `sleep` |
 | 采集 | `mine_ore`（统一入口 + 报价选矿 + 走挖一体 tunnel + 逐格垫柱 + 共享收集/入包证据） `collect`（15×15×15 新鲜扫描 + A* 走位，零进展即失败） `fish` |
 
@@ -238,6 +238,14 @@ LLM 层（`src/llm/`，生产配置已开启 `toolCalling`）：8 个工具 —�
   `withdraw` 步骤；DSH 插件说明已同步并 `dsh:install` 到 profile（需重启 DSH 生效）。
   离线 `skills:test 71/71`、`control:test 42/42`、`plan:audit 34/34`（p1 104/104）、
   `selftest 179/179`；**未做客户端测试**。
+* **`follow` 技能 + 高频跟随（2026-10-21）**：`follow` 之前只是 `!follow` 里 1.5s 的 mineflayer
+  timer，现在注册为技能：每 **150ms**（可配 `pollMs`）`refreshStrict(true)` 读取目标玩家位置，
+  `moveTo(..., {pathfind:true})` 走 A*；目标移动超过 **1.5 格**就 `body.interrupt()` 当前路线并按
+  最新位置重规划；目标消失或超出 **24 格**寻路范围诚实失败。新增 `FollowTask`，
+  `!follow <player> [seconds]` 为后台任务（默认 300s，`!stop` 取消），并进入 `TASK_BUILDERS` →
+  `PlanService.knownStepTypes`，DSH `mc_plan`/`mc_propose` 可直接使用 `follow` 步骤；插件说明已同步并
+  `dsh:install` 到 profile（需重启 DSH）。离线 `skills:test 74/74`、`control:test 43/43`、
+  `plan:audit 35/35`（p1 105/105）、`selftest 181/181`；**未做客户端测试**。
 * **规划器（自主决策）专项**：`slowLoop → decide() → runTask` 这条回路的问题与 **`!` 命令回路**、
   **LLM `do_task`/`do_skill` 回路**分开记账——已核实 10 条（含 `shelter` 规则静默死规则、`light` 无能力闸门、
   矿石路径零进展判定失效）与重构债 7 条见 [`docs/PLANNER-REFACTOR.md`](docs/PLANNER-REFACTOR.md)。
@@ -308,6 +316,7 @@ LLM 层（`src/llm/`，生产配置已开启 `toolCalling`）：8 个工具 —�
 !eat [food] / !equip <item> / !armor / !drop <item> [n]
 !place <item> <x> <y> <z> / !use <x> <y> <z> / !attack / !defend
 !explore [距离] [方向] / !come <玩家> / !withdraw <item> [n]   # withdraw 为后台任务，扫描 15×15×9 纯容器并读箱
+!follow <玩家> [秒]   # 后台任务；默认 300s，150ms 轮询目标位置 + A* 重规划
 !deposit <item> <count> / !store <item> <count>   # 同一条命令；范围内无箱子会自动做并放下一个
 !task status / !task stop          # 后台任务槽
 !area … / !route …                 # 命名区域 / 路线（route plan 只算不走）
@@ -456,17 +465,17 @@ Invoke-RestMethod -Uri http://127.0.0.1:8766/ui/state
 | `npm run client:build` / `client:install` | 构建 / 安装控制 Mod | 主线 |
 | `npm run client:test` | 假 Mod 协议测试（含 pillar 回执/隧道保护/空闲刷新/shoot/retreat） | 74/74 |
 | `npm run clientmod:test` | clientmod 躯体角色扮演路径 | 11/11 |
-| `npm run skills:test` | 技能库（含采矿/垫柱/护甲/武器/进食/枪械选枪与反卡死、战斗租约、collect 新鲜扫描、deposit 精确搬运、withdraw 读箱/跨箱精确取物） | 71/71 |
+| `npm run skills:test` | 技能库（含采矿/垫柱/护甲/武器/进食/枪械选枪与反卡死、战斗租约、collect 新鲜扫描、deposit 精确搬运、withdraw 读箱/跨箱精确取物、follow 高频重规划） | 74/74 |
 | `npm run mining:entry:test` | 统一挖矿入口 A 系列（含 A10 规划器停牌键、A11 全矿种深板岩矩阵） | 25/25 |
 | `npm run mining:collection:test` | 掉落物收集 C 系列 | 24/24 |
 | `npm run mining:recovery:test` | LLM 异常接管 R 系列（脚本化模型） | 18/18 |
-| `npm run selftest` | 全量离线自检 | 179/179 |
+| `npm run selftest` | 全量离线自检 | 181/181 |
 | `npm run p0:verify` | P0 全量验收（一次跑 8 个套件） | 8/8 |
 | `npm run path:test` | 寻路场景（含跨网格子目标接力、河流与桥、陡坎不乱走、游泳过湖） | 31/31 |
 | `npm run tasks:test` | 三原语（走 / 挖 / 捡）+ FishTask 适配器 | 57/57 |
 | `npm run llm:dry` | 意图路由 / Schema / 工具白名单 / 完工播报去重 | 路由 67/67 · 工具 43/43 |
-| `npm run control:test` | 双通道 + 面板 + 死亡处理 + 反射路由 + 战斗反射 | 42/42 |
-| `npm run plan:audit` | 计划书 §11 符合性 | 34/34（`--stage p1` 104/104） |
+| `npm run control:test` | 双通道 + 面板 + 死亡处理 + 反射路由 + 战斗反射 | 43/43 |
+| `npm run plan:audit` | 计划书 §11 符合性 | 35/35（`--stage p1` 105/105） |
 | `npm run inspect:server` / `mods:report` | 连服前体检 / Mod 知识报告 | 辅助 |
 | `npm run body:info` | 查看可用 body 与当前选择 | 辅助 |
 | `npm start` / `npm run server:setup` | 本地无头服务器 + 旧流程（`--no-agent` 只起服） | 历史 / 兼容 |
@@ -531,7 +540,7 @@ P0 已于 2026-10-16 收官（`p0:verify` 8/8、`plan:audit` 29/29）；[`docs/P
 
 ```powershell
 npm run p0:verify      # 离线全量（约 1 分钟，8 个套件）
-npm run selftest       # 179/179：模块图 / 插件 / 寻路 / 三原语 / 意图 Schema / 工具白名单 / 死亡处理
+npm run selftest       # 181/181：模块图 / 插件 / 寻路 / 三原语 / 意图 Schema / 工具白名单 / 死亡处理
 npm run mining:entry:test      # 25/25：统一挖矿入口（含全矿种深板岩矩阵）
 npm run mining:collection:test # 24/24：共享收集
 npm run mining:recovery:test   # 18/18：LLM 接管（脚本化模型）

@@ -75,6 +75,7 @@ async function main() {
     'src/tasks/light',
     'src/tasks/deposit',
     'src/tasks/withdraw',
+    'src/tasks/follow',
     'src/chat/commands',
     'src/web/statusServer',
     'src/mods/knowledge',
@@ -235,7 +236,8 @@ async function main() {
     ['src/tasks/hunt', 'HuntTask', { count: 2 }],
     ['src/tasks/light', 'LightTask', { count: 2 }],
     ['src/tasks/deposit', 'DepositTask', {}],
-    ['src/tasks/withdraw', 'WithdrawTask', {}]
+    ['src/tasks/withdraw', 'WithdrawTask', {}],
+    ['src/tasks/follow', 'FollowTask', { player: 'Target' }]
   ];
   for (const [mod, klass, options] of taskModules) {
     check(`build ${klass}`, () => {
