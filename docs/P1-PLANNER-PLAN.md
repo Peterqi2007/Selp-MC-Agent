@@ -579,8 +579,8 @@ A12 的周期、时延与资源阈值由 M0/M2 测量后填入部署记录，未
 > **实施进展（2026-10-17）**：离线交付物已完成——基线脚本 `npm run p1:baseline -- --suites`、
 > 问题复核表、P0→P1 审计迁移清单（`plan:audit --stage p0|p1`）、评测集 v1
 > （[`../fixtures/p1/eval-set.json`](../fixtures/p1/eval-set.json)）、候选/版本登记，详见
-> [`P1-M0.md`](P1-M0.md)。**客户端三项（`/state` 成本、真机基线、CU F1）未执行**，因此 M0
-> **未整体完成**；未测阈值不得回填。
+> [`P1-M0.md`](P1-M0.md)。**客户端三项部分执行**（`/state` 仅空闲负载、真机基线与登录/寻路/砍树/一次 mine
+> 已做；CU F1 未执行），因此 M0 **未整体完成**；未测阈值不得回填。
 
 ### M1：统一身份、能力、进度、结果与执行权
 
@@ -597,8 +597,8 @@ A12 的周期、时延与资源阈值由 M0/M2 测量后填入部署记录，未
 > （`Last-Event-ID` + token）、Capability 表（`crafting/deposit/hunting/light/shelter`）、
 > TaskResult 六态、`mine_ore.progress()` 值域修复（P3 关闭）、父计划内部执行（PlanRunner）、
 > 回合生命周期（TurnLifecycle）、离线 harness 适配器（HarnessAdapter）；
-> `p1:contract:test` 22/22、`plan:audit --stage p1` 41/41，详见 [`P1-M1.md`](P1-M1.md)。
-> **未完成**：真实 DSH/Codex 插件接线、持久化；M1 **不得整体标为通过**。
+> 当时 `p1:contract:test` 22/22、`plan:audit --stage p1` 41/41，详见 [`P1-M1.md`](P1-M1.md)。
+> **2026-10-22 补**：真实 DSH 插件与持久化已在 M3 接线；M1 已按适用子集真机 PASS（2026-10-17）。
 
 ### M2：双脑路由、persona 与分层感知
 
@@ -697,12 +697,12 @@ A12 的周期、时延与资源阈值由 M0/M2 测量后填入部署记录，未
 
 **交付与出口**：矩阵逐项附证据，更新能力/限制、配置和运行说明。模块可分阶段交付，必需项全通过前不能宣称整项 P1 完成。第 6 点的 spike、A/B（若触发）与比较文档不能替代接入验收，收官需有后端选型记录、A27–A31 证据和用量/版本维护说明。合并前检查范围与相关回归，保留可回退提交。
 
-> **实施进展（2026-10-17，M7 离线准备）**：新增 `npm run p1:verify` 一键离线验收
-> （P0 回归 + planner + contract + fault + audit p1，`--fast` 跳过 P0）与
-> `p1:fault:test` **7/7**；[`P1-M7.md`](P1-M7.md) 给出 A01–A31 验收矩阵
-> （**没有任何一项标为通过**）、发布检查清单与残余风险；退役 S4 已完成，`planner.mode`
-> 最终值仍为 `legacy`。当前 `p1:contract:test` 117/117、`plan:audit --stage p1` 80/80。
-> **P1 未发布**；客户端/模型项全部未执行。
+> **实施进展（2026-10-22 文档同步）**：`npm run p1:verify` 一键离线验收（P0 回归 + planner **35/35** +
+> contract **206/206** + m3 **44/44** + m6 **19/19** + m7 **11/11** + m4 **15/15** + fault **9/9** +
+> `plan:audit --stage p1` **105/105**；`--fast` 8/8）；[`P1-M7.md`](P1-M7.md) 给出 A01–A31 验收矩阵、
+> 发布检查清单与残余风险；退役 S4 已完成，`planner.mode` 当前为 **`off`**（最终取值待 M7 决定）。
+> **M1（适用子集）/M2/M3 已于 2026-10-21 通过真机验收**；**P1 未发布**；M4/M5/M6/M7 的剩余真机项
+> 见 [`P1-CLIENT-TESTS.md`](P1-CLIENT-TESTS.md)。
 
 ## 六、待完善事项与维护约定
 

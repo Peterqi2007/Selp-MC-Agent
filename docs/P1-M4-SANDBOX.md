@@ -78,7 +78,7 @@ node --permission
 
 ## 6. 验证
 
-- `npm run p1:m4:test`：**12/12**（权限集、状态持久化、生成解析、DeepSeek 请求形状/缓存/隐私过滤、
+- `npm run p1:m4:test`：**15/15**（权限集、状态持久化、生成解析、DeepSeek 请求形状/缓存/隐私过滤、
   真实子进程 read_state/chat/search/wait、能力拒绝、超时、撤销、父进程隔离、subprocess、证据、
-  晋升/回退）。
+  晋升/回退；2026-10-22 实跑）。
 - 并入 `npm run p1:verify`（8 suites → 9 suites）。

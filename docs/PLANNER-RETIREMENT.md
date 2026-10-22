@@ -16,7 +16,7 @@
 > | 提案生命周期/常驻授权 | ✅ S3 完成 |
 > | 删除无调用者的 `pickRule()` | ✅ S4 完成 |
 > | 删除 `slowLoop`/`decide`/`buildTask`/`planner.mode` | ❌ **未完成，按 S4 设计有意保留** |
-> | “未经授权的自主执行”退役 | ✅ 当前 `proposals` 模式不直接执行 |
+> | “未经授权的自主执行”退役 | ✅ 当前 `off` 模式不生成、不执行（`proposals` 仅历史路径） |
 >
 > 2026-10-18 `774db29` 曾把默认模式从 `legacy` 改成 `off`；2026-10-19 `d17e2a0` 又改成
 > `proposals` 并重新启用自主提案入口（真机 craft furnace 通过）。2026-10-20 为 M3 测试改为
@@ -168,10 +168,10 @@ brain 任务释放身体（最多 `settleTimeoutMs`）；原实现是"取消后�
 `TaskSlot`，提案状态机已落地，`pickRule()` 已删除；`PLANNER-REFACTOR.md` 的 P1–P10/Q1–Q7
 已逐条标注“关闭 / 转 P1 M1 / 口径统一”。
 
-- **离线证据**：`planner:test` 31/31；`plan:audit` p0 29/29、**p1 34/34**；`p0:verify` 8/8；
-  `control:test` 37/37；`selftest` 176/176；`tasks` 52/52；`skills` 57/57；mining 25/24/18。
-- **未执行**：全部真机判据（`!`/`do_task` 真机等价、空闲授权口径、重启账本、A25 多人）——
-  统一登记在 [`P1-CLIENT-TESTS.md`](P1-CLIENT-TESTS.md)，执行需单独批准。
+- **离线证据（2026-10-22 实跑）**：`planner:test` 35/35；`plan:audit` p0 29/29、**p1 105/105**；`p0:verify` 8/8；
+  `control:test` 43/43；`selftest` 181/181；`tasks` 57/57；`skills` 74/74；mining 25/24/18。
+- **真机判据未全部执行**：`!`/`do_task` 等价仅抽测（A26/R1 部分）、空闲授权口径与重启账本未测、
+  A25 未执行——统一登记在 [`P1-CLIENT-TESTS.md`](P1-CLIENT-TESTS.md)。
 
 ### 9.2 当前运行状态（2026-10-20）
 

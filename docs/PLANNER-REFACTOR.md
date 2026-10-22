@@ -4,7 +4,8 @@
 >
 > 本文记录的问题已按 [`PLANNER-RETIREMENT.md`](PLANNER-RETIREMENT.md) 处理；下表是**关闭 / 迁移**的
 > 唯一权威。证据只列离线套件（`planner:test`、`plan:audit --stage p1`、`p0:verify` 等）；
-> 真机项仍登记在 [`P1-CLIENT-TESTS.md`](P1-CLIENT-TESTS.md)，**未执行**。
+> 真机项仍登记在 [`P1-CLIENT-TESTS.md`](P1-CLIENT-TESTS.md)；M1/M2/M3 相关真机已于 2026-10-17/21 通过，
+> 退役判据仍部分执行（R1 部分、R2–R4 未执行）。
 >
 > | 项 | 状态 | 说明 |
 > | --- | --- | --- |
