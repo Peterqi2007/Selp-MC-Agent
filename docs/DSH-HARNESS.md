@@ -224,6 +224,9 @@ resume 一次。
   时用该 id 重绑并重试一次。未绑定且没有 id 时玩家会收到"未绑定"提示，**不会**回落本地执行。
 - 动作脑发言：插件新工具 **`mc_say`** → Node `POST /say` → `ctx.reply()`（sanitize、100 字截断、
   `noteOwnSpeech` 回环过滤）。目标 objective 与转发 envelope 都要求"需要玩家听见时调用一次"。
+  - 输出 schema 必须是 **string**：execute 返回 JSON 字符串；若声明 object，DSH 会报
+    `"value" must be an object`（真机 2026-10-22 曾导致模型重试、同一句说两遍）。修正后
+    turn 90 回执 `{ok:true,sent:true}`，只有一次 `mc_say` 调用和一条游戏内 `said:`。
 - 面板 `@…` 走同一个 router；`!` 命令（含 `!goal`）仍走确定性本地命令表，不属于本路由。
 - 观测：`ctx.lastDialogueRoute`（mode/ok/handoff/reason/forwarded）出现在 `/ui/state.dialogue`。
 - 离线：`p1:m6-test` 19/19（转发/绑定重试/未绑定/no-planner、planner-first 本地与 handoff、
