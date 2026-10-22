@@ -628,8 +628,13 @@ function toolDefinitions({ controlUrl, record, log, runtime }) {
       additionalProperties: false
     },
     output: {
-      schema: { type: 'object' },
-      render: (_args, value) => [{ type: 'text', text: JSON.stringify(value) }]
+      /**
+       * `execute()` returns a JSON string (like mc_plan/mc_memory), so the schema must say
+       * string. Declaring object made DSH reject the result as "invalid output" while the
+       * line had already been spoken - the model then retried and the player heard it twice.
+       */
+      schema: { type: 'string' },
+      render: (_args, value) => [{ type: 'text', text: value }]
     },
     async execute(args) {
       const text = String((args && args.text) || '').trim();
