@@ -92,7 +92,9 @@ tasks.named('jar', Jar).configure {
 				'Specification-Version' : '1',
 				'Implementation-Title'  : project.name,
 				'Implementation-Version': project.jar.archiveVersion,
-				'Implementation-Vendor' : 'minecraft-survival-agent'
+				'Implementation-Vendor' : 'minecraft-survival-agent',
+				// Veil's ImGui GLFW callbacks are guarded in VeilImGuiGuardMixin.
+				'MixinConfigs'         : 'agentclient.mixins.json'
 		])
 	}
 }

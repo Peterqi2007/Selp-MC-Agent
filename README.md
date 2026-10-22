@@ -202,11 +202,20 @@ LLM 层（`src/llm/`，生产配置已开启 `toolCalling`）：8 个工具 —�
   A23–A30、A27、F2 **仍未执行**；M5 因 CU 未授权继续 BLOCKED。详见
   `docs/P1-CLIENT-VERIFICATION.md`、`docs/M1-CLIENT-TEST-2026-10-17.md`、
   `docs/M2-CLIENT-TEST-2026-10-17.md`、`docs/P1-M4-SANDBOX.md`。
-* 控制 Mod：`mod-client/dist/agent-client-1.0.0.jar` **76730 字节**（2026-10-22 13:52 构建，含 WalkTo 严格到达
+* 控制 Mod：`mod-client/dist/agent-client-1.0.0.jar` **78008 字节**（2026-10-22 20:59 构建，含 WalkTo 严格到达
   y 容差、战斗 v3、TACZ 枪械与 server `dayTime` 昼夜判断、**TACZ `HoldToAim` 右键瞄准修复**——反编译
-  `AimKey` 后改为持有真实 `AIM_KEY` 映射，见 `docs/COMBAT-PLAN.md` §六；以及 **`/state?players=1` 轻量玩家轮询**——
-  follow 每 150ms 只读玩家/自身位置，A* 规划前才拉完整方块扫描）；已 `client:install` 覆盖 PCL 版本目录。
-  改 Mod 后必须重装（`npm run client:install`）并重启客户端。本次瞄准修复与轻量轮询**未做真机验证**（按操作员要求）。
+  `AimKey` 后改为持有真实 `AIM_KEY` 映射，见 `docs/COMBAT-PLAN.md` §六；**`/state?players=1` 轻量玩家轮询**——
+  follow 每 150ms 只读玩家/自身位置，A* 规划前才拉完整方块扫描；以及 **Veil ImGui 按键崩溃防护 Mixin**）；
+  已 `client:install` 覆盖 PCL 版本目录。改 Mod 后必须重装（`npm run client:install`）并重启客户端。
+  本次瞄准修复与轻量轮询未做真机验证（按操作员要求）；Veil 防护已用真机 ESC/W 按键验证。
+* **客户端按任意键退出修复（2026-10-22）**：服务器新增 **Aeronautics → Sable → Veil 1.0.0.296** 后，
+  Veil 的 GLFW 键回调在 ImGui context 未就绪时仍调用 `ImGui.getIO()`，任意按键都会触发
+  `Dear ImGui Assertion Failed: GImGui != NULL` 并退出客户端（日志栈顶
+  `VeilImGuiImplGlfw.keyCallback`）。`agent-client` 新增 `VeilImGuiGuardMixin`
+  （`agentclient.mixins.json`，manifest `MixinConfigs`），在 HEAD 取消 Veil 的
+  key/char/scroll/focus 回调；Minecraft 自身输入与 Veil 渲染不受影响，只禁用可选的 F6 编辑器输入。
+  新 jar 已 `client:install`，真机验证按 ESC + W 后客户端进程仍存活；启动方式仍是 `.\start.ps1`
+  （重装 jar 后需重启客户端）。
 * **`!collect` 假实现修复（2026-10-21）**：旧 handler 只是 `ChopWoodTask(1)`（“捡东西”=砍一根木头）。
   现注册为独立技能 `collect`：**强制新鲜快照**（`refreshStrict(true)`，失败不退回缓存）→ 以玩家为中心
   15×15×15 找掉落物 → 逐个 `moveTo(..., {pathfind:true})` 走 A* → 走位零进展（位移与距目标都没减少）
