@@ -45,7 +45,7 @@
 | A17 | 记忆与重启（真机） | 客户端 + 真实任务 | 等回答、部分完成时重启 Agent | 恢复对话/未答问题/身份链；不自动动作 | **PASS（2026-10-21 硬重启）**：s1 craft 4 stick done + s2 wait_for_player → 硬杀 Agent 重启；`state restored` 全 true（含 conversation/chatMemory）、`plan questions restored`；plan 仍 waiting v3（s1 done/s2 waiting、question 原文、budget 3/2/2），dirt/stick/planks/pos 不变（无重放）；proposal p10 恢复 awaiting 并再提示；`!answer 继续` → completed v4、world 仍不变；同一 DSH 会话/问题原文可查；ChatMemory summary/compact/原文由离线契约覆盖；旧 harness turn 不自动唤醒（文档化边界） |
 | A21 | CU 实时反馈（真 GUI） | 客户端 + `dsh-computer-use` | ≥2 类真 GUI，插失焦、界面/库存变化、长按 | 每步新鲜观察并验结果；不点旧坐标；产出可验证 | 未执行（依赖 F1） |
 | A22 | CU 中断与复用 | 客户端 + 真实 GUI | GUI 中反射/急停；稳定流程提炼后同条件复用 | 清理按键/执行权；模型调用与截图 token 下降且效果一致 | 未执行（依赖 F1） |
-| A23 | 插话/沉默（多人聊天） | 客户端 + 多玩家 | 固定 40 组聊天 ×3 次 | 参与组 ≥80%；沉默组误插话 ≤10% | 未执行 |
+| A23 | 插话/沉默（多人聊天） | 客户端 + 多玩家 | 固定 40 组聊天 ×3 次 | 参与组 ≥80%；沉默组误插话 ≤10% | **未执行**（候选语料已从真实日志导出 348 条，待操作员标注） |
 | A24 | 聊天并发（真机） | 客户端 + 多玩家 | 连续消息、上下文更新、回声、silence | 同批不重复、不自我对话、过时重判 | 未执行 |
 | A25 | 自主提案（接受/拒绝/不答/另派） | 客户端 + 玩家 | 四条路径各若干次 | **`planner.mode=off`；自主 proposal 只能由 DSH harness `mc_propose` 提出，本地 planner 不生成**；未接受不执行；拒绝后 3 分钟不重复；不答非同意；离线 `planner:test` 只覆盖 ProposalDesk 生命周期，真机 harness 提案未执行 | 未执行 |
 | A26 | 回归/降级（真机） | 客户端 | 行走、破坏、拾取、取消、双通道；关模型/搜索/CU | 不退化；无 LLM 时 `!` 与反射仍工作 | **部分通过（2026-10-17）**：协议 23/23、登录+寻路 7/7、砍树 PASS、独立 mine 2/2 PASS；`--dig stone` 前置点位失败；取消/反射/双通道未测 |
