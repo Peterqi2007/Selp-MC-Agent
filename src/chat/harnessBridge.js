@@ -57,6 +57,50 @@ class HarnessBridge {
       clearTimeout(timer);
     }
   }
+
+  /**
+   * Bind the bridge to a live DSH conversation.
+   *
+   * A DSH restart can leave the plugin unbound while the session id is still valid, so the
+   * router retries once after this call when `/message` answers `no-live-agent`.
+   *
+   * @param {string} agentId live DSH session/agent id
+   * @returns {Promise<{ok:boolean, agentId?:string, reason?:string, status?:number}>}
+   */
+  async bind(agentId) {
+    const id = String(agentId || '').trim();
+    if (!id) return { ok: false, reason: 'agent-id-required' };
+    if (!this.fetchImpl) return { ok: false, reason: 'fetch-unavailable' };
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), this.timeoutMs);
+    try {
+      const res = await this.fetchImpl(`${this.url}/bind`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ agentId: id }),
+        signal: controller.signal
+      });
+      let payload = {};
+      try {
+        payload = await res.json();
+      } catch {
+        payload = {};
+      }
+      if (!res.ok || payload.ok !== true) {
+        return {
+          ok: false,
+          reason: payload.error || payload.reason || `HTTP ${res.status}`,
+          status: res.status
+        };
+      }
+      return { ok: true, agentId: payload.agentId || id };
+    } catch (err) {
+      const aborted = err && (err.name === 'AbortError' || /abort/i.test(err.message || ''));
+      return { ok: false, reason: aborted ? 'timeout' : err.message };
+    } finally {
+      clearTimeout(timer);
+    }
+  }
 }
 
 module.exports = { HarnessBridge };

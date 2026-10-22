@@ -298,6 +298,16 @@ class LlmCore {
         record.ms = Date.now() - started;
         this.remember(record);
         this.trace(record);
+        /**
+         * Planner-first handoff: the caller (DialogueRouter) owns the failure line and sends
+         * the original text to the action brain. Saying "I did not understand" here would
+         * both contradict the handoff and leave the player with a dead end.
+         */
+        if (options.onUnresolved === 'defer') {
+          record.handoff = true;
+          this.closeRequest(id, 'handoff');
+          return record;
+        }
         // The honest answer beats a guess: an invented task would run for minutes in the
         // wrong direction before anyone noticed.
         await this.say('这句我没听懂，试试「砍点树」或「!chop 8」？');

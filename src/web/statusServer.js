@@ -761,6 +761,40 @@ function startStatusServer(ctx, options = {}) {
         return json(res, 200, ctx.codeSkills.retire(name, version));
       }
 
+      /**
+       * Action-brain speech (A16/M3 live entry): the DSH `mc_say` tool posts one short line
+       * here. This is deliberately not a command channel: reply() sanitizes it (no leading
+       * `!`/`/`), applies maxChars and registers the echo before sending.
+       */
+      if (req.method === 'POST' && url.pathname === '/say') {
+        if (typeof ctx.reply !== 'function') {
+          return json(res, 503, { ok: false, error: 'reply unavailable' });
+        }
+        let body = {};
+        try {
+          body = JSON.parse((await readRaw(req)) || '{}');
+        } catch {
+          return json(res, 400, { ok: false, error: 'invalid JSON' });
+        }
+        const text = String(body.text || '').trim();
+        if (!text) return json(res, 400, { ok: false, error: 'text required' });
+        const max =
+          (ctx.cfg && ctx.cfg.agent && ctx.cfg.agent.chat && ctx.cfg.agent.chat.maxChars) || 100;
+        const line = text.slice(0, Math.max(Number(max) || 100, 1));
+        let sent = false;
+        try {
+          sent = await ctx.reply(line, { why: 'action-brain-say' });
+        } catch (err) {
+          return json(res, 500, { ok: false, error: err.message });
+        }
+        return json(res, 200, {
+          ok: sent === true,
+          sent: sent === true,
+          text: line,
+          reason: sent === true ? null : 'not-sent'
+        });
+      }
+
       // ----------------------------------------------------------- control
       if ((req.method === 'POST' || req.method === 'GET') && url.pathname === '/command') {
         /**
@@ -811,9 +845,39 @@ function startStatusServer(ctx, options = {}) {
          */
         const trimmed = String(line).trim();
         const trigger = resolveTrigger(ctx, { log });
-        if (trigger && trimmed.startsWith(trigger) && ctx.llm && typeof ctx.llm.handle === 'function') {
+        const isDialogue =
+          !!trigger &&
+          trimmed.startsWith(trigger) &&
+          (!!ctx.dialogueRouter || (ctx.llm && typeof ctx.llm.handle === 'function'));
+        if (isDialogue) {
           const utterance = trimmed.slice(trigger.length).trim();
           const snap = ctx.body && typeof ctx.body.snapshot === 'function' ? ctx.body.snapshot() : null;
+          /**
+           * The panel must follow the same brain as the in-game channel. In harness mode a
+           * failure is reported, not routed to the local planner.
+           */
+          if (ctx.dialogueRouter) {
+            const routed = await ctx.dialogueRouter.route(utterance, {
+              source: 'panel',
+              speaker: 'panel',
+              agentPosition: snap ? snap.position : null
+            });
+            rememberPanelInput({
+              text: utterance,
+              via: 'panel-dialogue',
+              action: routed.mode || null
+            });
+            return json(res, 200, {
+              ok: routed.ok !== false,
+              routed: 'dialogue',
+              mode: routed.mode,
+              handoff: routed.handoff === true,
+              forwarded: routed.forwarded || null,
+              reason: routed.reason || null,
+              level: priority,
+              ms: Date.now() - started
+            });
+          }
           const record = await ctx.llm.handle(utterance, {
             source: 'panel',
             speaker: 'panel',
@@ -949,6 +1013,12 @@ function uiState(ctx) {
           tools: ctx.llm.status().tools
         }
       : { enabled: false, disabledReason: 'no llm layer' },
+    /**
+     * Last natural-language routing decision. It exists so "why did the bot not act?" is
+     * answerable from the panel: harness / planner-first / planner, and whether a forward
+     * failed or the local planner handed off.
+     */
+    dialogue: ctx.lastDialogueRoute || null,
     /** Input -> routing, so the panel can show "did it understand me?" */
     recentInputs: [
       ...((ctx.llm && ctx.llm.turns) || []),

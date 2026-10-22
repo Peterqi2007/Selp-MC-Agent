@@ -14,8 +14,12 @@
  */
 
 const assert = require('assert');
+const http = require('http');
 const { ConversationState } = require('../src/chat/conversation');
 const { reply } = require('../src/chat/reply');
+const { DialogueRouter } = require('../src/chat/dialogueRouter');
+const { LlmCore } = require('../src/llm');
+const { startStatusServer } = require('../src/web/statusServer');
 const {
   ChatParticipation,
   parseParticipation,
@@ -48,6 +52,39 @@ function check(name, fn) {
     process.stdout.write(`  FAIL  ${name} - ${err.message}\n`);
   }
   return Promise.resolve();
+}
+
+function request(port, method, requestPath, body) {
+  return new Promise((resolve, reject) => {
+    const payload = body === undefined ? null : JSON.stringify(body);
+    const req = http.request(
+      {
+        host: '127.0.0.1',
+        port,
+        method,
+        path: requestPath,
+        headers: payload
+          ? { 'content-type': 'application/json', 'content-length': Buffer.byteLength(payload) }
+          : {}
+      },
+      (res) => {
+        let data = '';
+        res.on('data', (chunk) => (data += chunk));
+        res.on('end', () => {
+          let parsed = data;
+          try {
+            parsed = JSON.parse(data);
+          } catch {
+            /* plain text */
+          }
+          resolve({ status: res.statusCode, body: parsed });
+        });
+      }
+    );
+    req.on('error', reject);
+    if (payload) req.write(payload);
+    req.end();
+  });
 }
 
 function deferred() {
@@ -229,6 +266,199 @@ function makeParticipation(options = {}) {
       });
       assert.strictEqual(empty.handle({ from: 'A', text: '好' }).reason, 'no-pending');
     });
+  }
+
+  process.stdout.write('\n5. dialogue routing (harness / planner-first)\n');
+  {
+    const makeCtx = () => {
+      const said = [];
+      const ctx = {
+        cfg: { agent: { chat: { maxChars: 100 } } },
+        body: { snapshot: () => ({ position: { x: 1, y: 64, z: 2 } }) },
+        reply: async (text, options) => {
+          said.push({ text, options });
+          return true;
+        },
+        llm: { handle: async (text, options) => ({ kind: 'input', text, options }) }
+      };
+      return { ctx, said };
+    };
+    const makeBridge = (results) => {
+      const forwards = [];
+      const binds = [];
+      return {
+        forwards,
+        binds,
+        async forward(text, meta) {
+          forwards.push({ text, meta });
+          return results.shift() || { ok: true, forwarded: true };
+        },
+        async bind(agentId) {
+          binds.push(agentId);
+          return { ok: true, agentId };
+        }
+      };
+    };
+
+    {
+      const { ctx } = makeCtx();
+      let local = 0;
+      ctx.llm.handle = async () => {
+        local += 1;
+        return { kind: 'input' };
+      };
+      const bridge = makeBridge([]);
+      const router = new DialogueRouter({ ctx, mode: 'harness', bridge, log: silent });
+      const routed = await router.route('挖 4 个泥土', {
+        source: 'chat',
+        speaker: '玩家',
+        agentPosition: { x: 1, y: 64, z: 2 }
+      });
+      await check('harness mode forwards the line to the action brain and never calls the local planner', () => {
+        assert.strictEqual(routed.ok, true);
+        assert.strictEqual(routed.mode, 'harness');
+        assert.strictEqual(local, 0);
+        assert.strictEqual(bridge.forwards.length, 1);
+        assert.match(bridge.forwards[0].text, /\[MINECRAFT PLAYER REQUEST\]/);
+        assert.match(bridge.forwards[0].text, /text: "挖 4 个泥土"/);
+        assert.match(bridge.forwards[0].text, /agentPosition: 1,64,2/);
+        assert.strictEqual(ctx.lastDialogueRoute.mode, 'harness');
+      });
+    }
+
+    {
+      const { ctx } = makeCtx();
+      ctx.llm.handle = async () => {
+        throw new Error('the local planner must not run in harness mode');
+      };
+      const bridge = makeBridge([{ ok: false, reason: 'no-live-agent' }, { ok: true, forwarded: true }]);
+      const router = new DialogueRouter({ ctx, mode: 'harness', bridge, agentId: 'session-x', log: silent });
+      const routed = await router.route('hi', { source: 'chat' });
+      await check('a lost action-brain binding is retried once for the configured id', () => {
+        assert.strictEqual(routed.ok, true);
+        assert.deepStrictEqual(bridge.binds, ['session-x']);
+        assert.strictEqual(bridge.forwards.length, 2);
+      });
+    }
+
+    {
+      const { ctx, said } = makeCtx();
+      const bridge = makeBridge([{ ok: false, reason: 'no-live-agent' }]);
+      const router = new DialogueRouter({ ctx, mode: 'harness', bridge, log: silent });
+      const routed = await router.route('hi', { source: 'chat' });
+      await check('an unbound action brain is reported and never falls back to local execution', () => {
+        assert.strictEqual(routed.ok, false);
+        assert.match(said[0].text, /未绑定/);
+        assert.strictEqual(bridge.forwards.length, 1);
+      });
+    }
+
+    {
+      const { ctx } = makeCtx();
+      let local = 0;
+      ctx.llm.handle = async (text, options) => {
+        local += 1;
+        return { kind: 'input', text, options, action: { type: 'task' } };
+      };
+      const bridge = makeBridge([]);
+      const router = new DialogueRouter({ ctx, mode: 'planner-first', bridge, log: silent });
+      const routed = await router.route('砍 8 根木头', { source: 'chat' });
+      await check('planner-first keeps an understood local task local', () => {
+        assert.strictEqual(routed.mode, 'planner-first');
+        assert.strictEqual(local, 1);
+        assert.strictEqual(bridge.forwards.length, 0);
+      });
+    }
+
+    {
+      const { ctx, said } = makeCtx();
+      ctx.llm.handle = async () => ({ kind: 'understood-nothing', handoff: true });
+      const bridge = makeBridge([]);
+      const router = new DialogueRouter({ ctx, mode: 'planner-first', bridge, log: silent });
+      const routed = await router.route('帮我建个红石自动门', { source: 'chat' });
+      await check('planner-first hands an unresolved line to the action brain', () => {
+        assert.strictEqual(routed.handoff, true);
+        assert.strictEqual(routed.ok, true);
+        assert.strictEqual(bridge.forwards.length, 1);
+        assert.match(bridge.forwards[0].text, /红石自动门/);
+        assert.strictEqual(said.length, 0, 'no "did not understand" line when handing off');
+      });
+    }
+
+    {
+      const { ctx } = makeCtx();
+      let local = 0;
+      ctx.llm.handle = async () => {
+        local += 1;
+        return { kind: 'input' };
+      };
+      const bridge = makeBridge([]);
+      const router = new DialogueRouter({ ctx, mode: 'planner', bridge, log: silent });
+      const routed = await router.route('hi', { source: 'chat' });
+      await check('planner mode keeps the legacy local-only route', () => {
+        assert.strictEqual(routed.mode, 'planner');
+        assert.strictEqual(local, 1);
+        assert.strictEqual(bridge.forwards.length, 0);
+      });
+    }
+
+    {
+      const { ctx } = makeCtx();
+      const llm = new LlmCore(ctx, { enabled: false }, { log: silent });
+      const record = await llm.handle('zzzzzz', { onUnresolved: 'defer' });
+      await check('llm.handle(onUnresolved:defer) returns handoff without saying "did not understand"', () => {
+        assert.strictEqual(record.kind, 'understood-nothing');
+        assert.strictEqual(record.handoff, true);
+      });
+    }
+  }
+
+  process.stdout.write('\n6. /say + panel dialogue route\n');
+  {
+    const said = [];
+    const routed = [];
+    const ctx = {
+      cfg: { agent: { chat: { maxChars: 100, dialogueTrigger: '@T' } } },
+      body: { snapshot: () => ({ position: { x: 1, y: 64, z: 2 } }) },
+      reply: async (text, options) => {
+        said.push({ text, options });
+        return true;
+      },
+      dialogueRouter: {
+        async route(text, meta) {
+          routed.push({ text, meta });
+          return { ok: true, mode: 'harness', forwarded: { ok: true } };
+        }
+      },
+      chat: { handle: async () => ({ ok: true, command: 'stub' }) }
+    };
+    const started = startStatusServer(ctx, { port: 0, host: '127.0.0.1' });
+    await new Promise((resolve, reject) => {
+      if (started.server.listening) return resolve();
+      started.server.once('listening', resolve);
+      started.server.once('error', reject);
+    });
+    const port = started.server.address().port;
+    try {
+      const sent = await request(port, 'POST', '/say', { text: '收到，开始挖' });
+      const empty = await request(port, 'POST', '/say', {});
+      const panel = await request(port, 'POST', '/command', { command: '@T 挖 4 个泥土' });
+      await check('POST /say speaks through reply() and rejects empty text', () => {
+        assert.strictEqual(sent.status, 200);
+        assert.strictEqual(sent.body.sent, true);
+        assert.deepStrictEqual(said[0].text, '收到，开始挖');
+        assert.strictEqual(empty.status, 400);
+      });
+      await check('the panel dialogue route uses the same DialogueRouter', () => {
+        assert.strictEqual(panel.status, 200);
+        assert.strictEqual(panel.body.routed, 'dialogue');
+        assert.strictEqual(panel.body.mode, 'harness');
+        assert.strictEqual(routed.length, 1);
+        assert.strictEqual(routed[0].text, '挖 4 个泥土');
+      });
+    } finally {
+      await new Promise((resolve) => started.server.close(resolve));
+    }
   }
 
   const failed = results.filter((result) => !result.ok);

@@ -35,10 +35,27 @@ function freePort() {
   });
 }
 
-/** Stub control endpoint: keeps the turn SSE open so the plugin does not retry. */
+/** Stub control endpoint: keeps the turn SSE open and records mc_say lines. */
 function startControlStub() {
+  const said = [];
   return new Promise((resolve) => {
     const server = http.createServer((req, res) => {
+      if (req.method === 'POST' && req.url === '/say') {
+        let body = '';
+        req.on('data', (chunk) => (body += chunk));
+        req.on('end', () => {
+          try {
+            const parsed = JSON.parse(body || '{}');
+            said.push(String(parsed.text || ''));
+            res.writeHead(200, { 'content-type': 'application/json' });
+            res.end(JSON.stringify({ ok: true, sent: true, text: parsed.text || '' }));
+          } catch {
+            res.writeHead(400, { 'content-type': 'application/json' });
+            res.end('{}');
+          }
+        });
+        return;
+      }
       if (String(req.url || '').startsWith('/harness/events')) {
         res.writeHead(200, { 'content-type': 'text/event-stream' });
         res.write(': connected\n\n');
@@ -47,7 +64,7 @@ function startControlStub() {
       res.writeHead(404, { 'content-type': 'application/json' });
       res.end('{}');
     });
-    server.listen(0, '127.0.0.1', () => resolve({ server, port: server.address().port }));
+    server.listen(0, '127.0.0.1', () => resolve({ server, port: server.address().port, said }));
   });
 }
 
@@ -132,17 +149,19 @@ function makeWorld({ withGoals = true } = {}) {
         }
       }
     : null;
+  const tools = [];
   const ctx = {
     logger: silent,
     get: (name) => (name === 'agents' ? agents : name === 'goals' ? goals : null),
-    inject: (names, callback) => callback({ tools: { register: () => {} }, agents }),
+    inject: (names, callback) =>
+      callback({ tools: { register: (definition) => tools.push(definition) }, agents }),
     effect: (fn) => {
       const cleanup = fn();
       if (typeof cleanup === 'function') ctx.cleanups.push(cleanup);
     },
     cleanups: []
   };
-  return { ctx, created, cleared, paused, resumed, followups, agent };
+  return { ctx, tools, created, cleared, paused, resumed, followups, agent };
 }
 
 async function main() {
@@ -189,6 +208,13 @@ async function main() {
   assert(legacy.status === 200 && legacy.body.ok === true, 'text mode must keep the legacy response');
   assert(world.followups.length === 1, 'text mode must still use one followup');
 
+  // The action brain's in-game voice: mc_say -> Node /say.
+  const sayTool = world.tools.find((tool) => tool.name === 'mc_say');
+  assert(sayTool, 'mc_say must be registered');
+  const said = JSON.parse(await sayTool.execute({ text: '收到，开始挖' }));
+  assert(said.ok === true && said.sent === true, 'mc_say must report the send result');
+  assert(control.said.includes('收到，开始挖'), 'mc_say must reach the local /say endpoint');
+
   // No goals service: goal mode must fail loudly, not silently degrade to chat.
   const noGoalWorld = makeWorld({ withGoals: false });
   const secondPort = await freePort();
@@ -208,7 +234,7 @@ async function main() {
   }
   await new Promise((resolve) => control.server.close(resolve));
   control.server.closeAllConnections?.();
-  console.log('goal mode: PASS (durable goal, GET, pause/resume, goal-exists, replace, text fallback, loud 503)');
+  console.log('goal mode: PASS (durable goal, GET, pause/resume, mc_say, goal-exists, replace, text fallback, loud 503)');
 }
 
 main().catch((err) => {

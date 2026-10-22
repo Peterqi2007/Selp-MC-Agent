@@ -205,6 +205,30 @@ followup 打进 live 对话，模型答完一个回合就结束——长任务�
 `POST /goal/resume` 可重新 arm 并继续。批量测试时若 goal 长时间不动，先查 `activation`，必要时
 resume 一次。
 
+### 自然语言对话入口：DialogueRouter（2026-10-22）
+
+此前 `@大肥鱼 …` 走 `LlmCore.handle`（本地 P0 intent planner），`chat.actionBrain="harness"`
+只影响语言脑审批路径，**任务请求永远到不了动作脑**。现在对话路由由
+`src/chat/dialogueRouter.js` 统一决定：
+
+| `chat.actionBrain` | 行为 |
+| --- | --- |
+| `harness`（默认/当前） | 所有 `@` 自然语言转发 DSH；本地 planner 不在请求路径上 |
+| `planner-first` | 本地 planner 先处理理解的任务；`understood-nothing` 时把原文交 DSH（不再回答"没听懂"） |
+| `planner` | 旧行为，仅回滚/对照 |
+
+- 转发文本（经 `HarnessBridge` → 插件 `/message`）：
+  `[MINECRAFT PLAYER REQUEST] source/speaker/agentPosition/text + instruction`；DSH 模型据此用
+  `mc_*` 工具执行。
+- `chat.harnessAgentId`（可选）：启动时 `POST /bind` 预绑定；`/message` 返回 `no-live-agent`
+  时用该 id 重绑并重试一次。未绑定且没有 id 时玩家会收到"未绑定"提示，**不会**回落本地执行。
+- 动作脑发言：插件新工具 **`mc_say`** → Node `POST /say` → `ctx.reply()`（sanitize、100 字截断、
+  `noteOwnSpeech` 回环过滤）。目标 objective 与转发 envelope 都要求"需要玩家听见时调用一次"。
+- 面板 `@…` 走同一个 router；`!` 命令（含 `!goal`）仍走确定性本地命令表，不属于本路由。
+- 观测：`ctx.lastDialogueRoute`（mode/ok/handoff/reason/forwarded）出现在 `/ui/state.dialogue`。
+- 离线：`p1:m6-test` 19/19（转发/绑定重试/未绑定/no-planner、planner-first 本地与 handoff、
+  `onUnresolved:defer`、`/say`、面板路由）；插件 `plugin-goal-test` 增加 `mc_say` 断言。
+
 ### 边界
 
 - 隐藏 agent 不做 H1；live `/goal` 要求预先存在一个 DSH 对话。

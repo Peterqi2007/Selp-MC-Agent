@@ -315,17 +315,51 @@ async function main() {
   ctx.chatListener = chatListener;
 
   /**
-   * The approved natural-language path can be delivered to the DeepSeek harness (behavior
-   * brain) instead of the legacy Node chat/action loop. The bridge only forwards the
-   * original text; approval and rewriting stay outside it.
+   * The configured action brain decides where natural-language dialogue goes.
+   *
+   *   harness        all dialogue is forwarded to DSH; the local planner is not in the path
+   *   planner-first  local planner first; on "understood nothing" the original text is
+   *                  forwarded to DSH instead of answering "I did not understand"
+   *   planner        legacy local-only behaviour (rollback)
+   *
+   * The bridge is only a transport; DialogueRouter owns the routing decision and the
+   * no-silent-fallback rule.
    */
-  if (chatCfg.actionBrain === 'harness') {
+  const actionBrainMode = ['harness', 'planner-first'].includes(chatCfg.actionBrain)
+    ? chatCfg.actionBrain
+    : 'planner';
+  let harnessBridge = null;
+  if (actionBrainMode !== 'planner') {
     const { HarnessBridge } = require('./chat/harnessBridge');
-    const bridge = new HarnessBridge({
+    harnessBridge = new HarnessBridge({
       url: chatCfg.harnessUrl || 'http://127.0.0.1:8770',
       log: new Logger('harness-bridge')
     });
-    ctx.forwardToActionBrain = (text, meta) => bridge.forward(text, meta);
+    ctx.forwardToActionBrain = (text, meta) => harnessBridge.forward(text, meta);
+
+    const { DialogueRouter } = require('./chat/dialogueRouter');
+    ctx.dialogueRouter = new DialogueRouter({
+      ctx,
+      mode: actionBrainMode,
+      bridge: harnessBridge,
+      agentId: chatCfg.harnessAgentId,
+      log: new Logger('dialogue')
+    });
+    if (chatCfg.languageAgent) {
+      log.warn(
+        `chat.actionBrain=${actionBrainMode} takes over @ dialogue; chat.languageAgent is ignored for those lines`
+      );
+    }
+    const bindId = String(chatCfg.harnessAgentId || '').trim();
+    if (bindId) {
+      harnessBridge
+        .bind(bindId)
+        .then((bound) => {
+          if (bound.ok) log.info(`action brain bound: ${bound.agentId}`);
+          else log.warn(`action brain bind failed: ${bound.reason}`);
+        })
+        .catch(() => {});
+    }
   }
 
   /**
@@ -598,7 +632,7 @@ async function main() {
    */
   ctx.approvalGate = (text) => ctx.llm.judgeInstruction(text);
   let languageDialogue = null;
-  if (dialogueTrigger && chatCfg.languageAgent && llm && llm.client) {
+  if (dialogueTrigger && chatCfg.languageAgent && llm && llm.client && !ctx.dialogueRouter) {
     const { LanguageAgent } = require('./llm/languageAgent');
     const { LanguageDialogue } = require('./chat/languageDialogue');
     const agent = new LanguageAgent({
@@ -645,6 +679,19 @@ async function main() {
   if (dialogueTrigger) {
     log.info(`dialogue trigger: "${dialogueTrigger}" (character: ${persona.name}${persona.loaded ? '' : ' [default]'})`);
     chatListener.onDialogue = async (text, line) => {
+      /**
+       * actionBrain=harness/planner-first: DialogueRouter owns the line. In harness mode it
+       * must not fall through to the local planner when the action brain is unavailable;
+       * in planner-first mode the router itself decides when to hand off.
+       */
+      if (ctx.dialogueRouter) {
+        const snap = ctx.body.snapshot();
+        return ctx.dialogueRouter.route(text, {
+          source: 'chat',
+          speaker: '玩家',
+          agentPosition: snap ? snap.position : null
+        });
+      }
       if (languageDialogue) {
         return languageDialogue.handle(text, line, { source: 'chat' });
       }
