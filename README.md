@@ -202,10 +202,11 @@ LLM 层（`src/llm/`，生产配置已开启 `toolCalling`）：8 个工具 —�
   A23–A30、A27、F2 **仍未执行**；M5 因 CU 未授权继续 BLOCKED。详见
   `docs/P1-CLIENT-VERIFICATION.md`、`docs/M1-CLIENT-TEST-2026-10-17.md`、
   `docs/M2-CLIENT-TEST-2026-10-17.md`、`docs/P1-M4-SANDBOX.md`。
-* 控制 Mod：`mod-client/dist/agent-client-1.0.0.jar` **76522 字节**（2026-10-21 19:03 构建，含 WalkTo 严格到达
+* 控制 Mod：`mod-client/dist/agent-client-1.0.0.jar` **76730 字节**（2026-10-22 13:52 构建，含 WalkTo 严格到达
   y 容差、战斗 v3、TACZ 枪械与 server `dayTime` 昼夜判断、**TACZ `HoldToAim` 右键瞄准修复**——反编译
-  `AimKey` 后改为持有真实 `AIM_KEY` 映射，见 `docs/COMBAT-PLAN.md` §六）；已 `client:install` 覆盖 PCL 版本目录。
-  改 Mod 后必须重装（`npm run client:install`）并重启客户端。本次瞄准修复**未做真机验证**（按操作员要求）。
+  `AimKey` 后改为持有真实 `AIM_KEY` 映射，见 `docs/COMBAT-PLAN.md` §六；以及 **`/state?players=1` 轻量玩家轮询**——
+  follow 每 150ms 只读玩家/自身位置，A* 规划前才拉完整方块扫描）；已 `client:install` 覆盖 PCL 版本目录。
+  改 Mod 后必须重装（`npm run client:install`）并重启客户端。本次瞄准修复与轻量轮询**未做真机验证**（按操作员要求）。
 * **`!collect` 假实现修复（2026-10-21）**：旧 handler 只是 `ChopWoodTask(1)`（“捡东西”=砍一根木头）。
   现注册为独立技能 `collect`：**强制新鲜快照**（`refreshStrict(true)`，失败不退回缓存）→ 以玩家为中心
   15×15×15 找掉落物 → 逐个 `moveTo(..., {pathfind:true})` 走 A* → 走位零进展（位移与距目标都没减少）
@@ -239,9 +240,10 @@ LLM 层（`src/llm/`，生产配置已开启 `toolCalling`）：8 个工具 —�
   离线 `skills:test 71/71`、`control:test 42/42`、`plan:audit 34/34`（p1 104/104）、
   `selftest 179/179`；**未做客户端测试**。
 * **`follow` 技能 + 高频跟随（2026-10-21）**：`follow` 之前只是 `!follow` 里 1.5s 的 mineflayer
-  timer，现在注册为技能：每 **150ms**（可配 `pollMs`）`refreshStrict(true)` 读取目标玩家位置，
-  `moveTo(..., {pathfind:true})` 走 A*；目标移动超过 **1.5 格**就 `body.interrupt()` 当前路线并按
-  最新位置重规划；目标消失或超出 **24 格**寻路范围诚实失败。新增 `FollowTask`，
+  timer，现在注册为技能：每 **150ms**（可配 `pollMs`）走 **`/state?players=1` 轻量轮询**只读
+  目标玩家/自身位置（Mod 跳过 40817 格方块扫描、背包、作物与实体扫描）；每次进入 A* 路线前才
+  `refreshStrict(true)` 拉完整快照更新方块扫描；目标移动超过 **1.5 格**就 `body.interrupt()`
+  当前路线并按最新位置重规划；目标消失或超出 **24 格**寻路范围诚实失败。新增 `FollowTask`，
   `!follow <player> [seconds]` 为后台任务（默认 300s，`!stop` 取消），并进入 `TASK_BUILDERS` →
   `PlanService.knownStepTypes`，DSH `mc_plan`/`mc_propose` 可直接使用 `follow` 步骤；插件说明已同步并
   `dsh:install` 到 profile（需重启 DSH）。离线 `skills:test 74/74`、`control:test 43/43`、
@@ -463,7 +465,7 @@ Invoke-RestMethod -Uri http://127.0.0.1:8766/ui/state
 | `npm run client:launch` | 无头拉起 Forge 客户端（`--server` / `--singleplayer` / `--username`） | 主线 |
 | `npm run client:check` | 检查 Mod 与"是否在世界里" | 主线 |
 | `npm run client:build` / `client:install` | 构建 / 安装控制 Mod | 主线 |
-| `npm run client:test` | 假 Mod 协议测试（含 pillar 回执/隧道保护/空闲刷新/shoot/retreat） | 74/74 |
+| `npm run client:test` | 假 Mod 协议测试（含 pillar 回执/隧道保护/空闲刷新/shoot/retreat） | 75/75 |
 | `npm run clientmod:test` | clientmod 躯体角色扮演路径 | 11/11 |
 | `npm run skills:test` | 技能库（含采矿/垫柱/护甲/武器/进食/枪械选枪与反卡死、战斗租约、collect 新鲜扫描、deposit 精确搬运、withdraw 读箱/跨箱精确取物、follow 高频重规划） | 74/74 |
 | `npm run mining:entry:test` | 统一挖矿入口 A 系列（含 A10 规划器停牌键、A11 全矿种深板岩矩阵） | 25/25 |

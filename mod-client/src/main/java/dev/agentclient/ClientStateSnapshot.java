@@ -57,6 +57,18 @@ final class ClientStateSnapshot {
     }
 
     static String build() {
+        return build(false);
+    }
+
+    /**
+     * Build the snapshot.
+     *
+     * `playersOnly` is the lightweight follow poll: it returns the self position and the
+     * player list only, skipping the 40817-cell block scan, inventory, crops and entity
+     * scans. A moving-player follow reads this at 150ms and full-scans only before each A*
+     * route, instead of paying for the whole world every poll.
+     */
+    static String build(boolean playersOnly) {
         Minecraft mc = Minecraft.getInstance();
         LocalPlayer player = mc.player;
         ClientLevel level = mc.level;
@@ -79,6 +91,10 @@ final class ClientStateSnapshot {
         out.put("yaw", Json.num(player.getYRot()));
         out.put("pitch", Json.num(player.getXRot()));
         out.put("dimension", Json.str(level.dimension().location().toString()));
+        if (playersOnly) {
+            out.put("players", playersJson(level, player));
+            return Json.obj(out);
+        }
         out.put("health", Json.num(player.getHealth()));
         out.put("maxHealth", Json.num(player.getMaxHealth()));
         out.put("food", Json.num(player.getFoodData().getFoodLevel()));

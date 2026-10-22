@@ -1812,6 +1812,7 @@ function quickMove(slots) {
         ? [{ name: playerName, id: 1, position: { ...playerAt }, distance: 0 }]
         : [];
       this.refreshCount = 0;
+      this.lightCount = 0;
       this.moves = [];
       this.interrupted = false;
     }
@@ -1834,6 +1835,11 @@ function quickMove(slots) {
     async refreshStrict() {
       this.refreshCount += 1;
       return { ok: true, cached: false, state: this.snapshot() };
+    }
+
+    async refreshPlayers() {
+      this.lightCount += 1;
+      return { ok: true, state: this.snapshot() };
     }
 
     async moveTo(position, options = {}) {
@@ -1885,7 +1891,11 @@ function quickMove(slots) {
       body.moves.every((move) => move.options.pathfind === true),
       'every follow move must ask for A* pathfinding'
     );
-    expect(body.refreshCount >= 5, `expected high-frequency polling, refreshCount=${body.refreshCount}`);
+    expect(body.lightCount >= 5, `expected high-frequency light polls, lightCount=${body.lightCount}`);
+    expect(
+      body.refreshCount <= body.moves.length + 1,
+      `full scans must follow route cadence, not poll cadence (full=${body.refreshCount}, moves=${body.moves.length})`
+    );
     expect(result.repaths >= 1, `expected a repath after the player moved, got ${result.repaths}`);
     return result.detail;
   });
@@ -1918,7 +1928,7 @@ function quickMove(slots) {
     const result = await task.execute();
     expect(result.ok, `expected the task to succeed, got ${JSON.stringify(result)}`);
     expect(task.progress() > 0, `progress=${task.progress()}`);
-    expect(body.refreshCount >= 3, `refreshCount=${body.refreshCount}`);
+    expect(body.lightCount >= 3, `lightCount=${body.lightCount}`);
 
     const nameless = new FollowTask(ctx, {});
     const failed = await nameless.execute();

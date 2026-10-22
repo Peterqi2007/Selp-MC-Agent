@@ -602,6 +602,7 @@ check('follow polls the target at high frequency, replans with A* and is a DSH t
   const skill = read('src/skills/follow.js');
   const task = read('src/tasks/follow.js');
   const brain = read('src/brain.js');
+  const body = read('src/body/clientModBody.js');
   if (!/new FollowTask\(this\.ctx/.test(commands)) {
     throw new Error('follow has no command/task-adapter wiring');
   }
@@ -611,6 +612,10 @@ check('follow polls the target at high frequency, replans with A* and is a DSH t
   if (/ctx\.bot|openContainer/.test(task)) throw new Error('FollowTask is a direct mineflayer implementation');
   if (!/skills\.run\('follow'/.test(task)) throw new Error('FollowTask does not run the follow skill');
   if (!/refreshStrict\(true\)/.test(skill)) throw new Error('follow does not take a fresh /state for the target');
+  if (!/refreshPlayers/.test(skill)) throw new Error('follow does not use the lightweight player poll');
+  if (!/refreshPlayers/.test(body) || !/\/state\?players=1/.test(body)) {
+    throw new Error('ClientModBody has no /state?players=1 light poll');
+  }
   if (!/pollMs:[\s\S]{0,100}?default:\s*150/.test(skill)) throw new Error('follow poll interval is not 150ms by default');
   if (!/maxRange:[\s\S]{0,100}?default:\s*24/.test(skill)) throw new Error('follow pathfinding leash is not 24 blocks');
   if (!/REPATH_DISTANCE/.test(skill) || !/body\.interrupt/.test(skill)) {

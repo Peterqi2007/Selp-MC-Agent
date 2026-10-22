@@ -359,6 +359,28 @@ class ClientModBody extends Body {
     return result.state || this._snapshot;
   }
 
+  /**
+   * Lightweight follow poll: `GET /state?players=1` returns only ready/dimension/position/
+   * players, skipping the 40817-cell block scan, inventory and entity scans.
+   *
+   * It deliberately does NOT replace `_snapshot`: that would erase the block scan the A*
+   * pathfinder needs. The caller uses the returned state directly. An older mod ignores
+   * the query and returns the full snapshot, which still works (just not cheaper).
+   */
+  async refreshPlayers() {
+    try {
+      const state = await this.request('/state?players=1', { timeoutMs: 1500 });
+      if (!state || state.ready !== true) {
+        return { ok: false, state, error: 'client is not ready' };
+      }
+      this.connected = true;
+      return { ok: true, state };
+    } catch (err) {
+      this.lastError = err;
+      return { ok: false, state: null, error: err.message };
+    }
+  }
+
   // ------------------------------------------------------------ perception
 
   /**

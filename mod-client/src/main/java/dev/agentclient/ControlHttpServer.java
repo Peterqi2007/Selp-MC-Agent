@@ -116,7 +116,13 @@ public final class ControlHttpServer {
             return;
         }
         // The snapshot is built on the client thread; everything else here is just I/O.
-        String state = onClientThread(ClientStateSnapshot::build);
+        // `?players=1` (or `?scope=players`) is the follow poll: self position + players,
+        // no block/inventory scan. Keeping the full snapshot as the default preserves every
+        // existing caller.
+        String query = exchange.getRequestURI().getQuery();
+        boolean playersOnly =
+                query != null && (query.contains("players=1") || query.contains("scope=players"));
+        String state = onClientThread(() -> ClientStateSnapshot.build(playersOnly));
         respond(exchange, 200, state == null ? "{\"ready\":false,\"reason\":\"client thread busy\"}" : state);
     }
 

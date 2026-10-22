@@ -79,6 +79,8 @@ const clicks = [];
 let closeCommands = 0;
 /** How many /state polls the mock has served (idle-refresh regression, 2026-10-13). */
 let stateHits = 0;
+/** Query strings seen on /state, so the follow light-poll path is asserted on the wire. */
+const stateQueries = [];
 /** Last shoot/retreat verbs the mock received, for the wire assertions. */
 let lastShoot = null;
 let lastRetreat = null;
@@ -285,6 +287,15 @@ const server = http.createServer((req, res) => {
 
     if (url.pathname === '/state') {
       stateHits += 1;
+      stateQueries.push(url.search);
+      // Mirrors the mod's lightweight follow poll: self position + players only.
+      if (url.searchParams.get('players') === '1') {
+        return send({
+          ready: true,
+          position: { ...world.position },
+          players: world.players.map((player) => ({ ...player, position: { ...player.position } }))
+        });
+      }
       return send({ ...world, position: { ...world.position } });
     }
 
@@ -734,6 +745,16 @@ function check(name, ok, detail) {
       'players carry their entity id (PvP aiming needs it)',
       seenPlayers.length === 1 && seenPlayers[0].id === 77 && seenPlayers[0].name === 'Partner',
       JSON.stringify(seenPlayers)
+    );
+
+    const light = await body.refreshPlayers();
+    check(
+      'refreshPlayers() uses the lightweight /state?players=1 path',
+      light.ok === true &&
+        Array.isArray(light.state.players) &&
+        light.state.blocks === undefined &&
+        stateQueries.includes('?players=1'),
+      JSON.stringify({ ok: light.ok, query: stateQueries.slice(-3), hasBlocks: light.state && light.state.blocks !== undefined })
     );
 
     // ---- TACZ gunfire verbs ---------------------------------------------

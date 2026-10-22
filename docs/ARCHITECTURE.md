@@ -443,6 +443,7 @@ mineflayer→ controller.connect()，在 'spawn' 事件里 rearm/scan/rescue/too
 ```
 Forge 客户端（ClientStateSnapshot，客户端线程构建）
    /state: position/health/food/time/inventory/blocks.cells(49×49×17≈40817 格，含 Mod 方块真名)
+   /state?players=1: 只返回 position + players（follow 的 150ms 轮询；跳过方块/背包/作物/实体扫描）
         │ HTTP 8899
         ▼
 ClientModBody.snapshot()（400ms TTL 缓存）
@@ -594,7 +595,7 @@ Places        ──► runtime/places.json；LLM 轨迹 ──► runtime/llm-t
 | `npm run selftest` | 模块图 / 插件 / 寻路 / 三原语 / 意图 Schema / 工具白名单 / 死亡处理 | 181/181 |
 | `npm run p0:verify` | 一次跑 8 个套件（path/tasks/llm:dry/control/roleplay/clientmod/selftest/plan:audit） | 8/8 |
 | `npm run skills:test` | 21 个技能（含采矿报价/台账/防坠落/垫柱/共享收集、collect 新鲜扫描、deposit 精确搬运、withdraw 读箱/跨箱精确取物、follow 高频重规划、fish 任务适配器、战斗与枪械） | 74/74（2026-10-21） |
-| `npm run client:test` | 假 Mod 协议（含 tunnel / pillar / verdict / 空闲刷新 / shoot / retreat） | 74/74 |
+| `npm run client:test` | 假 Mod 协议（含 tunnel / pillar / verdict / 空闲刷新 / shoot / retreat / 轻量 players 轮询） | 75/75 |
 | `npm run clientmod:test` | clientmod 躯体角色扮演端到端 | 11/11 |
 | `npm run mining:entry:test` | 统一挖矿入口 A 系列（含 A10 规划器停牌键、A11 全矿种深板岩矩阵） | 25/25 |
 | `npm run mining:collection:test` | 掉落物共享收集 C 系列 | 24/24 |
@@ -606,7 +607,7 @@ Places        ──► runtime/places.json；LLM 轨迹 ──► runtime/llm-t
 离线全绿 ≠ 真机通过：真机测试需要操作员确认环境（`start.ps1` → 面板 → 按 REWRITE-PLAN §12 清单）。
 计数口径：本表为 2026-10-14 实跑值（与 `README.md` §8 同源）；改代码后请重跑 `npm run p0:verify` 与相关套件并同步两处。
 2026-10-21 复跑（fish 入口 + collect 修复 + deposit 统一 + withdraw 优化 + follow 技能）：`selftest 181/181`、`skills:test 74/74`、`tasks:test 57/57`、
-`control:test 43/43`、`client:test 74/74`、`p1:contract:test 206/206`、`p1:m3:test 44/44`、`plan:audit 35/35`（`--stage p1 105/105`）。
+`control:test 43/43`、`client:test 75/75`、`p1:contract:test 206/206`、`p1:m3:test 44/44`、`plan:audit 35/35`（`--stage p1 105/105`）。
 
 ---
 

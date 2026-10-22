@@ -63,10 +63,22 @@ function playerPosition(players, playerName) {
  * mod's /state carries the block scan and the players); the cache is only used when the
  * body has no refresh hook at all.
  */
-async function readFollowState(ctx, playerName) {
+async function readFollowState(ctx, playerName, { full = false } = {}) {
   const body = ctx.body;
   if (!body) return { ok: false, player: null, position: null, error: 'no body' };
   let snap = null;
+  if (!full && typeof body.refreshPlayers === 'function') {
+    const result = await body.refreshPlayers().catch(() => null);
+    if (!result || result.ok !== true) {
+      return { ok: false, player: null, position: null, error: (result && result.error) || 'state unavailable' };
+    }
+    const state = result.state;
+    return {
+      ok: true,
+      player: playerPosition(state.players, playerName),
+      position: state.position ? { ...state.position } : null
+    };
+  }
   if (typeof body.refreshStrict === 'function') {
     const result = await body.refreshStrict(true).catch(() => null);
     if (!result || result.ok !== true) {
@@ -127,7 +139,7 @@ register({
       return { ok: false, failure: FAILURE.BAD_ARGUMENT, reason: `range (${range}) must be smaller than maxRange (${maxRange})` };
     }
 
-    const first = await readFollowState(ctx, playerName);
+    const first = await readFollowState(ctx, playerName, { full: true });
     if (!first.ok) {
       return { ok: false, failure: FAILURE.UNKNOWN, reason: `could not read a fresh body state: ${first.error || 'unknown'}` };
     }
@@ -232,6 +244,14 @@ register({
           // Already close enough: keep polling; the loop re-checks after each short wait.
           await sleep(Math.min(pollMs, 100));
           continue;
+        }
+
+        // Full scan at pathfinding cadence, not at poll cadence: refresh the block map and
+        // inventory just before committing to a route. The 150ms polls stay players-only.
+        const preMove = await readFollowState(ctx, playerName, { full: true });
+        if (preMove.ok) {
+          if (preMove.player) latest = preMove.player;
+          if (preMove.position) here = preMove.position;
         }
 
         goal = { ...latest };
