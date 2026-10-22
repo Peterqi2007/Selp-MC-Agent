@@ -1,52 +1,82 @@
 package dev.agentclient.mixin;
 
+import org.lwjgl.glfw.GLFWCharCallback;
+import org.lwjgl.glfw.GLFWKeyCallback;
+import org.lwjgl.glfw.GLFWScrollCallback;
+import org.lwjgl.glfw.GLFWWindowFocusCallback;
 import org.spongepowered.asm.mixin.Mixin;
+import org.spongepowered.asm.mixin.Shadow;
 import org.spongepowered.asm.mixin.injection.At;
 import org.spongepowered.asm.mixin.injection.Inject;
 import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
 
 /**
- * Disable Veil's optional ImGui editor GLFW input.
+ * Keep Minecraft's keyboard working while skipping Veil's broken ImGui input callback.
  *
- * The pack added Aeronautics -> Sable -> Veil 1.0.0.296. Veil installs a GLFW key callback
- * that forwards every key to its ImGui editor. In this pack the native ImGui context is not
- * current (Veil has not rendered an editor frame, or the previous frame failed), so the
- * first key of any kind aborts the client:
+ * The pack added Aeronautics -> Sable -> Veil 1.0.0.296. Veil installs an ImGui GLFW key
+ * callback that calls {@code ImGui.getIO()} before its editor has a current native context;
+ * the first key of any kind aborts the client with:
  *
  * <pre>
  * Dear ImGui Assertion Failed: GImGui != NULL && "No current context..."
- *   at foundry.veil.impl.client.imgui.VeilImGuiImplGlfw.keyCallback
+ *   at imgui.glfw.ImGuiImplGlfw.keyCallback
  * </pre>
  *
- * A runtime "is the context valid?" check is not reliable here: the Java wrapper can still
- * carry a stale non-zero pointer while the native GImGui is null, which is exactly the
- * state that asserts. The editor is optional (F6 shader/resource tools), so this mixin
- * cancels Veil's ImGui input callbacks unconditionally. Minecraft's own keyboard and mouse
- * handling is a separate callback and is not affected; Veil's rendering path is untouched.
+ * The previous attempt cancelled Veil's overridden callback at HEAD. That was wrong: the
+ * ImGui callback first chains to the *previous* GLFW callback (Minecraft's KeyboardHandler),
+ * so cancelling it disabled every key except mouse buttons, which are handled separately.
  *
- * If the editor is ever needed, remove this mixin (or the Sable/Veil/Aeronautics chain) and
- * use a Veil build that guards its callback itself.
+ * This mixin instead targets the base ImGui callback, forwards the event to the saved
+ * previous callback exactly as ImGuiImplGlfw does, and only skips the ImGui bookkeeping.
+ * Minecraft gets all key/char/scroll/focus input; Veil's optional editor loses it.
  */
-@Mixin(targets = "foundry.veil.impl.client.imgui.VeilImGuiImplGlfw", remap = false)
+@Mixin(targets = "imgui.glfw.ImGuiImplGlfw", remap = false)
 public abstract class VeilImGuiGuardMixin {
 
+    @Shadow
+    private long windowPtr;
+
+    @Shadow
+    private GLFWKeyCallback prevUserCallbackKey;
+
+    @Shadow
+    private GLFWCharCallback prevUserCallbackChar;
+
+    @Shadow
+    private GLFWScrollCallback prevUserCallbackScroll;
+
+    @Shadow
+    private GLFWWindowFocusCallback prevUserCallbackWindowFocus;
+
     @Inject(method = "keyCallback", at = @At("HEAD"), cancellable = true, remap = false)
-    private void agentclient$guardKey(CallbackInfo ci) {
+    private void agentclient$forwardKey(long window, int key, int scancode, int action, int mods, CallbackInfo ci) {
+        if (prevUserCallbackKey != null && window == windowPtr) {
+            prevUserCallbackKey.invoke(window, key, scancode, action, mods);
+        }
         ci.cancel();
     }
 
     @Inject(method = "charCallback", at = @At("HEAD"), cancellable = true, remap = false)
-    private void agentclient$guardChar(CallbackInfo ci) {
+    private void agentclient$forwardChar(long window, int codepoint, CallbackInfo ci) {
+        if (prevUserCallbackChar != null && window == windowPtr) {
+            prevUserCallbackChar.invoke(window, codepoint);
+        }
         ci.cancel();
     }
 
     @Inject(method = "scrollCallback", at = @At("HEAD"), cancellable = true, remap = false)
-    private void agentclient$guardScroll(CallbackInfo ci) {
+    private void agentclient$forwardScroll(long window, double xoffset, double yoffset, CallbackInfo ci) {
+        if (prevUserCallbackScroll != null && window == windowPtr) {
+            prevUserCallbackScroll.invoke(window, xoffset, yoffset);
+        }
         ci.cancel();
     }
 
     @Inject(method = "windowFocusCallback", at = @At("HEAD"), cancellable = true, remap = false)
-    private void agentclient$guardFocus(CallbackInfo ci) {
+    private void agentclient$forwardFocus(long window, boolean focused, CallbackInfo ci) {
+        if (prevUserCallbackWindowFocus != null && window == windowPtr) {
+            prevUserCallbackWindowFocus.invoke(window, focused);
+        }
         ci.cancel();
     }
 }
