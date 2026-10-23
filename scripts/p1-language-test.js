@@ -149,7 +149,12 @@ function check(name, fn) {
     assert.strictEqual(calls.length, 1);
     assert(calls[0].system.includes('only owner of player-facing speech'));
     assert(calls[0].system.includes('grep_chat_memory'));
-    assert(!calls[0].system.includes('do_task'));
+    for (const forbidden of ['do_task', 'observe', 'find_blocks', 'scan_around', 'withdraw', 'stop']) {
+      assert(
+        !calls[0].system.includes(`{"tool":"${forbidden}"`),
+        `roleplay must not expose ${forbidden}`
+      );
+    }
   });
 
   check('roleplay may choose silence', async () => {
