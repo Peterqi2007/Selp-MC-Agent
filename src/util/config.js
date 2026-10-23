@@ -174,6 +174,18 @@ const DEFAULTS = {
       proposalChat: false
     },
     /**
+     * Language-brain owner (docs/LANGUAGE-BRAIN-REPAIR.md).
+     * `legacy` keeps the P0/P1 wiring (LlmCore + DialogueRouter + optional ChatParticipation);
+     * `unified` routes every non-`!` player line through src/llm/languageBrain.js.
+     */
+    language: {
+      brain: 'legacy',
+      maxTokens: 800,
+      historyLimit: 15,
+      maxToolRounds: 2,
+      timeoutMs: 8000
+    },
+    /**
      * Proactive speech - the bot speaking when NOT spoken to (role-play requirement).
      *
      * Three triggers, matching the operator's list: a finished task, being hungry with no
@@ -348,6 +360,7 @@ function loadConfig(overrides = {}) {
   if (process.env.MC_AUTH) cfg.agent.bot.auth = process.env.MC_AUTH;
   if (process.env.MC_PROXY) cfg.agent.bot.proxy = process.env.MC_PROXY;
   if (process.env.MC_ADDRESS) applyAddress(cfg, process.env.MC_ADDRESS);
+  if (process.env.MC_LANGUAGE_BRAIN) cfg.agent.language.brain = process.env.MC_LANGUAGE_BRAIN;
 
   cfg.root = ROOT;
   cfg.paths = {

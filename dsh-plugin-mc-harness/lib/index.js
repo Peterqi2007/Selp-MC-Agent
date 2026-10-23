@@ -644,7 +644,7 @@ function toolDefinitions({ controlUrl, record, log, runtime }) {
         res = await fetch(`${controlUrl}/say`, {
           method: 'POST',
           headers: { 'content-type': 'application/json' },
-          body: JSON.stringify({ text })
+          body: JSON.stringify({ text, source: 'action-brain' })
         });
       } catch (error) {
         throw new Error(`mc_say could not reach the local agent: ${error.message}`);

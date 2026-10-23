@@ -235,6 +235,24 @@ class LlmCore {
     // Returns the promise so the caller (and the tests) can await the utterance. It is
     // deliberately not awaited inside `attachTo` - a chat line must never block the brain's
     // event handler, which the task queue owns.
+    if (this.ctx.languageBrain) {
+      /**
+       * Unified mode: the action/task result is not sent directly; the language brain rewords
+       * it for the player (or stays silent). The fallback is only for a failed brain call.
+       */
+      return this.ctx.languageBrain
+        .handle({
+          text: detail,
+          source: 'task',
+          kind: 'action-output',
+          profile: 'roleplay',
+          meta: { taskName: info.name, taskOk: ok }
+        })
+        .catch((err) => {
+          this.log.debug(`task announcement via language brain failed: ${err.message}`);
+          return null;
+        });
+    }
     return this.speakUp('taskDone', { detail, taskOk: ok, taskName: info.name }).catch((err) => {
       this.log.debug(`task announcement failed: ${err.message}`);
       return null;

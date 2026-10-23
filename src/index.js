@@ -328,6 +328,13 @@ async function main() {
   const actionBrainMode = ['harness', 'planner-first'].includes(chatCfg.actionBrain)
     ? chatCfg.actionBrain
     : 'planner';
+  /**
+   * Language-brain owner switch (docs/LANGUAGE-BRAIN-REPAIR.md).
+   * `legacy` keeps every existing entry point in place; `unified` makes
+   * src/llm/languageBrain.js the only owner of non-`!` player input.
+   */
+  const languageCfg = (cfg.agent && cfg.agent.language) || {};
+  const languageMode = languageCfg.brain === 'unified' ? 'unified' : 'legacy';
   let harnessBridge = null;
   if (actionBrainMode !== 'planner') {
     const { HarnessBridge } = require('./chat/harnessBridge');
@@ -404,7 +411,25 @@ async function main() {
         return ctx.chat.handle(text, (meta && meta.from) || 'addressed', { source: 'addressed' });
       }
     });
-    chatListener.onAddressed = (text, line) => addressed.handle(text, { line });
+    chatListener.onAddressed = (text, line) => {
+      /** Unified mode: even the addressed channel enters through the single language owner. */
+      if (ctx.languageBrain) {
+        ctx.languageBrain
+          .handle({
+            text,
+            source: 'addressed',
+            speaker: '玩家',
+            profile: 'auto',
+            meta: { line }
+          })
+          .then((record) => {
+            ctx.lastDialogueRoute = { ...record, at: new Date().toISOString(), mode: 'language-brain' };
+          })
+          .catch((err) => log.debug(`language-brain addressed failed: ${err.message}`));
+        return { ok: true, queued: true, mode: 'language-brain' };
+      }
+      return addressed.handle(text, { line });
+    };
     ctx.addressedHandler = addressed;
   }
 
@@ -589,6 +614,22 @@ async function main() {
     ctx.perceptionWake.subscribe((event) => {
       log.info(`perception wake: ${event.type}${event.detail ? ` - ${event.detail}` : ''}`);
       if (event.type !== 'chat:message' && event.type !== 'weather:change' && event.type !== 'phase:change') return;
+      /**
+       * Unified mode: A11 is no longer a speech path. The edge becomes one roleplay input
+       * and may end in silence; that removes the "大肥鱼注意到" parrot fallback.
+       */
+      if (ctx.languageBrain) {
+        ctx.languageBrain
+          .handle({
+            text: event.detail || event.type,
+            source: 'perception',
+            kind: 'proactive',
+            profile: 'roleplay',
+            meta: { event }
+          })
+          .catch((err) => log.debug(`language-brain perception failed: ${err.message}`));
+        return;
+      }
       if (typeof llm.speakUp !== 'function') return;
       llm.speakUp('perception', { detail: event.detail }).catch((err) => {
         log.debug(`perception wake speech failed: ${err.message}`);
@@ -630,9 +671,111 @@ async function main() {
    * Persona-bottom-line gate used by the language brain's `approve` tool. It is the same
    * judge as the addressed channel; it never approves action feasibility, only red lines.
    */
-  ctx.approvalGate = (text) => ctx.llm.judgeInstruction(text);
+  ctx.approvalGate = async (text) => {
+    const verdict = await ctx.llm.judgeInstruction(text);
+    if (verdict && verdict.verdict === 'allow') return { ok: true, verdict: 'allow' };
+    if (verdict && verdict.verdict === 'deny') {
+      return { ok: false, reason: 'persona-denied', verdict: 'deny' };
+    }
+    return { ok: false, reason: 'malformed-verdict', verdict: null };
+  };
+  /**
+   * Unified language brain: one entry point for every non-`!` line. It is created here,
+   * after the approval gate and the action-brain bridge, and before the chat listeners are
+   * wired. Mode `legacy` leaves it null, so the existing paths stay in charge.
+   */
+  let languageBrain = null;
+  if (languageMode === 'unified') {
+    const { LanguageBrain } = require('./llm/languageBrain');
+    const { buildRequestEnvelope } = require('./chat/dialogueRouter');
+    languageBrain = new LanguageBrain({
+      mode: 'unified',
+      ctx,
+      complete: llm && llm.client
+        ? async ({ system, messages, maxTokens, timeoutMs, usageContext }) => {
+            const result = await llm.client.complete({
+              system,
+              messages,
+              maxTokens: maxTokens || languageCfg.maxTokens || 800,
+              timeoutMs: timeoutMs || languageCfg.timeoutMs || 8000,
+              usageContext
+            });
+            if (!result || !result.ok) throw new Error((result && result.reason) || 'model-failed');
+            return result.text;
+          }
+        : null,
+      reply: ctx.reply,
+      persona: [persona.name, persona.body].filter(Boolean).join('\n').slice(0, 1500) || null,
+      chatMemory: ctx.chatMemory,
+      memoryStore: ctx.memoryStore,
+      methods: ctx.methods,
+      answers: ctx.answers,
+      approvalGate: ctx.approvalGate,
+      /**
+       * Approval sends the ORIGINAL text to the action brain inside the same identity
+       * envelope DialogueRouter uses; the metadata never rewrites the player's words.
+       */
+      forwardToActionBrain: harnessBridge
+        ? async (text, meta = {}) => {
+            const snap = ctx.body && typeof ctx.body.snapshot === 'function' ? ctx.body.snapshot() : null;
+            const envelope = buildRequestEnvelope(text, {
+              source: meta.originalSource || meta.source || 'chat',
+              speaker: meta.speaker || '玩家',
+              agentPosition: meta.agentPosition || (snap ? snap.position : null)
+            });
+            return harnessBridge.forward(envelope, { from: meta.source || 'chat' });
+          }
+        : null,
+      conversation: ctx.conversation,
+      maxChars: chatCfg.maxChars || 100,
+      maxTokens: languageCfg.maxTokens || 800,
+      timeoutMs: languageCfg.timeoutMs || 8000,
+      historyLimit: languageCfg.historyLimit || 15,
+      maxToolRounds: languageCfg.maxToolRounds || 2,
+      log: new Logger('language')
+    });
+    /** Restore the short-term window from the previous session (if any). */
+    const pendingWindow = brain.pendingLanguageBrain || brain.pendingChatParticipation;
+    if (pendingWindow) {
+      const restored = languageBrain.restore(pendingWindow);
+      if (restored) log.info(`language brain window restored: ${languageBrain.history.length} lines`);
+    } else if (ctx.chatMemory && Array.isArray(ctx.chatMemory.entries)) {
+      /**
+       * First unified start after a legacy session: seed the 15-line in-memory window from
+       * the persistent chat log. Long-term memory stays in ChatMemory; this is only the
+       * startup snapshot the repair doc asks for.
+       */
+      const seeded = ctx.chatMemory.entries
+        .filter((entry) => entry && (entry.role === 'user' || entry.role === 'assistant'))
+        .slice(-(languageCfg.historyLimit || 15))
+        .map((entry) => ({
+          from: entry.speaker || null,
+          text: entry.text,
+          self: entry.role === 'assistant',
+          at: entry.at || null
+        }));
+      if (seeded.length && languageBrain.restore({ history: seeded })) {
+        log.info(`language brain window seeded from ChatMemory: ${languageBrain.history.length} lines`);
+      }
+    }
+    brain.pendingLanguageBrain = null;
+    brain.pendingChatParticipation = null;
+    brain.languageBrain = languageBrain;
+    ctx.languageBrain = languageBrain;
+    log.info(`language brain: unified (${languageBrain.status().profiles.join('/')})`);
+    if (!harnessBridge) {
+      log.warn('language.brain=unified has no action-brain bridge; approval requests will be rejected');
+    }
+  }
   let languageDialogue = null;
-  if (dialogueTrigger && chatCfg.languageAgent && llm && llm.client && !ctx.dialogueRouter) {
+  if (
+    languageMode !== 'unified' &&
+    dialogueTrigger &&
+    chatCfg.languageAgent &&
+    llm &&
+    llm.client &&
+    !ctx.dialogueRouter
+  ) {
     const { LanguageAgent } = require('./llm/languageAgent');
     const { LanguageDialogue } = require('./chat/languageDialogue');
     const agent = new LanguageAgent({
@@ -680,6 +823,30 @@ async function main() {
     log.info(`dialogue trigger: "${dialogueTrigger}" (character: ${persona.name}${persona.loaded ? '' : ' [default]'})`);
     chatListener.onDialogue = async (text, line) => {
       /**
+       * Unified mode: the language brain is the only owner. It classifies the line as an
+       * action request (approval profile forwards the ORIGINAL text to the action brain),
+       * an expert question or ordinary dialogue, and answers or stays silent itself.
+       */
+      if (ctx.languageBrain) {
+        /**
+         * Do not await the model here: ChatListener awaits onDialogue, and a 2-8s language
+         * turn must not stall the chat poll (commands/stop would queue behind it).
+         */
+        ctx.languageBrain
+          .handle({
+            text,
+            source: 'dialogue',
+            speaker: '玩家',
+            profile: 'auto',
+            meta: { line }
+          })
+          .then((record) => {
+            ctx.lastDialogueRoute = { ...record, at: new Date().toISOString(), mode: 'language-brain' };
+          })
+          .catch((err) => log.debug(`language-brain dialogue failed: ${err.message}`));
+        return { ok: true, queued: true, mode: 'language-brain' };
+      }
+      /**
        * actionBrain=harness/planner-first: DialogueRouter owns the line. In harness mode it
        * must not fall through to the local planner when the action brain is unavailable;
        * in planner-first mode the router itself decides when to hand off.
@@ -718,7 +885,7 @@ async function main() {
    * through the single `reply()` path.
    */
   let chatParticipation = null;
-  if (chatCfg.participate && llm && llm.client) {
+  if (languageMode !== 'unified' && chatCfg.participate && llm && llm.client) {
     const { ChatParticipation } = require('./chat/chatParticipation');
     chatParticipation = new ChatParticipation({
       ctx,
@@ -735,7 +902,7 @@ async function main() {
           : [],
       maxTokens: chatCfg.participateMaxTokens || 120,
       timeoutMs: chatCfg.participateTimeoutMs || 4000,
-      historyLimit: chatCfg.participateHistoryLimit || 8,
+      historyLimit: chatCfg.participateHistoryLimit || 15,
       maxChars: chatCfg.maxChars || 100,
       complete: async ({ system, messages, maxTokens, timeoutMs, usageContext }) => {
         const result = await llm.client.complete({
@@ -777,7 +944,7 @@ async function main() {
    * are handled earlier by ChatListener and never reach here. Server notices without a
    * `<player>` sender are not chat messages.
    */
-  chatListener.onOther = (line) => {
+  chatListener.onOther = async (line) => {
     const match = String(line || '').match(/^\s*<([^<>]{1,32})>\s+(.+)$/);
     if (!match) return;
     const from = match[1].trim();
@@ -788,6 +955,29 @@ async function main() {
     if (ctx.proposalChat) {
       const handled = ctx.proposalChat.handle({ from, text, line });
       if (handled && handled.handled) return;
+    }
+    /**
+     * Unified language brain owns ordinary chat: roleplay decides say/silence, using the
+     * short-term window and the memory greps. It replaces both the A11 chat wake and M6
+     * ChatParticipation, so neither of those two speaks for this line.
+     */
+    if (ctx.languageBrain) {
+      /**
+       * Fire-and-forget: ChatListener awaits onOther, so waiting for the model here would
+       * stall the 700ms chat poll and delay command handling behind a language turn.
+       */
+      ctx.languageBrain
+        .handle({
+          text,
+          source: 'chat',
+          speaker: from,
+          profile: 'roleplay',
+          meta: { line }
+        })
+        .catch((err) => {
+          log.debug(`language-brain chat intake failed: ${err.message}`);
+        });
+      return;
     }
     /**
      * A11's chat wake and M6's participation are alternatives, not two speakers: with
@@ -970,7 +1160,18 @@ async function main() {
         log.warn('  ask the server owner to create the account, or register it yourself by hand once.');
       }
     }
-    deathWatch.onRespawn = () => authme.ensure('respawn');
+    /**
+     * Compose the AuthMe retry with the proactive respawn line. The old assignment replaced
+     * `speech.onRespawn` outright, so clientmod never spoke on respawn; both hooks must run.
+     */
+    const respawnSpeech = deathWatch.onRespawn;
+    deathWatch.onRespawn = async () => {
+      try {
+        await authme.ensure('respawn');
+      } finally {
+        if (typeof respawnSpeech === 'function') await respawnSpeech();
+      }
+    };
 
     brain.start();
     log.info(`in-game chat: "${chatCfgLive.prefix || '!'}<command>" for actions, "${dialogueTrigger}" to talk`);

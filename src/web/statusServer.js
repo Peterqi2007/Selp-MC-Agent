@@ -778,6 +778,28 @@ function startStatusServer(ctx, options = {}) {
         }
         const text = String(body.text || '').trim();
         if (!text) return json(res, 400, { ok: false, error: 'text required' });
+        /**
+         * Unified language brain (docs/LANGUAGE-BRAIN-REPAIR.md): the action brain does not
+         * message the player directly. `mc_say` posts source=action-brain, the language brain
+         * rewords it (or chooses silence), and only then does it reach reply().
+         */
+        if (ctx.languageBrain && body.source === 'action-brain') {
+          let rendered;
+          try {
+            rendered = await ctx.languageBrain.renderActionOutput(text, {
+              meta: { requestId: body.requestId || null }
+            });
+          } catch (err) {
+            return json(res, 500, { ok: false, error: err.message });
+          }
+          return json(res, 200, {
+            ok: true,
+            sent: rendered.spoke === true,
+            text: rendered.text || null,
+            via: 'language-brain',
+            reason: rendered.spoke === true ? null : rendered.reason || 'language-silence'
+          });
+        }
         const max =
           (ctx.cfg && ctx.cfg.agent && ctx.cfg.agent.chat && ctx.cfg.agent.chat.maxChars) || 100;
         const line = text.slice(0, Math.max(Number(max) || 100, 1));

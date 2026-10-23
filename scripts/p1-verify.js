@@ -9,6 +9,7 @@
  *   - P0 regression (8 suites) unless `--fast`
  *   - planner:test      (S0-S4 retirement + proposals)
  *   - p1:contract:test  (M1-M6 offline contracts)
+ *   - p1:language:test  (unified language-brain facade: profiles/tools/memory/approval)
  *   - p1:fault:test     (timeout/cancel/takeover/restart drills)
  *   - plan:audit --stage p1
  *
@@ -29,6 +30,7 @@ const suites = [
   { name: 'p1:contract:test', script: 'scripts/p1-contract-test.js' },
   { name: 'p1:m3:test', script: 'scripts/p1-m3-test.js' },
   { name: 'p1:m6:test', script: 'scripts/p1-m6-test.js' },
+  { name: 'p1:language:test', script: 'scripts/p1-language-test.js' },
   { name: 'p1:m7:test', script: 'scripts/p1-m7-test.js' },
   { name: 'p1:m4:test', script: 'scripts/p1-m4-test.js' },
   { name: 'p1:fault:test', script: 'scripts/p1-fault-test.js' },

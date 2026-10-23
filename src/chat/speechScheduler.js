@@ -176,6 +176,32 @@ class SpeechScheduler {
     this.lastFired.set(kind, Date.now());
     this.stats[kind] = (this.stats[kind] || 0) + 1;
 
+    /**
+     * Unified language brain (docs/LANGUAGE-BRAIN-REPAIR.md): low health and hunger are
+     * direct SOS lines (no thinking needed); every other state/event is a roleplay input and
+     * may end in silence.
+     */
+    const languageBrain = this.ctx.languageBrain;
+    if (languageBrain && kind !== 'hungry' && kind !== 'lowHealth') {
+      const fact =
+        kind === 'respawn'
+          ? '我刚刚死掉并复活了，想跟玩家说一句。'
+          : `状态变化：${kind}`;
+      const result = await languageBrain
+        .handle({
+          text: fact,
+          source: 'state',
+          kind: 'proactive',
+          profile: 'roleplay',
+          meta: { trigger: kind, snap: data.snap || null }
+        })
+        .catch((err) => {
+          this.log.debug(`proactive[${kind}] language brain failed: ${err.message}`);
+          return null;
+        });
+      return !!(result && result.ok);
+    }
+
     const llm = this.ctx.llm;
     if (!llm || typeof llm.speakUp !== 'function') {
       this.log.warn(`proactive[${kind}] wanted to speak but there is no LLM layer`);

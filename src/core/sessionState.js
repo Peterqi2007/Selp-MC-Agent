@@ -37,6 +37,11 @@ function captureState(brain) {
       brain.chatParticipation && typeof brain.chatParticipation.toJSON === 'function'
         ? brain.chatParticipation.toJSON()
         : null,
+    /** Unified language-brain short-term window (same contract: context, never replay). */
+    languageBrain:
+      brain.languageBrain && typeof brain.languageBrain.toJSON === 'function'
+        ? brain.languageBrain.toJSON()
+        : null,
     memoryStore:
       brain.memoryStore && typeof brain.memoryStore.toJSON === 'function' ? brain.memoryStore.toJSON() : null,
     chatMemory:
@@ -59,6 +64,7 @@ function restoreState(brain, data) {
     answers: false,
     conversation: false,
     chatParticipation: false,
+    languageBrain: false,
     memoryStore: false,
     chatMemory: false
   };
@@ -114,6 +120,18 @@ function restoreState(brain, data) {
        */
       brain.pendingChatParticipation = data.chatParticipation;
       restored.chatParticipation = true;
+    }
+  }
+  if (data.languageBrain) {
+    if (brain.languageBrain && typeof brain.languageBrain.restore === 'function') {
+      restored.languageBrain = brain.languageBrain.restore(data.languageBrain);
+    } else {
+      /**
+       * LanguageBrain is constructed in index.js after Brain (model client + persona), so the
+       * short-term window is parked here and consumed there. Context only: no replay.
+       */
+      brain.pendingLanguageBrain = data.languageBrain;
+      restored.languageBrain = true;
     }
   }
   if (data.memoryStore && brain.memoryStore && typeof brain.memoryStore.restore === 'function') {

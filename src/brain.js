@@ -285,8 +285,12 @@ class Brain {
     this._stateTimer = null;
     /** Set by index.js when the M6 participation module is wired. */
     this.chatParticipation = null;
+    /** Set by index.js when language.brain=unified; the single language owner. */
+    this.languageBrain = null;
     /** Restored chat window, consumed by index.js after ChatParticipation is constructed. */
     this.pendingChatParticipation = null;
+    /** Restored unified-language window, consumed after LanguageBrain is constructed. */
+    this.pendingLanguageBrain = null;
     if (stateCfg.enabled && !stateDisabled) {
       const stateFile = stateCfg.file
         ? nodePath.resolve(stateCfg.file)
