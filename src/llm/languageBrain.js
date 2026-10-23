@@ -57,6 +57,20 @@ function parseToolCall(raw) {
     const data = JSON.parse(candidate);
     return data && typeof data === 'object' && !Array.isArray(data) ? data : null;
   } catch {
+    /**
+     * Providers sometimes prepend/append a sentence around the JSON object. Take the
+     * outermost braces as a last resort; still return null rather than guessing an action.
+     */
+    const start = candidate.indexOf('{');
+    const end = candidate.lastIndexOf('}');
+    if (start >= 0 && end > start) {
+      try {
+        const data = JSON.parse(candidate.slice(start, end + 1));
+        return data && typeof data === 'object' && !Array.isArray(data) ? data : null;
+      } catch {
+        return null;
+      }
+    }
     return null;
   }
 }
