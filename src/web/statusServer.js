@@ -870,10 +870,42 @@ function startStatusServer(ctx, options = {}) {
         const isDialogue =
           !!trigger &&
           trimmed.startsWith(trigger) &&
-          (!!ctx.dialogueRouter || (ctx.llm && typeof ctx.llm.handle === 'function'));
+          (!!ctx.languageBrain ||
+            !!ctx.dialogueRouter ||
+            (ctx.llm && typeof ctx.llm.handle === 'function'));
         if (isDialogue) {
           const utterance = trimmed.slice(trigger.length).trim();
           const snap = ctx.body && typeof ctx.body.snapshot === 'function' ? ctx.body.snapshot() : null;
+          /**
+           * Unified mode: the panel is just another player-style entry, so it enters the same
+           * language brain. An action request is approved and forwarded as original text; a
+           * chat/knowledge line is answered (or silenced) by the language brain itself.
+           */
+          if (ctx.languageBrain) {
+            const record = await ctx.languageBrain.handle({
+              text: utterance,
+              source: 'panel',
+              speaker: 'panel',
+              profile: 'auto',
+              meta: { agentPosition: snap ? snap.position : null }
+            });
+            rememberPanelInput({
+              text: utterance,
+              via: 'panel-dialogue',
+              action: record.profile || record.mode || null
+            });
+            return json(res, 200, {
+              ok: record.ok !== false,
+              routed: 'dialogue',
+              mode: 'language-brain',
+              profile: record.profile || null,
+              decision: record.decision || null,
+              forwarded: record.forwarded || null,
+              reason: record.reason || null,
+              level: priority,
+              ms: Date.now() - started
+            });
+          }
           /**
            * The panel must follow the same brain as the in-game channel. In harness mode a
            * failure is reported, not routed to the local planner.

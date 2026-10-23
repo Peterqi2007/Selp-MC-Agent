@@ -50,13 +50,13 @@ LlmCore 不能直接删：任务播报、judge、mining recovery、P0 命令仍�
 | 能力 | 位置 / 说明 |
 | --- | --- |
 | 唯一语言脑门面 | `src/llm/languageBrain.js`：`roleplay` / `expert` / `approval` 三 profile，统一输出 `say / silence / lookup_item / web_search / grep_chat_memory / grep_task_memory`；没有任何 body/技能/任务工具 |
-| 入口 | `unified` 下 `@`、addressed、普通聊天、A11 感知、respawn、taskDone、`mc_say` 动作脑输出全部进 `ctx.languageBrain`；`!` 仍直接进命令表 |
+| 入口 | `unified` 下 `@`、addressed、面板对话、普通聊天、A11 感知、respawn、taskDone、`mc_say` 动作脑输出全部进 `ctx.languageBrain`；`!` 仍直接进命令表 |
 | 审批 | `approval` 用同一 `approvalGate`，放行时把**原文**放进 `[MINECRAFT PLAYER REQUEST]` 信封（source/speaker/位置）交给动作脑，不改写 |
 | 记忆 | 短期窗口 15 行随 `p1-state.json` 的 `languageBrain` 字段保存/恢复；长期 ChatMemory 由既有全局记录器写入，语言脑只用 `grep_chat_memory` 召回；任务记忆只在 `grep_task_memory` 时读取，不注入上下文 |
 | 主动发言 | hungry / lowHealth 仍由 `SpeechScheduler` 直接 `speakUp`；A11、respawn、taskDone 进语言脑 roleplay，允许 `silence` |
 | 动作脑输出 | DSH `mc_say` 带 `source=action-brain` → Node `/say` → `LanguageBrain.renderActionOutput` 修饰后再 `reply()` |
 | 开关 | `config/agent.json` → `agent.language.brain`（`legacy`/`unified`），或 `MC_LANGUAGE_BRAIN=unified`；`maxTokens/historyLimit/maxToolRounds/timeoutMs` 同段 |
-| 测试 | `npm run p1:language:test` **19/19**；`npm run p1:verify -- --fast` **9/9** 套件 |
+| 测试 | `npm run p1:language:test` **20/20**；`npm run p1:verify -- --fast` **9/9** 套件 |
 
 仍待完成（下一阶段）：
 

@@ -10,9 +10,44 @@
  */
 
 const assert = require('node:assert');
+const http = require('node:http');
 const { LanguageBrain } = require('../src/llm/languageBrain');
 const { ConversationState } = require('../src/chat/conversation');
 const { buildRequestEnvelope } = require('../src/chat/dialogueRouter');
+const { startStatusServer } = require('../src/web/statusServer');
+
+function request(port, method, requestPath, body) {
+  return new Promise((resolve, reject) => {
+    const payload = body === undefined ? null : JSON.stringify(body);
+    const req = http.request(
+      {
+        host: '127.0.0.1',
+        port,
+        method,
+        path: requestPath,
+        headers: payload
+          ? { 'content-type': 'application/json', 'content-length': Buffer.byteLength(payload) }
+          : {}
+      },
+      (res) => {
+        let data = '';
+        res.on('data', (chunk) => (data += chunk));
+        res.on('end', () => {
+          let parsed = data;
+          try {
+            parsed = JSON.parse(data);
+          } catch {
+            /* plain text */
+          }
+          resolve({ status: res.statusCode, body: parsed });
+        });
+      }
+    );
+    req.on('error', reject);
+    if (payload) req.write(payload);
+    req.end();
+  });
+}
 
 const log = { info() {}, warn() {}, debug() {}, error() {} };
 
@@ -316,6 +351,69 @@ function check(name, fn) {
     assert.strictEqual(first.spoke, true);
     assert.strictEqual(second.reason, 'duplicate');
     assert.strictEqual(calls.length, 1);
+  });
+
+  check('POST /say with source=action-brain goes through the language brain', async () => {
+    const rendered = [];
+    const direct = [];
+    const handled = [];
+    const ctx = {
+      cfg: {
+        root: process.cwd(),
+        agent: { web: { bind: '127.0.0.1' }, chat: { maxChars: 100, dialogueTrigger: '@T' } }
+      },
+      body: { snapshot: () => ({ position: { x: 1, y: 64, z: 2 } }) },
+      chat: { handle: async () => ({ ok: true }) },
+      languageBrain: {
+        renderActionOutput: async (text, meta) => {
+          rendered.push({ text, meta });
+          return { ok: true, spoke: true, text: '润色后的报告' };
+        },
+        handle: async (input) => {
+          handled.push(input);
+          return { ok: true, profile: 'approval', decision: 'approve', forwarded: { ok: true } };
+        }
+      },
+      reply: async (text) => {
+        direct.push(text);
+        return true;
+      }
+    };
+    const started = startStatusServer(ctx, { port: 0, host: '127.0.0.1' });
+    await new Promise((resolve, reject) => {
+      if (started.server.listening) return resolve();
+      started.server.once('listening', resolve);
+      started.server.once('error', reject);
+    });
+    try {
+      const port = started.server.address().port;
+      const throughBrain = await request(port, 'POST', '/say', {
+        text: 'task finished: 8 logs',
+        source: 'action-brain'
+      });
+      assert.strictEqual(throughBrain.status, 200);
+      assert.strictEqual(throughBrain.body.sent, true);
+      assert.strictEqual(throughBrain.body.via, 'language-brain');
+      assert.strictEqual(throughBrain.body.text, '润色后的报告');
+      assert.strictEqual(rendered.length, 1);
+      assert.strictEqual(rendered[0].text, 'task finished: 8 logs');
+      assert.strictEqual(direct.length, 0, 'action-brain text must not bypass the language brain');
+
+      const panel = await request(port, 'POST', '/command', { command: '@T 去挖矿' });
+      assert.strictEqual(panel.status, 200);
+      assert.strictEqual(panel.body.routed, 'dialogue');
+      assert.strictEqual(panel.body.mode, 'language-brain');
+      assert.strictEqual(handled.length, 1);
+      assert.strictEqual(handled[0].text, '去挖矿');
+      assert.strictEqual(handled[0].source, 'panel');
+      assert.strictEqual(handled[0].profile, 'auto');
+
+      const manual = await request(port, 'POST', '/say', { text: '手动播报' });
+      assert.strictEqual(manual.body.sent, true);
+      assert.deepStrictEqual(direct, ['手动播报'], 'a manual /say stays the direct path');
+    } finally {
+      await new Promise((resolve) => started.server.close(resolve));
+    }
   });
 
   let failed = 0;

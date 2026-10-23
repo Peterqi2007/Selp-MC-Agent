@@ -167,7 +167,7 @@ class LanguageBrain {
 
     let profile = requested;
     if (profile === 'auto') {
-      if (source !== 'dialogue' && source !== 'addressed') profile = 'roleplay';
+      if (source !== 'dialogue' && source !== 'addressed' && source !== 'panel') profile = 'roleplay';
       else profile = await this._classify(text);
     }
     this.stats.profile[profile] = (this.stats.profile[profile] || 0) + 1;
@@ -424,7 +424,7 @@ class LanguageBrain {
       kind === 'proactive'
         ? '- This is a proactive event, not a player request. React briefly or stay silent.'
         : null,
-      source === 'dialogue' || source === 'addressed'
+      source === 'dialogue' || source === 'addressed' || source === 'panel'
         ? '- This arrived through the addressed dialogue channel; the player expects an answer or a refusal.'
         : null,
       this.persona ? `Persona:\n${this.persona}` : null,
