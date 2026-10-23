@@ -67,6 +67,61 @@ class HarnessBridge {
    * @param {string} agentId live DSH session/agent id
    * @returns {Promise<{ok:boolean, agentId?:string, reason?:string, status?:number}>}
    */
+  async _getJson(path) {
+    if (!this.fetchImpl) return { ok: false, reason: 'fetch-unavailable' };
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), this.timeoutMs);
+    try {
+      const res = await this.fetchImpl(`${this.url}${path}`, { signal: controller.signal });
+      let payload = {};
+      try {
+        payload = await res.json();
+      } catch {
+        payload = {};
+      }
+      return { ok: res.ok && payload.ok !== false, status: res.status, ...payload };
+    } catch (err) {
+      const aborted = err && (err.name === 'AbortError' || /abort/i.test(err.message || ''));
+      return { ok: false, reason: aborted ? 'timeout' : err.message };
+    } finally {
+      clearTimeout(timer);
+    }
+  }
+
+  async listAgents() {
+    const payload = await this._getJson('/agents');
+    if (!payload.ok || !Array.isArray(payload.agents)) {
+      return { ok: false, reason: payload.reason || 'agents-unavailable', agents: [] };
+    }
+    return { ok: true, agents: payload.agents };
+  }
+
+  async goalOf(agentId) {
+    const id = String(agentId || '').trim();
+    if (!id) return null;
+    const payload = await this._getJson(`/goal?agentId=${encodeURIComponent(id)}`);
+    return payload.ok && payload.goal ? payload.goal : null;
+  }
+
+  /**
+   * DSH restarts clear the plugin's in-memory binding. Pick the live conversation whose
+   * durable goal identifies the Minecraft action brain; never guess by list order.
+   */
+  async autoBind() {
+    const listed = await this.listAgents();
+    if (!listed.ok) return { ok: false, reason: listed.reason };
+    for (const agent of listed.agents) {
+      if (!agent || !agent.id) continue;
+      const goal = await this.goalOf(agent.id);
+      const objective = goal && typeof goal.objective === 'string' ? goal.objective : '';
+      if (/action[- ]brain|Minecraft action/i.test(objective)) {
+        const bound = await this.bind(agent.id);
+        return bound.ok ? { ...bound, discovered: true, objective } : bound;
+      }
+    }
+    return { ok: false, reason: 'no-action-brain-agent' };
+  }
+
   async bind(agentId) {
     const id = String(agentId || '').trim();
     if (!id) return { ok: false, reason: 'agent-id-required' };

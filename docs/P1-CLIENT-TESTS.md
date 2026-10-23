@@ -114,6 +114,12 @@
 - **已执行（2026-10-22，对话入口）**：面板 `@` 与游戏内 `source=chat` 均进入 DSH 动作脑；
   `mc_say` 输出 schema 修正后 turn 90 单次调用、单次发言、回执 `{ok:true,sent:true}`
   （见 [`DSH-HARNESS.md`](DSH-HARNESS.md)）。
+- **已执行（2026-10-23，语言脑 unified 真机窗口）**：`client:verify 23/23`；unified agent 在
+  `mc.example.com` 实跑。panel 与游戏内同一 `LanguageBrain` 路径：roleplay/expert 回复、
+  approval 拒绝（`persona-denied`，无转发）、approval 放行后原文封装转发、动作脑 `mc_say`
+  输出经 roleplay 改写（`why=language-roleplay`）；重启恢复 13 行窗口；默认 unified 启动
+  自动绑定 DSH action-brain 会话。证据 `.tmp/language-brain-live-2026-10-23.md`。
+  **A23/A24/A11 等矩阵项仍保持未执行**；本轮未用第二名真实玩家发游戏内普通聊天。
 - **未执行**：A18–A22、A23–A25、A31 双 emitter/planVersion、R1 完整回归、R2–R4、F3 真机端点、
   M0-C1 的移动/挖矿/反射/GUI 负载。未测的阈值不得回填。
 - **夜间安全**：后续所有客户端窗口执行前先确认时间；夜里先睡觉（`client-real` 自动，

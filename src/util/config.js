@@ -175,11 +175,12 @@ const DEFAULTS = {
     },
     /**
      * Language-brain owner (docs/LANGUAGE-BRAIN-REPAIR.md).
-     * `legacy` keeps the P0/P1 wiring (LlmCore + DialogueRouter + optional ChatParticipation);
-     * `unified` routes every non-`!` player line through src/llm/languageBrain.js.
+     * `unified` (default) routes every non-`!` player line through src/llm/languageBrain.js;
+     * `legacy` keeps the old P0/P1 wiring (LlmCore + DialogueRouter + optional ChatParticipation)
+     * as a rollback.
      */
     language: {
-      brain: 'legacy',
+      brain: 'unified',
       maxTokens: 800,
       historyLimit: 15,
       maxToolRounds: 2,

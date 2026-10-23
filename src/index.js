@@ -366,6 +366,19 @@ async function main() {
           else log.warn(`action brain bind failed: ${bound.reason}`);
         })
         .catch(() => {});
+    } else if (languageMode === 'unified') {
+      /**
+       * Unified mode needs the action brain after every DSH restart. Discover the live
+       * conversation by its durable "action-brain" goal instead of relying on a stale id;
+       * explicit chat.harnessAgentId still wins when configured.
+       */
+      harnessBridge
+        .autoBind()
+        .then((bound) => {
+          if (bound.ok) log.info(`action brain auto-bound: ${bound.agentId}`);
+          else log.warn(`action brain auto-bind skipped: ${bound.reason}`);
+        })
+        .catch((err) => log.debug(`action brain auto-bind failed: ${err.message}`));
     }
   }
 
