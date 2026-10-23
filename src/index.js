@@ -750,6 +750,12 @@ async function main() {
       },
       log: new Logger('chat-participate')
     });
+    brain.chatParticipation = chatParticipation;
+    if (brain.pendingChatParticipation) {
+      const restored = chatParticipation.restore(brain.pendingChatParticipation);
+      brain.pendingChatParticipation = null;
+      if (restored) log.info(`chat window restored: ${chatParticipation.history.length} lines`);
+    }
     ctx.chatParticipation = chatParticipation;
     log.info(`ordinary chat participation enabled (max ${chatCfg.maxChars || 100} chars/reply)`);
   }
@@ -844,6 +850,30 @@ async function main() {
   });
   ctx.authme = authme;
   chatListener.onAnyLine = (line) => authme.observe(line);
+
+  /**
+   * M6/A17: persistent chat memory. Every player line that is not a `!` command is written
+   * to ChatMemory (see `src/chat/playerChatLog.js`), independent of which channel handles it:
+   * `@`/dialogue, addressed or ordinary chat. The agent's own account is excluded so the
+   * shared-client operator cannot write agent speech back as a player message.
+   */
+  const { recordPlayerMessage } = require('./chat/playerChatLog');
+  const ownUsername = String((cfg.agent.bot && cfg.agent.bot.username) || '');
+  chatListener.onPlayerMessage = ({ from, text }) => {
+    try {
+      const recorded = recordPlayerMessage(ctx.chatMemory, {
+        from,
+        text,
+        prefix: chatCfg.prefix || '!',
+        ownName: ownUsername
+      });
+      if (!recorded.ok && recorded.reason !== 'command' && recorded.reason !== 'self') {
+        log.debug(`chat memory not written (${recorded.reason})`);
+      }
+    } catch (err) {
+      log.warn(`chat memory write failed: ${err.message}`);
+    }
+  };
 
   let statusServer = null;
   let shuttingDown = false;

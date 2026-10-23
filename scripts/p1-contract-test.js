@@ -1424,6 +1424,8 @@ function makeBrain() {
       dispatch: async (text) => dispatched.push(text)
     });
     listener.onAddressed = (text) => handler.handle(text);
+    const seenPlayerMessages = [];
+    listener.onPlayerMessage = (message) => seenPlayerMessages.push(message);
     await listener.poll(); // seed baseline
     lines = ['<Steve> hello', '<Steve> @帮我砍 8 根木头'];
     await listener.poll();
@@ -1435,6 +1437,14 @@ function makeBrain() {
     await listener.poll();
     check('the addressed channel and the ! channel coexist', () => {
       assert.deepStrictEqual(commands, ['help']);
+      assert(
+        seenPlayerMessages.some((message) => message.from === 'Steve' && message.text === '@帮我砍 8 根木头'),
+        'the player-message hook sees addressed lines'
+      );
+      assert(
+        seenPlayerMessages.some((message) => message.from === 'Steve' && message.text === '!help'),
+        'the player-message hook sees command lines too (the recorder filters them)'
+      );
     });
   }
 
@@ -2684,6 +2694,15 @@ function makeBrain() {
       assert.deepStrictEqual(chat.entries[1].sources, ['https://example.invalid/furnace']);
       assert.doesNotMatch(chat.entries[1].text, /https?:\/\//);
       assert(changes >= 1);
+      const attached = new ChatMemory({ now: () => 1000 });
+      attached.saveTurn({ text: '钩子玩家消息', speaker: 'Alice' });
+      attached.attachReply({ text: '钩子玩家消息', reply: '回复' });
+      assert.strictEqual(attached.entries.length, 2);
+      assert.deepStrictEqual(
+        attached.entries.map((entry) => entry.role),
+        ['user', 'assistant']
+      );
+      assert.strictEqual(attached.entries[0].text, '钩子玩家消息');
     });
     check('chat memory grep is Chinese-aware', () => {
       const hits = chat.grep('熔炉');

@@ -283,6 +283,10 @@ class Brain {
     this.stateStore = null;
     this.stateDebounceMs = stateCfg.debounceMs === undefined ? 1000 : stateCfg.debounceMs;
     this._stateTimer = null;
+    /** Set by index.js when the M6 participation module is wired. */
+    this.chatParticipation = null;
+    /** Restored chat window, consumed by index.js after ChatParticipation is constructed. */
+    this.pendingChatParticipation = null;
     if (stateCfg.enabled && !stateDisabled) {
       const stateFile = stateCfg.file
         ? nodePath.resolve(stateCfg.file)

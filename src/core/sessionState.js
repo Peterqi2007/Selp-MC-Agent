@@ -32,6 +32,11 @@ function captureState(brain) {
     answers: brain.answers && typeof brain.answers.toJSON === 'function' ? brain.answers.toJSON() : null,
     conversation:
       brain.conversation && typeof brain.conversation.toJSON === 'function' ? brain.conversation.toJSON() : null,
+    /** Bounded live chat window (M6); context only, never replayed on restore. */
+    chatParticipation:
+      brain.chatParticipation && typeof brain.chatParticipation.toJSON === 'function'
+        ? brain.chatParticipation.toJSON()
+        : null,
     memoryStore:
       brain.memoryStore && typeof brain.memoryStore.toJSON === 'function' ? brain.memoryStore.toJSON() : null,
     chatMemory:
@@ -53,6 +58,7 @@ function restoreState(brain, data) {
     methods: false,
     answers: false,
     conversation: false,
+    chatParticipation: false,
     memoryStore: false,
     chatMemory: false
   };
@@ -96,6 +102,19 @@ function restoreState(brain, data) {
   }
   if (data.conversation && brain.conversation && typeof brain.conversation.restore === 'function') {
     restored.conversation = brain.conversation.restore(data.conversation);
+  }
+  if (data.chatParticipation) {
+    if (brain.chatParticipation && typeof brain.chatParticipation.restore === 'function') {
+      restored.chatParticipation = brain.chatParticipation.restore(data.chatParticipation);
+    } else {
+      /**
+       * ChatParticipation is constructed in index.js after Brain (it needs the model client
+       * and persona), so the window is parked here and consumed there. It is context only:
+       * restoring it never starts a model call or replays a message.
+       */
+      brain.pendingChatParticipation = data.chatParticipation;
+      restored.chatParticipation = true;
+    }
   }
   if (data.memoryStore && brain.memoryStore && typeof brain.memoryStore.restore === 'function') {
     restored.memoryStore = brain.memoryStore.restore(data.memoryStore);

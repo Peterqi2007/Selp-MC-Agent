@@ -85,6 +85,21 @@ function messageContent(line) {
   return text;
 }
 
+/**
+ * Extract the sender from a rendered player chat line.
+ *
+ * Only the `<Name> message` form yields a sender. Server notices and the
+ * `Name » message` fallback return null, so callers never mistake them for player chat.
+ *
+ * @param {string} line
+ * @returns {string|null}
+ */
+function messageSender(line) {
+  const text = String(line || '').replace(COLOR_CODE, '').trim();
+  const match = text.match(/<([^<>]{1,32})>/);
+  return match ? match[1].trim() : null;
+}
+
 class ChatListener {
   /**
    * @param {object} body Body with `readChat(n)` (ClientModBody)
@@ -128,6 +143,12 @@ class ChatListener {
     this.onDialogue = null;
     /** Plain player chat (not `!`/dialogue/addressed), for A11 edge wake. */
     this.onOther = null;
+    /**
+     * Every player chat line that is not our own echo, before channel dispatch.
+     * `{ from, text, line }`; used by the persistent chat-memory recorder. Commands are
+     * included here and filtered by the recorder, so this hook stays channel-agnostic.
+     */
+    this.onPlayerMessage = null;
     /** Every non-command line, for the panel and for prompt history. */
     this.heard = [];
     /** Last few accepted commands, for the control panel ("did it hear me?"). */
@@ -277,6 +298,22 @@ class ChatListener {
           this.onAnyLine(text);
         } catch (err) {
           this.log.debug(`onAnyLine hook failed: ${err.message}`);
+        }
+      }
+
+      /**
+       * Every real player line, before echo filtering or channel dispatch: the persistent
+       * chat-memory recorder needs all non-command messages (`@`, addressed, ordinary chat),
+       * not just the channel that happens to reply to them. The agent's own account is
+       * filtered by the recorder, so running before the echo guard still refuses our lines
+       * while letting a player repeat one of our sentences into memory.
+       */
+      const sender = messageSender(text);
+      if (sender && typeof this.onPlayerMessage === 'function') {
+        try {
+          this.onPlayerMessage({ from: sender, text: content, line: text });
+        } catch (err) {
+          this.log.debug(`player-message hook failed: ${err.message}`);
         }
       }
 

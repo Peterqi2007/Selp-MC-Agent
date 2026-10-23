@@ -79,7 +79,7 @@
       "timeoutMs": 8000
     }
   },
-  "_comment_chat": "Two input channels: prefix '!' is the deterministic command fast-path, dialogueTrigger goes to the LLM. Other chat is normally ignored; `participate=true` (P1 M6) lets the language half decide whether to join ordinary multiplayer chat, and `proposalChat=true` lets a standalone yes/no answer the pending proposal. conversationGuard applies to opt-in LLM replies; it is independent of the participation switch. dialogueTrigger is left null so the persona file's own frontmatter decides - that keeps a character swap from silently killing the in-game channel.",
+  "_comment_chat": "Two input channels: prefix '!' is the deterministic command fast-path, dialogueTrigger goes to the LLM. Other chat is normally ignored; `participate=true` (P1 M6) lets the language half decide whether to join ordinary multiplayer chat, and `proposalChat=true` lets a standalone yes/no answer the pending proposal. conversationGuard applies to opt-in LLM replies; it is independent of the participation switch. dialogueTrigger is left null so the persona file's own frontmatter decides - that keeps a character swap from silently killing the in-game channel. Every non-command player line is also written to ChatMemory (A17); `!` commands and the agent's own account are excluded.",
   "chat": {
     "prefix": "!",
     "dialogueTrigger": null,

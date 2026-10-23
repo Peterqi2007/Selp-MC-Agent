@@ -18,6 +18,7 @@ const http = require('http');
 const { ConversationState } = require('../src/chat/conversation');
 const { reply } = require('../src/chat/reply');
 const { DialogueRouter } = require('../src/chat/dialogueRouter');
+const { recordPlayerMessage } = require('../src/chat/playerChatLog');
 const { LlmCore } = require('../src/llm');
 const { startStatusServer } = require('../src/web/statusServer');
 const {
@@ -222,6 +223,29 @@ function makeParticipation(options = {}) {
       assert.strictEqual(lines.length, 15);
       assert.strictEqual(lines[0], 'Alice: t5');
       assert.strictEqual(lines.at(-1), 'Alice: t19');
+    });
+
+    await check('the bounded window survives save/restore as context', () => {
+      const saved = fixture.participation.toJSON();
+      assert(saved.history.some((item) => item.self && item.text === '收到'));
+      const restored = new ChatParticipation({ enabled: true, historyLimit: 15, log: silent });
+      assert(restored.restore(saved));
+      assert(restored.history.some((item) => item.self && item.text === '收到'));
+      assert(restored.history.some((item) => !item.self && item.text === '一起挖矿吗'));
+      assert(restored.entrySeq >= 2);
+    });
+
+    await check('every non-command player line is recorded to long-term chat memory', () => {
+      const saved = [];
+      const memory = { saveTurn: (turn) => saved.push(turn) };
+      recordPlayerMessage(memory, { from: 'Alice', text: '在吗' });
+      recordPlayerMessage(memory, { from: 'Alice', text: '@大肥鱼 挖点铁' });
+      recordPlayerMessage(memory, { from: 'Alice', text: '!stop' });
+      recordPlayerMessage(memory, { from: 'Server', text: '服务器将在 5 分钟后重启' });
+      recordPlayerMessage(memory, { from: 'AgentDeepSeek', text: '我是机器人', ownName: 'AgentDeepSeek' });
+      assert.strictEqual(saved.length, 2);
+      assert.deepStrictEqual(saved.map((turn) => turn.text), ['在吗', '@大肥鱼 挖点铁']);
+      assert.strictEqual(saved[0].speaker, 'Alice');
     });
   }
 

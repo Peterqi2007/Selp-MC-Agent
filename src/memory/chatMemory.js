@@ -81,6 +81,53 @@ class ChatMemory {
     return assistant || user;
   }
 
+  /**
+   * Attach the assistant reply to the player line the recorder already stored.
+   *
+   * The global chat recorder writes every non-command player message as a user entry; when
+   * the language dialogue answers it, this method appends the assistant half **without**
+   * duplicating the user line. If the player line is missing (e.g. a direct LanguageDialogue
+   * call in tests), it falls back to a full `saveTurn`.
+   *
+   * @param {object} input { text, reply, sources, tool, requestId }
+   * @returns {object|null} the assistant entry (or null when the reply is empty)
+   */
+  attachReply(input = {}) {
+    const text = cleanText(input.text);
+    const reply = cleanText(input.reply);
+    if (!text) return null;
+    const last = this.entries[this.entries.length - 1];
+    if (!reply) {
+      if (last && last.role === 'user' && last.text === text) return null;
+      return this.saveTurn({ text, speaker: input.speaker, requestId: input.requestId });
+    }
+    if (last && last.role === 'user' && last.text === text) {
+      const assistant = {
+        id: `chat-${++this.seq}`,
+        seq: this.seq,
+        at: new Date(this.now()).toISOString(),
+        role: 'assistant',
+        text: reply,
+        speaker: null,
+        sources: Array.isArray(input.sources) ? input.sources.slice(0, 10) : [],
+        tool: input.tool || null,
+        requestId: input.requestId || null
+      };
+      this.entries.push(assistant);
+      this._compactIfNeeded();
+      this._changed();
+      return assistant;
+    }
+    return this.saveTurn({
+      text,
+      reply,
+      speaker: input.speaker,
+      sources: input.sources,
+      tool: input.tool,
+      requestId: input.requestId
+    });
+  }
+
   /** Lexical grep with CJK expansion; returns entries with a match score. */
   grep(query, options = {}) {
     const wanted = new Set(tokenize(query));
@@ -123,7 +170,8 @@ class ChatMemory {
         used += content.length;
         continue;
       }
-      const content = entry.text.slice(0, 1000);
+      const body = entry.role === 'user' && entry.speaker ? `${entry.speaker}: ${entry.text}` : entry.text;
+      const content = body.slice(0, 1000);
       if (used + content.length > budget) continue;
       messages.push({ role: entry.role === 'assistant' ? 'assistant' : 'user', content });
       used += content.length;

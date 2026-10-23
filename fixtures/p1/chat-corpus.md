@@ -82,6 +82,12 @@ CSV 列：`id,label,note,role,speaker,text,kind,addressed,flags,session,time`
 - 玩家行格式 `玩家名: 文本`；
 - Agent 自己的回复格式 `我: 文本`（`selfLabel` 可配），**只在发送成功后写入**，
   且**不从聊天日志回读**——操作员用同账号说的话不会被当成 Agent 发言。
+- 这 15 行随 `runtime/p1-state.json` 保存（`chatParticipation`），重启只恢复为上下文，
+  **不重放消息、不自动调用模型**。
+
+长期记忆另有一套：`ChatMemory` 记录所有**非 `!` 指令**的玩家消息（含 `@`/对话/普通聊天；
+`!` 命令与 Agent 自己账号跳过），`save/grep/context/compact` 供 `@`/语言脑使用；
+普通聊天参与**不读** ChatMemory，只用自己的 15 行窗口。
 
 所以标注时看到的完整转写比模型实际看到的更宽；模型只回看最近 15 行，看不到"下一句"。
 

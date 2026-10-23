@@ -55,7 +55,7 @@
 | [`docs/P1-M3.md`](docs/P1-M3.md) | **P1 M3 记录（2026-10-21 PASS）**：`PlanService`、`POST /plan`、`TurnService`/`/harness/events`、DSH `mc_plan`/`mc_propose`/`mc_state`、持久化、`wait_for_player`、`!state`、`!method`、`Budget`、`verifier`、`draftGuard`；A13–A17/A27（只读/异步）/A28–A30/F2 真机通过；`p1:m3:test 44/44` |
 | [`docs/P1-M4.md`](docs/P1-M4.md) | **P1 M4 记录**：manifest 校验、生成管线、candidates/promoted 目录与指针、晋升/回退/下线、promoted-only 检索；2026-10-18 接真实生成、权限子进程试运行、证据、取消、DeepSeek Search、HTTP `/code-skills`（`p1:m4:test 15/15`）；A18–A20/A27 真机未执行。沙箱规则见 [`P1-M4-SANDBOX.md`](docs/P1-M4-SANDBOX.md) |
 | [`docs/P1-M5.md`](docs/P1-M5.md) | **P1 M5 记录（窗口策略离线契约）**：CU 默认拒绝（F1 未验证）、窗口/边界/截图限窗、显式 verify+证据、`ComputerUseGuard` 拒绝不触达执行器。GUI 中断、截图成本、A21/A22 未完成 |
-| [`docs/P1-M6.md`](docs/P1-M6.md) | **P1 M6 记录（聊天并发 + 按需接线）**：未读去重、过时回复拒绝、自回声拒绝、限速/重复/截断、随会话持久化；LLM 回复可 opt-in 守卫（默认关闭）；DialogueRouter + `mc_say` 已真机（2026-10-22）。真实多人 A23/A24、A25 聊天侧未完成 |
+| [`docs/P1-M6.md`](docs/P1-M6.md) | **P1 M6 记录（聊天并发 + 按需接线）**：未读去重、过时回复拒绝、自回声拒绝、限速/重复/截断、随会话持久化；普通聊天 15 行窗口（含自己的回复、随 `p1-state.json` 保存）；**所有非 `!` 玩家消息写入 ChatMemory**；LLM 回复可 opt-in 守卫（默认关闭）；DialogueRouter + `mc_say` 已真机（2026-10-22）。真实多人 A23/A24、A25 聊天侧未完成 |
 | [`docs/P1-M7.md`](docs/P1-M7.md) | **P1 M7 记录（离线准备）**：`p1:verify` 一键离线验收、`p1:fault:test` 9/9、A01–A31 验收矩阵（2026-10-22 回填）、发布清单与残余风险。**P1 未发布**；M1/M2/M3 真机通过，M4–M7 剩余项见清单 |
 | [`docs/P1-GAP-AUDIT.md`](docs/P1-GAP-AUDIT.md) | **P1 全文差距审计**：§1.4–§1.9 逐节“已落地/部分/仅契约/未开始”，离线待办优先级与需批准项（2026-10-22 增补现状表） |
 | [`docs/P1-HANDOFF.md`](docs/P1-HANDOFF.md) | **P1 交接（2026-10-22）**：一键复验、已交付清单、客户端窗口实测、默认配置、剩余未交付、窗口顺序、代码地图与风险 |
@@ -191,7 +191,7 @@ LLM 层（`src/llm/`，生产配置已开启 `toolCalling`）：8 个工具 —�
   `mining:entry:test 25/25`、`mining:collection:test 24/24`、`mining:recovery:test 18/18`、`tasks:test 52/52`、
   `path:test 35/35`、`clientmod:test 11/11`、`verify:roleplay 34/34`、`llm:dry` 路由 67/67 + 工具 43/43（明细见 §8）。
 * P1 离线（2026-10-22 实跑）：`p1:verify`（P0 8/8 + `planner:test 35/35` + `p1:contract:test 206/206` +
-  `p1:m3:test 44/44` + `p1:m6:test 22/22` + `p1:m7:test 11/11` + `p1:m4:test 15/15` +
+  `p1:m3:test 44/44` + `p1:m6:test 24/24` + `p1:m7:test 11/11` + `p1:m4:test 15/15` +
   `p1:fault:test 9/9` + `plan:audit --stage p1 105/105`；`--fast` 为 8/8 套件）。
 * P1 客户端阶段（2026-10-20/21/22）：**M1 适用子集 PASS、M2 PASS、M3 PASS**（A13–A17、A27 只读/异步、
   A28–A30、F2；均在 `planner.mode=off` 下由 DSH 动作脑/真机注入完成）；M4 代码管线与

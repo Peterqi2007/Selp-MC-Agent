@@ -26,7 +26,7 @@ npm run p1:baseline -- --suites  # 记录提交/配置指纹/套件结果到 run
 | `planner:test` | **35/35** |
 | `p1:contract:test` | **206/206** |
 | `p1:m3:test` | **44/44** |
-| `p1:m6:test` | **22/22** |
+| `p1:m6:test` | **24/24** |
 | `p1:m7:test` | **11/11** |
 | `p1:m4:test` | **15/15** |
 | `p1:fault:test` | **9/9** |
@@ -129,7 +129,8 @@ src/core/      taskEvents, planStore, planService, taskSlot, capabilities, state
                sessionState, planRunner, turnLifecycle
 src/planner/   evaluator, proposals, budget, verifier, draftGuard, planQuestions
 src/chat/      commandGate, addressedHandler, harnessBridge, conversation,
-               languageDialogue, chatParticipation, proposalChat, dialogueRouter
+               languageDialogue, chatParticipation, proposalChat, dialogueRouter,
+               playerChatLog（非 ! 玩家消息 → ChatMemory）
 src/tasks/     follow, withdraw, deposit, fish（FollowTask/WithdrawTask/DepositTask/FishTask）
 src/codeSkills/ manifest, generator, store, directory, sandboxRunner, sandboxWorker,
                service, generation, catalog

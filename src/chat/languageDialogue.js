@@ -28,14 +28,21 @@ class LanguageDialogue {
   _remember(text, result) {
     const reply = result && result.text ? String(result.text).slice(0, 500) : null;
     const sources = result && Array.isArray(result.sources) ? result.sources.slice(0, 5) : [];
-    if (this.chatMemory && typeof this.chatMemory.saveTurn === 'function') {
+    const payload = {
+      text,
+      reply,
+      sources,
+      tool: (result && result.tool) || null
+    };
+    if (this.chatMemory) {
       try {
-        this.chatMemory.saveTurn({
-          text,
-          reply,
-          sources,
-          tool: (result && result.tool) || null
-        });
+        /**
+         * The global chat recorder already stored this player line as a user entry; only
+         * the assistant half is missing. `attachReply` appends it without duplicating the
+         * player line (and falls back to saveTurn when the recorder did not run).
+         */
+        if (typeof this.chatMemory.attachReply === 'function') this.chatMemory.attachReply(payload);
+        else if (typeof this.chatMemory.saveTurn === 'function') this.chatMemory.saveTurn(payload);
       } catch (err) {
         this.log.warn(`chat log write failed: ${err.message}`);
       }

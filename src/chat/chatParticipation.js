@@ -103,6 +103,8 @@ class ChatParticipation {
       errors: 0,
       self: 0
     };
+    /** A persisted window is a context cache, never a replay queue. */
+    if (Array.isArray(deps.history)) this.restore({ history: deps.history });
   }
 
   /**
@@ -126,7 +128,7 @@ class ChatParticipation {
     const requestId = `chat-${++this.seq}`;
     this.conversation.beginRequest(requestId);
     const entry = {
-      order: ++this.entrySeq,
+      order: (this.entrySeq = Math.floor(this.entrySeq) + 1),
       from: from || null,
       text: clean,
       line: line || null,
@@ -255,6 +257,44 @@ class ChatParticipation {
   _trimHistory() {
     const keep = this.historyLimit * 2 + 4;
     while (this.history.length > keep) this.history.shift();
+  }
+
+  /**
+   * Persisted with the session (A17). Only the bounded window is stored; it is context for
+   * the next decision, never replayed as incoming messages or model calls.
+   */
+  toJSON() {
+    return {
+      history: this.history.slice(-(this.historyLimit * 2 + 4)).map((item) => ({
+        order: item.order,
+        from: item.from || null,
+        text: item.text,
+        self: item.self === true,
+        at: item.at || null
+      }))
+    };
+  }
+
+  /** Restore a saved window. Invalid/legacy entries are dropped, never guessed. */
+  restore(data) {
+    const raw = data && Array.isArray(data.history) ? data.history : [];
+    let fallback = 0;
+    const entries = raw
+      .filter((item) => item && typeof item.text === 'string' && item.text.trim())
+      .map((item) => {
+        const order = Number(item.order);
+        return {
+          order: Number.isFinite(order) && order > 0 ? order : ++fallback,
+          from: item.from || null,
+          text: String(item.text),
+          self: item.self === true,
+          at: item.at || null
+        };
+      })
+      .slice(-(this.historyLimit * 2 + 4));
+    this.history = entries;
+    this.entrySeq = entries.reduce((max, item) => Math.max(max, item.order), 0);
+    return entries.length > 0;
   }
 
   status() {
