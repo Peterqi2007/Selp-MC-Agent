@@ -53,7 +53,7 @@ LlmCore 不能直接删：任务播报、judge、mining recovery、P0 命令仍�
 | 入口 | `unified` 下 `@`、addressed、面板对话、普通聊天、A11 感知、respawn、taskDone、计划提问、code-skill 发言、`mc_say` 动作脑输出全部进 `ctx.languageBrain`；`!` 仍直接进命令表 |
 | 审批 | `approval` 用同一 `approvalGate`，放行时把**原文**放进 `[MINECRAFT PLAYER REQUEST]` 信封（source/speaker/位置）交给动作脑，不改写 |
 | 记忆 | 短期窗口 15 行随 `p1-state.json` 的 `languageBrain` 字段保存/恢复；长期 ChatMemory 由既有全局记录器写入，语言脑只用 `grep_chat_memory` 召回；任务记忆只在 `grep_task_memory` 时读取，不注入上下文 |
-| 主动发言 | hungry / lowHealth 仍由 `SpeechScheduler` 直接 `speakUp`；A11、respawn、taskDone 进语言脑 roleplay，允许 `silence` |
+| 主动发言 | hungry / lowHealth 仍由 `SpeechScheduler` 直接 `speakUp`；A11、respawn、taskDone 进语言脑 roleplay，允许 `silence`。A11（M2-D01）与 hungry/lowHealth（M2-D02）均已由操作员手工验证通过（2026-10-23）。 |
 | 动作脑输出 | unified 下 Node `/say` 默认全部进语言脑（兼容未带 `source` 的旧 DSH 插件），`raw:true` 才是显式直发；语言脑失败才原文 fallback；计划提问与 code-skill 同样先经 roleplay（提问失败才原文兜底） |
 | 开关 | 默认 `config/agent.json` → `agent.language.brain=unified`；`legacy` 可回退，或 `MC_LANGUAGE_BRAIN=legacy` 覆盖；`maxTokens/historyLimit/maxToolRounds/timeoutMs` 同段 |
 | 动作脑绑定 | unified 启动时若未配置 `chat.harnessAgentId`，按 `/agents` + `/goal` 自动绑定带 "action-brain" 目标的 DSH 会话；DSH 重启后无需手工 `/bind` |
@@ -62,7 +62,7 @@ LlmCore 不能直接删：任务播报、judge、mining recovery、P0 命令仍�
 
 仍待完成（下一阶段）：
 
-1. `unified` 已设为默认并完成上述真机验证；缺口是真实第二名玩家 `source=chat`、A11 天气/阶段边缘、低血/饥饿直发的单独取证。
+1. `unified` 已设为默认；A11（M2-D01）与 hungry/lowHealth（M2-D02）已由操作员手工验证通过（2026-10-23）。剩余缺口是真实第二名玩家 `source=chat` 的完整 A23/A24 多人矩阵。
 2. `ChatParticipation` / `LanguageAgent` / `LlmCore` 的旧代码尚未删除；它们保留为回退（阶段 4 才退役）。
 3. DSH 插件 `mc_say` 的 `source=action-brain` 标记可重新 `npm run dsh:install -- --apply` 后生效；即使不重装，Node `/say` 默认路由也保证旧插件不绕过语言脑。
 4. 动作脑输出在语言脑失败时回退原文直发（`via=fallback`）；语言脑主动选择 `silence` 时不发。两者都由 `/say` 记录。
