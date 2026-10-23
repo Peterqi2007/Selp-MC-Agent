@@ -116,6 +116,7 @@ class LanguageBrain {
     this.forwardToActionBrain = deps.forwardToActionBrain || this.ctx.forwardToActionBrain || null;
     this.statusSummary = deps.statusSummary || statusSummary;
     this.conversation = deps.conversation || this.ctx.conversation || null;
+    this.onChange = typeof deps.onChange === 'function' ? deps.onChange : null;
     this.historyLimit = deps.historyLimit || 15;
     this.maxTokens = deps.maxTokens || 800;
     this.timeoutMs = deps.timeoutMs || 8000;
@@ -464,6 +465,7 @@ class LanguageBrain {
     this.stats.said += 1;
     this.history.push({ from: null, text, self: true, at: new Date().toISOString() });
     this._trimHistory();
+    this._changed();
     /**
      * Attach the assistant half to the player line the global recorder already stored.
      * Action-brain/proactive lines have no matching user entry and are left out of ChatMemory.
@@ -563,6 +565,16 @@ class LanguageBrain {
   _rememberIncoming({ from, text }) {
     this.history.push({ from: from || null, text, self: false, at: new Date().toISOString() });
     this._trimHistory();
+    this._changed();
+  }
+
+  _changed() {
+    if (!this.onChange) return;
+    try {
+      this.onChange();
+    } catch (err) {
+      this.log.debug(`language brain onChange failed: ${err.message}`);
+    }
   }
 
   _trimHistory() {

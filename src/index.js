@@ -727,6 +727,7 @@ async function main() {
           }
         : null,
       conversation: ctx.conversation,
+      onChange: () => brain.scheduleStateSave(),
       maxChars: chatCfg.maxChars || 100,
       maxTokens: languageCfg.maxTokens || 800,
       timeoutMs: languageCfg.timeoutMs || 8000,
