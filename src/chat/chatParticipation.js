@@ -34,7 +34,7 @@ function parseParticipation(raw) {
   }
 }
 
-function participationPrompt({ persona, memories = [], recent = [], from, maxChars }) {
+function participationPrompt({ persona, memories = [], recent = [], from, maxChars, selfLabel = '我' }) {
   return [
     'You are the chat half of a Minecraft agent on a multiplayer server.',
     'Decide whether the latest player chat line needs a reply from you.',
@@ -45,6 +45,7 @@ function participationPrompt({ persona, memories = [], recent = [], from, maxCha
     '- Stay silent for side conversations, commands, server notices, and lines not worth answering.',
     '- Do not repeat a line you already answered.',
     '- If the latest line supersedes an earlier one, answer only the latest.',
+    `- Lines starting with "${selfLabel}:" are your own earlier replies; use them for continuity.`,
     `- Keep text under ${maxChars} characters; no action claims.`,
     persona ? `Persona: ${persona}` : null,
     memories.length
@@ -79,15 +80,29 @@ class ChatParticipation {
     this.memoryFor = deps.memoryFor || null;
     this.maxTokens = deps.maxTokens || 120;
     this.timeoutMs = deps.timeoutMs || 4000;
-    this.historyLimit = deps.historyLimit || 8;
+    /** How many prior chat lines (players + our own replies) the prompt shows. */
+    this.historyLimit = deps.historyLimit || 15;
+    this.selfLabel = deps.selfLabel || '我';
     this.maxChars = deps.maxChars || 100;
     this.log = deps.log || { info() {}, warn() {}, debug() {} };
     this.now = deps.now || (() => Date.now());
     this.seq = 0;
+    /** Monotonic order for incoming lines; our own replies get order + 0.5. */
+    this.entrySeq = 0;
     this.queue = Promise.resolve();
     this.pending = 0;
     this.history = [];
-    this.stats = { seen: 0, deduped: 0, considered: 0, replied: 0, silent: 0, stale: 0, dropped: 0, errors: 0 };
+    this.stats = {
+      seen: 0,
+      deduped: 0,
+      considered: 0,
+      replied: 0,
+      silent: 0,
+      stale: 0,
+      dropped: 0,
+      errors: 0,
+      self: 0
+    };
   }
 
   /**
@@ -110,13 +125,19 @@ class ChatParticipation {
     this.stats.seen += 1;
     const requestId = `chat-${++this.seq}`;
     this.conversation.beginRequest(requestId);
-    const entry = { from: from || null, text: clean, line: line || null, at: new Date(this.now()).toISOString() };
+    const entry = {
+      order: ++this.entrySeq,
+      from: from || null,
+      text: clean,
+      line: line || null,
+      self: false,
+      at: new Date(this.now()).toISOString()
+    };
     this.history.push(entry);
-    if (this.history.length > this.historyLimit) this.history.shift();
-    const snapshot = this.history.slice();
+    this._trimHistory();
     this.pending += 1;
     this.queue = this.queue
-      .then(() => this._consider({ entry, snapshot, requestId }))
+      .then(() => this._consider({ entry, requestId }))
       .catch((err) => {
         this.stats.errors += 1;
         this.log.debug(`chat participation failed: ${err.message}`);
@@ -127,7 +148,7 @@ class ChatParticipation {
     return { ok: true, queued: true, requestId };
   }
 
-  async _consider({ entry, snapshot, requestId }) {
+  async _consider({ entry, requestId }) {
     /**
      * A newer message already superseded this one: do not spend a model call on an answer
      * that `ConversationState` would refuse anyway.
@@ -138,7 +159,16 @@ class ChatParticipation {
     }
     this.stats.considered += 1;
     const memories = typeof this.memoryFor === 'function' ? this.memoryFor(entry.text) || [] : [];
-    const recent = snapshot.slice(0, -1).map((item) => `${item.from || '玩家'}: ${item.text}`);
+    /**
+     * Context is ordered by `order`, not by arrival time:
+     * - entries with `order < entry.order` happened before this line;
+     * - our own replies use `order + 0.5`, so a reply to line N is visible to N+1
+     *   but a line that arrived later (and is queued) never leaks into this prompt.
+     * This is also why we never read the chat log back: operator lines typed on the
+     * agent's own account must not be mistaken for the agent's speech.
+     */
+    const recentEntries = this.history.filter((item) => item.order < entry.order).slice(-this.historyLimit);
+    const recent = recentEntries.map((item) => this._formatLine(item));
     let raw;
     try {
       raw = await this.complete({
@@ -147,7 +177,8 @@ class ChatParticipation {
           memories,
           recent,
           from: entry.from,
-          maxChars: this.maxChars
+          maxChars: this.maxChars,
+          selfLabel: this.selfLabel
         }),
         messages: [{ role: 'user', content: entry.text }],
         maxTokens: this.maxTokens,
@@ -185,8 +216,45 @@ class ChatParticipation {
       requestId,
       why: 'chat-participation'
     });
-    if (spoke) this.stats.replied += 1;
-    else this.stats.dropped += 1;
+    if (spoke) {
+      this.stats.replied += 1;
+      /**
+       * Store the exact text we just sent, AFTER a successful send. Never read it back from
+       * the chat log: the operator shares the agent's account, so an echo-based hook would
+       * capture human lines as agent speech.
+       */
+      this._rememberSelf(text, entry);
+    } else {
+      this.stats.dropped += 1;
+    }
+  }
+
+  _formatLine(item) {
+    const speaker = item.self ? this.selfLabel : item.from || '玩家';
+    return `${speaker}: ${item.text}`;
+  }
+
+  /** Our own reply sits between this line (N) and the next incoming line (N+1). */
+  _rememberSelf(text, entry) {
+    if (!text) return;
+    this.history.push({
+      order: entry.order + 0.5,
+      from: this.selfLabel,
+      text,
+      self: true,
+      at: new Date(this.now()).toISOString()
+    });
+    this.stats.self += 1;
+    this._trimHistory();
+  }
+
+  /**
+   * Keep a little more than the prompt window so self lines can interleave without
+   * dropping lines a queued request still needs. The prompt itself slices to historyLimit.
+   */
+  _trimHistory() {
+    const keep = this.historyLimit * 2 + 4;
+    while (this.history.length > keep) this.history.shift();
   }
 
   status() {

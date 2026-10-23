@@ -26,7 +26,7 @@ npm run p1:baseline -- --suites  # 记录提交/配置指纹/套件结果到 run
 | `planner:test` | **35/35** |
 | `p1:contract:test` | **206/206** |
 | `p1:m3:test` | **44/44** |
-| `p1:m6:test` | **19/19** |
+| `p1:m6:test` | **22/22** |
 | `p1:m7:test` | **11/11** |
 | `p1:m4:test` | **15/15** |
 | `p1:fault:test` | **9/9** |

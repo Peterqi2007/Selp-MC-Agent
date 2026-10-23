@@ -229,7 +229,7 @@ resume 一次。
     turn 90 回执 `{ok:true,sent:true}`，只有一次 `mc_say` 调用和一条游戏内 `said:`。
 - 面板 `@…` 走同一个 router；`!` 命令（含 `!goal`）仍走确定性本地命令表，不属于本路由。
 - 观测：`ctx.lastDialogueRoute`（mode/ok/handoff/reason/forwarded）出现在 `/ui/state.dialogue`。
-- 离线：`p1:m6-test` 19/19（转发/绑定重试/未绑定/no-planner、planner-first 本地与 handoff、
+- 离线：`p1:m6-test` 22/22（转发/绑定重试/未绑定/no-planner、planner-first 本地与 handoff、
   `onUnresolved:defer`、`/say`、面板路由）；插件 `plugin-goal-test` 增加 `mc_say` 断言。
 
 ### 边界

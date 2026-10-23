@@ -2,22 +2,20 @@
 'use strict';
 
 /**
- * Extract real player chat from the Forge client logs into an A23/A24 corpus.
+ * Extract real chat from the Forge client logs into an A23/A24 transcript corpus.
  *
  * Usage:
  *   node scripts/extract-chat-corpus.js
- *   node scripts/extract-chat-corpus.js --out fixtures/p1/chat-corpus
+ *   node scripts/extract-chat-corpus.js --out=fixtures/p1/chat-corpus
  *
  * Sources: runtime/logs/forge-client-*.log and runtime/logs/real-client.log (if present).
- * The agent's own accounts are excluded from the corpus but still shown as `prev`/`next`
- * context, because a human labeller needs to see what the agent said around the line.
  *
- * Output:
- *   <out>.json  - one entry per unique (speaker,text), `label`/`note` empty for manual labelling
- *   <out>.csv   - same rows, UTF-8 BOM so Excel opens Chinese correctly
- *   <out>.raw.jsonl - every incoming occurrence (for lines whose meaning changes by context)
+ * Output is a chronological transcript: one row per chat line, from players AND from the
+ * agent's own accounts. Agent rows are labelled `exclude` automatically; player rows keep
+ * `label` empty for manual labelling. There are no prev/next columns - the row order is
+ * the conversation, so a line's context is the rows above it.
  *
- * This script is read-only over the logs and idempotent: rerunning rewrites the three files.
+ * This script is read-only over the logs and idempotent: rerunning rewrites the outputs.
  */
 
 const fs = require('node:fs');
@@ -49,11 +47,14 @@ function sessionDateKey(session) {
   return session;
 }
 
+function sessionDay(session) {
+  return sessionDateKey(session).slice(0, 10);
+}
+
 function readSession(file) {
   const session = path.basename(file, '.log');
   const events = [];
-  const lines = fs.readFileSync(file, 'utf8').split(/\r?\n/);
-  for (const line of lines) {
+  for (const line of fs.readFileSync(file, 'utf8').split(/\r?\n/)) {
     const match = line.match(CHAT_LINE);
     if (!match) continue;
     const text = stripFormatting(match[3]);
@@ -70,15 +71,10 @@ function readSession(file) {
   return events;
 }
 
-function contextLabel(event) {
-  if (!event) return '';
-  return `${event.self ? '[agent] ' : ''}${event.speaker}: ${event.text}`;
-}
-
-function classify(text) {
+function classify(text, self) {
   if (/^[!！]/.test(text)) return 'command';
   if (/^@/.test(text)) return 'addressed';
-  return 'other';
+  return self ? 'agent' : 'other';
 }
 
 function csvCell(value) {
@@ -97,153 +93,110 @@ function main() {
     .map((name) => path.join(LOG_DIR, name))
     .sort((a, b) => sessionDateKey(path.basename(a, '.log')).localeCompare(sessionDateKey(path.basename(b, '.log'))));
 
-  const sessions = [];
-  const occurrences = [];
+  const seen = new Set();
+  const rows = [];
+  const sessions = new Set();
   for (const file of files) {
     const events = readSession(file);
     if (!events.length) continue;
-    sessions.push({ session: path.basename(file, '.log'), events: events.length });
-    for (let index = 0; index < events.length; index += 1) {
-      const event = events[index];
-      if (event.self) continue;
-      occurrences.push({
-        session: event.session,
-        clock: event.clock,
-        speaker: event.speaker,
-        text: event.text,
-        prev: contextLabel(events[index - 1]),
-        next: contextLabel(events[index + 1])
-      });
+    sessions.add(path.basename(file, '.log'));
+    for (const event of events) {
+      /**
+       * A line can be captured by two logs of the same session (e.g. a consolidated
+       * real-client log plus the per-session Forge log). Keep one row per actual line.
+       */
+      const key = `${sessionDay(event.session)}|${event.clock}|${event.speaker}|${event.text}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      rows.push(event);
     }
   }
 
-  const byKey = new Map();
-  for (const occurrence of occurrences) {
-    const key = `${occurrence.speaker}\u0000${occurrence.text}`;
-    let entry = byKey.get(key);
-    if (!entry) {
-      entry = {
-        speaker: occurrence.speaker,
-        text: occurrence.text,
-        kind: classify(occurrence.text),
-        count: 0,
-        first: { session: occurrence.session, clock: occurrence.clock },
-        last: { session: occurrence.session, clock: occurrence.clock },
-        sessions: [],
-        prev: occurrence.prev,
-        next: occurrence.next,
-        label: '',
-        note: ''
-      };
-      byKey.set(key, entry);
-    }
-    entry.count += 1;
-    entry.last = { session: occurrence.session, clock: occurrence.clock };
-    if (!entry.sessions.includes(occurrence.session)) entry.sessions.push(occurrence.session);
-  }
-
-  const entries = [...byKey.values()].sort((a, b) => {
-    const left = `${sessionDateKey(a.first.session)}T${a.first.clock}`;
-    const right = `${sessionDateKey(b.first.session)}T${b.first.clock}`;
-    return left.localeCompare(right);
-  });
-  entries.forEach((entry, index) => {
-    entry.id = `c${String(index + 1).padStart(3, '0')}`;
-    entry.addressed = entry.kind === 'addressed';
+  rows.forEach((event, index) => {
+    event.id = `c${String(index + 1).padStart(4, '0')}`;
+    event.role = event.self ? 'agent' : 'player';
+    event.kind = classify(event.text, event.self);
+    event.addressed = event.kind === 'addressed';
+    event.label = event.self ? 'exclude' : '';
+    event.note = '';
     const flags = [];
-    if (entry.kind === 'command') flags.push('command');
-    if (entry.kind === 'addressed') flags.push('addressed');
-    if (!/[\p{L}\p{N}]/u.test(entry.text)) flags.push('punctuation-only');
-    else if ([...entry.text].length <= 2) flags.push('very-short');
-    if (entry.count > 1) flags.push('repeated');
-    entry.flags = flags;
+    if (event.self) flags.push('agent');
+    if (event.kind === 'command') flags.push('command');
+    if (event.kind === 'addressed') flags.push('addressed');
+    if (!/[\p{L}\p{N}]/u.test(event.text)) flags.push('punctuation-only');
+    else if ([...event.text].length <= 2) flags.push('very-short');
+    event.flags = flags;
   });
 
   const bySpeaker = {};
-  for (const occurrence of occurrences) bySpeaker[occurrence.speaker] = (bySpeaker[occurrence.speaker] || 0) + 1;
-  const kinds = entries.reduce((acc, entry) => {
-    acc[entry.kind] = (acc[entry.kind] || 0) + 1;
-    return acc;
-  }, {});
+  for (const row of rows) bySpeaker[row.speaker] = (bySpeaker[row.speaker] || 0) + 1;
+  const byKind = {};
+  for (const row of rows) byKind[row.kind] = (byKind[row.kind] || 0) + 1;
+  const agentRows = rows.filter((row) => row.role === 'agent').length;
+  const playerRows = rows.length - agentRows;
 
   const payload = {
-    version: 1,
+    version: 2,
     generatedAt: new Date().toISOString(),
     source: 'runtime/logs/forge-client-*.log + runtime/logs/real-client.log',
     note:
-      'A23/A24 candidate chat lines from real sessions. Agent accounts are excluded as incoming ' +
-      'samples but kept in prev/next for context. Fill label with participate | silent | exclude. ' +
-      'A23 needs 20 participate + 20 silent unaddressed groups, each run 3 times; watch the 30s ' +
-      'incoming-dedupe and 1.5s reply-gap when scheduling repetitions.',
+      'A23/A24 transcript from real sessions: one row per chat line, in chronological order. ' +
+      'Agent rows are auto-labelled exclude; player rows keep label empty for manual labelling. ' +
+      'There are no prev/next columns - context is the preceding rows. A23 needs 20 participate + ' +
+      '20 silent unaddressed player groups, each run 3 times; watch the runtime context window ' +
+      '(15 prior lines, own replies included) and the 30s incoming-dedupe / 1.5s reply gap.',
     agentAccounts: [...AGENT_ACCOUNTS],
     labels: {
       participate: 'a natural line the agent should join',
       silent: 'a natural line the agent should stay quiet on',
-      exclude: 'command / addressed / too context-dependent / unusable as a sample'
+      exclude: 'agent line / command / addressed / too context-dependent / unusable as a sample'
     },
     stats: {
       logFilesScanned: files.length,
-      logFilesWithChat: sessions.length,
-      sessionsWithChat: sessions.length,
-      rawIncoming: occurrences.length,
-      unique: entries.length,
+      sessionsWithChat: sessions.size,
+      rows: rows.length,
+      playerRows,
+      agentRows,
       bySpeaker,
-      byKind: kinds
+      byKind
     },
-    entries
+    entries: rows
   };
 
   fs.mkdirSync(path.dirname(outBase), { recursive: true });
   fs.writeFileSync(`${outBase}.json`, `${JSON.stringify(payload, null, 2)}\n`, 'utf8');
 
-  const header = [
-    'id',
-    'label',
-    'note',
-    'speaker',
-    'text',
-    'kind',
-    'addressed',
-    'flags',
-    'count',
-    'first_session',
-    'first_time',
-    'prev',
-    'next'
-  ];
-  const rows = entries.map((entry) =>
+  const header = ['id', 'label', 'note', 'role', 'speaker', 'text', 'kind', 'addressed', 'flags', 'session', 'time'];
+  const lines = rows.map((row) =>
     [
-      entry.id,
-      entry.label,
-      entry.note,
-      entry.speaker,
-      entry.text,
-      entry.kind,
-      entry.addressed ? 'yes' : 'no',
-      entry.flags.join(';'),
-      entry.count,
-      entry.first.session,
-      entry.first.clock,
-      entry.prev,
-      entry.next
+      row.id,
+      row.label,
+      row.note,
+      row.role,
+      row.speaker,
+      row.text,
+      row.kind,
+      row.addressed ? 'yes' : 'no',
+      row.flags.join(';'),
+      row.session,
+      row.clock
     ].map(csvCell).join(',')
   );
-  fs.writeFileSync(`${outBase}.csv`, `\uFEFF${header.join(',')}\n${rows.join('\n')}\n`, 'utf8');
+  fs.writeFileSync(`${outBase}.csv`, `\uFEFF${header.join(',')}\n${lines.join('\n')}\n`, 'utf8');
 
-  fs.writeFileSync(
-    `${outBase}.raw.jsonl`,
-    `${occurrences.map((occurrence) => JSON.stringify(occurrence)).join('\n')}\n`,
-    'utf8'
-  );
+  /**
+   * Earlier versions wrote a `.raw.jsonl` with per-occurrence context. The transcript is
+   * already every occurrence, so remove the stale file instead of leaving two sources.
+   */
+  fs.rmSync(`${outBase}.raw.jsonl`, { force: true });
 
   process.stdout.write(
     [
-      `sessions with chat: ${sessions.length}`,
-      `incoming lines: ${occurrences.length}`,
-      `unique lines: ${entries.length}`,
+      `sessions with chat: ${sessions.size}`,
+      `rows: ${rows.length} (players ${playerRows}, agent ${agentRows})`,
       `by speaker: ${JSON.stringify(bySpeaker)}`,
-      `by kind: ${JSON.stringify(kinds)}`,
-      `wrote ${path.relative(ROOT, outBase)}.json / .csv / .raw.jsonl`
+      `by kind: ${JSON.stringify(byKind)}`,
+      `wrote ${path.relative(ROOT, outBase)}.json / .csv`
     ].join('\n') + '\n'
   );
 }

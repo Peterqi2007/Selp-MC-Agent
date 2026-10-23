@@ -125,7 +125,7 @@ function makeParticipation(options = {}) {
     complete,
     persona: 'Test persona',
     maxChars: 100,
-    historyLimit: 4,
+    historyLimit: options.historyLimit || 4,
     log: silent
   });
   return { participation, conversation, sent, calls };
@@ -175,6 +175,53 @@ function makeParticipation(options = {}) {
       assert(!/do_task|do_skill|go_to|"stop"/.test(prompt));
       assert(parseParticipation('{"respond":true,"text":"x"}').respond === true);
       assert(parseParticipation('```json\n{"respond":false}\n```').respond === false);
+    });
+  }
+
+  process.stdout.write('\n1b. own replies in the prompt context\n');
+  {
+    const fixture = makeParticipation({
+      complete: async (request, callNumber) =>
+        callNumber === 1 ? '{"respond":true,"text":"收到"}' : '{"respond":false}'
+    });
+    await check('a successful reply is stored as our own line for the next decision', async () => {
+      fixture.participation.handle({ from: 'Alice', text: '一起挖矿吗' });
+      await fixture.participation.queue;
+      fixture.participation.handle({ from: 'Bob', text: '好啊' });
+      await fixture.participation.queue;
+      const system = fixture.calls[1].system;
+      assert(system.includes('Recent chat:'));
+      assert(system.includes('Alice: 一起挖矿吗'));
+      assert(system.includes('\n我: 收到'));
+      assert(system.includes('"我:" are your own earlier replies'));
+      assert.strictEqual(fixture.participation.stats.self, 1);
+    });
+
+    const silentFixture = makeParticipation({ complete: async () => '{"respond":false}' });
+    await check('a silent decision is not stored as our own line', async () => {
+      silentFixture.participation.handle({ from: 'Alice', text: '一' });
+      await silentFixture.participation.queue;
+      silentFixture.participation.handle({ from: 'Bob', text: '二' });
+      await silentFixture.participation.queue;
+      assert(!silentFixture.calls[1].system.includes('\n我: '));
+      assert.strictEqual(silentFixture.participation.stats.self, 0);
+    });
+
+    const capFixture = makeParticipation({
+      historyLimit: 15,
+      complete: async () => '{"respond":false}'
+    });
+    await check('the prompt shows at most 15 prior lines', async () => {
+      for (let index = 1; index <= 20; index += 1) {
+        capFixture.participation.handle({ from: 'Alice', text: `t${index}` });
+        await capFixture.participation.queue;
+      }
+      const system = capFixture.calls.at(-1).system;
+      const section = system.split('Recent chat:\n')[1].split('\nLatest speaker:')[0].trim();
+      const lines = section.split('\n');
+      assert.strictEqual(lines.length, 15);
+      assert.strictEqual(lines[0], 'Alice: t5');
+      assert.strictEqual(lines.at(-1), 'Alice: t19');
     });
   }
 

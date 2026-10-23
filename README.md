@@ -191,7 +191,7 @@ LLM 层（`src/llm/`，生产配置已开启 `toolCalling`）：8 个工具 —�
   `mining:entry:test 25/25`、`mining:collection:test 24/24`、`mining:recovery:test 18/18`、`tasks:test 52/52`、
   `path:test 35/35`、`clientmod:test 11/11`、`verify:roleplay 34/34`、`llm:dry` 路由 67/67 + 工具 43/43（明细见 §8）。
 * P1 离线（2026-10-22 实跑）：`p1:verify`（P0 8/8 + `planner:test 35/35` + `p1:contract:test 206/206` +
-  `p1:m3:test 44/44` + `p1:m6:test 19/19` + `p1:m7:test 11/11` + `p1:m4:test 15/15` +
+  `p1:m3:test 44/44` + `p1:m6:test 22/22` + `p1:m7:test 11/11` + `p1:m4:test 15/15` +
   `p1:fault:test 9/9` + `plan:audit --stage p1 105/105`；`--fast` 为 8/8 套件）。
 * P1 客户端阶段（2026-10-20/21/22）：**M1 适用子集 PASS、M2 PASS、M3 PASS**（A13–A17、A27 只读/异步、
   A28–A30、F2；均在 `planner.mode=off` 下由 DSH 动作脑/真机注入完成）；M4 代码管线与

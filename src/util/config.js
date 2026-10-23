@@ -169,7 +169,7 @@ const DEFAULTS = {
       participate: false,
       participateMaxTokens: 120,
       participateTimeoutMs: 4000,
-      participateHistoryLimit: 8,
+      participateHistoryLimit: 15,
       /** M6: answer a pending proposal with a standalone yes/no in ordinary chat. */
       proposalChat: false
     },
