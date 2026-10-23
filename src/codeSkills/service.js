@@ -432,8 +432,23 @@ class CodeSkillService {
     if (!text) return { ok: false, reason: 'text-required' };
     if (text.length > 100) return { ok: false, reason: 'text-too-long' };
     if (this.now() - this._chatAt < 1200) return { ok: false, reason: 'rate-limited' };
-    if (typeof this.ctx.reply !== 'function') return { ok: false, reason: 'no-reply-path' };
+    if (typeof this.ctx.reply !== 'function' && !this.ctx.languageBrain) {
+      return { ok: false, reason: 'no-reply-path' };
+    }
     this._chatAt = this.now();
+    /**
+     * Unified language brain: even a code-skill report is player-facing speech, so it goes
+     * through roleplay first instead of calling reply() directly.
+     */
+    if (this.ctx.languageBrain) {
+      const result = await this.ctx.languageBrain.handle({
+        text,
+        source: 'code-skill',
+        kind: 'action-output',
+        profile: 'roleplay'
+      });
+      return { ok: result && result.spoke === true, spoke: result && result.spoke === true, via: 'language-brain' };
+    }
     const spoke = await this.ctx.reply(text, { conversation: true, why: 'code-skill' });
     return { ok: spoke === true, spoke: spoke === true };
   }

@@ -146,7 +146,31 @@ class Brain {
        */
       notify: (text) => {
         try {
-          if (this.ctx && typeof this.ctx.reply === 'function') {
+          if (!this.ctx) return;
+          /**
+           * Unified language brain: a plan question is a help/status output from the action
+           * side, so the player-facing wording comes from the language brain. If it cannot
+           * speak, fall back to the original question so a parked plan is not stranded.
+           */
+          if (this.ctx.languageBrain) {
+            Promise.resolve(
+              this.ctx.languageBrain.handle({
+                text: String(text),
+                source: 'plan-question',
+                kind: 'question',
+                profile: 'roleplay'
+              })
+            )
+              .then((result) => {
+                if ((!result || result.spoke !== true) && typeof this.ctx.reply === 'function') {
+                  return this.ctx.reply(text, { why: 'plan-question-fallback' });
+                }
+                return null;
+              })
+              .catch(() => {});
+            return;
+          }
+          if (typeof this.ctx.reply === 'function') {
             Promise.resolve(this.ctx.reply(text, { why: 'plan-question' })).catch(() => {});
           }
         } catch {

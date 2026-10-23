@@ -424,6 +424,9 @@ class LanguageBrain {
       kind === 'proactive'
         ? '- This is a proactive event, not a player request. React briefly or stay silent.'
         : null,
+      kind === 'question'
+        ? '- This is a question the action brain needs the player to answer. Ask it in one short line; do not answer it yourself.'
+        : null,
       source === 'dialogue' || source === 'addressed' || source === 'panel'
         ? '- This arrived through the addressed dialogue channel; the player expects an answer or a refusal.'
         : null,
@@ -437,6 +440,7 @@ class LanguageBrain {
   _userMessage({ text, speaker, source, kind }) {
     if (kind === 'action-output') return `[ACTION BRAIN REPORT]\n${text}`;
     if (kind === 'proactive') return `[PROACTIVE EVENT]\n${text}`;
+    if (kind === 'question') return `[PLAN QUESTION]\n${text}`;
     return `${speaker || '玩家'}: ${text}${source ? `\n(source: ${source})` : ''}`;
   }
 
@@ -447,7 +451,7 @@ class LanguageBrain {
       options.conversation = true;
       if (requestId) options.requestId = requestId;
     }
-    if (kind === 'action-output' || kind === 'proactive') options.force = true;
+    if (kind === 'action-output' || kind === 'proactive' || kind === 'question') options.force = true;
     let spoke = false;
     try {
       spoke = (await this.reply(text, options)) === true;
