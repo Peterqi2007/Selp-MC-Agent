@@ -932,6 +932,7 @@ function startStatusServer(ctx, options = {}) {
               text: record.text || null,
               forwarded: record.forwarded || null,
               reason: record.reason || null,
+              error: record.error || null,
               level: priority,
               ms: Date.now() - started
             });

@@ -931,6 +931,8 @@ class LlmCore {
    */
   async judgeInstruction(text) {
     const { InstructionJudge } = require('./judge');
+    /** DeepSeek thinking can exceed the old 2s on a red-line denial; fail closed after 5s. */
+    const timeoutMs = 5000;
     const persona = personaFor(this.ctx, this.cfg);
     const personaText = [persona.name, persona.body].filter(Boolean).join('\n').slice(0, 6000);
     const judge = new InstructionJudge({
@@ -940,14 +942,14 @@ class LlmCore {
         const result = await this.client.complete({
           system: prompt.system,
           messages: [{ role: 'user', content: prompt.user }],
-          timeoutMs: 2000,
+          timeoutMs,
           maxTokens: 200,
           usageContext: { requestId: `judge-${Date.now()}`, kind: 'judge' }
         });
         if (!result || !result.ok) throw new Error((result && result.reason) || 'model-failed');
         return result.text;
       },
-      timeoutMs: 2000
+      timeoutMs
     });
     return judge.judge(text);
   }

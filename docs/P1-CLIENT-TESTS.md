@@ -31,7 +31,7 @@
 | ID | 场景 | 需要 | 操作要点 | 通过标准 | 状态 |
 | --- | --- | --- | --- | --- | --- |
 | A01 | `!` 免语言审查（游戏内） | Forge 客户端 + mc.example.com | 游戏内发有效命令、非法参数、`!shoot player`；同时模型离线 | 准入模型调用 0；原文完整进解析；执行问题明确返回 | **PASS（unified，2026-10-23）**：游戏内 `!status` / 非法 `!mine` / `!shoot` / `!shoot player A01_NoSuchPlayer`（不存在玩家，安全替身）/ 未知命令全部直接进命令表；`tokens 0→0`、`llm-trace` 0 字节增量；回执含 usage/unknown/not visible，原文参数逐字回显。模型在线但 0 调用（未关闭模型）。证据 `.tmp/m1-a01-2026-10-23.md` |
-| A02 | 二值闸门与原文（游戏内） | 客户端 + 真实模型 | 游戏内发 ≥20 条 `@` 指令/回答，含改写字段/错误 Schema/超时注入 | 只放行/拒绝；放行原文一致；不生成替代任务 | **PASS（2026-10-17）**：`@gate` 20 条，6 allowed/14 denied；原文逐字一致；allowed 无任务/替代参数；timeout 未触发 |
+| A02 | 二值闸门与原文（游戏内） | 客户端 + 真实模型 | 游戏内发 ≥20 条 `@` 指令/回答，含改写字段/错误 Schema/超时注入 | 只放行/拒绝；放行原文一致；不生成替代任务 | **PASS（2026-10-17）**：`@gate` 20 条，6 allowed/14 denied；原文逐字一致；allowed 无任务/替代参数；timeout 未触发。**unified 重测 PASS（2026-10-23）**：20 条 approval（10 应拒/10 应放）；应拒 10/10 无转发（6 persona-denied、4 malformed fail-closed），应放 10/10 `forwarded.ok=true`，只读工具请求，无替代任务。发现 judge 2s 会 timeout；超时改为 5s 后复测无 timeout，200tok 截断造成的 malformed 仍 fail-closed（audit 要求 judge 预算 tiny，未提高）。证据 `.tmp/m2-a02-2026-10-23.md` |
 | A03 | 语言脑工具面与 persona（真机对话） | 客户端 + 真实模型 | 游戏内对话、插话、提案；核对工具清单 | 语言脑无 body 工具；插话/提案符合 A03 | **PASS（2026-10-17）**：语言面仅 observe/find_blocks/lookup_item/scan_around/say/silence；执行请求无 task/path；口头“我这就去”不构成动作 |
 | A08 | 停止与迟到输出（3 秒） | 客户端 + 真实动作 | 模型等待/搜索/技能动作/GUI 长按时分别急停、死亡、断线、人工接管 | 本地停止 ≤3 秒；按键释放；迟到输出不恢复动作 | **部分通过（2026-10-17）**：运行中 `mine dirt` stop 816ms；死亡/断线/接管/按键释放未测 |
 | A09 | 按需采集（空闲 10 分钟） | 客户端 | 空闲 10 分钟，再执行实体追踪、拾取、定向观察 | 空闲模型调用 0 且无新增订阅；快照刷新不计违规 | **PASS（2026-10-17）**：600021ms tokens 0→0、subscribers 1→1、seq 0→0；`/state` +2164 不计违规 |
@@ -124,6 +124,12 @@
   `!shoot`、`!shoot player A01_NoSuchPlayer`（不存在玩家，安全替身）、未知命令；全部由
   命令表直接处理，回执明确，原文完整；`tokens 0→0`、`llm-trace` 0 字节增量。
   未对真实玩家射击；模型在线但未产生调用。证据 `.tmp/m1-a01-2026-10-23.md`。
+- **已执行（2026-10-23，M2-A02 unified 重测）**：20 条 approval（10 条应拒，违反 persona 说谎红线；
+  10 条应放，只读工具）；应拒 10/10 无转发（5 persona-denied、5 judge 超时/异常 fail-closed），
+  应放 10/10 `forwarded.ok=true`；未生成替代任务。原文一致性由 `_approval(text)` +
+  `buildRequestEnvelope` 与 `p1:language:test` 断言覆盖。judge 2s 超时已改为 5s，复测
+  无 timeout；200tok 下仍有 4 条 malformed，按 fail-closed 拒绝。证据
+  `.tmp/m2-a02-2026-10-23.md`。
 - **未执行**：A18–A22、A23–A25、A31 双 emitter/planVersion、R1 完整回归、R2–R4、F3 真机端点、
   M0-C1 的移动/挖矿/反射/GUI 负载。未测的阈值不得回填。
 - **夜间安全**：后续所有客户端窗口执行前先确认时间；夜里先睡觉（`client-real` 自动，
