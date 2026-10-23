@@ -176,7 +176,7 @@ class LanguageBrain {
       requestId = `language-${Date.now()}-${++this.seq}`;
       if (typeof this.conversation.beginRequest === 'function') this.conversation.beginRequest(requestId);
     }
-    if (source === 'chat' || source === 'dialogue') {
+    if (source === 'chat' || source === 'dialogue' || source === 'panel') {
       this._rememberIncoming({ from: speaker, text });
     }
 
@@ -486,7 +486,7 @@ class LanguageBrain {
      */
     if (
       inputText &&
-      (source === 'chat' || source === 'dialogue') &&
+      (source === 'chat' || source === 'dialogue' || source === 'panel') &&
       this.chatMemory &&
       typeof this.chatMemory.attachReply === 'function'
     ) {

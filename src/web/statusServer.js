@@ -43,6 +43,7 @@ const { Logger } = require('../util/logger');
 const { resolveTrigger, personaForConfig } = require('../llm/persona');
 const { streamEvents } = require('./eventStream');
 const { HarnessInjector } = require('../harness/inject');
+const { recordPlayerMessage } = require('../chat/playerChatLog');
 
 function startStatusServer(ctx, options = {}) {
   const log = new Logger('http');
@@ -902,6 +903,12 @@ function startStatusServer(ctx, options = {}) {
            * chat/knowledge line is answered (or silenced) by the language brain itself.
            */
           if (ctx.languageBrain) {
+            recordPlayerMessage(ctx.chatMemory, {
+              from: 'panel',
+              text: utterance,
+              prefix: '!',
+              ownName: null
+            });
             const record = await ctx.languageBrain.handle({
               text: utterance,
               source: 'panel',

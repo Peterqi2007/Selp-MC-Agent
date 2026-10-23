@@ -362,6 +362,7 @@ function check(name, fn) {
     const rendered = [];
     const direct = [];
     const handled = [];
+    const memory = { saved: [], saveTurn(input) { this.saved.push(input); } };
     const ctx = {
       cfg: {
         root: process.cwd(),
@@ -369,6 +370,7 @@ function check(name, fn) {
       },
       body: { snapshot: () => ({ position: { x: 1, y: 64, z: 2 } }) },
       chat: { handle: async () => ({ ok: true }) },
+      chatMemory: memory,
       languageBrain: {
         renderActionOutput: async (text, meta) => {
           rendered.push({ text, meta });
@@ -422,6 +424,9 @@ function check(name, fn) {
       assert.strictEqual(handled[0].text, '去挖矿');
       assert.strictEqual(handled[0].source, 'panel');
       assert.strictEqual(handled[0].profile, 'auto');
+      assert.strictEqual(memory.saved.length, 1, 'panel dialogue is recorded in ChatMemory');
+      assert.strictEqual(memory.saved[0].text, '去挖矿');
+      assert.strictEqual(memory.saved[0].speaker, 'panel');
 
       const manual = await request(port, 'POST', '/say', { text: '手动播报' });
       assert.strictEqual(manual.body.sent, true);
