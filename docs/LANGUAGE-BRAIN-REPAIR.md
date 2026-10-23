@@ -63,5 +63,5 @@ LlmCore 不能直接删：任务播报、judge、mining recovery、P0 命令仍�
 1. `legacy` 仍是默认；需要一次客户端窗口验证 unified 的 `@` 经审批后到达 DSH、动作脑 `mc_say` 经语言脑修饰、A11 允许沉默、低血/饥饿直发。
 2. `ChatParticipation` / `LanguageAgent` / `LlmCore` 的旧代码尚未删除；它们保留为回退（阶段 4 才退役）。
 3. 插件 `mc_say` 已改为带 `source=action-brain`，但 desktop profile 需 `npm run dsh:install -- --apply` + 重启 DSH 才生效。
-4. 动作脑输出在语言脑失败时的兜底策略（静默 vs 原文直发）尚未最终决定；当前 `/say` 返回 `sent:false`，不二次直发。
+4. 动作脑输出在语言脑失败时回退原文直发（`via=fallback`）；语言脑主动选择 `silence` 时不发。两者都由 `/say` 记录。
 5. 真机 A03/A11/A14/A17/A25/A23–A24 需按新入口重测；离线契约不替代真机证据。

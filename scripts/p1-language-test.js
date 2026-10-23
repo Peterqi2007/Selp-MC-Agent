@@ -367,6 +367,7 @@ function check(name, fn) {
       languageBrain: {
         renderActionOutput: async (text, meta) => {
           rendered.push({ text, meta });
+          if (text.includes('FAIL')) return { ok: false, reason: 'model-error' };
           return { ok: true, spoke: true, text: '润色后的报告' };
         },
         handle: async (input) => {
@@ -399,6 +400,15 @@ function check(name, fn) {
       assert.strictEqual(rendered[0].text, 'task finished: 8 logs');
       assert.strictEqual(direct.length, 0, 'action-brain text must not bypass the language brain');
 
+      const failed = await request(port, 'POST', '/say', {
+        text: 'FAIL: task failed',
+        source: 'action-brain'
+      });
+      assert.strictEqual(failed.body.sent, true);
+      assert.strictEqual(failed.body.via, 'fallback');
+      assert.strictEqual(failed.body.fallback, true);
+      assert.deepStrictEqual(direct, ['FAIL: task failed'], 'a language-brain failure falls back to the original');
+
       const panel = await request(port, 'POST', '/command', { command: '@T 去挖矿' });
       assert.strictEqual(panel.status, 200);
       assert.strictEqual(panel.body.routed, 'dialogue');
@@ -410,7 +420,7 @@ function check(name, fn) {
 
       const manual = await request(port, 'POST', '/say', { text: '手动播报' });
       assert.strictEqual(manual.body.sent, true);
-      assert.deepStrictEqual(direct, ['手动播报'], 'a manual /say stays the direct path');
+      assert.deepStrictEqual(direct, ['FAIL: task failed', '手动播报'], 'a manual /say stays the direct path');
     } finally {
       await new Promise((resolve) => started.server.close(resolve));
     }
