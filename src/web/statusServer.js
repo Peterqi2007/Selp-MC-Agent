@@ -1104,6 +1104,10 @@ function uiState(ctx) {
      * failed or the local planner handed off.
      */
     dialogue: ctx.lastDialogueRoute || null,
+    /** Language-brain window/tool usage: proves which memory tool a turn actually used. */
+    language: ctx.languageBrain && typeof ctx.languageBrain.status === 'function'
+      ? ctx.languageBrain.status()
+      : null,
     /** Input -> routing, so the panel can show "did it understand me?" */
     recentInputs: [
       ...((ctx.llm && ctx.llm.turns) || []),

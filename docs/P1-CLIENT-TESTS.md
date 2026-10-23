@@ -141,6 +141,12 @@
   SHA-256 与 `forwarded.sha256` 一致，`forwarded.ok=true` 到绑定的动作脑会话；
   拒绝样本 `未转发`。代码依据 `_approval(text)` + `buildRequestEnvelope` +
   `p1:language:test` 原文断言。证据 `.tmp/m2-b01-2026-10-23.md`。
+- **已执行（2026-10-23，M2-C01 记忆隔离）**：`/ui/state.language` 显示
+  `window=15/historyLimit=15`；任务记忆 `mem98` 不注入 prompt，语言脑调用
+  `grep_task_memory` 后返回 `C01-TASK-20261023`；旧 ChatMemory 记录
+  「我的背包里有 64 个下界合金」在 15 行窗口外，语言脑调用 `grep_chat_memory`
+  后原话召回。离线断言 roleplay prompt 不含任务/长期聊天 token。证据
+  `.tmp/m2-c01-2026-10-23.md`。
 - **未执行**：A18–A22、A23–A25、A31 双 emitter/planVersion、R1 完整回归、R2–R4、F3 真机端点、
   M0-C1 的移动/挖矿/反射/GUI 负载。未测的阈值不得回填。
 - **夜间安全**：后续所有客户端窗口执行前先确认时间；夜里先睡觉（`client-real` 自动，

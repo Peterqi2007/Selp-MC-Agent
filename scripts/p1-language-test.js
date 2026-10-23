@@ -155,6 +155,8 @@ function check(name, fn) {
         `roleplay must not expose ${forbidden}`
       );
     }
+    assert(!calls[0].system.includes('挖过铁矿石'), 'task memory must not be auto-injected');
+    assert(!calls[0].system.includes('旧聊天'), 'long-term chat memory must not be auto-injected');
   });
 
   check('roleplay may choose silence', async () => {

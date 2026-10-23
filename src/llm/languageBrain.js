@@ -141,7 +141,15 @@ class LanguageBrain {
     this.history = [];
     this.queue = Promise.resolve();
     this._lastActionRequest = null;
-    this.stats = { handled: 0, profile: { roleplay: 0, expert: 0, approval: 0 }, said: 0, silent: 0, errors: 0 };
+    this.stats = {
+      handled: 0,
+      profile: { roleplay: 0, expert: 0, approval: 0 },
+      said: 0,
+      silent: 0,
+      errors: 0,
+      tools: {},
+      lastTool: null
+    };
     if (Array.isArray(deps.history)) this.restore({ history: deps.history });
   }
 
@@ -376,6 +384,8 @@ class LanguageBrain {
         ok: false,
         error: err.message
       }));
+      this.stats.tools[tool] = (this.stats.tools[tool] || 0) + 1;
+      this.stats.lastTool = tool;
       if (round === this.maxToolRounds) {
         this.stats.silent += 1;
         return { ok: true, profile, spoke: false, reason: 'tool-budget', tool };
@@ -625,6 +635,8 @@ class LanguageBrain {
       mode: this.mode,
       enabled: this.enabled,
       history: this.history.length,
+      window: Math.min(this.history.length, this.historyLimit),
+      historyLimit: this.historyLimit,
       maxChars: this.maxChars,
       profiles: Object.keys(PROFILE_TOOLS),
       ...this.stats
