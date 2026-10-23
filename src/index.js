@@ -701,6 +701,20 @@ async function main() {
   if (languageMode === 'unified') {
     const { LanguageBrain } = require('./llm/languageBrain');
     const { buildRequestEnvelope } = require('./chat/dialogueRouter');
+    const { loadChatSilenceProfile, formatSilencePolicy } = require('./llm/chatSilenceProfile');
+    const silenceProfileFile = languageCfg.silenceProfile
+      ? path.resolve(cfg.root || process.cwd(), languageCfg.silenceProfile)
+      : undefined;
+    const silenceProfile = loadChatSilenceProfile(silenceProfileFile);
+    const silencePolicy = formatSilencePolicy(silenceProfile);
+    if (silencePolicy) {
+      log.info(
+        `language silence corpus: ${silenceProfile.examples.length} labelled examples ` +
+          `(silent=${silenceProfile.counts.selected.silent}, participate=${silenceProfile.counts.selected.participate})`
+      );
+    } else {
+      log.warn('language silence corpus missing/invalid; ordinary chat runs without learned examples');
+    }
     languageBrain = new LanguageBrain({
       mode: 'unified',
       ctx,
@@ -740,6 +754,7 @@ async function main() {
           }
         : null,
       conversation: ctx.conversation,
+      silencePolicy,
       onChange: () => brain.scheduleStateSave(),
       maxChars: chatCfg.maxChars || 100,
       maxTokens: languageCfg.maxTokens || 800,

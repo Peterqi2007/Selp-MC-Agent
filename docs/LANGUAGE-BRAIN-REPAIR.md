@@ -53,12 +53,13 @@ LlmCore 不能直接删：任务播报、judge、mining recovery、P0 命令仍�
 | 入口 | `unified` 下 `@`、addressed、面板对话、普通聊天、A11 感知、respawn、taskDone、计划提问、code-skill 发言、`mc_say` 动作脑输出全部进 `ctx.languageBrain`；`!` 仍直接进命令表 |
 | 审批 | `approval` 用同一 `approvalGate`，放行时把**原文**放进 `[MINECRAFT PLAYER REQUEST]` 信封（source/speaker/位置）交给动作脑，不改写 |
 | 记忆 | 短期窗口 15 行随 `p1-state.json` 的 `languageBrain` 字段保存/恢复；长期 ChatMemory 由既有全局记录器写入，语言脑只用 `grep_chat_memory` 召回；任务记忆只在 `grep_task_memory` 时读取，不注入上下文 |
+| 沉默学习 | `fixtures/p1/chat-corpus.csv` 标注 participate 72 / silent 225；`npm run corpus:learn` 选 20+20 注入 `config/chat-silence-profile.json`，只在 `source=chat` 未点名聊天使用；`silence` 关闭 `ConversationState` 请求、不发送、不写 assistant ChatMemory，`/ui/state.language.lastSilence` 可见 |
 | 主动发言 | hungry / lowHealth 仍由 `SpeechScheduler` 直接 `speakUp`；A11、respawn、taskDone 进语言脑 roleplay，允许 `silence`。A11（M2-D01）与 hungry/lowHealth（M2-D02）均已由操作员手工验证通过（2026-10-23）。 |
 | 动作脑输出 | unified 下 Node `/say` 默认全部进语言脑（兼容未带 `source` 的旧 DSH 插件），`raw:true` 才是显式直发；语言脑失败才原文 fallback；计划提问与 code-skill 同样先经 roleplay（提问失败才原文兜底） |
 | 开关 | 默认 `config/agent.json` → `agent.language.brain=unified`；`legacy` 可回退，或 `MC_LANGUAGE_BRAIN=legacy` 覆盖；`maxTokens/historyLimit/maxToolRounds/timeoutMs` 同段 |
 | 动作脑绑定 | unified 启动时若未配置 `chat.harnessAgentId`，按 `/agents` + `/goal` 自动绑定带 "action-brain" 目标的 DSH 会话；DSH 重启后无需手工 `/bind` |
 | 测试 | `npm run p1:language:test` **20/20**；`npm run p1:verify -- --fast` **9/9** 套件 |
-| 真机（2026-10-23） | `client:verify 23/23`；unified agent 在 `mc.example.com` 实跑：panel roleplay/expert 回复、approval 拒绝、approval 原文转发、动作脑 `mc_say` 输出经 roleplay 改写、重启恢复 `languageBrain` 13 行窗口；默认 unified 启动自动绑定动作脑。证据 `.tmp/language-brain-live-2026-10-23.md` |
+| 真机（2026-10-23） | `client:verify 23/23`；unified agent 在 `mc.example.com` 实跑：panel roleplay/expert 回复、approval 拒绝、approval 原文转发、动作脑 `mc_say` 输出经 roleplay 改写、重启恢复 `languageBrain` 13 行窗口；默认 unified 启动自动绑定动作脑。另：40 条标注样本注入，抽样 2/2、held-out 4/4，silence 全链路通过；证据 `.tmp/silence-corpus-live-2026-10-23.md` |
 
 仍待完成（下一阶段）：
 

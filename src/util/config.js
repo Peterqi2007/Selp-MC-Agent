@@ -184,7 +184,8 @@ const DEFAULTS = {
       maxTokens: 800,
       historyLimit: 15,
       maxToolRounds: 2,
-      timeoutMs: 8000
+      timeoutMs: 8000,
+      silenceProfile: 'config/chat-silence-profile.json'
     },
     /**
      * Proactive speech - the bot speaking when NOT spoken to (role-play requirement).

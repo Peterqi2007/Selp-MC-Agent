@@ -130,6 +130,7 @@ class LanguageBrain {
     this.forwardToActionBrain = deps.forwardToActionBrain || this.ctx.forwardToActionBrain || null;
     this.statusSummary = deps.statusSummary || statusSummary;
     this.conversation = deps.conversation || this.ctx.conversation || null;
+    this.silencePolicy = typeof deps.silencePolicy === 'string' ? deps.silencePolicy : null;
     this.onChange = typeof deps.onChange === 'function' ? deps.onChange : null;
     this.historyLimit = deps.historyLimit || 15;
     this.maxTokens = deps.maxTokens || 800;
@@ -148,7 +149,10 @@ class LanguageBrain {
       silent: 0,
       errors: 0,
       tools: {},
-      lastTool: null
+      lastTool: null,
+      lastDecision: null,
+      lastText: null,
+      lastSilence: null
     };
     if (Array.isArray(deps.history)) this.restore({ history: deps.history });
   }
@@ -314,6 +318,36 @@ class LanguageBrain {
     };
   }
 
+  /**
+   * The silence decision is a real terminal state, not just "no reply": record it, close the
+   * conversation request so a stale answer cannot speak later, and expose it for the panel.
+   */
+  _silence({ profile, source, kind, requestId, reason = null, tool = 'silence' }) {
+    this.stats.silent += 1;
+    this.stats.lastDecision = 'silence';
+    this.stats.lastSilence = {
+      at: new Date().toISOString(),
+      profile,
+      source,
+      kind,
+      tool,
+      reason
+    };
+    if (this.conversation && requestId && typeof this.conversation.clearRequest === 'function') {
+      this.conversation.clearRequest(requestId);
+    }
+    const record = {
+      ok: true,
+      profile,
+      spoke: false,
+      silent: true,
+      tool,
+      reason
+    };
+    if (this.ctx) this.ctx.lastLanguageDecision = { ...record, at: new Date().toISOString(), source, kind };
+    return record;
+  }
+
   async _converse({ profile, text, speaker, source, kind, requestId, meta }) {
     const allowed = PROFILE_TOOLS[profile];
     if (!allowed) return { ok: false, profile, reason: 'unknown-profile' };
@@ -348,21 +382,18 @@ class LanguageBrain {
 
       const call = parseToolCall(raw);
       if (!call) {
-        this.stats.silent += 1;
-        return { ok: true, profile, spoke: false, reason: 'malformed' };
+        return this._silence({ profile, source, kind, requestId, reason: 'malformed', tool: null });
       }
       const tool = call.tool || call.name || (call.say ? 'say' : null) || (call.silence ? 'silence' : null);
       const args = call.args || call.arguments || {};
 
       if (tool === 'silence' || call.silence === true) {
-        this.stats.silent += 1;
-        return { ok: true, profile, spoke: false, tool: 'silence' };
+        return this._silence({ profile, source, kind, requestId, reason: null });
       }
       if (tool === 'say') {
         const said = stripSpokenSources(call.say || args.text || args.say || '');
         if (!said) {
-          this.stats.silent += 1;
-          return { ok: true, profile, spoke: false, tool: 'say', reason: 'empty-text' };
+          return this._silence({ profile, source, kind, requestId, reason: 'empty-text', tool: 'say' });
         }
         const line = said.length > this.maxChars ? said.slice(0, this.maxChars) : said;
         const spoke = await this._say(line, { source, profile, kind, requestId, inputText: text });
@@ -376,8 +407,14 @@ class LanguageBrain {
         };
       }
       if (!allowed.includes(tool)) {
-        this.stats.silent += 1;
-        return { ok: true, profile, spoke: false, reason: 'not-language-tool', tool: tool || null };
+        return this._silence({
+          profile,
+          source,
+          kind,
+          requestId,
+          reason: 'not-language-tool',
+          tool: tool || null
+        });
       }
 
       const result = await this._toolResult(tool, args).catch((err) => ({
@@ -387,8 +424,7 @@ class LanguageBrain {
       this.stats.tools[tool] = (this.stats.tools[tool] || 0) + 1;
       this.stats.lastTool = tool;
       if (round === this.maxToolRounds) {
-        this.stats.silent += 1;
-        return { ok: true, profile, spoke: false, reason: 'tool-budget', tool };
+        return this._silence({ profile, source, kind, requestId, reason: 'tool-budget', tool });
       }
       messages = [
         ...messages,
@@ -402,8 +438,7 @@ class LanguageBrain {
         }
       ];
     }
-    this.stats.silent += 1;
-    return { ok: true, profile, spoke: false, reason: 'tool-budget' };
+    return this._silence({ profile, source, kind, requestId, reason: 'tool-budget' });
   }
 
   _systemPrompt(profile, { source, kind, currentText }) {
@@ -455,6 +490,10 @@ class LanguageBrain {
       source === 'dialogue' || source === 'addressed' || source === 'panel'
         ? '- This arrived through the addressed dialogue channel; the player expects an answer or a refusal.'
         : null,
+      source === 'chat'
+        ? '- SOURCE=CHAT is UNADDRESSED background chat. The speaker is not talking to you. Do not answer statements, reactions, or two other players talking to each other; only speak if they explicitly mention you, ask you/your group a direct question, talk about you (agent/bot/是不是人/机), make a direct group suggestion/plan (可以/要不要/一起/搞/造/建), or directly ask for help. Default: silence.'
+        : null,
+      source === 'chat' && this.silencePolicy ? this.silencePolicy : null,
       this.persona ? `Persona:\n${this.persona}` : null,
       state ? `CURRENT STATE\n${state}` : null,
       recent
@@ -487,6 +526,20 @@ class LanguageBrain {
     if (!spoke) return false;
 
     this.stats.said += 1;
+    this.stats.lastDecision = 'say';
+    this.stats.lastText = text;
+    this.stats.lastSilence = null;
+    if (this.ctx) {
+      this.ctx.lastLanguageDecision = {
+        ok: true,
+        profile,
+        spoke: true,
+        text,
+        source,
+        kind,
+        at: new Date().toISOString()
+      };
+    }
     this.history.push({ from: null, text, self: true, at: new Date().toISOString() });
     this._trimHistory();
     this._changed();

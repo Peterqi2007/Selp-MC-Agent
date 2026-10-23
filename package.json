@@ -60,6 +60,7 @@
     "p1:verify": "node scripts/p1-verify.js",
     "p1:language:test": "node scripts/p1-language-test.js",
     "corpus:chat": "node scripts/extract-chat-corpus.js",
+    "corpus:learn": "node scripts/learn-chat-corpus.js",
     "personal:test": "node scripts/personal-test.js",
     "plan:audit": "node scripts/plan-audit.js",
     "doctor": "node scripts/agent-doctor.js",

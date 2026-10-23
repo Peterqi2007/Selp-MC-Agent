@@ -39,6 +39,18 @@ class ConversationState {
     return this.activeRequest;
   }
 
+  /**
+   * A terminal silence closes the request: no later answer should be able to speak for it.
+   * Only the matching request may be cleared; a newer request is left untouched.
+   */
+  clearRequest(requestId) {
+    if (!requestId || this.activeRequest === requestId) {
+      this.activeRequest = null;
+      return true;
+    }
+    return false;
+  }
+
   isCurrent(requestId) {
     if (!requestId) return true;
     return this.activeRequest === requestId;

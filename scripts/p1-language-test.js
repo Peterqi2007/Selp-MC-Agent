@@ -14,6 +14,7 @@ const http = require('node:http');
 const { LanguageBrain } = require('../src/llm/languageBrain');
 const { ConversationState } = require('../src/chat/conversation');
 const { buildRequestEnvelope } = require('../src/chat/dialogueRouter');
+const { loadChatSilenceProfile, formatSilencePolicy } = require('../src/llm/chatSilenceProfile');
 const { startStatusServer } = require('../src/web/statusServer');
 
 function request(port, method, requestPath, body) {
@@ -138,8 +139,17 @@ function check(name, fn) {
   });
 
   check('roleplay says through the single reply path', async () => {
+    const silenceProfile = loadChatSilenceProfile();
+    assert(silenceProfile, 'learned silence profile must exist');
+    assert.strictEqual(silenceProfile.counts.selected.silent, 20);
+    assert.strictEqual(silenceProfile.counts.selected.participate, 20);
+    const silencePolicy = formatSilencePolicy(silenceProfile);
+    assert(silencePolicy.includes('ORDINARY CHAT POLICY'));
+    assert(silencePolicy.includes('-> SILENT'));
+    assert(silencePolicy.includes('-> PARTICIPATE'));
     const { brain, replies, calls } = makeBrain({
-      responses: ['{"tool":"say","args":{"text":"你好呀"}}']
+      responses: ['{"tool":"say","args":{"text":"你好呀"}}'],
+      deps: { silencePolicy }
     });
     const result = await brain.handle({ text: '在吗', speaker: 'Alice', source: 'chat', profile: 'roleplay' });
     assert.strictEqual(result.ok, true);
@@ -157,15 +167,23 @@ function check(name, fn) {
     }
     assert(!calls[0].system.includes('挖过铁矿石'), 'task memory must not be auto-injected');
     assert(!calls[0].system.includes('旧聊天'), 'long-term chat memory must not be auto-injected');
+    assert(calls[0].system.includes('ORDINARY CHAT POLICY'), 'ordinary chat must receive the learned silence policy');
   });
 
   check('roleplay may choose silence', async () => {
-    const { brain, replies } = makeBrain({ responses: ['{"tool":"silence"}'] });
+    const { brain, replies } = makeBrain({
+      responses: ['{"tool":"silence"}'],
+      deps: { conversation: new ConversationState({ minGapMs: 0, dedupeMs: 30000 }) }
+    });
     const result = await brain.handle({ text: '随便聊聊', source: 'chat', profile: 'roleplay' });
     assert.strictEqual(result.ok, true);
     assert.strictEqual(result.spoke, false);
+    assert.strictEqual(result.silent, true);
     assert.strictEqual(replies.length, 0);
     assert.strictEqual(brain.stats.silent, 1);
+    assert.strictEqual(brain.conversation.activeRequest, null, 'silence must close the request');
+    assert.strictEqual(brain.status().lastDecision, 'silence');
+    assert.strictEqual(brain.status().lastSilence.tool, 'silence');
   });
 
   check('malformed output is silence, never a guessed action', async () => {

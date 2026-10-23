@@ -2,7 +2,10 @@
 
 > 来源：`runtime/logs/` 下 110 个 `forge-client-*.log` + `real-client.log`（真实服务器 mc.example.com 的客户端聊天行）。
 > 生成：`node scripts/extract-chat-corpus.js`（或 `npm run corpus:chat`，可重复执行、只读日志）。
-> 状态：**未标注**。玩家行的 `label` 留空，由操作员手工填写；Agent 行已自动标 `exclude`。
+> 状态：**已标注（2026-10-23）**：participate **72**、silent **225**、exclude **1104**。
+> 语言脑从其中 `role=player, kind=other` 的 295 条可用标注中选 **20+20=40 条**注入
+> `source=chat` 上下文；生成文件 `config/chat-silence-profile.json`（`npm run corpus:learn`）。
+> 完整 A23/A24（40 组 ×3 轮、真实第二名玩家）仍未执行。
 
 ## 1. 规模与口径
 
@@ -46,8 +49,9 @@
 
 | 文件 | 用途 |
 | --- | --- |
-| `chat-corpus.csv` | **手工标注主文件**（UTF-8 BOM，Excel 直接打开）；玩家行 `label`、`note` 留空 |
+| `chat-corpus.csv` | **手工标注主文件**（GB18030，Excel 直接打开）；participate 72 / silent 225 / exclude 1104 |
 | `chat-corpus.json` | 同一批行的结构化版本（含统计、`role`、`flags`），后续 runner 读取 |
+| `config/chat-silence-profile.json` | 学习产物：20 participate + 20 silent 示例、来源 hash、策略、counts |
 
 CSV 列：`id,label,note,role,speaker,text,kind,addressed,flags,session,time`
 
@@ -111,3 +115,19 @@ node scripts/extract-chat-corpus.js --out=fixtures/p1/chat-corpus-2026-10-22
 ```
 
 脚本只改 `.csv` / `.json` 两份输出，不碰日志、不联网、不调模型；旧的 `.raw.jsonl` 会被删除。
+
+## 7. 语言脑沉默学习
+
+```bash
+npm run corpus:learn
+# 等价：node scripts/learn-chat-corpus.js [--per-label=20]
+```
+
+- 从 `label=silent/participate` 的 295 条 `role=player, kind=other` 中按发言人轮询选 20+20；
+- 写 `config/chat-silence-profile.json`（含 source sha256、counts、policy、40 examples）；
+- 运行时只在 `source=chat`（未点名普通聊天）把该 profile 注入 LanguageBrain prompt；
+- `@`/面板对话不注入；任务记忆仍只经 `grep_task_memory`。
+
+真机验证（2026-10-23）：注入样本抽样 2/2、held-out 4/4；silence 不发送、关闭
+`ConversationState` 请求、无 assistant ChatMemory 行、`/ui/state.language.lastSilence` 可见。
+证据 `.tmp/silence-corpus-live-2026-10-23.md`。

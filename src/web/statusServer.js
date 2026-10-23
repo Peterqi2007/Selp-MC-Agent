@@ -763,6 +763,62 @@ function startStatusServer(ctx, options = {}) {
       }
 
       /**
+       * Test-only ordinary-chat injection (A23/silence evaluation). It runs the real live
+       * LanguageBrain and the real model, but the sender is synthetic; it does not send
+       * anything to the Minecraft server. Gated by P1_TEST_HOOKS exactly like /harness/inject.
+       */
+      if (req.method === 'POST' && url.pathname === '/chat/inject') {
+        if (!testHooks) return json(res, 404, { ok: false, error: 'not found' });
+        if (!ctx.languageBrain || typeof ctx.languageBrain.handle !== 'function') {
+          return json(res, 503, { ok: false, error: 'language brain unavailable' });
+        }
+        let body = {};
+        try {
+          body = JSON.parse((await readRaw(req)) || '{}');
+        } catch {
+          return json(res, 400, { ok: false, error: 'invalid JSON' });
+        }
+        const from = String(body.from || 'A23Tester').trim().slice(0, 32) || 'A23Tester';
+        const text = String(body.text || '').trim();
+        if (!text) return json(res, 400, { ok: false, error: 'text required' });
+        recordPlayerMessage(ctx.chatMemory, { from, text, prefix: '!', ownName: null });
+        const currentDecision = () => ctx.lastLanguageDecision || null;
+        const before = currentDecision();
+        /**
+         * Exercise the real ordinary-chat intake (own-name filter, proposal chat, A11
+         * guard, fire-and-forget LanguageBrain), not just LanguageBrain.handle directly.
+         */
+        if (ctx.chatListener && typeof ctx.chatListener.onOther === 'function') {
+          await ctx.chatListener.onOther(`<${from}> ${text}`);
+          const deadline = Date.now() + 15000;
+          while (Date.now() < deadline && currentDecision() === before) {
+            await new Promise((resolve) => setTimeout(resolve, 200));
+          }
+          const latest = currentDecision();
+          const changed = latest !== before;
+          const status =
+            ctx.languageBrain && typeof ctx.languageBrain.status === 'function'
+              ? ctx.languageBrain.status()
+              : null;
+          const record = latest
+            ? latest
+            : status && status.lastDecision === 'silence' && status.lastSilence
+              ? { ok: true, ...status.lastSilence, spoke: false, silent: true }
+              : status && status.lastDecision === 'say' && status.lastText
+                ? { ok: true, profile: 'roleplay', spoke: true, text: status.lastText }
+                : null;
+          return json(res, 200, { ok: true, queued: !changed, record });
+        }
+        const record = await ctx.languageBrain.handle({
+          text,
+          source: 'chat',
+          speaker: from,
+          profile: 'roleplay'
+        });
+        return json(res, 200, { ok: record.ok !== false, record });
+      }
+
+      /**
        * Action-brain speech (A16/M3 live entry): the DSH `mc_say` tool posts one short line
        * here. This is deliberately not a command channel: reply() sanitizes it (no leading
        * `!`/`/`), applies maxChars and registers the echo before sending.
@@ -1108,6 +1164,7 @@ function uiState(ctx) {
     language: ctx.languageBrain && typeof ctx.languageBrain.status === 'function'
       ? ctx.languageBrain.status()
       : null,
+    languageDecision: ctx.lastLanguageDecision || null,
     /** Input -> routing, so the panel can show "did it understand me?" */
     recentInputs: [
       ...((ctx.llm && ctx.llm.turns) || []),

@@ -147,6 +147,14 @@
   「我的背包里有 64 个下界合金」在 15 行窗口外，语言脑调用 `grep_chat_memory`
   后原话召回。离线断言 roleplay prompt 不含任务/长期聊天 token。证据
   `.tmp/m2-c01-2026-10-23.md`。
+- **已执行（2026-10-23，语料沉默学习 + silence 全链路）**：标注 participate 72 /
+  silent 225；`corpus:learn` 选 20+20=40 注入 `config/chat-silence-profile.json`，
+  仅 `source=chat`。真实模型：注入样本抽样 2/2、held-out 4/4 与标注一致；silence 不发送、
+  关闭 activeRequest、ChatMemory 只留 user、`language.lastSilence` 可见。
+  真实客户端 `client:verify 23/23`；游戏内 `@` roleplay 无 action。
+  证据 `.tmp/silence-corpus-live-2026-10-23.md`。
+  **完整 A23/A24（40 组 ×3、真实第二名玩家）仍未执行**；受控普通聊天由
+  `POST /chat/inject`（仅 `P1_TEST_HOOKS=on`）注入，发送者合成。
 - **操作员手工 PASS（2026-10-23，M2-D01/M2-D02）**：A11 unified 主动感知
   （天气/阶段边沿、重复不重复、允许 silence、无“注意到”模板）手工通过；
   hungry / lowHealth 直发（不经语言脑）手工通过。按操作员口径记录，未补造自动证据。
