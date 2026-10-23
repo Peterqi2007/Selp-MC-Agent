@@ -784,14 +784,15 @@ function startStatusServer(ctx, options = {}) {
         const line = text.slice(0, Math.max(Number(max) || 100, 1));
         /**
          * Unified language brain (docs/LANGUAGE-BRAIN-REPAIR.md): the action brain does not
-         * message the player directly. `mc_say` posts source=action-brain, the language brain
-         * rewords it (or chooses silence), and only then does it reach reply().
+         * message the player directly. In unified mode every `/say` goes through the language
+         * brain, so even an older DSH plugin that does not send `source=action-brain` cannot
+         * bypass it. `raw:true` is the explicit operator/test escape hatch.
          *
          * Silence is honored. If the language brain itself fails (model/no channel), the
          * original line falls back to reply() rather than dropping a failure/status report;
          * this is the only direct action-brain path and is marked as fallback.
          */
-        if (ctx.languageBrain && body.source === 'action-brain') {
+        if (ctx.languageBrain && body.raw !== true) {
           let rendered;
           try {
             rendered = await ctx.languageBrain.renderActionOutput(text, {
@@ -927,6 +928,8 @@ function startStatusServer(ctx, options = {}) {
               mode: 'language-brain',
               profile: record.profile || null,
               decision: record.decision || null,
+              spoke: record.spoke === true,
+              text: record.text || null,
               forwarded: record.forwarded || null,
               reason: record.reason || null,
               level: priority,

@@ -358,7 +358,7 @@ function check(name, fn) {
     assert.strictEqual(calls.length, 1);
   });
 
-  check('POST /say with source=action-brain goes through the language brain', async () => {
+  check('POST /say goes through the language brain even without a source tag', async () => {
     const rendered = [];
     const direct = [];
     const handled = [];
@@ -396,8 +396,7 @@ function check(name, fn) {
     try {
       const port = started.server.address().port;
       const throughBrain = await request(port, 'POST', '/say', {
-        text: 'task finished: 8 logs',
-        source: 'action-brain'
+        text: 'task finished: 8 logs'
       });
       assert.strictEqual(throughBrain.status, 200);
       assert.strictEqual(throughBrain.body.sent, true);
@@ -428,9 +427,9 @@ function check(name, fn) {
       assert.strictEqual(memory.saved[0].text, '去挖矿');
       assert.strictEqual(memory.saved[0].speaker, 'panel');
 
-      const manual = await request(port, 'POST', '/say', { text: '手动播报' });
+      const manual = await request(port, 'POST', '/say', { text: '手动播报', raw: true });
       assert.strictEqual(manual.body.sent, true);
-      assert.deepStrictEqual(direct, ['FAIL: task failed', '手动播报'], 'a manual /say stays the direct path');
+      assert.deepStrictEqual(direct, ['FAIL: task failed', '手动播报'], 'raw:true stays the direct path');
     } finally {
       await new Promise((resolve) => started.server.close(resolve));
     }
