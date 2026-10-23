@@ -195,8 +195,8 @@ function check(name, fn) {
   });
 
   check('approval forwards the original text and never rewrites it', async () => {
-    const { brain, forwarded, replies, calls } = makeBrain({
-      responses: [],
+    const { brain, forwarded, replies, calls, attached } = makeBrain({
+      responses: ['{"tool":"say","args":{"text":"好的"}}'],
       approvalGate: async () => ({ verdict: 'allow' })
     });
     const original = '挖 8 个木头， 然后回来';
@@ -211,6 +211,10 @@ function check(name, fn) {
     assert(envelope.includes(`text: ${JSON.stringify(original)}`));
     assert(envelope.includes('source: dialogue'));
     assert(envelope.includes('speaker: Alice'));
+    const rendered = await brain.renderActionOutput('task finished: 8 logs');
+    assert.strictEqual(rendered.spoke, true);
+    assert.strictEqual(attached[0].text, original);
+    assert.strictEqual(attached[0].reply, '好的');
   });
 
   check('approval rejection sends nothing to the action brain', async () => {

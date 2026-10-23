@@ -125,6 +125,7 @@ class LanguageBrain {
     this.seq = 0;
     this.history = [];
     this.queue = Promise.resolve();
+    this._lastActionRequest = null;
     this.stats = { handled: 0, profile: { roleplay: 0, expert: 0, approval: 0 }, said: 0, silent: 0, errors: 0 };
     if (Array.isArray(deps.history)) this.restore({ history: deps.history });
   }
@@ -275,6 +276,10 @@ class LanguageBrain {
       speaker: speaker || null,
       originalSource: source
     });
+    if (forwarded && forwarded.ok === true) {
+      /** Remember the request so a later mc_say can attach the assistant half in ChatMemory. */
+      this._lastActionRequest = { text, at: Date.now() };
+    }
     return {
       ok: forwarded && forwarded.ok === true,
       profile: 'approval',
@@ -469,6 +474,14 @@ class LanguageBrain {
         this.chatMemory.attachReply({ text: inputText, reply: text });
       } catch (err) {
         this.log.debug(`chat memory attach failed: ${err.message}`);
+      }
+    }
+    if (kind === 'action-output' && this._lastActionRequest && this.chatMemory && typeof this.chatMemory.attachReply === 'function') {
+      try {
+        this.chatMemory.attachReply({ text: this._lastActionRequest.text, reply: text });
+        this._lastActionRequest = null;
+      } catch (err) {
+        this.log.debug(`action reply attach failed: ${err.message}`);
       }
     }
     return true;
