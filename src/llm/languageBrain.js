@@ -496,7 +496,13 @@ class LanguageBrain {
         this.log.debug(`chat memory attach failed: ${err.message}`);
       }
     }
-    if (kind === 'action-output' && this._lastActionRequest && this.chatMemory && typeof this.chatMemory.attachReply === 'function') {
+    if (
+      kind === 'action-output' &&
+      source === 'action-brain' &&
+      this._lastActionRequest &&
+      this.chatMemory &&
+      typeof this.chatMemory.attachReply === 'function'
+    ) {
       try {
         this.chatMemory.attachReply({ text: this._lastActionRequest.text, reply: text });
         this._lastActionRequest = null;
