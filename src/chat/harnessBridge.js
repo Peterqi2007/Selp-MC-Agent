@@ -1,5 +1,7 @@
 'use strict';
 
+const crypto = require('node:crypto');
+
 /**
  * HarnessBridge - delivery of an approved player text to the behavior brain.
  *
@@ -49,7 +51,18 @@ class HarnessBridge {
           status: res.status
         };
       }
-      return { ok: true, forwarded: true, agentId: payload.agentId || null };
+      return {
+        ok: true,
+        forwarded: true,
+        agentId: payload.agentId || null,
+        chars: original.length,
+        sha256: crypto.createHash('sha256').update(original).digest('hex'),
+        /**
+         * The exact envelope handed to the action brain. Exposed on the local panel response
+         * for B01 evidence: source/speaker/position metadata plus the original text field.
+         */
+        sentText: original
+      };
     } catch (err) {
       const aborted = err && (err.name === 'AbortError' || /abort/i.test(err.message || ''));
       return { ok: false, reason: aborted ? 'timeout' : err.message };
