@@ -7,6 +7,7 @@
  * Usage:
  *   node scripts/extract-chat-corpus.js
  *   node scripts/extract-chat-corpus.js --out=fixtures/p1/chat-corpus
+ *   node scripts/extract-chat-corpus.js --since=2026-10-23 --out=fixtures/p1/chat-corpus-2026-10-23
  *
  * Sources: runtime/logs/forge-client-*.log and runtime/logs/real-client.log (if present).
  *
@@ -86,11 +87,14 @@ function csvCell(value) {
 function main() {
   const outArg = process.argv.find((arg) => arg.startsWith('--out='));
   const outBase = outArg ? path.resolve(ROOT, outArg.slice('--out='.length)) : DEFAULT_OUT;
+  const sinceArg = process.argv.find((arg) => arg.startsWith('--since='));
+  const since = sinceArg ? sinceArg.slice('--since='.length) : null;
 
   const files = fs
     .readdirSync(LOG_DIR)
     .filter((name) => /^forge-client-.*\.log$/.test(name) || name === 'real-client.log')
     .map((name) => path.join(LOG_DIR, name))
+    .filter((file) => !since || sessionDay(path.basename(file, '.log')) >= since)
     .sort((a, b) => sessionDateKey(path.basename(a, '.log')).localeCompare(sessionDateKey(path.basename(b, '.log'))));
 
   const seen = new Set();

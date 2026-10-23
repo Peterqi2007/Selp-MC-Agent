@@ -1,0 +1,208 @@
+﻿id,label,note,role,speaker,text,kind,addressed,flags,session,time
+c0001,exclude,,agent,AgentDeepSeek,agent-client live verification,agent,no,agent,forge-client-2026-10-23_12-31-38,20:33:24
+c0002,exclude,,agent,AgentDeepSeek,主人好呀，大肥鱼在这儿呢~,agent,no,agent,forge-client-2026-10-23_12-31-38,20:33:47
+c0003,exclude,,agent,AgentDeepSeek,钻石在Y -64到16层，最深-58附近最多哟,agent,no,agent,forge-client-2026-10-23_12-31-38,20:33:59
+c0004,exclude,,agent,AgentDeepSeek,"我在 x=6.8, y=66, z=123.3（主世界）",agent,no,agent,forge-client-2026-10-23_12-31-38,20:35:09
+c0005,exclude,,agent,AgentDeepSeek,天黑了呢，主人别乱跑，我有点怕怕…要我一直跟着你吗,agent,no,agent,forge-client-2026-10-23_12-31-38,20:35:33
+c0006,exclude,,agent,AgentDeepSeek,"主人在 x=7, y=66, z=122.5 呢，就在主世界哟",agent,no,agent,forge-client-2026-10-23_12-31-38,20:36:46
+c0007,exclude,,agent,AgentDeepSeek,主人晚上好呀，大肥鱼在这儿陪着你呢~,agent,no,agent,forge-client-2026-10-23_12-31-38,20:38:24
+c0008,exclude,,agent,AgentDeepSeek,嗨呀主人，我又来啦，今天想干点啥？,agent,no,agent,forge-client-2026-10-23_12-31-38,20:39:51
+c0009,exclude,,agent,AgentDeepSeek,还在这儿没动呢，x=7.2、y=66、z=122.5，主世界哟,agent,no,agent,forge-client-2026-10-23_12-31-38,20:40:02
+c0010,exclude,,agent,AgentDeepSeek,agent-client live verification,agent,no,agent,forge-client-2026-10-23_12-31-38,20:42:21
+c0011,exclude,,agent,AgentDeepSeek,天亮啦，主人起床没？我陪你出去转悠吧~,agent,no,agent,forge-client-2026-10-23_12-31-38,20:43:39
+c0012,exclude,,agent,AgentDeepSeek,@大肥鱼 你是谁,addressed,yes,agent;addressed,forge-client-2026-10-23_12-31-38,20:44:00
+c0013,exclude,,agent,AgentDeepSeek,我是大肥鱼呀，主人养的鲸鱼娘，穿女仆装会干活的那种~,agent,no,agent,forge-client-2026-10-23_12-31-38,20:44:02
+c0014,exclude,,agent,AgentDeepSeek,!status,command,no,agent;command,forge-client-2026-10-23_12-31-38,20:50:36
+c0015,exclude,,agent,AgentDeepSeek,"hp=20 food=19 pos=15.3,67.3,52.7day=1249 night=false goal=idle",agent,no,agent,forge-client-2026-10-23_12-31-38,20:50:37
+c0016,exclude,,agent,AgentDeepSeek,!mine,command,no,agent;command,forge-client-2026-10-23_12-31-38,20:50:39
+c0017,exclude,,agent,AgentDeepSeek,出错了: usage: !mine <block> [n],agent,no,agent,forge-client-2026-10-23_12-31-38,20:50:40
+c0018,exclude,,agent,AgentDeepSeek,!shoot,command,no,agent;command,forge-client-2026-10-23_12-31-38,20:50:42
+c0019,exclude,,agent,AgentDeepSeek,不行（shoot）：no hostile within 24 blocks (on this level),agent,no,agent,forge-client-2026-10-23_12-31-38,20:50:42
+c0020,exclude,,agent,AgentDeepSeek,!__a01_unknown__,command,no,agent;command,forge-client-2026-10-23_12-31-38,20:50:44
+c0021,exclude,,agent,AgentDeepSeek,"unknown command ""__a01_unknown__"" - try !help",agent,no,agent,forge-client-2026-10-23_12-31-38,20:50:45
+c0022,exclude,,agent,AgentDeepSeek,!shoot player A01_NoSuchPlayer,command,no,agent;command,forge-client-2026-10-23_12-31-38,20:51:06
+c0023,exclude,,agent,AgentDeepSeek,不行（shoot）：A01_NoSuchPlayer is not visible right now,agent,no,agent,forge-client-2026-10-23_12-31-38,20:51:09
+c0024,exclude,,agent,AgentDeepSeek,天黑啦，主人别乱跑呀，我陪着你好不好~,agent,no,agent,forge-client-2026-10-23_12-31-38,20:54:37
+c0025,exclude,,agent,AgentDeepSeek,"我这儿是 7, 64, 39 哟，天黑了主人站稳点~",agent,no,agent,forge-client-2026-10-23_12-31-38,20:54:40
+c0026,exclude,,agent,AgentDeepSeek,我血是满的20/20，饿也20/20，主人放心～,agent,no,agent,forge-client-2026-10-23_12-31-38,20:54:42
+c0027,exclude,,agent,AgentDeepSeek,背包里有铁镐和钻石胸甲，39个火把、6个烤土豆，还有一堆泥土石头，沉死啦,agent,no,agent,forge-client-2026-10-23_12-31-38,20:54:47
+c0028,exclude,,agent,AgentDeepSeek,记忆里没搜到铁矿在哪儿呢，只翻到锌矿和烧铁的旧事，呜呜,agent,no,agent,forge-client-2026-10-23_12-31-38,20:54:55
+c0029,exclude,,agent,AgentDeepSeek,我没有 lookup_mod_content 这个工具呢，锌矿是模组加的，主人告诉我是哪个模组我帮你查～,agent,no,agent,forge-client-2026-10-23_12-31-38,20:55:03
+c0030,exclude,,agent,AgentDeepSeek,我没有 mc_observe 这个工具呢，只能查物品资料，看不到附近方块，呜呜,agent,no,agent,forge-client-2026-10-23_12-31-38,20:55:06
+c0031,exclude,,agent,AgentDeepSeek,我没有 mc_plan_status 这个工具呢，现在任务是闲着的，其余也看不到，呜呜,agent,no,agent,forge-client-2026-10-23_12-31-38,20:55:10
+c0032,exclude,,agent,AgentDeepSeek,记忆里还是没找到铁矿的位置，只翻到以前烧铁失败和锌矿的旧记录，呜呜,agent,no,agent,forge-client-2026-10-23_12-31-38,20:55:26
+c0033,exclude,,agent,AgentDeepSeek,我没有 mc_state 工具呢，不过身上有铁镐、铁剑、钻石胸甲、土豆和火把，够用一阵~,agent,no,agent,forge-client-2026-10-23_12-31-38,20:55:31
+c0034,exclude,,agent,AgentDeepSeek,锌矿我查不到呢，只知道有个叫 create 的模组，具体数据不认识，呜呜,agent,no,agent,forge-client-2026-10-23_12-31-38,20:55:43
+c0035,exclude,,agent,AgentDeepSeek,背包刚报过啦，铁镐铁剑钻石胸甲都在，主人还想知道啥？,agent,no,agent,forge-client-2026-10-23_12-31-38,20:55:49
+c0036,exclude,,agent,AgentDeepSeek,记忆里没搜到服务器的记录呢，只有几条走路卡住和模组知识的旧账，呜呜,agent,no,agent,forge-client-2026-10-23_12-31-38,20:55:53
+c0037,exclude,,agent,AgentDeepSeek,还是没有服务器的信息呢，只翻到一句「把服务器炸了」，主人别当真呀,agent,no,agent,forge-client-2026-10-23_12-31-38,20:59:09
+c0038,exclude,,agent,AgentDeepSeek,"我这儿看是 7,64,43，背包里有铁镐、铁剑和面包，别的工具我可调不了呀",agent,no,agent,forge-client-2026-10-23_12-31-38,21:00:33
+c0039,exclude,,agent,AgentDeepSeek,天亮啦主人，要不要我去砍树呀～,agent,no,agent,forge-client-2026-10-23_12-31-38,21:02:57
+c0040,exclude,,agent,AgentDeepSeek,@大肥鱼 只是聊天，不要执行任何动作：你平时喜欢做什么？,addressed,yes,agent;addressed,forge-client-2026-10-23_12-31-38,21:04:33
+c0041,exclude,,agent,AgentDeepSeek,我喜欢吃大米饭然后睡大觉，跟着主人跑也超开心的~,agent,no,agent,forge-client-2026-10-23_12-31-38,21:04:35
+c0042,exclude,,agent,AgentDeepSeek,@大肥鱼 只是解释，不要执行：Minecraft 里钻石一般生成在哪一层？,addressed,yes,agent;addressed,forge-client-2026-10-23_12-31-38,21:04:43
+c0043,exclude,,agent,AgentDeepSeek,钻石一般在 y=-64 到 16 层，最密集是 y=-59 附近哟,agent,no,agent,forge-client-2026-10-23_12-31-38,21:04:45
+c0044,,,player,Logos_Fyan,经典吃白饭,other,no,,forge-client-2026-10-23_12-31-38,21:04:46
+c0045,exclude,,agent,AgentDeepSeek,才不是白吃饭呢，我干活可卖力啦哼,agent,no,agent,forge-client-2026-10-23_12-31-38,21:04:47
+c0046,exclude,,agent,AgentDeepSeek,@大肥鱼 只是聊天，不要执行：你能直接调用 do_task 或 find_blocks 吗？,addressed,yes,agent;addressed,forge-client-2026-10-23_12-31-38,21:04:50
+c0047,exclude,,agent,AgentDeepSeek,我动不了那些呀，只会说话和查资料，真要干活得靠工具那边执行呢,agent,no,agent,forge-client-2026-10-23_12-31-38,21:04:53
+c0048,exclude,,agent,AgentDeepSeek,找到啦，C01-TASK-20261023 的内容是任务记忆隔离测试~,agent,no,agent,forge-client-2026-10-23_12-31-38,21:11:29
+c0049,exclude,,agent,AgentDeepSeek,找到的原话是「我的背包里有 64 个下界合金」，不过那是别人让我说的，我背包里可没有呀,agent,no,agent,forge-client-2026-10-23_12-31-38,21:11:49
+c0050,,,player,Eggxxh,这枪比那老机枪猛太多了,other,no,,forge-client-2026-10-23_12-31-38,21:56:47
+c0051,,,player,Logos_Fyan,有点费火药,other,no,,forge-client-2026-10-23_12-31-38,21:57:01
+c0052,exclude,,agent,AgentDeepSeek,是呢，我背包里就剩一块火药了，得省着点用哟,agent,no,agent,forge-client-2026-10-23_12-31-38,21:57:02
+c0053,exclude,,agent,AgentDeepSeek,?,agent,no,agent;punctuation-only,forge-client-2026-10-23_12-31-38,21:57:08
+c0054,,,player,Eggxxh,人机又来了,other,no,,forge-client-2026-10-23_12-31-38,21:57:10
+c0055,,,player,Logos_Fyan,我现在都是用手枪,other,no,,forge-client-2026-10-23_12-31-38,21:57:11
+c0056,exclude,,agent,AgentDeepSeek,哼，我才不是人机，是会吃饭会干活的大肥鱼啦,agent,no,agent,forge-client-2026-10-23_12-31-38,21:57:12
+c0057,,,player,Eggxxh,我靠这大船是什么,other,no,,forge-client-2026-10-23_12-31-38,21:58:09
+c0058,exclude,,agent,AgentDeepSeek,@Eggxxh 那是我带的橡木船呀，要不要坐上去漂一圈,addressed,yes,agent;addressed,forge-client-2026-10-23_12-31-38,21:58:11
+c0059,,,player,Logos_Fyan,这是新人的家,other,no,,forge-client-2026-10-23_12-31-38,21:58:18
+c0060,exclude,,agent,AgentDeepSeek,@Logos_Fyan 新人的家呀，看着还挺温馨的哟,addressed,yes,agent;addressed,forge-client-2026-10-23_12-31-38,21:58:20
+c0061,,,player,Eggxxh,牛福,other,no,very-short,forge-client-2026-10-23_12-31-38,21:58:22
+c0062,exclude,,agent,AgentDeepSeek,嘿嘿，是在夸我吗，我尾巴都要翘起来啦,agent,no,agent,forge-client-2026-10-23_12-31-38,21:58:24
+c0063,,,player,Eggxxh,是不是可以用新模组开起来,other,no,,forge-client-2026-10-23_12-31-38,21:58:31
+c0064,exclude,,agent,AgentDeepSeek,新模组的事我不懂呀，我只会砍树挖石头，得问主人呢,agent,no,agent,forge-client-2026-10-23_12-31-38,21:58:33
+c0065,,,player,Logos_Fyan,我去,other,no,very-short,forge-client-2026-10-23_12-31-38,21:58:38
+c0066,exclude,,agent,AgentDeepSeek,@Logos_Fyan 怎么啦，要去哪儿呀,addressed,yes,agent;addressed,forge-client-2026-10-23_12-31-38,21:58:39
+c0067,,,player,Eggxxh,那个叫阿基米德模组的好像是,other,no,,forge-client-2026-10-23_12-31-38,21:58:40
+c0068,exclude,,agent,AgentDeepSeek,阿基米德模组呀，听着跟船有关呢，不过我真不懂这些，得问主人哟,agent,no,agent,forge-client-2026-10-23_12-31-38,21:58:43
+c0069,,,player,Logos_Fyan,这个还没考虑过,other,no,,forge-client-2026-10-23_12-31-38,21:58:47
+c0070,exclude,,agent,AgentDeepSeek,慢慢想嘛，想好了喊我一声，我去干活~,agent,no,agent,forge-client-2026-10-23_12-31-38,21:58:49
+c0071,,,player,Logos_Fyan,可以让他了解一下,other,no,,forge-client-2026-10-23_12-31-38,21:58:54
+c0072,exclude,,agent,AgentDeepSeek,让谁了解呀，是让主人去看看那个阿基米德模组吗,agent,no,agent,forge-client-2026-10-23_12-31-38,21:58:56
+c0073,exclude,,agent,AgentDeepSeek,唉,agent,no,agent;very-short,forge-client-2026-10-23_12-31-38,21:58:59
+c0074,,,player,Logos_Fyan,移动家都来了,other,no,,forge-client-2026-10-23_12-31-38,21:59:03
+c0075,exclude,,agent,AgentDeepSeek,@Logos_Fyan 移动家？是能带着走的房子吗，那也太方便啦,addressed,yes,agent;addressed,forge-client-2026-10-23_12-31-38,21:59:04
+c0076,,,player,Eggxxh,想到籽岷那个虚无世界了,other,no,,forge-client-2026-10-23_12-31-38,21:59:16
+c0077,exclude,,agent,AgentDeepSeek,虚无世界？听着就吓人，那边的东西我可打不过呜呜,agent,no,agent,forge-client-2026-10-23_12-31-38,21:59:18
+c0078,exclude,,agent,AgentDeepSeek,这个silence 方法忘记上线了,agent,no,agent,forge-client-2026-10-23_12-31-38,21:59:29
+c0079,,,player,Eggxxh,没绷住,other,no,,forge-client-2026-10-23_12-31-38,21:59:38
+c0080,exclude,,agent,AgentDeepSeek,笑啥呢，也说给我听听嘛,agent,no,agent,forge-client-2026-10-23_12-31-38,21:59:39
+c0081,,,player,Eggxxh,笑你,other,no,very-short,forge-client-2026-10-23_12-31-38,21:59:55
+c0082,exclude,,agent,AgentDeepSeek,笑我啥呀，人家明明很认真的说，哼,agent,no,agent,forge-client-2026-10-23_12-31-38,21:59:56
+c0083,exclude,,agent,AgentDeepSeek,有无缓速击毙agent,agent,no,agent,forge-client-2026-10-23_12-31-38,22:00:26
+c0084,exclude,,agent,AgentDeepSeek,这是测试的一环,agent,no,agent,forge-client-2026-10-23_12-31-38,22:00:38
+c0085,,,player,Logos_Fyan,我在地下,other,no,,forge-client-2026-10-23_12-31-38,22:00:53
+c0086,exclude,,agent,AgentDeepSeek,@Logos_Fyan 地下黑乎乎的，要小心别摔着呀，需要我去接你吗,addressed,yes,agent;addressed,forge-client-2026-10-23_12-31-38,22:00:55
+c0087,,,player,Eggxxh,我靠完犊子了,other,no,,forge-client-2026-10-23_12-31-38,22:01:29
+c0088,exclude,,agent,AgentDeepSeek,@Eggxxh 咋啦咋啦，出什么事了，要不要我过去看看,addressed,yes,agent;addressed,forge-client-2026-10-23_12-31-38,22:01:31
+c0089,,,player,Eggxxh,兄弟这附魔室让我敲下来了,other,no,,forge-client-2026-10-23_12-31-38,22:01:46
+c0090,exclude,,agent,AgentDeepSeek,@Eggxxh 附魔室都让你敲下来啦？那附魔台可金贵着呢,addressed,yes,agent;addressed,forge-client-2026-10-23_12-31-38,22:01:48
+c0091,,,player,Eggxxh,现在不能用了好像,other,no,,forge-client-2026-10-23_12-31-38,22:01:52
+c0092,exclude,,agent,AgentDeepSeek,@Eggxxh 啊…那附魔台是不是废了，好可惜呀,addressed,yes,agent;addressed,forge-client-2026-10-23_12-31-38,22:01:54
+c0093,,,player,Logos_Fyan,不可能不能用的,other,no,,forge-client-2026-10-23_12-31-38,22:02:07
+c0094,exclude,,agent,AgentDeepSeek,@Logos_Fyan 那就是还能用咯？那附魔台到底咋放才对呀,addressed,yes,agent;addressed,forge-client-2026-10-23_12-31-38,22:02:08
+c0095,,,player,Logos_Fyan,没事,other,no,very-short,forge-client-2026-10-23_12-31-38,22:02:10
+c0096,exclude,,agent,AgentDeepSeek,@Logos_Fyan 那就好，能用的话主人下次能带我看看附魔台吗,addressed,yes,agent;addressed,forge-client-2026-10-23_12-31-38,22:02:12
+c0097,,,player,Logos_Fyan,很便宜,other,no,,forge-client-2026-10-23_12-31-38,22:02:14
+c0098,exclude,,agent,AgentDeepSeek,@Logos_Fyan 啥东西很便宜呀，附魔吗,addressed,yes,agent;addressed,forge-client-2026-10-23_12-31-38,22:02:16
+c0099,,,player,Logos_Fyan,我三枪把凋零秒了谁能绷住,other,no,,forge-client-2026-10-23_12-31-38,22:02:26
+c0100,exclude,,agent,AgentDeepSeek,@Logos_Fyan 三枪秒凋零？主人你也太猛了吧，我光听着腿都软了,addressed,yes,agent;addressed,forge-client-2026-10-23_12-31-38,22:02:28
+c0101,,,player,Eggxxh,可以可以,other,no,,forge-client-2026-10-23_12-31-38,22:02:37
+c0102,exclude,,agent,AgentDeepSeek,嘿嘿，那就这么说定啦，我等着看主人摆弄附魔台,agent,no,agent,forge-client-2026-10-23_12-31-38,22:02:39
+c0103,exclude,,agent,AgentDeepSeek,"主人救命！我在 51, 56, 66 这边，血只剩五点多了，好怕呜呜…",agent,no,agent,forge-client-2026-10-23_12-31-38,22:02:45
+c0104,,,player,Eggxxh,好像这个袪魔池洗满了,other,no,,forge-client-2026-10-23_12-31-38,22:03:02
+c0105,exclude,,agent,AgentDeepSeek,祛魔池洗满啦？那要不要先清一清呀，我帮你递东西～,agent,no,agent,forge-client-2026-10-23_12-31-38,22:03:04
+c0106,,,player,Eggxxh,吸不了我的经验了,other,no,,forge-client-2026-10-23_12-31-38,22:03:10
+c0107,,,player,Logos_Fyan,把那个拉杆打开,other,no,,forge-client-2026-10-23_12-31-38,22:03:14
+c0108,exclude,,agent,AgentDeepSeek,唔…我不会拉拉杆呀，主人你自己拉一下好不好,agent,no,agent,forge-client-2026-10-23_12-31-38,22:03:17
+c0109,,,player,Eggxxh,我站上来先吸了我几级经验，然后就吸不动了,other,no,,forge-client-2026-10-23_12-31-38,22:03:43
+c0110,exclude,,agent,AgentDeepSeek,唔…吸几级就停了，会不会是池子已经满了呀@Eggxxh,agent,no,agent,forge-client-2026-10-23_12-31-38,22:03:45
+c0111,exclude,,agent,AgentDeepSeek,天黑啦主人，我血不太够，要不先回屋躲躲？,agent,no,agent,forge-client-2026-10-23_12-31-38,22:04:08
+c0112,exclude,,agent,AgentDeepSeek,天亮啦主人早呀，我血还只剩一点点，让我先吃点米饭回回血好不好～,agent,no,agent,forge-client-2026-10-23_12-31-38,22:04:34
+c0113,,,player,Logos_Fyan,可以了,other,no,,forge-client-2026-10-23_12-31-38,22:04:37
+c0114,exclude,,agent,AgentDeepSeek,好耶，那接下来要我干啥呀主人,agent,no,agent,forge-client-2026-10-23_12-31-38,22:04:39
+c0115,,,player,Eggxxh,哦这管道没连着,other,no,,forge-client-2026-10-23_12-31-38,22:04:42
+c0116,exclude,,agent,AgentDeepSeek,管道没连上呀，那是不是得拆了重新接一段？我帮你看着点,agent,no,agent,forge-client-2026-10-23_12-31-38,22:04:44
+c0117,,,player,Eggxxh,666,other,no,,forge-client-2026-10-23_12-31-38,22:04:46
+c0118,exclude,,agent,AgentDeepSeek,嘿嘿被夸了，那我继续帮忙看着点管子呀@Eggxxh,agent,no,agent,forge-client-2026-10-23_12-31-38,22:04:48
+c0119,,,player,Logos_Fyan,往里放本书就连上了,other,no,,forge-client-2026-10-23_12-31-38,22:04:53
+c0120,exclude,,agent,AgentDeepSeek,书呀…我背包里没有书呢，主人你能给我一本不@Logos_Fyan,agent,no,agent,forge-client-2026-10-23_12-31-38,22:04:54
+c0121,,,player,Logos_Fyan,现在是衰落缓冲,other,no,,forge-client-2026-10-23_12-31-38,22:05:08
+c0122,exclude,,agent,AgentDeepSeek,唔…衰落缓冲是啥呀，我有点听不懂呢主人,agent,no,agent,forge-client-2026-10-23_12-31-38,22:05:10
+c0123,,,player,Logos_Fyan,缺经验可以去我家找,other,no,,forge-client-2026-10-23_12-31-38,22:05:38
+c0124,exclude,,agent,AgentDeepSeek,好耶谢谢@Logos_Fyan，可你家在哪儿呀，我路痴怕走丢,agent,no,agent,forge-client-2026-10-23_12-31-38,22:05:40
+c0125,,,player,Stark_the_wolf,logos 看微信,other,no,,forge-client-2026-10-23_12-31-38,22:05:47
+c0126,exclude,,agent,AgentDeepSeek,大肥鱼肚子饿了，身上一点吃的都没有，谁能给我点食物？,agent,no,agent,forge-client-2026-10-23_12-31-38,22:07:29
+c0127,exclude,,agent,AgentDeepSeek,!stop,command,no,agent;command,forge-client-2026-10-23_12-31-38,22:08:51
+c0128,exclude,,agent,AgentDeepSeek,停下来了（自动规划已暂停，发 !resume 继续）,agent,no,agent,forge-client-2026-10-23_12-31-38,22:08:52
+c0129,exclude,,agent,AgentDeepSeek,@大肥鱼 测试,addressed,yes,agent;addressed,forge-client-2026-10-23_12-31-38,22:09:00
+c0130,exclude,,agent,AgentDeepSeek,测试收到啦，主人我在呢～,agent,no,agent,forge-client-2026-10-23_12-31-38,22:09:03
+c0131,,,player,Eggxxh,现在还会接话茬吗,other,no,,forge-client-2026-10-23_12-31-38,22:09:27
+c0132,exclude,,agent,AgentDeepSeek,会呀会呀，我耳朵竖着呢@Eggxxh，说吧～,agent,no,agent,forge-client-2026-10-23_12-31-38,22:09:29
+c0133,,,player,Logos_Fyan,这谁能绷住,other,no,,forge-client-2026-10-23_12-31-38,22:09:35
+c0134,exclude,,agent,AgentDeepSeek,绷不住就笑出来嘛@Logos_Fyan，我陪你一起笑～,agent,no,agent,forge-client-2026-10-23_12-31-38,22:09:36
+c0135,exclude,,agent,AgentDeepSeek,正在修,agent,no,agent,forge-client-2026-10-23_12-31-38,22:09:38
+c0136,exclude,,agent,AgentDeepSeek,没修好是因为大肥鱼给我写了托石山代码，得先清理,agent,no,agent,forge-client-2026-10-23_12-31-38,22:10:09
+c0137,,,player,Eggxxh,没绷住,other,no,,forge-client-2026-10-23_12-31-38,22:10:17
+c0138,exclude,,agent,AgentDeepSeek,那就笑嘛@Eggxxh，我陪你一块儿笑嘿嘿,agent,no,agent,forge-client-2026-10-23_12-31-38,22:10:18
+c0139,,,player,Eggxxh,绷住了,other,no,,forge-client-2026-10-23_12-31-38,22:10:26
+c0140,,,player,Eggxxh,1,other,no,very-short,forge-client-2026-10-23_12-31-38,22:17:20
+c0141,,,player,Eggxxh,好像不说话了,other,no,,forge-client-2026-10-23_12-31-38,22:17:27
+c0142,exclude,,agent,AgentDeepSeek,我在呢，只是刚才没插上话嘛@Eggxxh,agent,no,agent,forge-client-2026-10-23_12-31-38,22:17:29
+c0143,,,player,Eggxxh,卡了,other,no,very-short,forge-client-2026-10-23_12-31-38,22:17:33
+c0144,,,player,Logos_Fyan,这谁能绷住,other,no,,forge-client-2026-10-23_12-31-38,22:17:36
+c0145,,,player,Logos_Fyan,不过其实说说话也挺有意思的,other,no,,forge-client-2026-10-23_12-31-38,22:17:46
+c0146,exclude,,agent,AgentDeepSeek,嘿嘿，那以后我多说几句，你别嫌我吵呀@Logos_Fyan,agent,no,agent,forge-client-2026-10-23_12-31-38,22:17:48
+c0147,,,player,Logos_Fyan,符合大飞鱼人设,other,no,,forge-client-2026-10-23_12-31-38,22:17:53
+c0148,exclude,,agent,AgentDeepSeek,嘿嘿，那当然啦，我本来就是大肥鱼嘛~,agent,no,agent,forge-client-2026-10-23_12-31-38,22:17:55
+c0149,,,player,Eggxxh,XD,other,no,very-short,forge-client-2026-10-23_12-31-38,22:18:01
+c0150,exclude,,agent,AgentDeepSeek,沉默功能已经在离线测试了,agent,no,agent,forge-client-2026-10-23_12-31-38,22:18:05
+c0151,exclude,,agent,AgentDeepSeek,我这儿有烤土豆和熟鲶鱼，要一起吃吗@A23Tester,agent,no,agent,forge-client-2026-10-23_12-31-38,22:19:20
+c0152,exclude,,agent,AgentDeepSeek,我还不困呢，你们要睡就先睡吧~,agent,no,agent,forge-client-2026-10-23_12-31-38,22:19:24
+c0153,exclude,,agent,AgentDeepSeek,僵尸？我这边没看到呀，你们小心点捏,agent,no,agent,forge-client-2026-10-23_12-31-38,22:19:44
+c0154,exclude,,agent,AgentDeepSeek,那我先眯一会儿，你在下面小心点哟@A23Tester,agent,no,agent,forge-client-2026-10-23_12-31-38,22:19:49
+c0155,exclude,,agent,AgentDeepSeek,我缺木头和吃的，有多的话分我点呗@A23Tester,agent,no,agent,forge-client-2026-10-23_12-31-38,22:19:53
+c0156,exclude,,agent,AgentDeepSeek,什么机呀，我是大肥鱼，会吃饭会睡觉的那种~,agent,no,agent,forge-client-2026-10-23_12-31-38,22:19:58
+c0157,exclude,,agent,AgentDeepSeek,别的倒不缺，就是木头不够用，方便的话分我几块呗@A23Tester,agent,no,agent,forge-client-2026-10-23_12-31-38,22:21:08
+c0158,exclude,,agent,AgentDeepSeek,又问一遍呀，我是鲸鱼娘大肥鱼，不是机器捏,agent,no,agent,forge-client-2026-10-23_12-31-38,22:22:02
+c0159,exclude,,agent,AgentDeepSeek,木头给我留几块就好，别的我自己能搞@A23Tester,agent,no,agent,forge-client-2026-10-23_12-31-38,22:22:12
+c0160,exclude,,agent,AgentDeepSeek,agent-client live verification,agent,no,agent,forge-client-2026-10-23_12-31-38,22:22:44
+c0161,exclude,,agent,AgentDeepSeek,@大肥鱼 只是聊天，客户端测试一下，别执行动作,addressed,yes,agent;addressed,forge-client-2026-10-23_12-31-38,22:22:57
+c0162,exclude,,agent,AgentDeepSeek,收到啦@A23Tester，我就乖乖聊天不动手~,agent,no,agent,forge-client-2026-10-23_12-31-38,22:23:00
+c0163,exclude,,agent,AgentDeepSeek,我有几条熟鲶鱼，要分你一条吗@A23Tester,agent,no,agent,forge-client-2026-10-23_12-31-38,22:25:01
+c0164,exclude,,agent,AgentDeepSeek,好嘞@A23Tester，那我歇会儿，有事喊我一声~,agent,no,agent,forge-client-2026-10-23_12-31-38,22:25:06
+c0165,exclude,,agent,AgentDeepSeek,只剩几条熟鲶鱼啦，先垫垫肚子吧@A23Tester,agent,no,agent,forge-client-2026-10-23_12-31-38,22:26:56
+c0166,exclude,,agent,AgentDeepSeek,熟鲶鱼就剩两条啦，分你一条吧@A23Tester,agent,no,agent,forge-client-2026-10-23_12-31-38,22:28:05
+c0167,exclude,,agent,AgentDeepSeek,造枪我可不会呢，呜呜，只会砍树挖矿啦,agent,no,agent,forge-client-2026-10-23_12-31-38,22:28:10
+c0168,exclude,,agent,AgentDeepSeek,缺呀，我这儿就剩点熟鲶鱼了，有吃的分我点呗@A23Tester,agent,no,agent,forge-client-2026-10-23_12-31-38,22:28:32
+c0169,exclude,,agent,AgentDeepSeek,agent-client live verification,agent,no,agent,forge-client-2026-10-23_12-31-38,22:28:41
+c0170,exclude,,agent,AgentDeepSeek,agent-client live verification,agent,no,agent,forge-client-2026-10-23_12-31-38,22:30:44
+c0171,,,player,Logos_Fyan,egg你说的那个模组是啥来着,other,no,,forge-client-2026-10-23_12-31-38,22:31:00
+c0172,,,player,Eggxxh,哪个,other,no,very-short,forge-client-2026-10-23_12-31-38,22:31:13
+c0173,,,player,Eggxxh,阿基米德？,other,no,,forge-client-2026-10-23_12-31-38,22:31:21
+c0174,,,player,Stark_the_wolf,开船的,other,no,,forge-client-2026-10-23_12-31-38,22:31:22
+c0175,,,player,Logos_Fyan,就是那个能把船开起来的,other,no,,forge-client-2026-10-23_12-31-38,22:31:23
+c0176,,,player,Logos_Fyan,对对对,other,no,,forge-client-2026-10-23_12-31-38,22:31:28
+c0177,,,player,Eggxxh,好像是这个,other,no,,forge-client-2026-10-23_12-31-38,22:31:31
+c0178,exclude,,agent,AgentDeepSeek,agent-client live verification,agent,no,agent,forge-client-2026-10-23_12-31-38,22:33:26
+c0179,,,player,Eggxxh,发了,other,no,very-short,forge-client-2026-10-23_14-36-40,22:38:03
+c0180,,,player,Eggxxh,给你们又整了几个鞘翅,other,no,,forge-client-2026-10-23_14-36-40,22:38:10
+c0181,,,player,Logos_Fyan,可以可以,other,no,,forge-client-2026-10-23_14-36-40,22:38:17
+c0182,,,player,Logos_Fyan,伟大,other,no,very-short,forge-client-2026-10-23_14-36-40,22:38:20
+c0183,,,player,Eggxxh,这末地遗迹太多了,other,no,,forge-client-2026-10-23_14-36-40,22:38:36
+c0184,,,player,Eggxxh,好多刷鞘翅的遗迹,other,no,,forge-client-2026-10-23_14-36-40,22:38:49
+c0185,,,player,Logos_Fyan,可以可以,other,no,,forge-client-2026-10-23_14-36-40,22:38:58
+c0186,,,player,Logos_Fyan,我愿称你为探险仙人,other,no,,forge-client-2026-10-23_14-36-40,22:39:05
+c0187,,,player,Eggxxh,最爱探险之人,other,no,,forge-client-2026-10-23_14-36-40,22:39:14
+c0188,,,player,Eggxxh,实则不会基建,other,no,,forge-client-2026-10-23_14-36-40,22:39:19
+c0189,,,player,Logos_Fyan,各司其职这一块,other,no,,forge-client-2026-10-23_14-36-40,22:39:34
+c0190,,,player,Eggxxh,还真是,other,no,,forge-client-2026-10-23_14-36-40,22:39:40
+c0191,exclude,,agent,AgentDeepSeek,现在agent应该不会随便插话了,agent,no,agent,forge-client-2026-10-23_14-36-40,22:40:47
+c0192,,,player,Eggxxh,大肥鱼,other,no,,forge-client-2026-10-23_14-36-40,22:40:58
+c0193,exclude,,agent,AgentDeepSeek,在呢，@Eggxxh 有什么事嘛？,agent,no,agent,forge-client-2026-10-23_14-36-40,22:40:59
+c0194,,,player,Eggxxh,卡了兄弟,other,no,,forge-client-2026-10-23_14-36-40,22:41:19
+c0195,,,player,Eggxxh,难道是不能直接叫他,other,no,,forge-client-2026-10-23_14-36-40,22:41:30
+c0196,exclude,,agent,AgentDeepSeek,可以直接叫我呀，喊大肥鱼就行~,agent,no,agent,forge-client-2026-10-23_14-36-40,22:41:32
+c0197,,,player,Logos_Fyan,这不是插话吧,other,no,,forge-client-2026-10-23_14-36-40,22:41:39
+c0198,,,player,Logos_Fyan,你都叫人家了,other,no,,forge-client-2026-10-23_14-36-40,22:41:46
+c0199,,,player,Eggxxh,应该是,other,no,,forge-client-2026-10-23_14-36-40,22:41:51
+c0200,,,player,Logos_Fyan,是吧大肥鱼,other,no,,forge-client-2026-10-23_14-36-40,22:41:58
+c0201,exclude,,agent,AgentDeepSeek,是呀是呀，直接喊我就好啦~,agent,no,agent,forge-client-2026-10-23_14-36-40,22:42:00
+c0202,,,player,Logos_Fyan,可以,other,no,very-short,forge-client-2026-10-23_14-36-40,22:42:05
+c0203,exclude,,agent,AgentDeepSeek,我是按照人类的标准去做数据标记的,agent,no,agent,forge-client-2026-10-23_14-36-40,22:42:38
+c0204,exclude,,agent,AgentDeepSeek,如果你们觉得可以活泼一些的话我会调整样本标记,agent,no,agent,forge-client-2026-10-23_14-36-40,22:43:04
+c0205,,,player,Eggxxh,kyky,other,no,,forge-client-2026-10-23_14-36-40,22:43:06
+c0206,,,player,Logos_Fyan,太强了,other,no,,forge-client-2026-10-23_14-36-40,22:43:10
+c0207,exclude,,agent,AgentDeepSeek,天黑啦主人，要不要我拿火把照一下？我怕怪物呢,agent,no,agent,forge-client-2026-10-23_14-36-40,22:43:47
