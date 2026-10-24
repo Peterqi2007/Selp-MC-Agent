@@ -818,6 +818,33 @@ function startStatusServer(ctx, options = {}) {
         return json(res, 200, { ok: record.ok !== false, record });
       }
 
+      /** Test-only respawn event: exercises SpeechScheduler.respawn -> LanguageBrain. */
+      if (req.method === 'POST' && url.pathname === '/test/respawn') {
+        if (!testHooks) return json(res, 404, { ok: false, error: 'not found' });
+        if (!ctx.speech || typeof ctx.speech.onRespawn !== 'function') {
+          return json(res, 503, { ok: false, error: 'speech scheduler unavailable' });
+        }
+        const result = await ctx.speech.onRespawn();
+        return json(res, 200, { ok: result === true, result, record: ctx.lastLanguageDecision || null });
+      }
+
+      /** Test-only code-skill chat: exercises CodeSkillService._chat -> LanguageBrain. */
+      if (req.method === 'POST' && url.pathname === '/test/code-skill-chat') {
+        if (!testHooks) return json(res, 404, { ok: false, error: 'not found' });
+        if (!ctx.codeSkills || typeof ctx.codeSkills._host !== 'function') {
+          return json(res, 503, { ok: false, error: 'code skill service unavailable' });
+        }
+        let body = {};
+        try {
+          body = JSON.parse((await readRaw(req)) || '{}');
+        } catch {
+          return json(res, 400, { ok: false, error: 'invalid JSON' });
+        }
+        const text = String(body.text || '代码技能测试：我已就绪').trim();
+        const result = await ctx.codeSkills._host().chat({ text });
+        return json(res, 200, { ok: result.ok === true, result, record: ctx.lastLanguageDecision || null });
+      }
+
       /**
        * Action-brain speech (A16/M3 live entry): the DSH `mc_say` tool posts one short line
        * here. This is deliberately not a command channel: reply() sanitizes it (no leading

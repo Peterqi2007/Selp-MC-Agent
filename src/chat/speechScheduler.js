@@ -93,7 +93,13 @@ class SpeechScheduler {
 
   /** True when this trigger is allowed to speak right now. */
   ready(kind, now = Date.now()) {
-    const trigger = this.triggers[kind];
+    /**
+     * `respawn` is the event name used by DeathWatch; the config key is `fireOnRespawn`.
+     * They used to miss each other, so respawn speech was always skipped as "disabled".
+     */
+    const trigger =
+      this.triggers[kind] ||
+      (kind === 'respawn' ? this.triggers.fireOnRespawn : null);
     if (!trigger || trigger.enabled === false) {
       this.stats.skippedDisabled += 1;
       return false;
