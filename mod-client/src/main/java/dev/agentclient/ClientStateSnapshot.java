@@ -13,6 +13,7 @@ import net.minecraft.world.entity.item.ItemEntity;
 import net.minecraft.world.entity.monster.Monster;
 import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.entity.projectile.FishingHook;
+import net.minecraft.world.food.FoodProperties;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.level.LightLayer;
 import net.minecraft.world.level.block.state.BlockState;
@@ -201,6 +202,12 @@ final class ClientStateSnapshot {
 
         // ---- inventory -----------------------------------------------------
         out.put("inventory", inventoryJson(player));
+        /**
+         * Edible-item metadata (nutrition/saturation) straight from the item's own
+         * FoodProperties. Vanilla's hard-coded food table cannot see Farmer's Delight,
+         * Alex's Mobs, etc.; the client already has the real registry, so report it.
+         */
+        out.put("foods", foodsJson(player));
         out.put("guns", gunsJson(player));
 
         /**
@@ -311,6 +318,42 @@ final class ClientStateSnapshot {
         List<String> parts = new ArrayList<>();
         for (Map.Entry<String, Integer> e : counts.entrySet()) {
             parts.add(Json.str(e.getKey()) + ":" + Json.num(e.getValue()));
+        }
+        return "{" + String.join(",", parts) + "}";
+    }
+
+    /**
+     * Edible-item metadata from the item's real FoodProperties.
+     *
+     * The Node side used to have a vanilla-only food table; Farmer's Delight / addons and
+     * Alex's Mobs foods scored as inedible, so a hungry agent with a full modded pantry
+     * reported "nothing edible". The client registry knows every installed item, so the
+     * snapshot carries nutrition/saturation and the eater picks by real value.
+     */
+    private static String foodsJson(LocalPlayer player) {
+        Map<String, String> foods = new LinkedHashMap<>();
+        for (int slot = 0; slot < player.getInventory().getContainerSize(); slot++) {
+            ItemStack stack = player.getInventory().getItem(slot);
+            if (stack.isEmpty() || !stack.isEdible()) {
+                continue;
+            }
+            String name = itemName(stack);
+            if (foods.containsKey(name)) {
+                continue;
+            }
+            FoodProperties fp = stack.getItem().getFoodProperties();
+            if (fp == null) {
+                continue;
+            }
+            Map<String, String> entry = new LinkedHashMap<>();
+            entry.put("nutrition", Json.num(fp.getNutrition()));
+            entry.put("saturation", Json.num(fp.getSaturationModifier()));
+            entry.put("alwaysEat", Json.bool(fp.canAlwaysEat()));
+            foods.put(name, Json.obj(entry));
+        }
+        List<String> parts = new ArrayList<>();
+        for (Map.Entry<String, String> e : foods.entrySet()) {
+            parts.add(Json.str(e.getKey()) + ":" + e.getValue());
         }
         return "{" + String.join(",", parts) + "}";
     }

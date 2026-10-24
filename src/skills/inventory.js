@@ -10,7 +10,7 @@
  */
 
 const { register } = require('./registry');
-const { foodScore, bare } = require('../world/items');
+const { foodScore, isFood, bare } = require('../world/items');
 
 function snapshotOf(ctx) {
   if (ctx.body && typeof ctx.body.snapshot === 'function') return ctx.body.snapshot();
@@ -50,16 +50,24 @@ register({
   async run(ctx, { food }) {
     const snap = snapshotOf(ctx);
     const inventory = (snap && snap.inventory) || {};
+    /**
+     * The client mod reports the real FoodProperties of every installed item; the
+     * mineflayer registry is the equivalent source on that body. Without either, the
+     * vanilla table + the Farmer's Delight fallback patterns are still consulted.
+     */
+    const foods = snap && snap.foods && typeof snap.foods === 'object' ? snap.foods : null;
+    const registry = ctx.bot && ctx.bot.registry ? ctx.bot.registry : null;
     let chosen = null;
     if (food) {
       chosen = Object.keys(inventory).find((name) => bare(name) === bare(food)) || null;
       if (!chosen) return { ok: false, reason: `${bare(food)} is not in the inventory` };
+      if (!isFood(chosen, registry, foods)) return { ok: false, reason: `${bare(food)} is not edible` };
     } else {
       let best = -1;
       for (const [name, count] of Object.entries(inventory)) {
         if (!count) continue;
-        // foodScore() works on bare names; inventory keys are namespaced.
-        const score = foodScore(bare(name));
+        if (!isFood(name, registry, foods)) continue;
+        const score = foodScore(name, foods);
         if (score > best) {
           best = score;
           chosen = name;

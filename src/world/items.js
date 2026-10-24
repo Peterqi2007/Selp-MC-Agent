@@ -39,6 +39,61 @@ const FOOD_PRIORITY = [
 /** Foods the agent is willing to eat raw (everything else should be cooked first). */
 const RAW_FOODS = new Set(['beef', 'porkchop', 'mutton', 'chicken', 'rabbit', 'salmon', 'cod', 'potato']);
 
+/**
+ * Fallback recognition for modded food when the client mod is too old to report
+ * `foods` metadata (see `foodsJson` in ClientStateSnapshot.java).
+ *
+ * The live client reports real Item.FoodProperties now, which is the authoritative path;
+ * this table only covers Farmer's Delight and its installed addons while an older jar is
+ * still deployed. Namespaces are restricted so a tool named `..._knife` is not eaten.
+ */
+const MODDED_FOOD_NAMESPACES = new Set([
+  'farmersdelight',
+  'delightful',
+  'brewinandchewin',
+  'biomesoplentydelight',
+  'cavesdelight',
+  'corn_delight',
+  'crabbersdelight',
+  'culturaldelights',
+  'ends_delight',
+  'farmersrespite',
+  'fruitsdelight',
+  'miners_delight',
+  'moredelight',
+  'nethersdelight',
+  'oceansdelight',
+  'storagedelight',
+  'create_central_kitchen',
+  'alexsmobs',
+  'alexscaves',
+  'mynethersdelight'
+]);
+const MODDED_FOOD_SUFFIX =
+  /_(stew|soup|pie|slice|slices|sandwich|burger|wrap|salad|roast|bacon|egg|eggs|toast|pancake|pancakes|dumpling|dumplings|noodle|noodles|rice|curry|jam|juice|tea|coffee|cider|mead|wine|beer|gelatin|cake|cookie|cookies|bread|muffin|scone|tart|pudding|custard|cheese|meat|chicken|beef|pork|mutton|catfish|fish|cod|salmon|bass|perch|pike|eel|squid|octopus|crab|shrimp|clam|oyster|mussel|snail|frog|bat|wolf|horse|donkey|kebab|skewer|stuffed|bowl|bites|chops|nuggets|fries|brownie|cupcake|donut|candy|roll|pasta|sushi|taco|burrito|pizza|hotdog|sausage)$/;
+const MODDED_FOOD_EXCLUDE =
+  /(_knife|_sword|_pickaxe|_axe|_shovel|_hoe|_block|_seed|_seeds|_bone|_leather|_hide|_feather|_spawn_egg|_bucket|_crate|_bag|_sack|_crate|_basket|_board|_table|_oven|_pot|_pan|_skillet|_cutting|_cabinet|_door|_trapdoor|_sign|_banner|_carpet|_wall|_fence|_gate|_slab|_stairs|_pillar|_column)$/;
+/** Named foods without a food-like suffix (Farmer's Delight and addons). */
+const MODDED_FOOD_EXACT = new Set([
+  'hamburger',
+  'cheeseburger',
+  'bacon_and_eggs',
+  'fried_egg',
+  'apple_pie',
+  'sweet_berry_cheesecake',
+  'chocolate_pie',
+  'dumplings',
+  'pasta',
+  'sushi',
+  'taco',
+  'burrito',
+  'pizza',
+  'hotdog',
+  'sausage',
+  'meatballs',
+  'rice_roll'
+]);
+
 const FUELS = ['coal', 'charcoal', 'oak_planks', 'spruce_planks', 'birch_planks', 'jungle_planks', 'acacia_planks', 'dark_oak_planks', 'mangrove_planks', 'cherry_planks', 'bamboo_planks', 'crimson_planks', 'warped_planks', 'stick', 'oak_log', 'spruce_log', 'birch_log', 'jungle_log', 'acacia_log', 'dark_oak_log', 'lava_bucket', 'blaze_rod', 'dried_kelp_block', 'coal_block'];
 
 const LOG_BLOCKS = ['oak_log', 'spruce_log', 'birch_log', 'jungle_log', 'acacia_log', 'dark_oak_log', 'mangrove_log', 'cherry_log', 'bamboo_block', 'crimson_stem', 'warped_stem'];
@@ -274,16 +329,49 @@ function planksFor(logName, registry) {
   return registry && registry.itemsByName[candidate] ? candidate : 'oak_planks';
 }
 
-function isFood(name, registry) {
-  if (FOOD_PRIORITY.includes(name)) return true;
-  const item = registry && registry.itemsByName[name];
-  if (item && item.foodPoints) return true;
+/**
+ * Is this item edible?
+ *
+ * @param {string} name full or bare item name
+ * @param {object} [registry] mineflayer registry (`itemsByName`, `foodPoints`)
+ * @param {object} [foods] client-mod metadata map: name -> {nutrition, saturation}
+ */
+function isFood(name, registry, foods) {
+  const full = String(name || '');
+  const bareName = bare(full);
+  if (!full) return false;
+  if (foods && (foods[full] || foods[bareName])) return true;
+  if (FOOD_PRIORITY.includes(bareName)) return true;
+  const item =
+    registry &&
+    registry.itemsByName &&
+    (registry.itemsByName[full] || registry.itemsByName[bareName] || registry.itemsByName[full.replace(/^[^:]+:/, '')]);
+  if (item && (item.foodPoints || item.food)) return true;
+  const namespace = full.includes(':') ? full.slice(0, full.indexOf(':')) : '';
+  if (namespace && MODDED_FOOD_NAMESPACES.has(namespace)) {
+    const path = bareName;
+    if (MODDED_FOOD_EXCLUDE.test(path)) return false;
+    if (MODDED_FOOD_EXACT.has(path) || MODDED_FOOD_SUFFIX.test(path)) return true;
+  }
   return false;
 }
 
-function foodScore(name) {
-  const idx = FOOD_PRIORITY.indexOf(name);
-  return idx === -1 ? -1 : FOOD_PRIORITY.length - idx;
+/**
+ * Higher is better. Client-mod `foods` metadata wins because it is the game's own
+ * nutrition/saturation; vanilla priority is the fallback, then the modded-name heuristic.
+ */
+function foodScore(name, foods) {
+  const full = String(name || '');
+  const bareName = bare(full);
+  const info = foods && (foods[full] || foods[bareName]);
+  if (info && Number.isFinite(Number(info.nutrition))) {
+    const nutrition = Number(info.nutrition);
+    const saturation = Number(info.saturation) || 0;
+    return 1000 + nutrition * 10 + Math.round(saturation * 10);
+  }
+  const idx = FOOD_PRIORITY.indexOf(bareName);
+  if (idx !== -1) return 100 + (FOOD_PRIORITY.length - idx);
+  return isFood(full, null, foods) ? 50 : -1;
 }
 
 function isFuel(name) {

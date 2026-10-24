@@ -191,6 +191,21 @@ async function main() {
     if (!(items.foodScore('golden_carrot') > items.foodScore('bread'))) throw new Error('golden carrot should outrank bread');
     return 'cooked_beef > beef, golden_carrot > bread';
   });
+  check('modded food is edible (Farmer\'s Delight / Alex\'s Mobs)', () => {
+    const foods = {
+      'farmersdelight:cooked_bacon': { nutrition: 6, saturation: 0.8 },
+      'alexsmobs:cooked_catfish': { nutrition: 5, saturation: 0.6 }
+    };
+    if (!items.isFood('farmersdelight:cooked_bacon', null, foods)) throw new Error('FD cooked_bacon not food');
+    if (!items.isFood('farmersdelight:hamburger', null, null)) throw new Error('FD hamburger fallback not food');
+    if (!items.isFood('alexsmobs:cooked_catfish', null, null)) throw new Error('cooked_catfish fallback not food');
+    if (items.isFood('farmersdelight:golden_knife', null, null)) throw new Error('golden_knife must not be food');
+    if (!(items.foodScore('farmersdelight:cooked_bacon', foods) > items.foodScore('bread'))) {
+      throw new Error('modded metadata must outrank vanilla bread');
+    }
+    if (items.foodScore('farmersdelight:golden_knife', foods) !== -1) throw new Error('knife scored as food');
+    return 'FD/Alex foods recognised; knife excluded';
+  });
   check('plank substitution', () => {
     const mcData = require('minecraft-data')(cfg.server.mcVersion);
     const p = items.planksFor('spruce_log', mcData);
@@ -523,6 +538,37 @@ async function main() {
     if (body.snapshot().food <= 8) throw new Error('food did not increase');
     if (body.snapshot().inventory['minecraft:cooked_beef'] !== 1) throw new Error('food item not consumed');
     return `food 8 -> ${body.snapshot().food}`;
+  });
+
+  await checkAsync('eat skill selects modded food from client metadata', async () => {
+    const skills = require(path.join(ROOT, 'src/skills'));
+    const consumed = [];
+    const ctx = {
+      cfg,
+      log: { info() {}, warn() {}, debug() {} },
+      bot: null,
+      body: {
+        snapshot: () => ({
+          food: 14,
+          heldItem: 'minecraft:iron_sword',
+          inventory: { 'farmersdelight:cooked_rice': 2 },
+          foods: {
+            'farmersdelight:cooked_rice': { nutrition: 6, saturation: 0.4, alwaysEat: false }
+          }
+        }),
+        consume: async (name) => {
+          consumed.push(name);
+          return true;
+        },
+        equip: async () => true
+      }
+    };
+    const result = await skills.run('eat', ctx, {});
+    if (!result.ok) throw new Error(`eat failed: ${result.reason}`);
+    if (consumed[0] !== 'farmersdelight:cooked_rice') {
+      throw new Error(`wrong food selected: ${consumed[0] || 'none'}`);
+    }
+    return 'picked farmersdelight:cooked_rice from foods metadata';
   });
 
   await checkAsync('decision layer can be driven by a non-mineflayer body', async () => {

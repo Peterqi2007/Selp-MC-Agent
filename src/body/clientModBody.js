@@ -83,6 +83,7 @@ const OBSERVED_FIELDS = [
   'time',
   'weather',
   'inventory',
+  'foods',
   'emptySlots',
   'heldItem',
   'standingOn',
@@ -430,6 +431,12 @@ class ClientModBody extends Body {
       time: state.time,
       weather: state.weather,
       inventory: state.inventory || {},
+      /**
+       * Edible-item metadata from the mod's real Item.FoodProperties:
+       * { "farmersdelight:...": { nutrition, saturation, alwaysEat } }.
+       * Older mod jars omit it; callers fall back to the vanilla table.
+       */
+      foods: state.foods && typeof state.foods === 'object' ? state.foods : null,
       emptySlots: state.emptySlots,
       heldItem: state.heldItem && state.heldItem !== 'null' ? state.heldItem : null,
       standingOn: state.standingOn ? { name: state.standingOn, position: below(state.position) } : null,

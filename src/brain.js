@@ -737,14 +737,16 @@ class Brain {
   async reflexEat() {
     if (this._reflexEatBusy || this._reflexFight) return;
     /**
-     * Do not brandish food with hostiles in reach.
+     * Do not brandish food with a hostile actually in reach.
      *
      * Eating equips the food, and the hand is the weapon's seat: live 2026-10-13 an
      * auto-eat mid-fight swapped the sword for bread and the fight swung bread for
-     * its whole 15s timeout. Hunger can wait until the neighbourhood is quiet
-     * (the eat skill also restores the held item now - this gate is the first line).
+     * its whole 15s timeout. A hostile 6-10 blocks away is NOT in reach: blocking on
+     * the old 10-block radius left a hungry bot neither eating nor fighting when
+     * auto-fight did not engage. The engage reflex owns that band; only a threat
+     * within melee reach suppresses the meal.
      */
-    if (typeof this.ctx.world.nearestHostile === 'function' && this.ctx.world.nearestHostile(10)) return;
+    if (typeof this.ctx.world.nearestHostile === 'function' && this.ctx.world.nearestHostile(5)) return;
     const snap = typeof this.ctx.world.snapshot === 'function' ? this.ctx.world.snapshot() : null;
     const food = snap && typeof snap.food === 'number' ? snap.food : null;
     const threshold = (this.cfg.behaviour && this.cfg.behaviour.eatFoodThreshold) || 16;
