@@ -274,7 +274,7 @@ async function main() {
     purpose: 'proposal'
   });
   assert(prep.status === 202 && prep.body.purpose === 'proposal', 'purpose=proposal must create a goal');
-  assert(prepWorld.created.length === 1 && prepWorld.created[0].maxGoalRounds === 1, 'prep goal caps rounds at 1');
+  assert(prepWorld.created.length === 1 && prepWorld.created[0].maxGoalRounds === 3, 'prep goal caps rounds at 3');
   assert(/mc_observe/.test(prepWorld.created[0].objective), 'prep objective must require observation');
   assert(/autonomous/.test(prepWorld.created[0].objective), 'prep objective must require mc_propose autonomous');
   assert(/do not|no execution|only observe/i.test(prepWorld.created[0].objective), 'prep objective must forbid execution');

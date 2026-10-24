@@ -17,7 +17,7 @@
 const DEFAULT_IDLE_MS = 300000;
 const DEFAULT_RESPONSE_MS = 30000;
 const DEFAULT_PREP_TIMEOUT_MS = 90000;
-const DEFAULT_MAX_GOAL_ROUNDS = 1;
+const DEFAULT_MAX_GOAL_ROUNDS = 3;
 const DEFAULT_EXECUTION_ROUNDS = 6;
 
 class AutonomousProposalCoordinator {
@@ -186,8 +186,17 @@ class AutonomousProposalCoordinator {
       : null;
     if (plans) {
       if (plans.active) return 'plan-running';
-      if (Array.isArray(plans.plans) && plans.plans.some((plan) => ['pending', 'running', 'waiting'].includes(plan.state))) {
-        return 'plan-pending';
+      /**
+       * Only a plan that is actually running or parked on a player question blocks the
+       * body. A stale `pending` plan (restored from an older session, or submitted with
+       * start:false) never owns the body; counting it reset the 5-minute idle clock forever
+       * on this machine's old A29 fixture.
+       */
+      if (
+        Array.isArray(plans.plans) &&
+        plans.plans.some((plan) => plan.state === 'running' || plan.state === 'waiting')
+      ) {
+        return 'plan-active';
       }
     }
     const pending = brain.proposals && typeof brain.proposals.pending === 'function' ? brain.proposals.pending() : null;

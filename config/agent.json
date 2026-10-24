@@ -61,7 +61,7 @@
       "idleMs": 300000,
       "responseMs": 30000,
       "prepTimeoutMs": 90000,
-      "maxGoalRounds": 1,
+      "maxGoalRounds": 3,
       "executionGoalRounds": 6
     }
   },

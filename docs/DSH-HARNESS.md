@@ -237,7 +237,7 @@ resume 一次。
 `planner.mode=off` 且连续 5 分钟没有显式任务/计划/目标/提案阻塞时，Node 的
 `src/planner/autonomousProposals.js` 向已绑定的动作脑注入一个 **proposal-prep goal**：
 
-1. 插件 `POST /goal {purpose:"proposal", maxGoalRounds:1}` 创建持久 goal；objective 要求
+1. 插件 `POST /goal {purpose:"proposal", maxGoalRounds:3}` 创建持久 goal；objective 要求
    `mc_observe({full:true})` 读取完整客户端状态，并且**只允许观察/提案**；
 2. prep 期间插件 guard 拒绝 `mc_step`/`mc_plan`/`mc_say`，`mc_propose` 必须带
    `autonomous:true`；非 prep 轮的 `autonomous:true` 被拒绝；
@@ -251,7 +251,7 @@ resume 一次。
 
 配置：`planner.autonomousProposals`（`enabled/idleMs/responseMs/prepTimeoutMs/maxGoalRounds/
 executionGoalRounds`）；`proposalTtlMs` 仍是 plan question 的默认值。离线
-`p1:proposal-autonomy:test` 13/13；插件测试覆盖 prep guard、`mc_observe(full)`、
+`p1:proposal-autonomy:test` 14/14；插件测试覆盖 prep guard、`mc_observe(full)`、
 `/goal/complete`。
 
 ### 边界

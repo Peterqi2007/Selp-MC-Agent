@@ -125,7 +125,7 @@ function makeHarness(now) {
     bridge,
     languageBrain,
     ctx,
-    cfg: { enabled: true, idleMs: 300000, responseMs: 30000, prepTimeoutMs: 90000, maxGoalRounds: 1 },
+    cfg: { enabled: true, idleMs: 300000, responseMs: 30000, prepTimeoutMs: 90000, maxGoalRounds: 3 },
     log: silent,
     now: () => now.value
   });
@@ -155,7 +155,7 @@ function propose(brain, autonomous = true, overrides = {}) {
     assert.strictEqual(result.reason, 'prep-started');
     assert.strictEqual(h.bridge.calls.length, 1);
     assert.strictEqual(h.bridge.calls[0].purpose, 'proposal');
-    assert.strictEqual(h.bridge.calls[0].maxGoalRounds, 1);
+    assert.strictEqual(h.bridge.calls[0].maxGoalRounds, 3);
     assert.strictEqual(h.coordinator.prepInFlight, true);
     assert.strictEqual(h.coordinator.awaitingProposal, true);
     assert.strictEqual(h.expressions.length, 0);
@@ -176,6 +176,20 @@ function propose(brain, autonomous = true, overrides = {}) {
     now.value += 1;
     assert.strictEqual((await h.coordinator.tick()).reason, 'prep-started');
     return 'blocked -> 5min after unblock only';
+  });
+
+  await check('a stale pending plan does not block the 5min clock', async () => {
+    const now = { value: 1_500_000 };
+    const h = makeHarness(now);
+    h.brain.planService.status = () => ({
+      active: null,
+      plans: [{ planId: 'a29-old', state: 'pending' }]
+    });
+    now.value += 300000;
+    const result = await h.coordinator.tick();
+    assert.strictEqual(result.reason, 'prep-started');
+    assert.strictEqual(h.bridge.calls.length, 1);
+    return 'pending (not running/waiting) is ignored';
   });
 
   await check('autonomous proposal is expressed once with a 30s TTL', async () => {

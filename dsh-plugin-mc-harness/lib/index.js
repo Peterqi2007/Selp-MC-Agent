@@ -1496,7 +1496,7 @@ export function apply(ctx, config = {}) {
             const request = { objective };
             const rounds = Number(parsed.maxGoalRounds);
             if (Number.isFinite(rounds) && rounds > 0) request.maxGoalRounds = rounds;
-            else if (purpose === 'proposal') request.maxGoalRounds = 1;
+            else if (purpose === 'proposal') request.maxGoalRounds = 3;
             created = goals.create(agent.agent, request);
           } catch (error) {
             return jsonReply(res, 409, {
