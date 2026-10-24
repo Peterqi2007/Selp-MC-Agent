@@ -818,6 +818,16 @@ function startStatusServer(ctx, options = {}) {
         return json(res, 200, { ok: record.ok !== false, record });
       }
 
+      /** Test-only ChatMemory compact: exercises summary + bounded recent entries. */
+      if (req.method === 'POST' && url.pathname === '/test/chat-compact') {
+        if (!testHooks) return json(res, 404, { ok: false, error: 'not found' });
+        if (!ctx.chatMemory || typeof ctx.chatMemory.compact !== 'function') {
+          return json(res, 503, { ok: false, error: 'chat memory unavailable' });
+        }
+        const summary = ctx.chatMemory.compact();
+        return json(res, 200, { ok: true, summary, status: ctx.chatMemory.status() });
+      }
+
       /** Test-only respawn event: exercises SpeechScheduler.respawn -> LanguageBrain. */
       if (req.method === 'POST' && url.pathname === '/test/respawn') {
         if (!testHooks) return json(res, 404, { ok: false, error: 'not found' });
