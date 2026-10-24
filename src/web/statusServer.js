@@ -819,6 +819,88 @@ function startStatusServer(ctx, options = {}) {
         return json(res, 200, { ok: record.ok !== false, record });
       }
 
+      /** Test-only planted autonomous proposal for lifecycle paths (reject/expire/supersede). */
+      if (req.method === 'POST' && url.pathname === '/test/proposal-plant') {
+        if (!testHooks) return json(res, 404, { ok: false, error: 'not found' });
+        const proposals = ctx.brain && ctx.brain.proposals;
+        if (!proposals || typeof proposals.propose !== 'function') {
+          return json(res, 503, { ok: false, error: 'proposal desk unavailable' });
+        }
+        let body = {};
+        try {
+          body = JSON.parse((await readRaw(req)) || '{}');
+        } catch {
+          return json(res, 400, { ok: false, error: 'invalid JSON' });
+        }
+        const name = String(body.name || 'a25-client-test').trim();
+        const type = String(body.type || 'farm').trim();
+        const candidate = {
+          name,
+          type,
+          args: body.args && typeof body.args === 'object' ? body.args : {},
+          reason: String(body.reason || 'A25 客户端测试：是否执行这个自主提案？'),
+          autonomous: true,
+          allowStandingAuth: false,
+          ttlMs: Math.max(1000, Math.min(Number(body.ttlMs) || 30000, 300000))
+        };
+        const result = proposals.propose(candidate);
+        await new Promise((resolve) => setTimeout(resolve, 1200));
+        const pending = typeof proposals.pending === 'function' ? proposals.pending() : null;
+        return json(res, result.ok ? 200 : 409, {
+          ok: result.ok,
+          result,
+          pending: pending
+            ? { id: pending.id, target: pending.target, expiresAt: pending.expiresAt, reason: pending.reason }
+            : null
+        });
+      }
+
+      /** Test-only proposal prep: starts one autonomous action-brain proposal round. */
+      if (req.method === 'POST' && url.pathname === '/test/proposal-prep') {
+        if (!testHooks) return json(res, 404, { ok: false, error: 'not found' });
+        const coordinator = ctx.proposalCoordinator;
+        if (!coordinator || typeof coordinator.startPrep !== 'function') {
+          return json(res, 503, { ok: false, error: 'proposal coordinator unavailable' });
+        }
+        if (ctx.brain && ctx.brain.proposals && typeof ctx.brain.proposals.pending === 'function' && ctx.brain.proposals.pending()) {
+          return json(res, 409, { ok: false, error: 'proposal-pending' });
+        }
+        const prep = await coordinator.startPrep();
+        const deadline = Date.now() + 20000;
+        let pending = null;
+        while (Date.now() < deadline) {
+          pending = ctx.brain && ctx.brain.proposals && typeof ctx.brain.proposals.pending === 'function'
+            ? ctx.brain.proposals.pending()
+            : null;
+          if (pending) break;
+          await new Promise((resolve) => setTimeout(resolve, 250));
+        }
+        return json(res, 200, {
+          ok: !!pending,
+          prep,
+          pending: pending
+            ? {
+                id: pending.id,
+                target: pending.target,
+                reason: pending.reason,
+                autonomous: !!(pending.candidate && pending.candidate.autonomous),
+                expiresAt: pending.expiresAt
+              }
+            : null,
+          coordinator: coordinator.snapshot()
+        });
+      }
+
+      /** Test-only proposal expiry: no answer is not consent. */
+      if (req.method === 'POST' && url.pathname === '/test/proposal-expire') {
+        if (!testHooks) return json(res, 404, { ok: false, error: 'not found' });
+        const proposals = ctx.brain && ctx.brain.proposals;
+        const pending = proposals && typeof proposals.pending === 'function' ? proposals.pending() : null;
+        if (!pending) return json(res, 409, { ok: false, error: 'no-pending-proposal' });
+        const expired = proposals.sweep(Math.max(Date.now(), Number(pending.expiresAt) + 1));
+        return json(res, 200, { ok: !!expired, expired: expired ? { id: expired.id, target: expired.target, status: expired.status } : null });
+      }
+
       /** Test-only ChatMemory compact: exercises summary + bounded recent entries. */
       if (req.method === 'POST' && url.pathname === '/test/chat-compact') {
         if (!testHooks) return json(res, 404, { ok: false, error: 'not found' });

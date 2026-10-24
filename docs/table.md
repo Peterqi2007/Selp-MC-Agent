@@ -16,14 +16,14 @@
 | M4-D01 | code-skill 发言 | codeSkill chat 经语言脑 roleplay；不再直接 ctx.reply | 未执行；M4 其他代码技能项不属于语言脑 |
 | M6-A23 | 多人普通聊天参与/沉默 | 真实第二名玩家固定 40 组 ×3；参与组 ≥80%；沉默组误插话 ≤10% | 未执行；需第二名真实玩家 | partial（真实玩家 6 条全沉默；未 40×3） |
 | M6-A24 | 聊天并发 | 同批消息不重复回复；不自我对话；过时请求不重判；silence 生效；ChatMemory 上下文更新 | 未执行 | pass（4 并发：4 user/1 assistant，无重复；测试钩子合成发送者） |
-| M6-A25 | 自主提案四条路径 | accept / reject / 不答 / 另派；未接受不执行；拒绝后 3 分钟不重复；不答非同意 | 未执行；需确认 ProposalChat 与语言脑的单一入口关系 | 未执行（无 DSH 自主提案/动作脑会话） |
+| M6-A25 | 自主提案四条路径 | accept / reject / 不答 / 另派；未接受不执行；拒绝后 3 分钟不重复；不答非同意 | 未执行；需确认 ProposalChat 与语言脑的单一入口关系 | pass（accept 真 harness p14；reject/不答/另派 测试钩子植入，lifecycle 已验） |
 | M6-C03 | ChatMemory 长期记忆 | 所有非 `!` 玩家消息入库；grep/compact 正常；动作脑回复 attach 到原请求；panel/游戏内一致 | panel 已入库；缺真实玩家、compact、跨重启召回 | pass（compact 后 41 entries；重启后 grep C03 token 成功） |
 | M6-F02 | 单一发言者 | 普通聊天不再触发 A11 chat 直发；语言脑与 A11/M6 不同时说话；ChatMemory 不重复写 user | 代码已切断，未真机多人验证 | pass（普通聊天后日志无 chat wake；同批仅 1 assistant） |
 | M7-A26 | 回归与降级 | `!`、反射、取消、双通道在 unified 下不退化；关模型/搜索/CU 时仍可降级 | 未执行 |
 | M7-F03 | 默认统一与回退 | 默认 unified 可启动；language.brain=legacy 可完整回退；旧插件无 source 不绕过语言脑；raw:true 例外 | 默认 unified/旧插件路径已跑；legacy 回退未回归 |
 | M7-E03 | 证据归档 | 上述结果写回 A 矩阵/客户端记录；未执行项不填 PASS；记录版本/账号/配置/证据路径 | 尚未归档 |
 
-M6 证据见 [`M6-LANGUAGE-TESTS.md`](M6-LANGUAGE-TESTS.md)。A23 仍缺真实第二名玩家 40×3；A25 缺 DSH 自主提案会话。
+M6 证据见 [`M6-LANGUAGE-TESTS.md`](M6-LANGUAGE-TESTS.md)。A23 仍缺真实第二名玩家 40×3；A25 详见 [`M6-A25-CLIENT-TESTS.md`](M6-A25-CLIENT-TESTS.md)（accept 真 harness，其余受控植入）。
 
 ## 2026-10-24 执行证据
 
