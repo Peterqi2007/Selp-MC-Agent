@@ -11,6 +11,7 @@
  */
 
 const assert = require('assert');
+process.env.P1_STATE = 'off';
 const { EventEmitter } = require('events');
 const { ProposalDesk } = require('../src/planner/proposals');
 const { AutonomousProposalCoordinator } = require('../src/planner/autonomousProposals');
@@ -396,6 +397,49 @@ function propose(brain, autonomous = true, overrides = {}) {
     assert.strictEqual(result.via, 'llm');
     assert.deepStrictEqual(replies, ['附近有矿，要我去挖吗？回复 !proposal accept']);
     return 'model JSON parsed, only speech';
+  });
+
+  await check('Brain accepts a command-table proposal with no TASK_BUILDER (farm)', async () => {
+    const { Brain } = require('../src/brain');
+    const { loadConfig } = require('../src/util/config');
+    const cfg = loadConfig({ profile: null });
+    const ctx = {
+      cfg,
+      log: silent,
+      body: null,
+      bodyKind: 'test',
+      world: { snapshot: () => ({ ready: true, inventory: {}, emptySlots: 36, health: 20, food: 20, hostiles: [] }) },
+      nav: { stop() {}, interrupt() {} },
+      eat: { tick: async () => true },
+      combat: { defend: async () => true },
+      tools: { equipArmor: async () => true },
+      controller: { bot: null, isAlive: true, snapshot: () => ({ ready: true }), loadedPlugins: [] },
+      memory: { bump() {}, recordTask() {}, save() {}, landmark: () => null, summary: () => ({ deaths: 0 }) },
+      reply: () => true,
+      chat: { handlers: { farm: () => {}, mine: () => {} } }
+    };
+    const brain = new Brain(ctx);
+    ctx.brain = brain;
+    ctx.proposalCoordinator = { awaitingProposal: true, responseMs: 30000 };
+    const result = await brain.proposeFromHarness({
+      type: 'farm',
+      name: 'farm',
+      args: { radius: 6 },
+      reason: 'ripe carrot',
+      autonomous: true
+    });
+    assert.strictEqual(result.ok, true);
+    const pending = brain.proposals.pending();
+    assert(pending && pending.candidate.commandType === true, 'farm must be marked commandType');
+    const unknown = await brain.proposeFromHarness({
+      type: 'not-a-command',
+      name: 'x',
+      args: {},
+      autonomous: true
+    });
+    assert.strictEqual(unknown.ok, false);
+    assert.strictEqual(unknown.reason, 'unknown-task-type');
+    return 'farm accepted; unknown rejected';
   });
 
   const failed = results.filter((result) => !result.ok);

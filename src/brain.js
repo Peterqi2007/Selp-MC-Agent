@@ -1318,8 +1318,26 @@ class Brain {
         source: 'action-brain'
       };
       /** Validate before the player is asked; a bad proposal must not consume the 30s window. */
-      const task = buildTask(this.ctx, normalized);
-      if (!task) return { ok: false, reason: 'unknown-task-type' };
+      const builder = TASK_BUILDERS[type];
+      const commandType =
+        !builder &&
+        COMMAND_PROPOSAL_TYPES.has(type) &&
+        this.ctx.chat &&
+        this.ctx.chat.handlers &&
+        typeof this.ctx.chat.handlers[type] === 'function';
+      if (!builder && !commandType) return { ok: false, reason: 'unknown-task-type' };
+      if (builder) {
+        const task = buildTask(this.ctx, normalized);
+        if (!task) return { ok: false, reason: 'unknown-task-type' };
+      } else {
+        /**
+         * `farm`/`sleep`/`smelt` etc. are real commands in the local command table but
+         * have no TASK_BUILDERS factory. The autonomous path does not build a local task:
+         * it only asks the player, then the action brain executes via mc_step. Accepting
+         * the command-table proposal keeps "propose what the body can actually do" honest.
+         */
+        normalized.commandType = true;
+      }
     }
     const outcome = this.proposals.propose(normalized);
     if (!outcome.ok || !outcome.autoAccepted) return outcome;
@@ -1747,6 +1765,41 @@ class Brain {
  * module's job until S4 retires the legacy task classes. Keeping the factory here also
  * preserves the P0 audit's "the planner uses primitive tasks, not legacy ones" check.
  */
+/**
+ * Command-table actions that are safe to offer as autonomous proposals even though they
+ * have no TASK_BUILDERS factory. The proposal only asks; execution happens in the action
+ * brain's execution goal through mc_step. Control/admin/read-only commands are excluded.
+ */
+const COMMAND_PROPOSAL_TYPES = new Set([
+  'mine',
+  'chop',
+  'collect',
+  'hunt',
+  'eat',
+  'equip',
+  'armor',
+  'drop',
+  'place',
+  'use',
+  'attack',
+  'defend',
+  'shoot',
+  'explore',
+  'withdraw',
+  'deposit',
+  'come',
+  'craft',
+  'farm',
+  'sleep',
+  'smelt',
+  'fish',
+  'shelter',
+  'light',
+  'goto',
+  'follow',
+  'home'
+]);
+
 const TASK_BUILDERS = {
   deposit: (ctx, args) => new DepositTask(ctx, args),
   withdraw: (ctx, args) => new WithdrawTask(ctx, args),

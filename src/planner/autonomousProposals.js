@@ -287,13 +287,17 @@ class AutonomousProposalCoordinator {
       agentId,
       goal:
         `Execute the approved autonomous task: ${candidate.name || candidate.type}. ` +
-        'The player accepted the proposal; carry it out and report the real result.',
+        'The player accepted the proposal; carry it out and report the real result.' +
+        (candidate.commandType
+          ? ' This is a local command-table action; translate type+args into one mc_step command if needed.'
+          : ''),
       purpose: 'execute',
       proposal: {
         type: candidate.type,
         name: candidate.name,
         args: candidate.args || {},
-        reason: candidate.reason || ''
+        reason: candidate.reason || '',
+        commandType: candidate.commandType === true
       },
       maxGoalRounds: this.executionGoalRounds,
       replace: true

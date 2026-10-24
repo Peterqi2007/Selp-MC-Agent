@@ -251,7 +251,7 @@ resume 一次。
 
 配置：`planner.autonomousProposals`（`enabled/idleMs/responseMs/prepTimeoutMs/maxGoalRounds/
 executionGoalRounds`）；`proposalTtlMs` 仍是 plan question 的默认值。离线
-`p1:proposal-autonomy:test` 14/14；插件测试覆盖 prep guard、`mc_observe(full)`、
+`p1:proposal-autonomy:test` 15/15；插件测试覆盖 prep guard、`mc_observe(full)`、
 `/goal/complete`。
 
 ### 边界
