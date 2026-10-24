@@ -11,13 +11,15 @@ const crypto = require('node:crypto');
  */
 class HarnessBridge {
   /**
-   * @param {object} options { url, fetchImpl, timeoutMs, log }
+   * @param {object} options { url, fetchImpl, timeoutMs, log, agentId }
    */
   constructor(options = {}) {
     this.url = String(options.url || 'http://127.0.0.1:8770').replace(/\/+$/, '');
     this.fetchImpl = options.fetchImpl || (typeof fetch === 'function' ? fetch : null);
     this.timeoutMs = options.timeoutMs || 5000;
     this.log = options.log || { info() {}, warn() {}, debug() {} };
+    /** Configured live DSH conversation; /health.boundAgentId fills the gap after /bind. */
+    this.agentId = String(options.agentId || '').trim();
   }
 
   /**
@@ -99,6 +101,79 @@ class HarnessBridge {
     } finally {
       clearTimeout(timer);
     }
+  }
+
+  async _postJson(path, body) {
+    if (!this.fetchImpl) return { ok: false, reason: 'fetch-unavailable' };
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), this.timeoutMs);
+    try {
+      const res = await this.fetchImpl(`${this.url}${path}`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify(body || {}),
+        signal: controller.signal
+      });
+      let payload = {};
+      try {
+        payload = await res.json();
+      } catch {
+        payload = {};
+      }
+      return { ok: res.ok && payload.ok !== false, status: res.status, ...payload };
+    } catch (err) {
+      const aborted = err && (err.name === 'AbortError' || /abort/i.test(err.message || ''));
+      return { ok: false, reason: aborted ? 'timeout' : err.message };
+    } finally {
+      clearTimeout(timer);
+    }
+  }
+
+  async health() {
+    return this._getJson('/health');
+  }
+
+  /**
+   * The live DSH conversation this bridge may inject goals into.
+   * Configured id wins; otherwise the plugin's current /bind binding does.
+   */
+  async boundAgentId() {
+    if (this.agentId) return this.agentId;
+    const health = await this.health();
+    const id = health && health.ok && health.boundAgentId ? String(health.boundAgentId).trim() : '';
+    if (id) this.agentId = id;
+    return id || null;
+  }
+
+  /**
+   * Inject a durable harness goal (proposal prep or approved execution).
+   * @param {object} options { agentId, goal, purpose, proposal, maxGoalRounds, replace }
+   */
+  async createGoal(options = {}) {
+    const goal = String(options.goal || '').trim();
+    if (!goal) return { ok: false, reason: 'goal-required' };
+    const body = {
+      goal,
+      purpose: options.purpose || 'execute',
+      replace: options.replace === true
+    };
+    const agentId = String(options.agentId || '').trim();
+    if (agentId) body.agentId = agentId;
+    if (Number.isFinite(Number(options.maxGoalRounds)) && Number(options.maxGoalRounds) > 0) {
+      body.maxGoalRounds = Number(options.maxGoalRounds);
+    }
+    if (options.proposal && typeof options.proposal === 'object') body.proposal = options.proposal;
+    return this._postJson('/goal', body);
+  }
+
+  /** Best-effort cleanup for a proposal-prep goal (idempotent at the call site). */
+  async completeGoal(options = {}) {
+    const body = {};
+    const agentId = String(options.agentId || '').trim();
+    if (agentId) body.agentId = agentId;
+    if (options.goalId) body.goalId = String(options.goalId);
+    if (Number.isFinite(Number(options.revision))) body.revision = Number(options.revision);
+    return this._postJson('/goal/complete', body);
   }
 
   async listAgents() {

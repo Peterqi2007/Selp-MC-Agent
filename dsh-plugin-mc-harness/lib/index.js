@@ -24,6 +24,41 @@ export const name = 'dsh-mc-harness';
 const DEFAULT_CONTROL = 'http://127.0.0.1:8766';
 const DEFAULT_PORT = 8770;
 
+/**
+ * Every field the local observation cache exposes. `mc_observe({full:true})` uses this
+ * once in the autonomous-proposal prep round; it must be the real client snapshot, not a
+ * hand-picked summary (the action brain has to decide what task is worth proposing).
+ */
+const FULL_OBSERVATION_FIELDS = [
+  'position',
+  'yaw',
+  'pitch',
+  'dimension',
+  'health',
+  'food',
+  'dead',
+  'onGround',
+  'standingOn',
+  'hostiles',
+  'inventory',
+  'emptySlots',
+  'heldItem',
+  'heldDurability',
+  'players',
+  'nearbyItems',
+  'target',
+  'blocks',
+  'crops',
+  'fishing',
+  'time',
+  'weather',
+  'lightLevel',
+  'blockLight',
+  'screen',
+  'screenOpen',
+  'mouseGrabbed'
+];
+
 function jsonReply(res, status, value) {
   res.writeHead(status, { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store' });
   res.end(JSON.stringify(value));
@@ -64,17 +99,61 @@ function userMessage(text, prefix) {
 }
 
 function toolDefinitions({ controlUrl, record, log, runtime }) {
+  /**
+   * True while the injected goal is the autonomous-proposal prep round. During that round
+   * the action brain may read and propose, but must not touch the body: the player has not
+   * approved anything yet.
+   */
+  const prepActive = () => {
+    const id = runtime.prepGoalId || null;
+    if (!id) return false;
+    const goal = typeof runtime.goalOf === 'function' ? runtime.goalOf(runtime.agent) : null;
+    /**
+     * Keep the guard until Node explicitly closes the prep round (`/goal/complete`) or
+     * replaces it with an execution goal. The model may call update_goal complete and then
+     * try a body tool in the same turn; a phase-based guard would allow that execution
+     * before the player has approved anything.
+     */
+    if (!goal || goal.id !== id) {
+      runtime.prepGoalId = null;
+      return false;
+    }
+    return true;
+  };
+
   const observe = {
     name: 'mc_observe',
     description:
       'Read the live Minecraft agent state (position, health, time, current task). ' +
-      'Call this before planning and after a failed step.',
-    parameters: { type: 'object', properties: {}, additionalProperties: false },
+      'Pass full:true to read the complete client state (inventory, hostiles, blocks, ' +
+      'players, crops, screen...) in one call; use full only for an autonomous-proposal ' +
+      'decision, not for polling. Call this before planning and after a failed step.',
+    parameters: {
+      type: 'object',
+      properties: {
+        full: {
+          type: 'boolean',
+          description: 'read every supported client-state field instead of the short summary'
+        }
+      },
+      additionalProperties: false
+    },
     output: {
       schema: { type: 'string' },
       render: (_args, value) => [{ type: 'text', text: value }]
     },
-    async execute() {
+    async execute(args = {}) {
+      if (args && args.full === true) {
+        const res = await fetch(`${controlUrl}/observe`, {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ fields: FULL_OBSERVATION_FIELDS, purpose: 'decision' })
+        });
+        if (!res.ok) throw new Error(`mc_observe(full) HTTP ${res.status}`);
+        const observation = await res.json();
+        record.observations.push({ full: true, ok: observation.ok !== false, at: new Date().toISOString() });
+        return JSON.stringify(observation);
+      }
       const res = await fetch(`${controlUrl}/ui/state`);
       if (!res.ok) throw new Error(`mc_observe HTTP ${res.status}`);
       const state = await res.json();
@@ -218,7 +297,12 @@ function toolDefinitions({ controlUrl, record, log, runtime }) {
         type: { type: 'string', description: 'command-table type, e.g. goto/mine/chop/craft/sleep/fish/withdraw/follow' },
         name: { type: 'string', description: 'target label for cooldown/authorization; defaults to type' },
         args: { type: 'object', description: 'task args' },
-        reason: { type: 'string', description: 'short player-facing reason' }
+        reason: { type: 'string', description: 'short player-facing reason' },
+        autonomous: {
+          type: 'boolean',
+          description:
+            'true only inside the injected autonomous-proposal prep round; false/omitted in normal conversation'
+        }
       },
       required: ['type'],
       additionalProperties: false
@@ -228,6 +312,13 @@ function toolDefinitions({ controlUrl, record, log, runtime }) {
       render: (_args, value) => [{ type: 'text', text: value }]
     },
     async execute(args) {
+      const autonomous = args.autonomous === true;
+      if (prepActive() && !autonomous) {
+        throw new Error('proposal-prep round: use mc_propose with autonomous:true');
+      }
+      if (!prepActive() && autonomous) {
+        throw new Error('autonomous proposal is only accepted inside an injected proposal-prep goal');
+      }
       const res = await fetch(`${controlUrl}/propose`, {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
@@ -235,12 +326,14 @@ function toolDefinitions({ controlUrl, record, log, runtime }) {
           type: args.type,
           name: args.name,
           args: args.args,
-          reason: args.reason
+          reason: args.reason,
+          autonomous
         })
       });
       const payload = await res.json();
       record.proposals.push({
         type: args.type,
+        autonomous,
         at: new Date().toISOString(),
         ok: payload.ok === true
       });
@@ -325,6 +418,9 @@ function toolDefinitions({ controlUrl, record, log, runtime }) {
       render: (_args, value) => [{ type: 'text', text: JSON.stringify(value) }]
     },
     async execute(args) {
+      if (prepActive()) {
+        throw new Error('proposal-prep round: no body actions; only observe and mc_propose');
+      }
       const command = String(args && args.command ? args.command : '').trim();
       if (!command) throw new Error('mc_step needs a command');
       record.steps.push({ command, at: new Date().toISOString() });
@@ -460,6 +556,9 @@ function toolDefinitions({ controlUrl, record, log, runtime }) {
       render: (_args, value) => [{ type: 'text', text: value }]
     },
     async execute(args) {
+      if (prepActive()) {
+        throw new Error('proposal-prep round: no plan submission; only observe and mc_propose');
+      }
       const steps = Array.isArray(args && args.steps) ? args.steps : [];
       if (!steps.length) throw new Error('mc_plan needs at least one step');
       const bound = !!runtime.agent;
@@ -637,6 +736,9 @@ function toolDefinitions({ controlUrl, record, log, runtime }) {
       render: (_args, value) => [{ type: 'text', text: value }]
     },
     async execute(args) {
+      if (prepActive()) {
+        throw new Error('proposal-prep round: do not speak yet; the language brain asks the player');
+      }
       const text = String((args && args.text) || '').trim();
       if (!text) throw new Error('mc_say needs text');
       let res;
@@ -729,6 +831,65 @@ export function apply(ctx, config = {}) {
       return null;
     }
   };
+  /**
+   * Autonomous-proposal preparation: read the whole client state and return ONE proposal.
+   * No body action is allowed; the plugin's prep guard rejects mc_step/mc_plan/mc_say while
+   * the prep goal is active.
+   */
+  const proposalPrepObjective = (goal) =>
+    [
+      'Minecraft action-brain AUTONOMOUS TASK PROPOSAL (proposal prep, no execution).',
+      `CONTEXT: ${goal}`,
+      '',
+      'Rules:',
+      '- This is a proposal round. The player has NOT approved anything. Do not move, mine,',
+      '  place, craft, fight, speak, or submit a plan; only observe and propose.',
+      '- Call mc_observe with {"full":true} ONCE. It returns the complete client state',
+      '  (position, health, food, inventory, hostiles, players, nearby items, target, blocks,',
+      '  crops, fishing, time, weather, light, screen). Read it before deciding.',
+      '- Use mc_state/mc_perception/mc_memory/lookup_mod_content only if the full snapshot',
+      '  leaves a specific question; do not poll.',
+      '- Propose at most ONE concrete command-table task that would genuinely help right now:',
+      '  call mc_propose({"autonomous":true,"type":"...","name":"...","args":{...},',
+      '  "reason":"why now"})',
+      '- Keep the proposal small enough to verify (one command-table action; put multi-step',
+      '  work in the later execution round, not here).',
+      '- If nothing is worth doing, do NOT invent work: call update_goal with action "complete"',
+      '  and a one-line reason. Do not spin or repeat the same proposal.',
+      '- After a successful mc_propose, call update_goal with action "complete".',
+      '- The language brain asks the player; the player answers !proposal accept/reject.',
+      '- Never call mc_step, mc_plan or mc_say in this round; they are rejected while the prep',
+      '  goal is active.'
+    ].join('\n');
+
+  /** After explicit approval: execute the exact proposal, then close the goal. */
+  const executionGoalObjective = (goal, proposal) => {
+    let proposalText = '';
+    try {
+      proposalText = JSON.stringify(proposal || {}).slice(0, 1200);
+    } catch {
+      proposalText = '';
+    }
+    return [
+      'Minecraft action-brain APPROVED AUTONOMOUS TASK (DeepSeek harness durable goal).',
+      `GOAL: ${goal}`,
+      proposalText ? `APPROVED PROPOSAL: ${proposalText}` : null,
+      '',
+      'The player explicitly approved this proposal. Execute it, do not re-propose it.',
+      'Tool contract:',
+      '- Read the current state once (mc_state or mc_observe full) before acting.',
+      '- Execute with mc_step for one action, or mc_plan for multi-step work with checkable',
+      '  postconditions. Do not replay the same steps with both tools.',
+      '- Report the real result with mc_say once; never claim success before the world confirms it.',
+      '- When the task is done call update_goal with action "complete"; if a blocker persists for',
+      '  three rounds call update_goal "blocked" with a specific blocked_reason.',
+      '- Do not propose another task in this goal; the autonomy coordinator handles the next',
+      '  idle proposal round.'
+    ]
+      .filter(Boolean)
+      .join('\n');
+  };
+
   const actionGoalObjective = (goal) =>
     [
       'Minecraft action-brain objective (DeepSeek harness durable goal).',
@@ -762,6 +923,13 @@ export function apply(ctx, config = {}) {
   const runtime = {
     agent: null,
     agentId: null,
+    /**
+     * Goal id of the current autonomous-proposal prep round. While this goal is active the
+     * body tools are locked; the action brain may only read and mc_propose.
+     */
+    prepGoalId: null,
+    /** Tool closures live outside apply(); expose the current-goal resolver to them. */
+    goalOf: (agent) => goalOf(agent),
     activeTurns: new Map(),
     streamAbort: null,
     disposed: false,
@@ -1170,6 +1338,57 @@ export function apply(ctx, config = {}) {
         });
       }
     }
+    /**
+     * Deterministic cleanup for a proposal-prep goal (timeout/reject/expiry), and a release
+     * for the prep guard. Completing an already-complete/absent goal is not an error for
+     * the caller: the proposal coordinator treats this endpoint as best effort.
+     */
+    if (req.method === 'POST' && url.pathname === '/goal/complete') {
+      let body = '';
+      for await (const chunk of req) body += chunk;
+      let parsed = {};
+      try {
+        parsed = JSON.parse(body || '{}');
+      } catch {
+        return jsonReply(res, 400, { ok: false, error: 'invalid JSON' });
+      }
+      const agents = typeof ctx.get === 'function' ? ctx.get('agents') : null;
+      const agentId = String(parsed.agentId || url.searchParams.get('agentId') || runtime.agentId || '').trim();
+      const live =
+        agentId && agents && typeof agents.get === 'function' ? agents.get(agentId) : runtime.agent;
+      const goals = goalsService();
+      const current = live ? goalOf(live) : null;
+      const targetId = String(parsed.goalId || (current && current.id) || '').trim();
+      runtime.prepGoalId = null;
+      if (!live) return jsonReply(res, 404, { ok: false, error: 'no-live-agent', completed: false });
+      if (!goals || typeof goals.complete !== 'function') {
+        return jsonReply(res, 503, { ok: false, error: 'goal service unavailable', completed: false });
+      }
+      if (!current) return jsonReply(res, 200, { ok: true, completed: false, error: 'no-goal' });
+      try {
+        const view = goals.complete(live, {
+          id: parsed.goalId || current.id,
+          revision: Number.isFinite(Number(parsed.revision)) ? Number(parsed.revision) : current.revision
+        });
+        log(`goal complete (cleanup): ${targetId || current.id}`);
+        return jsonReply(res, 200, { ok: true, completed: true, agentId: live.id || agentId || null, goal: view });
+      } catch (error) {
+        /**
+         * Racing the model's own update_goal complete is normal. If the goal is already
+         * complete, report success; otherwise surface the real code.
+         */
+        const after = goalOf(live);
+        if (after && after.phase === 'complete') {
+          return jsonReply(res, 200, { ok: true, completed: true, agentId: live.id || agentId || null, goal: after });
+        }
+        return jsonReply(res, 409, {
+          ok: false,
+          error: error.code || 'goal-complete-failed',
+          message: error.message,
+          goal: after || null
+        });
+      }
+    }
     if (req.method === 'POST' && url.pathname === '/goal') {
       if (busy) return jsonReply(res, 409, { ok: false, error: 'busy' });
       let body = '';
@@ -1183,7 +1402,15 @@ export function apply(ctx, config = {}) {
       let goal = String(parsed.goal || '').trim();
       let requestedAgentId = String(parsed.agentId || '').trim();
       const mode = String(parsed.mode || 'goal').toLowerCase();
+      const purpose = String(parsed.purpose || 'execute').toLowerCase();
+      const proposal = parsed.proposal && typeof parsed.proposal === 'object' ? parsed.proposal : null;
       if (!goal) return jsonReply(res, 400, { ok: false, error: 'goal is required' });
+      if (!['proposal', 'execute'].includes(purpose)) {
+        return jsonReply(res, 400, { ok: false, error: `unknown goal purpose: ${purpose}` });
+      }
+      if (purpose === 'proposal' && mode === 'text') {
+        return jsonReply(res, 400, { ok: false, error: 'proposal prep requires goal mode' });
+      }
       busy = true;
       record.observations.length = 0;
       record.perceptions.length = 0;
@@ -1249,6 +1476,7 @@ export function apply(ctx, config = {}) {
             }
             try {
               goals.clear(agent.agent, { id: current.id, revision: current.revision });
+              runtime.prepGoalId = null;
             } catch (error) {
               return jsonReply(res, 409, {
                 ok: false,
@@ -1259,9 +1487,16 @@ export function apply(ctx, config = {}) {
           }
           let created;
           try {
-            const request = { objective: actionGoalObjective(goal) };
+            const objective =
+              purpose === 'proposal'
+                ? proposalPrepObjective(goal)
+                : proposal
+                  ? executionGoalObjective(goal, proposal)
+                  : actionGoalObjective(goal);
+            const request = { objective };
             const rounds = Number(parsed.maxGoalRounds);
             if (Number.isFinite(rounds) && rounds > 0) request.maxGoalRounds = rounds;
+            else if (purpose === 'proposal') request.maxGoalRounds = 1;
             created = goals.create(agent.agent, request);
           } catch (error) {
             return jsonReply(res, 409, {
@@ -1270,10 +1505,12 @@ export function apply(ctx, config = {}) {
               message: error.message
             });
           }
-          log(`goal mode: created ${created && created.id} for ${agent.agent.id}`);
+          runtime.prepGoalId = purpose === 'proposal' && created ? created.id : null;
+          log(`goal mode: created ${created && created.id} for ${agent.agent.id} (purpose=${purpose})`);
           return jsonReply(res, 202, {
             ok: true,
             mode: 'goal',
+            purpose,
             agentId: agent.agent.id || null,
             sessionId: agent.agent.id || null,
             goal: created

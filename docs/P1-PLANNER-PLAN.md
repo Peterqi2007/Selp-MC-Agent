@@ -474,6 +474,14 @@ CU **复用现有 `dsh-computer-use` 插件**（本机 desktop profile 的 bundl
 拒绝后该轮结束，至少等待原方案约定的 3 分钟，不原样反复推同一提案；无回答不视为同意。普通采样不重复触发提案；保命反射无需等待提案获准。
 
 > **实施进展（2026-10-17，RETIREMENT S3）**：提案状态机已落地为 `src/planner/proposals.js` + `planner.mode=proposals`（默认仍 `legacy`），并用确定性入口 `!proposal status|accept [always]|reject` 做离线验收（接受 / 拒绝冷却 / 无答过期 / 另派取代 / 常驻授权）。**语言脑的措辞与回答解析仍在 M3/M6**，届时替换该入口而不改变状态机；真机多人 A25 未执行。
+>
+> **实施进展（2026-10-24，动作脑自主申请）**：在 `planner.mode=off` 下新增
+> `src/planner/autonomousProposals.js`（5 分钟空闲计时、proposal-prep goal、30 秒审批窗口、
+> reject/timeout 后重置 5 分钟），DSH `mc_propose(autonomous)` 为提案入口；批准后注入
+> execution goal，由动作脑执行，Node 不 `buildTask/enqueue`。`mc_observe({full:true})` 读取完整
+> 客户端状态；插件 prep guard 在提案轮拒绝 `mc_step/mc_plan/mc_say`。语言脑新增
+> `expressProposal`（模型措辞 + 模板兜底），批准入口仍为 `!proposal accept/reject`。
+> 离线套件 `p1:proposal-autonomy:test` 13/13；真机 A25 仍待执行。
 
 ## 三、验收标准
 

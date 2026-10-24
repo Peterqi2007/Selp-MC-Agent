@@ -436,14 +436,23 @@ class ChatController {
             this.say(result.reason === 'no-such-proposal' ? '现在没有待答的提案' : `提案没能接受（${result.reason}）`);
             return result;
           }
-          this.say(`好，开始做 ${result.proposal.target}` + (always ? '（这类以后不用再问）' : ''));
+          const autonomous = !!(result.proposal && result.proposal.candidate && result.proposal.candidate.autonomous);
+          this.say(
+            autonomous
+              ? `好，已交给动作脑执行「${result.proposal.target}」`
+              : `好，开始做 ${result.proposal.target}` + (always ? '（这类以后不用再问）' : '')
+          );
           return result;
         }
         if (sub === 'reject') {
           const result = await ctx.brain.rejectProposal(null, { by: 'player' });
+          const autonomous =
+            result.ok && result.proposal && result.proposal.candidate && result.proposal.candidate.autonomous;
           this.say(
             result.ok
-              ? `这次不做了（${result.proposal.target}，三分钟内不再提）`
+              ? autonomous
+                ? `这次不做了（${result.proposal.target}，5 分钟后再考虑）`
+                : `这次不做了（${result.proposal.target}，三分钟内不再提）`
               : '现在没有待答的提案'
           );
           return result;

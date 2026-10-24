@@ -20,6 +20,16 @@ import path from 'node:path';
 const ROOT = path.resolve(fileURLToPath(new URL('..', import.meta.url)));
 const silent = { info() {}, warn() {}, debug() {}, error() {} };
 
+async function rejects(fn, pattern, message) {
+  try {
+    await fn();
+  } catch (err) {
+    if (pattern.test(err.message || '')) return err;
+    throw new Error(`${message}: got "${err.message}"`);
+  }
+  throw new Error(`${message}: did not reject`);
+}
+
 function assert(cond, message) {
   if (!cond) throw new Error(message);
 }
@@ -38,8 +48,27 @@ function freePort() {
 /** Stub control endpoint: keeps the turn SSE open and records mc_say lines. */
 function startControlStub() {
   const said = [];
+  const proposals = [];
   return new Promise((resolve) => {
     const server = http.createServer((req, res) => {
+      if (req.method === 'POST' && (req.url === '/observe' || req.url === '/propose')) {
+        let body = '';
+        req.on('data', (chunk) => (body += chunk));
+        req.on('end', () => {
+          let parsed = {};
+          try {
+            parsed = JSON.parse(body || '{}');
+          } catch {
+            parsed = {};
+          }
+          if (req.url === '/propose') proposals.push(parsed);
+          res.writeHead(200, { 'content-type': 'application/json' });
+          res.end(JSON.stringify(req.url === '/observe'
+            ? { ok: true, fields: parsed.fields || [], full: true }
+            : { ok: true, proposal: { id: 'p-test' }, autoAccepted: false }));
+        });
+        return;
+      }
       if (req.method === 'POST' && req.url === '/say') {
         let body = '';
         req.on('data', (chunk) => (body += chunk));
@@ -64,7 +93,7 @@ function startControlStub() {
       res.writeHead(404, { 'content-type': 'application/json' });
       res.end('{}');
     });
-    server.listen(0, '127.0.0.1', () => resolve({ server, port: server.address().port, said }));
+    server.listen(0, '127.0.0.1', () => resolve({ server, port: server.address().port, said, proposals }));
   });
 }
 
@@ -106,6 +135,7 @@ function makeWorld({ withGoals = true } = {}) {
   const cleared = [];
   const paused = [];
   const resumed = [];
+  const completed = [];
   const followups = [];
   let current = null;
   const agent = {
@@ -146,6 +176,11 @@ function makeWorld({ withGoals = true } = {}) {
           resumed.push(ref);
           current = { ...current, phase: 'active', revision: current.revision + 1, activation: 'armed' };
           return current;
+        },
+        complete: (_agent, ref) => {
+          completed.push(ref);
+          current = { ...current, phase: 'complete', revision: current.revision + 1, activation: 'disarmed' };
+          return current;
         }
       }
     : null;
@@ -161,7 +196,7 @@ function makeWorld({ withGoals = true } = {}) {
     },
     cleanups: []
   };
-  return { ctx, tools, created, cleared, paused, resumed, followups, agent };
+  return { ctx, tools, created, cleared, paused, resumed, completed, followups, agent };
 }
 
 async function main() {
@@ -229,12 +264,73 @@ async function main() {
   const noGoal = await request(emptyPort, 'POST', '/goal/pause', { agentId: 'live-1' });
   assert(noGoal.status === 404 && noGoal.body.error === 'no-goal', 'pause without a goal must be 404');
 
-  for (const cleanup of [...world.ctx.cleanups, ...noGoalWorld.ctx.cleanups, ...emptyWorld.ctx.cleanups].reverse()) {
+  // ------------------------------------------------------------- proposal prep
+  const prepWorld = makeWorld();
+  const prepPort = await freePort();
+  await mod.apply(prepWorld.ctx, { port: prepPort, controlUrl: `http://127.0.0.1:${control.port}` });
+  const prep = await request(prepPort, 'POST', '/goal', {
+    agentId: 'live-1',
+    goal: 'find something useful to propose',
+    purpose: 'proposal'
+  });
+  assert(prep.status === 202 && prep.body.purpose === 'proposal', 'purpose=proposal must create a goal');
+  assert(prepWorld.created.length === 1 && prepWorld.created[0].maxGoalRounds === 1, 'prep goal caps rounds at 1');
+  assert(/mc_observe/.test(prepWorld.created[0].objective), 'prep objective must require observation');
+  assert(/autonomous/.test(prepWorld.created[0].objective), 'prep objective must require mc_propose autonomous');
+  assert(/do not|no execution|only observe/i.test(prepWorld.created[0].objective), 'prep objective must forbid execution');
+
+  const prepTools = Object.fromEntries(prepWorld.tools.map((tool) => [tool.name, tool]));
+  for (const name of ['mc_step', 'mc_plan', 'mc_say']) {
+    await rejects(
+      async () => prepTools[name].execute(
+        name === 'mc_step'
+          ? { command: 'goto 0 64 0' }
+          : name === 'mc_plan'
+            ? { goal: 'x', steps: [{ id: 's1', type: 'goto', args: { x: 0, y: 64, z: 0 } }] }
+            : { text: 'hello' }
+      ),
+      /proposal-prep round/,
+      `${name} must be rejected during proposal prep`
+    );
+  }
+  const full = JSON.parse(await prepTools.mc_observe.execute({ full: true }));
+  assert(full.ok === true && Array.isArray(full.fields) && full.fields.includes('inventory'), 'mc_observe full must request all fields');
+  await rejects(
+    async () => prepTools.mc_propose.execute({ type: 'mine', name: 'mine_dirt', args: { block: 'dirt' } }),
+    /autonomous:true/,
+    'mc_propose without autonomous must be rejected during prep'
+  );
+  const proposed = JSON.parse(
+    await prepTools.mc_propose.execute({
+      type: 'mine',
+      name: 'mine_dirt',
+      args: { block: 'dirt', count: 2 },
+      reason: 'dirt is useful',
+      autonomous: true
+    })
+  );
+  assert(proposed.ok === true, 'mc_propose autonomous must reach the local /propose endpoint');
+  assert(control.proposals.length === 1 && control.proposals[0].autonomous === true, 'autonomous flag must be forwarded');
+
+  const done = await request(prepPort, 'POST', '/goal/complete', { agentId: 'live-1' });
+  assert(done.status === 200 && prepWorld.completed.length === 1, '/goal/complete must complete the prep goal');
+  await rejects(
+    async () => prepTools.mc_propose.execute({ type: 'mine', name: 'x', args: {}, autonomous: true }),
+    /only accepted inside an injected proposal-prep goal/,
+    'autonomous proposal outside prep must be rejected'
+  );
+
+  for (const cleanup of [
+    ...world.ctx.cleanups,
+    ...noGoalWorld.ctx.cleanups,
+    ...emptyWorld.ctx.cleanups,
+    ...prepWorld.ctx.cleanups
+  ].reverse()) {
     try { await cleanup(); } catch { /* closing anyway */ }
   }
   await new Promise((resolve) => control.server.close(resolve));
   control.server.closeAllConnections?.();
-  console.log('goal mode: PASS (durable goal, GET, pause/resume, mc_say, goal-exists, replace, text fallback, loud 503)');
+  console.log('goal mode: PASS (durable goal, GET, pause/resume, mc_say, goal-exists, replace, text fallback, loud 503, proposal prep guard)');
 }
 
 main().catch((err) => {

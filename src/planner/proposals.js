@@ -54,13 +54,26 @@ class ProposalDesk {
    * @param {{name:string, rule:string, type:string, args:object, reason?:string}} candidate
    * @returns {{ok:boolean, proposal?:object, autoAccepted?:boolean, reason?:string, retryAt?:number}}
    */
-  propose(candidate) {
+  /**
+   * Offer a candidate. Never executes anything.
+   *
+   * `candidate.ttlMs` lets one proposal use a shorter answer window than the desk default
+   * (the action-brain autonomous round uses 30s while plan questions stay at 5min).
+   * `candidate.allowStandingAuth === false` keeps an unattended proposal from being
+   * auto-accepted by a target the player once authorized.
+   *
+   * @param {{name:string, rule:string, type:string, args:object, reason?:string, ttlMs?:number, allowStandingAuth?:boolean}} candidate
+   * @returns {{ok:boolean, proposal?:object, autoAccepted?:boolean, reason?:string, retryAt?:number}}
+   */
+  propose(rawCandidate) {
+    const candidate = rawCandidate || {};
     const at = this.now();
     this.sweep(at);
     if (this.current) return { ok: false, reason: 'pending', proposal: this.current };
     const target = candidate.name;
     const retryAt = this.cooldownUntil.get(target) || 0;
     if (at < retryAt) return { ok: false, reason: 'cooldown', target, retryAt };
+    const ttlMs = Number(candidate.ttlMs) > 0 ? Number(candidate.ttlMs) : this.ttlMs;
     const proposal = {
       id: `p${++this.seq}`,
       target,
@@ -68,7 +81,7 @@ class ProposalDesk {
       reason: candidate.reason || '',
       status: 'awaiting',
       createdAt: at,
-      expiresAt: at + this.ttlMs,
+      expiresAt: at + ttlMs,
       answeredAt: null,
       by: null,
       note: null
@@ -76,7 +89,7 @@ class ProposalDesk {
     this.current = proposal;
     this._remember(proposal);
     this._emit('proposal:new', proposal);
-    if (this.authorized.has(target)) {
+    if (candidate.allowStandingAuth !== false && this.authorized.has(target)) {
       proposal.status = 'accepted';
       proposal.answeredAt = at;
       proposal.by = 'standing-authorization';
@@ -98,6 +111,11 @@ class ProposalDesk {
     const proposal = this._match(id);
     if (!proposal) return { ok: false, reason: 'no-such-proposal' };
     const at = this.now();
+    /** A 2.5s sweep tick must not widen a 30s answer window: no late consent. */
+    if (at >= proposal.expiresAt) {
+      this.sweep(at);
+      return { ok: false, reason: 'expired', proposal };
+    }
     proposal.status = 'accepted';
     proposal.answeredAt = at;
     proposal.by = options.by || 'player';
@@ -112,6 +130,10 @@ class ProposalDesk {
     const proposal = this._match(id);
     if (!proposal) return { ok: false, reason: 'no-such-proposal' };
     const at = this.now();
+    if (at >= proposal.expiresAt) {
+      this.sweep(at);
+      return { ok: false, reason: 'expired', proposal };
+    }
     proposal.status = 'rejected';
     proposal.answeredAt = at;
     proposal.by = options.by || 'player';
@@ -206,7 +228,11 @@ class ProposalDesk {
     return {
       id: proposal.id,
       target: proposal.target,
+      name: candidate.name || candidate.type || null,
       type: candidate.type || null,
+      autonomous: candidate.autonomous === true,
+      allowStandingAuth: candidate.allowStandingAuth !== false,
+      ttlMs: proposal.expiresAt - proposal.createdAt,
       planId: args.planId || null,
       stepId: args.stepId || null,
       status: proposal.status,

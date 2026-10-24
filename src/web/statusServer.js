@@ -283,7 +283,8 @@ function startStatusServer(ctx, options = {}) {
           type: body.type,
           name: body.name,
           args: body.args,
-          reason: body.reason
+          reason: body.reason,
+          autonomous: body.autonomous === true
         });
         return json(res, result.ok ? 202 : 400, result);
       }
@@ -1197,6 +1198,10 @@ function uiState(ctx) {
      * failed or the local planner handed off.
      */
     dialogue: ctx.lastDialogueRoute || null,
+    /** Action-brain autonomous proposal clock/prep/execution state (read-only). */
+    proposalAutonomy: ctx.proposalCoordinator && typeof ctx.proposalCoordinator.snapshot === 'function'
+      ? ctx.proposalCoordinator.snapshot()
+      : null,
     /** Language-brain window/tool usage: proves which memory tool a turn actually used. */
     language: ctx.languageBrain && typeof ctx.languageBrain.status === 'function'
       ? ctx.languageBrain.status()

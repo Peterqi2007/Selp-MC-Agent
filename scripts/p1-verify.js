@@ -30,6 +30,7 @@ const suites = [
   { name: 'p1:contract:test', script: 'scripts/p1-contract-test.js' },
   { name: 'p1:m3:test', script: 'scripts/p1-m3-test.js' },
   { name: 'p1:m6:test', script: 'scripts/p1-m6-test.js' },
+  { name: 'p1:proposal-autonomy:test', script: 'scripts/p1-proposal-autonomy-test.js' },
   { name: 'p1:language:test', script: 'scripts/p1-language-test.js' },
   { name: 'p1:m7:test', script: 'scripts/p1-m7-test.js' },
   { name: 'p1:m4:test', script: 'scripts/p1-m4-test.js' },

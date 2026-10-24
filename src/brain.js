@@ -950,6 +950,16 @@ class Brain {
     } catch (err) {
       this.log.warn(`proposal sweep failed: ${err.message}`);
     }
+    /**
+     * Action-brain autonomous proposals: the coordinator owns the 5min/30s clocks and the
+     * prep/execution goal injection. It never touches the body; keep it off the critical
+     * path so a slow goal endpoint cannot delay reflexes or task scheduling.
+     */
+    if (this.ctx.proposalCoordinator) {
+      Promise.resolve(this.ctx.proposalCoordinator.tick()).catch((err) => {
+        this.log.debug(`autonomous proposal tick failed: ${err.message}`);
+      });
+    }
     if (this.paused || this.stopped || !this.attached) return;
     /**
      * A TaskHub job owns the body right now.
@@ -1248,15 +1258,28 @@ class Brain {
 
   /** Player accepted a proposal: build the task and enqueue it as an explicit directive. */
   async acceptProposal(id = null, options = {}) {
+    const pending = this.proposals.pending();
+    const candidate = pending && pending.candidate ? pending.candidate : null;
+    /**
+     * Action-brain autonomous proposals are not local tasks. The coordinator injects the
+     * execution goal first; only an accepted goal lets the harness execute.
+     */
+    if (candidate && candidate.autonomous === true && (!id || pending.id === id)) {
+      const coordinator = this.ctx.proposalCoordinator;
+      if (!coordinator || typeof coordinator.accept !== 'function') {
+        return { ok: false, reason: 'proposal-autonomy-unavailable' };
+      }
+      return coordinator.accept(pending);
+    }
     const result = this.proposals.accept(id, options);
     if (!result.ok) return result;
-    const candidate = result.proposal.candidate;
-    if (candidate && candidate.type === 'plan_question') {
-      const args = candidate.args || {};
+    const acceptedCandidate = result.proposal.candidate;
+    if (acceptedCandidate && acceptedCandidate.type === 'plan_question') {
+      const args = acceptedCandidate.args || {};
       const resumed = await this._answerPlan(args.planId, true, 'accepted');
       return { ...result, resumed };
     }
-    const task = buildTask(this.ctx, candidate);
+    const task = buildTask(this.ctx, acceptedCandidate);
     if (!task) return { ok: false, reason: 'unknown-task-type' };
     /** The accepted proposal is the request; its id is the provenance of the work. */
     if (!task.requestId) task.requestId = result.proposal.id;
@@ -1273,14 +1296,38 @@ class Brain {
     const type = String(candidate.type || '').trim();
     const name = String(candidate.name || type).trim();
     if (!type || !name) return { ok: false, reason: 'type-required' };
-    const outcome = this.proposals.propose({
+    const autonomous = candidate.autonomous === true;
+    let normalized = {
       rule: 'deepseek-harness',
       name,
       type,
       args: candidate.args && typeof candidate.args === 'object' ? candidate.args : {},
       reason: String(candidate.reason || '').slice(0, 500)
-    });
+    };
+    if (autonomous) {
+      const coordinator = this.ctx.proposalCoordinator;
+      if (!coordinator || coordinator.awaitingProposal !== true) {
+        return { ok: false, reason: 'not-in-proposal-round' };
+      }
+      normalized = {
+        ...normalized,
+        rule: 'action-brain-autonomous',
+        autonomous: true,
+        ttlMs: Number(coordinator.responseMs) > 0 ? Number(coordinator.responseMs) : 30000,
+        allowStandingAuth: false,
+        source: 'action-brain'
+      };
+      /** Validate before the player is asked; a bad proposal must not consume the 30s window. */
+      const task = buildTask(this.ctx, normalized);
+      if (!task) return { ok: false, reason: 'unknown-task-type' };
+    }
+    const outcome = this.proposals.propose(normalized);
     if (!outcome.ok || !outcome.autoAccepted) return outcome;
+    /** Autonomous proposals disable standing authorization; this is a defensive branch. */
+    if (autonomous) {
+      this.proposals.reject(outcome.proposal.id, { reason: 'autonomous-requires-explicit-approval' });
+      return { ok: false, reason: 'autonomous-requires-explicit-approval' };
+    }
     const task = buildTask(this.ctx, outcome.proposal.candidate);
     if (!task) return { ...outcome, ok: false, reason: 'unknown-task-type' };
     if (!task.requestId) task.requestId = outcome.proposal.id;

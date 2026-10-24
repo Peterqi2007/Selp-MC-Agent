@@ -508,6 +508,90 @@ class LanguageBrain {
     return `${speaker || '玩家'}: ${text}${source ? `\n(source: ${source})` : ''}`;
   }
 
+  /**
+   * Phrase one pending **action-brain task proposal** for the player.
+   *
+   * This is speech only. The proposal has not been approved and nothing may execute here;
+   * the player still answers with !proposal accept/reject (or ProposalChat). A deterministic
+   * fallback line keeps the 30s window alive when the model is unavailable.
+   *
+   * @param {object} proposal full ProposalDesk proposal ({candidate, reason, expiresAt})
+   * @returns {Promise<{ok:boolean, via:'llm'|'template', said:string|null, reason?:string}>}
+   */
+  async expressProposal(proposal = {}) {
+    const candidate = proposal.candidate && typeof proposal.candidate === 'object' ? proposal.candidate : proposal;
+    const target = String(candidate.name || candidate.type || '任务');
+    const reason = String(proposal.reason || candidate.reason || target).slice(0, 200);
+    const args = candidate.args && typeof candidate.args === 'object' ? candidate.args : {};
+    let argsText = '';
+    try {
+      argsText = JSON.stringify(args).slice(0, 300);
+    } catch {
+      argsText = '';
+    }
+    const fallback = () =>
+      `我有个提议：${reason}${argsText && argsText !== '{}' ? `（${argsText}）` : ''}。` +
+      '要我去做吗？回复 !proposal accept 或 !proposal reject，30 秒内有效。';
+    if (!this.enabled || typeof this.complete !== 'function') {
+      const said = fallback();
+      const spoke = await this._say(said, { source: 'proposal', profile: 'roleplay', kind: 'proposal' });
+      return { ok: spoke === true, via: 'template', said, reason: 'language-brain-unavailable' };
+    }
+
+    const system = [
+      'You are the language brain of a Minecraft survival agent. You are the only owner of player-facing speech.',
+      'The action brain has proposed one task, but the player has NOT approved it. Nothing has been executed.',
+      'Phrase exactly one short in-game line that asks the player whether to do it.',
+      'Mention the concrete task and the accept/reject command; do not execute, promise execution, or add another task.',
+      `Keep it under ${this.maxChars} characters. No URLs. No claims that anything already happened.`,
+      `Reply with exactly one JSON object: {"tool":"say","args":{"text":"..."}}`,
+      this.persona ? `Persona:\n${this.persona}` : null
+    ]
+      .filter(Boolean)
+      .join('\n');
+    const user = [
+      '[PENDING TASK PROPOSAL - AWAITING PLAYER APPROVAL]',
+      `target: ${target}`,
+      `what: ${reason}`,
+      argsText ? `arguments: ${argsText}` : null,
+      'The player may answer !proposal accept or !proposal reject. The window is 30 seconds.',
+      'Ask a single natural question. If you cannot phrase it, output silence; the local fallback will ask.'
+    ]
+      .filter(Boolean)
+      .join('\n');
+
+    let said = null;
+    let reasonText = null;
+    try {
+      const raw = await this.complete({
+        system,
+        messages: [{ role: 'user', content: user }],
+        maxTokens: 160,
+        timeoutMs: Math.min(this.timeoutMs || 8000, 6000),
+        usageContext: { requestId: `language-proposal-${Date.now()}-${++this.seq}`, kind: 'language:proposal' }
+      });
+      const call = parseToolCall(raw);
+      const tool = call && (call.tool || call.name);
+      if (tool === 'say') {
+        const text = stripSpokenSources((call.args || {}).text || call.say || '');
+        if (text) said = text.length > this.maxChars ? text.slice(0, this.maxChars) : text;
+      } else {
+        reasonText = tool === 'silence' ? 'model-silent' : 'malformed';
+      }
+    } catch (err) {
+      reasonText = err.message;
+    }
+
+    if (!said) {
+      reasonText = reasonText || 'model-silent';
+      said = fallback();
+      const spoke = await this._say(said, { source: 'proposal', profile: 'roleplay', kind: 'proposal' });
+      return { ok: spoke === true, via: 'template', said, reason: reasonText };
+    }
+    const spoke = await this._say(said, { source: 'proposal', profile: 'roleplay', kind: 'proposal' });
+    return { ok: spoke === true, via: 'llm', said, reason: spoke === true ? null : 'reply-dropped' };
+  }
+
   async _say(text, { source, profile, kind, requestId, inputText }) {
     if (typeof this.reply !== 'function') return false;
     const options = { why: `language-${profile}` };
@@ -515,7 +599,9 @@ class LanguageBrain {
       options.conversation = true;
       if (requestId) options.requestId = requestId;
     }
-    if (kind === 'action-output' || kind === 'proactive' || kind === 'question') options.force = true;
+    if (kind === 'action-output' || kind === 'proactive' || kind === 'question' || kind === 'proposal') {
+      options.force = true;
+    }
     let spoke = false;
     try {
       spoke = (await this.reply(text, options)) === true;

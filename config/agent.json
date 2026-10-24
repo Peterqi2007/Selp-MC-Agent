@@ -51,11 +51,19 @@
     "maxSidesteps": 2,
     "trace": "runtime/path-trace.jsonl"
   },
-  "_comment_planner": "M3 test policy: local planner is OFF. The DeepSeek harness is the only autonomous proposal/plan generator; it proposes via mc_propose and executes plans via mc_plan. Explicit !commands still run with mode='off'. proposalCooldownMs is how long a rejected/expired target is not proposed again; proposalTtlMs is how long a question waits for an answer (no answer is NOT consent).",
+  "_comment_planner": "M3 test policy: local planner is OFF. The DeepSeek harness is the only autonomous proposal/plan generator; it proposes via mc_propose and executes plans via mc_plan. Explicit !commands still run with mode='off'. proposalCooldownMs is how long a rejected/expired target is not proposed again; proposalTtlMs is how long a question waits for an answer (no answer is NOT consent). autonomousProposals injects a proposal-prep goal after idleMs without a blocking explicit task; the action brain must read the full client state and return mc_propose(autonomous); responseMs is the approval window and reject/timeout waits idleMs again. It never executes without approval.",
   "planner": {
     "mode": "off",
     "proposalCooldownMs": 180000,
-    "proposalTtlMs": 300000
+    "proposalTtlMs": 300000,
+    "autonomousProposals": {
+      "enabled": true,
+      "idleMs": 300000,
+      "responseMs": 30000,
+      "prepTimeoutMs": 90000,
+      "maxGoalRounds": 1,
+      "executionGoalRounds": 6
+    }
   },
   "_comment_state": "P1 M3/A17/A29 live entry. enabled=true turns on atomic session persistence so the M3 restart items can be tested: plans, proposals (pending question), event ring, budgets, methods/answers/memory are written to path (temp+rename); a corrupt file is renamed to .corrupt-<ts> and ignored. In-flight tasks/turns are never restored, and restore never starts a plan. Offline Brain suites run with P1_STATE=off so they cannot read or write this file.",
   "state": {

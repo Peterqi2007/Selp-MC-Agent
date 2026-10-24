@@ -340,8 +340,10 @@ async function main() {
     const { HarnessBridge } = require('./chat/harnessBridge');
     harnessBridge = new HarnessBridge({
       url: chatCfg.harnessUrl || 'http://127.0.0.1:8770',
+      agentId: chatCfg.harnessAgentId,
       log: new Logger('harness-bridge')
     });
+    ctx.harnessBridge = harnessBridge;
     ctx.forwardToActionBrain = (text, meta) => harnessBridge.forward(text, meta);
 
     const { DialogueRouter } = require('./chat/dialogueRouter');
@@ -796,6 +798,31 @@ async function main() {
       log.warn('language.brain=unified has no action-brain bridge; approval requests will be rejected');
     }
   }
+  /**
+   * Action-brain autonomous proposal coordinator (5min idle -> 30s proposal window).
+   * The local planner is off; this is the only scheduled path that wakes the harness
+   * without a player message. It never executes a proposal itself.
+   */
+  if (harnessBridge && actionBrainMode !== 'planner') {
+    const plannerCfg = (cfg.agent && cfg.agent.planner) || {};
+    const autonomyCfg = plannerCfg.autonomousProposals || {};
+    const { AutonomousProposalCoordinator } = require('./planner/autonomousProposals');
+    ctx.proposalCoordinator = new AutonomousProposalCoordinator({
+      brain,
+      bridge: harnessBridge,
+      languageBrain: ctx.languageBrain || null,
+      ctx,
+      cfg: autonomyCfg,
+      log: new Logger('proposal-autonomy')
+    });
+    brain.proposalCoordinator = ctx.proposalCoordinator;
+    ctx.proposalCoordinator.start();
+    log.info(
+      `autonomous proposals: ${autonomyCfg.enabled === false ? 'disabled' : 'enabled'} ` +
+        `(idle ${Number(autonomyCfg.idleMs) || 300000}ms, response ${Number(autonomyCfg.responseMs) || 30000}ms)`
+    );
+  }
+
   let languageDialogue = null;
   if (
     languageMode !== 'unified' &&
@@ -851,6 +878,19 @@ async function main() {
   if (dialogueTrigger) {
     log.info(`dialogue trigger: "${dialogueTrigger}" (character: ${persona.name}${persona.loaded ? '' : ' [default]'})`);
     chatListener.onDialogue = async (text, line) => {
+      /**
+       * A pending proposal owns a strict yes/no answer even on the addressed channel.
+       * "好"/"不" is approval, not a new action request; ambiguous lines still go to the
+       * language/action brain and are never treated as consent.
+       */
+      if (ctx.proposalChat) {
+        const handled = ctx.proposalChat.handle({
+          from: (line && (line.from || line.speaker)) || null,
+          text,
+          line
+        });
+        if (handled && handled.handled) return handled;
+      }
       /**
        * Unified mode: the language brain is the only owner. It classifies the line as an
        * action request (approval profile forwards the ORIGINAL text to the action brain),

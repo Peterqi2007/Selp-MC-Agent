@@ -232,6 +232,28 @@ resume 一次。
 - 离线：`p1:m6-test` 24/24（转发/绑定重试/未绑定/no-planner、planner-first 本地与 handoff、
   `onUnresolved:defer`、`/say`、面板路由）；插件 `plugin-goal-test` 增加 `mc_say` 断言。
 
+### 动作脑自主任务申请（2026-10-24）
+
+`planner.mode=off` 且连续 5 分钟没有显式任务/计划/目标/提案阻塞时，Node 的
+`src/planner/autonomousProposals.js` 向已绑定的动作脑注入一个 **proposal-prep goal**：
+
+1. 插件 `POST /goal {purpose:"proposal", maxGoalRounds:1}` 创建持久 goal；objective 要求
+   `mc_observe({full:true})` 读取完整客户端状态，并且**只允许观察/提案**；
+2. prep 期间插件 guard 拒绝 `mc_step`/`mc_plan`/`mc_say`，`mc_propose` 必须带
+   `autonomous:true`；非 prep 轮的 `autonomous:true` 被拒绝；
+3. 动作脑返回 `mc_propose({autonomous:true,type,name,args,reason})` → Node
+   `ProposalDesk`（TTL **30 秒**，禁用常驻授权）→ 语言脑
+   `LanguageBrain.expressProposal` 说给玩家，批准入口 `!proposal accept/reject`；
+4. 拒绝/30 秒无反应：完成 prep goal、清 guard、重置 5 分钟计时，绝不执行；
+5. 批准：Node 先注入 `purpose:"execute"` 的 execution goal（`replace:true`），再由动作脑执行；
+   Node **不** `buildTask/enqueue` 自主提案；
+6. 未绑定动作脑/DSH 不可用：只记录并等待下一轮，不伪造本地执行。
+
+配置：`planner.autonomousProposals`（`enabled/idleMs/responseMs/prepTimeoutMs/maxGoalRounds/
+executionGoalRounds`）；`proposalTtlMs` 仍是 plan question 的默认值。离线
+`p1:proposal-autonomy:test` 13/13；插件测试覆盖 prep guard、`mc_observe(full)`、
+`/goal/complete`。
+
 ### 边界
 
 - 隐藏 agent 不做 H1；live `/goal` 要求预先存在一个 DSH 对话。
