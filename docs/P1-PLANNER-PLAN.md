@@ -481,7 +481,7 @@ CU **复用现有 `dsh-computer-use` 插件**（本机 desktop profile 的 bundl
 > execution goal，由动作脑执行，Node 不 `buildTask/enqueue`。`mc_observe({full:true})` 读取完整
 > 客户端状态；插件 prep guard 在提案轮拒绝 `mc_step/mc_plan/mc_say`。语言脑新增
 > `expressProposal`（模型措辞 + 模板兜底），批准入口仍为 `!proposal accept/reject`。
-> 离线套件 `p1:proposal-autonomy:test` 15/15；真机 A25 仍待执行。
+> 离线套件 `p1:proposal-autonomy:test` 16/16；真机 A25 仍待执行。
 
 ## 三、验收标准
 

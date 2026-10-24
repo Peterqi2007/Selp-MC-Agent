@@ -244,6 +244,7 @@ resume 一次。
 3. 动作脑返回 `mc_propose({autonomous:true,type,name,args,reason})` → Node
    `ProposalDesk`（TTL **30 秒**，禁用常驻授权）→ 语言脑
    `LanguageBrain.expressProposal` 说给玩家，批准入口 `!proposal accept/reject`；
+   该路径**强制发言**：模型返回 silence/畸形/超时都落确定性模板，不允许提案被静默；
 4. 拒绝/30 秒无反应：完成 prep goal、清 guard、重置 5 分钟计时，绝不执行；
 5. 批准：Node 先注入 `purpose:"execute"` 的 execution goal（`replace:true`），再由动作脑执行；
    Node **不** `buildTask/enqueue` 自主提案；
@@ -251,7 +252,7 @@ resume 一次。
 
 配置：`planner.autonomousProposals`（`enabled/idleMs/responseMs/prepTimeoutMs/maxGoalRounds/
 executionGoalRounds`）；`proposalTtlMs` 仍是 plan question 的默认值。离线
-`p1:proposal-autonomy:test` 15/15；插件测试覆盖 prep guard、`mc_observe(full)`、
+`p1:proposal-autonomy:test` 16/16；插件测试覆盖 prep guard、`mc_observe(full)`、
 `/goal/complete`。
 
 ### 边界

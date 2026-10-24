@@ -443,11 +443,11 @@ class AutonomousProposalCoordinator {
     try {
       if (this.languageBrain && typeof this.languageBrain.expressProposal === 'function') {
         const result = await this.languageBrain.expressProposal(proposal);
-        if (result && result.ok) {
+        if (result && result.ok && result.said) {
           this.stats.expressed += 1;
           return result;
         }
-        this.log.warn(`proposal expression failed: ${(result && result.reason) || 'unknown'}`);
+        this.log.warn(`proposal expression failed or silent: ${(result && result.reason) || 'no said line'}`);
       }
     } catch (err) {
       this.log.warn(`proposal expression threw: ${err.message}`);

@@ -542,6 +542,8 @@ class LanguageBrain {
       'You are the language brain of a Minecraft survival agent. You are the only owner of player-facing speech.',
       'The action brain has proposed one task, but the player has NOT approved it. Nothing has been executed.',
       'Phrase exactly one short in-game line that asks the player whether to do it.',
+      'This proposal MUST be spoken: never output silence. If you cannot phrase it, still',
+      'return a plain say line asking whether to do the task.',
       'Mention the concrete task and the accept/reject command; do not execute, promise execution, or add another task.',
       `Keep it under ${this.maxChars} characters. No URLs. No claims that anything already happened.`,
       `Reply with exactly one JSON object: {"tool":"say","args":{"text":"..."}}`,
@@ -555,7 +557,7 @@ class LanguageBrain {
       `what: ${reason}`,
       argsText ? `arguments: ${argsText}` : null,
       'The player may answer !proposal accept or !proposal reject. The window is 30 seconds.',
-      'Ask a single natural question. If you cannot phrase it, output silence; the local fallback will ask.'
+      'Do not output silence: a task proposal must produce one spoken line. Ask a single natural question.'
     ]
       .filter(Boolean)
       .join('\n');

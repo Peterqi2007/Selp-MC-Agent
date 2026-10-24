@@ -379,6 +379,28 @@ function propose(brain, autonomous = true, overrides = {}) {
     return 'fallback names both accept/reject commands';
   });
 
+  await check('LanguageBrain.expressProposal never stays silent on a proposal', async () => {
+    const replies = [];
+    const brain = new LanguageBrain({
+      mode: 'unified',
+      complete: async () => '{"tool":"silence"}',
+      reply: async (text) => {
+        replies.push(text);
+        return true;
+      },
+      log: silent
+    });
+    const result = await brain.expressProposal({
+      reason: '附近有铁矿',
+      candidate: { type: 'mine_ore', name: 'mine_iron', args: { block: 'iron_ore' } }
+    });
+    assert.strictEqual(result.ok, true);
+    assert.strictEqual(result.via, 'template');
+    assert.strictEqual(replies.length, 1);
+    assert.ok(replies[0].includes('!proposal accept'));
+    return 'model silence -> mandatory fallback line';
+  });
+
   await check('LanguageBrain.expressProposal uses the model line when available', async () => {
     const replies = [];
     const brain = new LanguageBrain({
