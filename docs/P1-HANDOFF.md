@@ -33,7 +33,7 @@ npm run p1:baseline -- --suites  # 记录提交/配置指纹/套件结果到 run
 | `p1:proposal-autonomy:test` | **16/16** |
 | `p1:language:test` | **20/20** |
 | `p1:m7:test` | **11/11** |
-| `p1:m4:test` | **15/15** |
+| `p1:m4:test` | **19/19** |
 | `p1:fault:test` | **9/9** |
 | `plan:audit --stage p1` | **105/105** |
 

@@ -46,7 +46,7 @@
 | §1.6.1 | 分类记忆 | **部分** | `MemoryStore` 三类 + 中文 unigram/bigram 检索 + 持久化；`ChatMemory` 持久化聊天 save/grep/context/compact；task/plan 终态写 episodic；`/memory` + `mc_memory` 显式共享给行为脑；尚未驱动规划决策 |
 | §1.6.2 | 两个学习入口（搜索/指导） | **已落地（真机通过）** | 方法库/回答记忆 + 计划执行回写 + `suggestMethod`/`!method`；语言脑 `web_search`（无首选）与行为脑 `lookup_mod_content`（MC百科优先）均真机通过；A16 验证同条件复用不联网、不同物品重查、网页按不可信处理 |
 | §1.7.1 | 代码技能目录/生命周期 | **部分** | manifest、目录布局（candidates/promoted + 指针）、晋升/回退/下线、promoted-only 检索；真实试运行入口已接，**真机验收未做** |
-| §1.7.2 | 受限执行/后置验证/隔离 | **部分** | 权限子进程 + 超时/取消/清理 + 证据（2026-10-18 接真实执行，`p1:m4:test 15/15`）；vm/OS 级隔离仍未证明，A19 真机安全验收未执行 |
+| §1.7.2 | 受限执行/后置验证/隔离 | **部分** | 权限子进程 + 超时/取消/清理 + 证据（2026-10-18 接真实执行，`p1:m4:test 19/19`）；2026-10-25 接实时派发入口（`!code-skill`/`code_skill`，promoted-only）；vm/OS 级隔离仍未证明，A19 真机安全验收未执行 |
 | §1.7.3 | 动作脑工具面/语言脑收窄 | **已落地（2026-10-17）** | 两套清单、`say/silence`、语言 agent、可选对话通道、persona 注入；M2 真机确认语言面无 body 工具 |
 | §1.8.1 | CU 观察—动作闭环 | **部分** | `WindowPolicy` + `ComputerUseGuard`（拒绝不触达执行器）；**无真实 GUI/观察闭环** |
 | §1.8.2 | CU 中断与复用 | **未开始** | 无 |

@@ -24,6 +24,7 @@ const { CodeSkillStore } = require('../src/codeSkills/store');
 const { CodeSkillGeneration } = require('../src/codeSkills/generation');
 const { SandboxRunner } = require('../src/codeSkills/sandboxRunner');
 const { CodeSkillService } = require('../src/codeSkills/service');
+const { CodeSkillTask } = require('../src/tasks/codeSkill');
 const { WebSearch, unsafeQuery } = require('../src/llm/knowledge/webSearch');
 
 const silent = { info() {}, warn() {}, debug() {}, error() {} };
@@ -442,6 +443,82 @@ module.exports = {
     });
 
     fs.rmSync(root, { recursive: true, force: true });
+  }
+
+  {
+    process.stdout.write('\n6. live entry: !code-skill + code_skill task\n');
+
+    await check('the code_skill task dispatches only the promoted version and forwards params', async () => {
+      let seen = null;
+      const ctx = {
+        codeSkills: {
+          runPromoted: async (name, params, options) => {
+            seen = { name, params, options };
+            return { ok: true, name, version: '1.2.3', result: { ok: true }, evidencePath: '/tmp/evidence.json' };
+          }
+        }
+      };
+      const task = new CodeSkillTask(ctx, { name: 'agent.status_report', params: { threshold: 8 } });
+      const result = await task.execute();
+      assert.strictEqual(result.ok, true, JSON.stringify(result));
+      assert.strictEqual(task.name, 'code_skill');
+      assert.strictEqual(seen.name, 'agent.status_report');
+      assert.deepStrictEqual(seen.params, { threshold: 8 });
+      assert(seen.options && typeof seen.options.signal === 'object', 'the sandbox signal is forwarded');
+      assert.strictEqual(typeof seen.options.timeoutMs, 'number');
+      assert.strictEqual(result.version, '1.2.3');
+      assert.strictEqual(result.evidencePath, '/tmp/evidence.json');
+    });
+
+    await check('an unpromoted or unknown skill fails honestly and runs nothing', async () => {
+      let called = 0;
+      const ctx = {
+        codeSkills: {
+          runPromoted: async () => {
+            called += 1;
+            return { ok: false, reason: 'not-promoted' };
+          }
+        }
+      };
+      const task = new CodeSkillTask(ctx, { name: 'agent.missing' });
+      const result = await task.execute();
+      assert.strictEqual(called, 1);
+      assert.strictEqual(result.ok, false);
+      assert(/not-promoted/.test(result.reason), result.reason);
+    });
+
+    await check('cancel aborts the sandbox through the forwarded signal', async () => {
+      let signal = null;
+      const ctx = {
+        codeSkills: {
+          runPromoted: (name, params, options) =>
+            new Promise((resolve) => {
+              signal = options.signal;
+              options.signal.addEventListener('abort', () => resolve({ ok: false, reason: 'cancelled' }), { once: true });
+            })
+        }
+      };
+      const task = new CodeSkillTask(ctx, { name: 'agent.slow' });
+      const running = task.execute();
+      await new Promise((resolve) => setTimeout(resolve, 10));
+      assert(signal, 'the service received a signal');
+      task.cancel();
+      const result = await running;
+      assert.strictEqual(signal.aborted, true);
+      assert.strictEqual(result.ok, false);
+      assert.strictEqual(result.status, 'cancelled');
+    });
+
+    await check('!code-skill and code_skill are wired into the command table and TASK_BUILDERS', () => {
+      const commands = fs.readFileSync(path.join(__dirname, '..', 'src', 'chat', 'commands.js'), 'utf8');
+      const brain = fs.readFileSync(path.join(__dirname, '..', 'src', 'brain.js'), 'utf8');
+      assert(/'code-skill':\s*async/.test(commands), 'the !code-skill handler is missing');
+      assert(/new CodeSkillTask/.test(commands), '!code-skill does not enqueue CodeSkillTask');
+      assert(
+        /code_skill:\s*\(ctx, args\)\s*=>\s*new CodeSkillTask/.test(brain),
+        'code_skill is missing from TASK_BUILDERS (mc_plan/mc_step would reject it)'
+      );
+    });
   }
 
   const failed = results.filter((result) => !result.ok);

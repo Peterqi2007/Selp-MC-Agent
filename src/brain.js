@@ -21,6 +21,7 @@ const { GoToTask } = require('./tasks/goto');
 const { MineBlockTask } = require('./tasks/mineBlock');
 const { MineOreTask } = require('./tasks/mineOre');
 const { FishTask } = require('./tasks/fish');
+const { CodeSkillTask } = require('./tasks/codeSkill');
 const { ShelterTask } = require('./tasks/shelter');
 const { HuntTask } = require('./tasks/hunt');
 const { LightTask } = require('./tasks/light');
@@ -1812,6 +1813,12 @@ const TASK_BUILDERS = {
   mine: (ctx, args) => new MineBlockTask(ctx, args),
   'mine-ore': (ctx, args) => new MineOreTask(ctx, args),
   fish: (ctx, args) => new FishTask(ctx, args),
+  /**
+   * M4 live entry: `code_skill` steps run the CURRENT PROMOTED version through the sandbox
+   * (docs/P1-M4.md). Registered here so PlanService.knownStepTypes, mc_plan/mc_propose and
+   * submitExternalTask all accept it; only promotion makes a skill reachable.
+   */
+  code_skill: (ctx, args) => new CodeSkillTask(ctx, args),
   light: (ctx, args) => new LightTask(ctx, args)
 };
 

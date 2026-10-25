@@ -32,6 +32,7 @@ const { ChopWoodTask } = require('../tasks/chopWood');
 const { MineBlockTask } = require('../tasks/mineBlock');
 const { MineOreTask } = require('../tasks/mineOre');
 const { FishTask } = require('../tasks/fish');
+const { CodeSkillTask } = require('../tasks/codeSkill');
 const { GoToTask } = require('../tasks/goto');
 const { inventorySummary } = require('../world/items');
 const { Logger } = require('../util/logger');
@@ -65,6 +66,7 @@ const HELP = [
   '!target - what is under the crosshair right now',
   '!smelt <item> [n] - smelt in a nearby furnace',
   '!fish [n] - fish for food (cast, wait for the bite, sleep at night)',
+  '!code-skill list | <name> [json] - list/run a promoted generated code skill (sandboxed)',
   '!farm [radius] - harvest ripe crops, till soil, plant seeds',
   '!sleep - sleep in a nearby bed until morning',
   '!goal <text> - queue a goal in words',
@@ -353,6 +355,49 @@ class ChatController {
         const options = Number.isFinite(count) && count > 0 ? { count: Math.min(count, 256) } : {};
         this.say(options.count ? `去钓鱼，最多 ${options.count} 条` : '去钓鱼');
         return this.enqueue(new FishTask(ctx, options));
+      },
+      /**
+       * M4: run a promoted generated code skill (docs/P1-M4.md).
+       *
+       * Only the current promoted version is dispatchable; trials stay on the operator
+       * HTTP entry. Registering this command plus `code_skill` in TASK_BUILDERS is what
+       * lets the DSH action brain reach generated skills through `mc_step`
+       * (`code-skill <name>`) and `mc_plan` steps (`{"type":"code_skill", "args":{...}}`).
+       * The task keeps the body slot, cancellation and the event chain.
+       */
+      'code-skill': async (args) => {
+        if (!ctx.codeSkills) throw new Error('code skills are not enabled on this agent');
+        const first = String(args[0] || '').trim();
+        const promoted = (ctx.codeSkills.status() || {}).promoted || [];
+        if (!first || first === 'list') {
+          this.say(
+            promoted.length
+              ? `代码技能: ${promoted.map((skill) => `${skill.name}@${skill.version}`).join(', ')}`
+              : '还没有已晋升的代码技能'
+          );
+          return { ok: true, promoted };
+        }
+        const name = first === 'run' ? String(args[1] || '').trim() : first;
+        if (!name) throw new Error('usage: !code-skill list | !code-skill <name> [json params]');
+        if (!promoted.some((skill) => skill.name === name)) {
+          throw new Error(`unknown promoted code skill "${name}" (try !code-skill list)`);
+        }
+        const rest = (first === 'run' ? args.slice(2) : args.slice(1)).join(' ').trim();
+        let params = {};
+        if (rest) {
+          let parsed;
+          try {
+            parsed = JSON.parse(rest);
+          } catch {
+            throw new Error('code-skill params must be a JSON object');
+          }
+          if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+            throw new Error('code-skill params must be a JSON object');
+          }
+          params = parsed;
+        }
+        this.say(`运行代码技能 ${name}`);
+        return this.enqueue(new CodeSkillTask(ctx, { name, params }));
       },
       shelter: () => this.enqueue(new ShelterTask(ctx)),
       light: (args) => this.enqueue(new LightTask(ctx, { count: Number(args[0]) || 4 })),
