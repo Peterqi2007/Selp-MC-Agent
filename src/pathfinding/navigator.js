@@ -86,6 +86,13 @@ class PathNavigator {
     this.subgoalNeighbourRadius = options.subgoalNeighbourRadius === undefined ? 5 : options.subgoalNeighbourRadius;
     this.subgoalMaxAttempts = options.subgoalMaxAttempts === undefined ? 8 : options.subgoalMaxAttempts;
     this.subgoalTryBudgetMs = options.subgoalTryBudgetMs === undefined ? 6000 : options.subgoalTryBudgetMs;
+    /**
+     * Cancellation flag. `stop()` interrupts the walker, but without a flag the goTo loop
+     * would start the next leg immediately (live 2026-10-25: a cancelled code-skill walk
+     * kept moving ~20 blocks). goTo resets it at entry; each loop checks it before planning
+     * or walking again.
+     */
+    this._stopped = false;
     this.stats = { calls: 0, arrived: 0, failed: 0, iterations: 0, sidesteps: 0 };
   }
 
@@ -102,6 +109,7 @@ class PathNavigator {
    */
   async goTo(target, options = {}) {
     this.stats.calls += 1;
+    this._stopped = false;
     this._lastTarget = { x: target.x, y: target.y, z: target.z };
     const range = options.range === undefined ? 1 : options.range;
     const deadline = Date.now() + (options.timeoutMs || 120000);
@@ -131,6 +139,10 @@ class PathNavigator {
     while (iterations < this.maxIterations) {
       iterations += 1;
       this.stats.iterations += 1;
+
+      if (this._stopped) {
+        return this.done(false, 'cancelled', iterations);
+      }
 
       if (Date.now() > deadline) {
         return this.done(false, NAV_REASON.TIMEOUT, iterations);
@@ -587,6 +599,7 @@ class PathNavigator {
 
   /** Cut the current movement short (panel emergency stop, preemption). */
   stop() {
+    this._stopped = true;
     this.walker.interruptBody('navigator stop');
   }
 

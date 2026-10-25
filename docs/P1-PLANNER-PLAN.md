@@ -683,6 +683,9 @@ body 原语直接读世界状态并移动/挖掘/点击（不是只提交任务�
 > [`M4-DIRECT-BODY-PLAN.md`](M4-DIRECT-BODY-PLAN.md)，M4 重新进入实施与验收。
 > 新增证据要求：A18 两类目标必须由 `body_move/body_dig` 与容器 `body_use/body_click` 直接完成；
 > A19 覆盖权限门/屏幕/执行权/取消 8 类；A28–A30 用直接原语长任务重跑。
+> **结果（2026-10-25 同日）**：v2 实现（离线 `p1:m4:test 35/35`）并完成 **A18–A20、A28–A30 真机
+> PASS**（A19 适用子集：越界/抢身体/取消/deny/无屏点击/非敌对攻击/硬杀；残余 PauseScreen/第二玩家
+> 仅离线）。**M4 判 PASS（A19 适用子集）**；证据 [`M4-CLIENT-TESTS.md`](M4-CLIENT-TESTS.md) §10/§11。
 
 ### M5：computer_use 反馈与技能化
 

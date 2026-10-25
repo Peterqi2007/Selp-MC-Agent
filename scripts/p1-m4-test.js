@@ -853,6 +853,27 @@ module.exports = {
       assert(body.calls.some((call) => call.m === 'clickSlot'));
     });
 
+    await check('a skill that returns {ok:false} is a failed trial and cannot be promoted', async () => {
+      const service = makeService(makeBody(), makeSlot(), {
+        generation: {
+          generate: async () => ({
+            ok: true,
+            manifest: v2Manifest(['read_state']),
+            code: 'module.exports = { async run() { return { ok: false, reason: "refused" }; } };'
+          })
+        }
+      });
+      const generated = await service.generateCandidate({ prompt: 'skill-level failure' });
+      assert(generated.ok, JSON.stringify(generated));
+      const trial = await service.trial('agent.v2', '1.0.0', { timeoutMs: 3000 });
+      assert.strictEqual(trial.ok, false);
+      assert.strictEqual(trial.status, 'quarantined', JSON.stringify(trial));
+      assert.strictEqual(trial.result.result.reason, 'refused');
+      const promoted = service.promote('agent.v2', '1.0.0');
+      assert.strictEqual(promoted.ok, false);
+      assert.strictEqual(promoted.reason, 'not-trialled');
+    });
+
     await check('body_attack refuses players and attacks a hostile id', async () => {
       const body = makeBody();
       const service = makeService(body, makeSlot());

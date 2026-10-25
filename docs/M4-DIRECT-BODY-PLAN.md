@@ -144,7 +144,7 @@ module.exports = {
   `capabilities.js` 已加入 `--allow-fs-read`（仍无写/子进程/网络）。
 - **生成提示词**：`apiVersion: 2`，列出 `read_state` 有界 blocks 与 7 个 body 原语及“必须检查
   `{ok,reason}`”的约定；静态扫描（require/fs/net/eval/无限循环）不变。
-- **测试**：`p1:m4:test` **34/34**（新增 v2 manifest、bounded read_state、真实 sandbox
+- **测试**：`p1:m4:test` **35/35**（新增 v2 manifest、bounded read_state、真实 sandbox
   move+dig、越界拒绝、容器/暂停屏点击、body-busy、取消中断+释放、攻击仅敌对、HTTP/slotHeld
   租约、body_use 先装备再刷新屏幕后点击）；`p1:contract:test 206/206`；`p1:verify` **11/11**
   （`--fast` 10/10）。
@@ -153,8 +153,13 @@ module.exports = {
   `agent.table_click@1.0.1`（trial 槽 10→11、实时 `mc_plan` `plan-1792906694355-omr8a`
   completed 槽 11→10，`body_use`+`body_click`）；两技能均晋升后实时调用。证据
   [`M4-CLIENT-TESTS.md`](M4-CLIENT-TESTS.md) §10。
-- **未执行（需真实客户端）**：A19 八类安全用例、A20 半途失败、A28–A30 直接原语长任务。
-  M4 仍为“未通过”（A18 PASS，其余待验），旧编排证据仅历史。
-- **离线未覆盖 / 真机新发现**：真实 `permissionGate` 的 `ask/!yes`（A18 的 dig 未触发交互）、
-  取消/超时的按键释放；以及本服务器上 `CraftingScreen` 制作格槽位点击返回 ok 但菜单不变，
-  1.0.1 改用同一容器界面内的玩家槽位转移物品作为点击效果。
+- **A19/A20/A28–A30 真机（2026-10-25 追加，PASS）**：A19 越界 dig/place/use `target-too-far`、
+  `body-busy`、取消后位置稳定（修复 navigator 停止标志）、`deny break grass_block` 实时失败且
+  dirt 不变、无屏点击 `no-screen`、攻击 `Notch` `not-hostile`、硬杀 pending/无重放/清扫；
+  A20 `agent.half_fail`（move 后 throw）→ `quarantined`、promote/run 拒绝；A28 `long_task`
+  15.57s 单次结算（`plan-1792917996830-t2q0m`）；A29 硬杀恢复 pending；A30 6 次生成 10,352 tok。
+  证据 [`M4-CLIENT-TESTS.md`](M4-CLIENT-TESTS.md) §11。**M4 判 PASS（A19 适用子集）**。
+- **残余**：真实 PauseScreen 点击、真实第二玩家攻击仅离线；宿主硬杀时客户端可能完成当前一条腿
+  （本轮位置稳定），未做客户端侧 dead-man switch。真实 `permissionGate ask/!yes` 仍未触发过交互。
+- **真机新发现**：本服务器上 `CraftingScreen` 制作格槽位点击返回 ok 但菜单不变，A18 的
+  `table_click` 用同一容器界面内的玩家槽位转移物品作为点击效果。

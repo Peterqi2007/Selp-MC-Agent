@@ -74,6 +74,18 @@ function summarizeRun(result) {
   };
 }
 
+/**
+ * A sandbox run can finish (worker ok) while the skill itself reports `{ok:false}` - e.g.
+ * a body primitive was refused. That is a failed skill, not a successful task; the trial
+ * must quarantine it and live dispatch must report failure (live A19 permission-deny
+ * 2026-10-25 exposed the old behaviour logging success for a refused dig).
+ */
+function skillSucceeded(run) {
+  if (!run || run.ok !== true) return false;
+  if (run.result && typeof run.result === 'object' && run.result.ok === false) return false;
+  return true;
+}
+
 class CodeSkillService {
   constructor(deps = {}) {
     if (!deps.root) throw new Error('CodeSkillService needs a root');
@@ -299,12 +311,12 @@ class CodeSkillService {
       };
     }
     const record = this.store.recordTrial(name, version, {
-      ok: run.ok === true,
+      ok: skillSucceeded(run),
       report: { ...summarizeRun(run), evidencePath }
     });
     this._save();
     return {
-      ok: run.ok === true,
+      ok: skillSucceeded(run),
       name,
       version,
       status: record.status || null,
@@ -382,7 +394,7 @@ class CodeSkillService {
       this.log.warn(`promoted run evidence write failed: ${err.message}`);
     }
     return {
-      ok: run.ok === true,
+      ok: skillSucceeded(run),
       name,
       version: pointer.version,
       result: summarizeRun(run),

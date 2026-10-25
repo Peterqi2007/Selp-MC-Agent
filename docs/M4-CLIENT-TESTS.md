@@ -2,7 +2,7 @@
 
 > **2026-10-25 需求变更（重要）**：本文件 §1–§7 记录的 PASS 只覆盖**编排子集**——生成代码只能
 > `read_state / submit_task / chat / wait / search / generate / subprocess`，动作全部由命令表任务执行。
-> 操作员随后要求生成代码能**直接读 `/state` 并移动、挖掘、点击**；v2 已离线实现（§9，`p1:m4:test 34/34`），
+> 操作员随后要求生成代码能**直接读 `/state` 并移动、挖掘、点击**；v2 已离线实现（§9，`p1:m4:test 35/35`），
 > 且 **A18 已按 v2 直接原语在真实客户端 PASS（§10：move+dig、容器+click）**。旧编排 A18 不成立；
 > A19/A20/A28–A30 仍需按直接原语验证。方案见 [`M4-DIRECT-BODY-PLAN.md`](M4-DIRECT-BODY-PLAN.md)。
 
@@ -21,7 +21,7 @@
 | `code_skill` 任务类型 | `TASK_BUILDERS` 注册；`mc_plan` 单步计划实跑（见 A18） |
 | 动作脑 `mc_step` | 动作脑两次 `mc_step` 调用 `code-skill agent.status_report`（插件 `steps=2`） |
 | 取消 | `POST /code-skills/cancel` → `AbortController` → 子进程 `SIGKILL`，候选不隔离 |
-| 离线 | `p1:m4:test 34/34`（含任务派发/未晋升拒绝/取消/`isDay`/promote-rollback 状态机） |
+| 离线 | `p1:m4:test 35/35`（含任务派发/未晋升拒绝/取消/`isDay`/promote-rollback 状态机） |
 
 ## 2. A18 真实目标闭环（2 类，生成 → 试运行 → 效果 → 晋升 → 实时调用）
 
@@ -74,7 +74,7 @@
 | **失联（宿主硬杀）** | 运行中 `taskkill /F` 杀 Node agent → 子进程随 IPC 断开退出（无孤儿循环）；trial HTTP 连接失败；`run-*` 目录遗留 |
 | **拒绝清理** | 超时/取消均为 SIGKILL + 目录删除；宿主硬杀遗留的 `run-*` 目录由**启动清扫**移除（本次启动日志 `removed 4 stale sandbox dir(s)`，含 3 个 10-18 遗留） |
 
-加固（本轮新增，均在 `p1:m4:test 34/34`）：
+加固（本轮新增，均在 `p1:m4:test 35/35`）：
 
 1. **模块访问从 denylist 改为全拒**：escape 后也无法加载任何 builtin（原先 repl/crypto/perf_hooks 可达）。
 2. **`subprocessGuard.js` 预载**：子进程无网络/模块/逃逸钩子（Node 24 的 permission model 不覆盖网络）。
@@ -154,14 +154,14 @@
 | 项 | 判定 | 依据 |
 | --- | --- | --- |
 | A18 | **PASS（2026-10-25 真机，v2 直接原语）** | `agent.grass_dig@1.0.3`：试运行 dirt **1→2**、实时调用 **2→3**（`body_move`+`body_dig`，calls 无 `submit_task`）；`agent.table_click@1.0.1`：试运行把 cobblestone 从槽 10 移到 11，实时 `mc_plan` 再从 11 移到 10（`body_use`+两次 `body_click`）；两技能均生成→试运行→晋升→实时调用 |
-| A19 | **历史子集；直接原语 8 类未测** | vm/OS/覆盖内置/死循环/失联/清理仍有效；越界挖放用、非容器点击、多任务抢身体、取消后残留等只有离线用例（§9），**真机未验** |
-| A20 | **部分** | 旧编排候选的 quarantine/rollback/retire 有效；直接原语候选“动作到一半失败”未测 |
+| A19 | **PASS（适用子集，2026-10-25 真机）** | 越界 dig/place/use 全部 `target-too-far`（不动身体）；`body-busy` 拒绝；取消长移动后位置稳定（修复 navigator 停止标志后）；`deny break grass_block` 下实时挖失败且无背包变化；无屏点击 `no-screen`、攻击 `Notch` `not-hostile`；宿主硬杀后 plan pending、无重放、残留沙箱清扫；残余：真实操作员屏幕（PauseScreen）点击与真实第二名玩家攻击未做，仅离线/合成名验证 |
+| A20 | **PASS（直接原语半途失败）** | `agent.half_fail@1.0.0`：先 `body_move` 再 throw → trial `quarantined`、promote `not-trialled`、run `not-promoted`；位置不变、无后续动作；旧编排候选的回退/下线证据仍有效 |
 | A27 代码子项 | **PASS（生成管线部分）** | 真实模型回执、解析、沙箱、证据、token 账本；v2 真实生成已验（§10） |
-| A28（编码回合） | **需重跑** | 旧 slow_wait 长步骤证据只证明编排长步骤 |
-| A29（编码回合） | **需重跑** | 旧硬杀恢复只覆盖编排计划 |
-| A30（编码回合） | **需重跑** | 旧用量归属仍成立，但需覆盖直接原语长任务 |
+| A28（编码回合） | **PASS** | `agent.long_task@1.0.1` trial **15.57s**（4 次 `body_move` + wait）；动作脑 `mc_plan` `plan-1792917996830-t2q0m` 只结算一次、step done、plan completed、turn 1→0 |
+| A29（编码回合） | **PASS** | 同一长任务运行中硬杀 Agent；重启后 plan **pending v1/s1 pending**、无重放、无新 `code_skill`、启动清扫 1 个残留目录；客户端位置在杀后保持稳定 |
+| A30（编码回合） | **PASS** | 本回合 6 次 `code-generation` 共 **10,352 tok** 可归属；沙箱运行 3–17 次能力调用、无 LLM 用量 |
 | M4-D01 | **PASS** | code-skill 的 `chat` 经语言脑 roleplay 输出（试运行与实时播报均为语言脑措辞） |
-| M4 阶段 | **未通过（A18 PASS；A19/A20/A28–A30 待真机）** | 旧编排子集一度判 PASS；v2 原语已离线 34/34 且 A18 真机 PASS；A19/A20/A28–A30 未验 |
+| M4 阶段 | **PASS（A19 适用子集）** | v2 原语离线 35/35 + A18/A19/A20/A28–A30 真机；A19 残余（真实操作员屏点击/真实第二玩家攻击）记录在案 |
 
 ## 9. v2 直接身体原语离线实现（2026-10-25；**未跑真实客户端**）
 
@@ -174,7 +174,7 @@
 | 原语 | `body_move/body_dig/body_place/body_use/body_click/body_look/body_look_at/body_attack`；距离/屏幕/目标校验，超时与 abort 都调用 `body.interrupt()` |
 | 执行权 | 试运行与 HTTP `/run` 先 `TaskSlot.acquire({holdsBody:true})`，忙返回 `body-busy`；`CodeSkillTask` 传 `slotHeld:true`；finally 释放 |
 | 安全 | `body_click` 只在容器屏（`PauseScreen` → `operator-screen`）；`body_attack` 只接受快照里的敌对生物；静态扫描/vm 模块全拒不变 |
-| 离线证据 | `p1:m4:test` **34/34**（真实 sandbox 执行 move+dig、越界拒绝、容器/暂停屏点击、body-busy、取消中断+释放、攻击仅敌对、HTTP/slotHeld 租约）；`p1:contract:test 206/206`；`p1:verify 11/11` |
+| 离线证据 | `p1:m4:test` **35/35**（真实 sandbox 执行 move+dig、越界拒绝、容器/暂停屏点击、body-busy、取消中断+释放、攻击仅敌对、HTTP/slotHeld 租约）；`p1:contract:test 206/206`；`p1:verify 11/11` |
 | 未验 | 真实 `permissionGate` ask/`!yes`、真实导航/挖掘/点击物理终态、`body.interrupt` 对真实按键释放；需真机 A18/A19/A20/A28–A30 |
 
 证据路径：`scripts/p1-m4-test.js` §5（v2 用例）、`src/codeSkills/{capabilities,manifest,service,sandboxWorker,sandboxRunner}.js`、
@@ -207,7 +207,67 @@
 `...-run-1792906694359-oe5r39-run.json`（实时）；`/plan` 记录 `plan-1792906694355-omr8a`；
 `runtime/llm-usage.jsonl` 的两次 `code-generation`（生成 1.0.3/1.0.1）。
 
-**A18 判定：PASS（2026-10-25，v2 直接原语）**；A19/A20/A28–A30 仍未按直接原语验证。
+**A18 判定：PASS（2026-10-25，v2 直接原语）**。
+
+## 11. A19/A20/A28–A30 真机（2026-10-25，v2 直接原语）
+
+环境：同一真实客户端；日志 `runtime/logs/start-m4rest5/6-20261025.log`；游戏内 day 1399（白天）。
+
+### A19（PASS，适用子集）
+
+| 用例 | 结果 |
+| --- | --- |
+| 越界 dig/place/use | `agent.range_probe@1.0.0` trial：+10 格目标全部 `target-too-far`（distance 10 > limit 5），调用 4 次、未触达 body（`run-1792917516730-b97jpb.json`） |
+| 多任务抢身体 | `code-skill agent.slow_wait` 运行中 trial `range_probe` → `{ok:false, reason:"body-busy", current:{kind:"brain",id:"code_skill"}}`，无身体动作 |
+| 取消长移动 | `agent.long_move@1.0.0` trial 运行 2s 后 `/code-skills/cancel` → `cancelled`；修复 `PathNavigator` 停止标志后，位置在取消后 +1s/+4s 均稳定（35.07），目标 44.5 未到达（`run-1792917690397-nqz7bf.json`）。**修复前**同一测试在取消后仍走到 32.9——这是本轮发现的真实缺陷，见 §11.1 |
+| 权限门 deny | `rule deny break minecraft:grass_block` 后实时 `agent.grass_dig`：`permission: break minecraft:grass_block refused`、任务 `failed code_skill: dig failed: deny break ...`、dirt 2→2；规则已删除 |
+| 无屏点击/攻击非敌对 | `agent.refuse_probe@1.0.0` trial：`body_click` → `no-screen`，`body_attack({name:"Notch"})` → `not-hostile`，无世界动作（`run-1792918093831-vw9nvv.json`） |
+| 宿主硬杀 | A29：运行中 `taskkill /F`，重启后 plan pending、无重放、启动清扫残留目录；客户端位置杀后稳定 |
+
+残余：**真实操作员屏幕（PauseScreen）点击**与**真实第二名玩家攻击**未跑——两者只有离线假 Body 覆盖；
+`refuse_probe` 用不存在的玩家名验证 host 的 `not-hostile` 拒绝，不等同真实玩家实体。
+另：宿主硬杀后客户端可能完成当前一条腿（本轮位置稳定），未做客户端侧 dead-man switch。
+
+### A20（PASS，直接原语半途失败）
+
+- `agent.half_fail@1.0.0`：`read_state` → `body_move` → `throw new Error('intentional half failure after move')`；
+  trial `ok:false`、`quarantined`（`run-1792917501623-zpbcf1.json`，calls 2、467ms）；promote
+  `not-trialled`；`/code-skills/agent.half_fail/run` → `not-promoted`；位置未变、无后续动作。
+- 本轮修复：`CodeSkillTask` 的 `maxRetries=0`（不再重复同一失败技能）与原因取嵌套
+  `result.result.reason`；`skillSucceeded(run)` 把 `result.ok===false` 视为失败（否则权限 deny
+  会被记成 succeeded）。
+
+### A28（PASS，长步骤）
+
+- `agent.long_task@1.0.1`（v2；`read_state/body_move/wait`）trial **15.57s**：4 次 `body_move`（4 格）
+  + 3 次 wait；`run-1792917975207-ltl8ab.json`。
+- 动作脑 `mc_plan` `plan-1792917996830-t2q0m`：只产生 1 次 `done code_skill`，step done、计划
+  completed、postcondition `positionNear` 成立；插件 turn 1→0（单次续轮）。
+
+### A29（PASS，硬杀恢复）
+
+- 同一长任务通过 `mc_plan`（`plan-1792918043999-pc5yf`）运行中 `taskkill /F` 杀 Node Agent；
+  重启后 `state restored` 全 true、`removed 1 stale sandbox dir(s)`；计划恢复 **pending v1/s1 pending、
+  runId=null**，无重放、无新 `code_skill`；客户端位置杀后稳定（15.56,64,59.02）。
+
+### A30（PASS，用量）
+
+- 本回合共 6 次真实 `code-generation`（half_fail/range_probe/long_move/long_task×2/refuse_probe），
+  合计 **10,352 tokens**（`runtime/llm-usage.jsonl`）；沙箱运行 3–17 次能力调用、无 LLM 用量。
+
+### 11.1 本轮真机暴露并修复的缺陷
+
+1. **取消不停止移动**：`PathNavigator.stop()` 只打断 walker，`goTo` 循环会继续下一腿；取消后的
+   `long_move` 继续走了约 20 格。修复：`navigator._stopped` 标志，`goTo` 每轮检查、`stop()` 置位；
+   复测取消后位置稳定（`run-1792917690397-nqz7bf.json`）。
+2. **技能返回 `{ok:false}` 被当成成功**：service 只看 sandbox `ok`，权限 deny 的 dig 会让
+   `done code_skill: succeeded`；修复 `skillSucceeded()`，trial 失败进 `quarantined`，实时返回失败。
+3. **失败原因显示为 `completed`**：`CodeSkillTask` 取错嵌套层；改为
+   `result.result.result.reason`（技能结果）→ 日志显示 `dig failed: deny ...`。
+4. **失败技能被重试**：`CodeSkillTask` 默认 `maxRetries=2`，同一 deny 会重复挖；改为 0。
+
+证据：`runtime/code-skill-runs/agent.{range_probe,long_move,refuse_probe,half_fail,long_task}*.json`；
+`/plan` `plan-1792917996830-t2q0m`、`plan-1792918043999-pc5yf`；日志 `start-m4rest5/6-20261025.log`。
 
 证据路径：`runtime/code-skills/`（candidates/promoted/current 指针）、
 `runtime/code-skill-runs/`（每次试运行/实时运行 JSON）、`runtime/llm-usage.jsonl`（code-generation）、

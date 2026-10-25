@@ -27,7 +27,13 @@ class CodeSkillTask extends Task {
       name: 'code_skill',
       description: options.description || `run promoted code skill ${skill || '(missing name)'}`,
       timeoutMs: options.timeoutMs || 120000,
-      priority: options.priority
+      priority: options.priority,
+      /**
+       * One sandbox run is atomic; a refused/failed skill is deterministic, so retrying it
+       * immediately only repeats the same world action (live A19 deny 2026-10-25 retried a
+       * refused dig). Quarantine/plan semantics still apply to the failure.
+       */
+      maxRetries: options.maxRetries === undefined ? 0 : options.maxRetries
     });
     this.skillName = skill;
     this.params =
@@ -78,8 +84,12 @@ class CodeSkillTask extends Task {
         reason: `code skill ${this.skillName} succeeded`
       };
     }
+    const summary = result && result.result;
+    const skillResult = summary && summary.result;
     const reason =
-      (result && (result.reason || (result.result && result.result.reason))) ||
+      (skillResult && skillResult.reason) ||
+      (summary && summary.reason) ||
+      (result && result.reason) ||
       `code skill ${this.skillName} failed`;
     return {
       ok: false,

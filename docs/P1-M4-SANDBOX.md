@@ -5,8 +5,8 @@
 > 权限边界：`read_state / submit_task / chat / wait / search / generate / subprocess`；
 > 搜索经 Node 使用 DeepSeek Search；超时、撤销、失败清理、证据保留规则由本文件确定。
 > **2026-10-25 需求变更**：操作员要求生成代码直接 `/state` 读世界并移动/挖掘/点击；`body_*` 权限
-> 与 host 代理见 §2.1 与 [`M4-DIRECT-BODY-PLAN.md`](M4-DIRECT-BODY-PLAN.md)；**已实现（离线 34/34），
-> A18 真机 PASS（move+dig、容器+click）；A19/A20 未验**。
+> 与 host 代理见 §2.1 与 [`M4-DIRECT-BODY-PLAN.md`](M4-DIRECT-BODY-PLAN.md)；**已实现（离线 35/35），
+> A18–A20、A28–A30 真机 PASS（A19 适用子集；残余 PauseScreen/第二玩家仅离线）**。
 
 ## 1. 信任边界
 
@@ -32,12 +32,12 @@
 
 **全部 run 的硬限制**：默认 30s（上限 60s）；最多 100 次能力调用；结果/日志各 32KB；内存 `--max-old-space-size=128`；sandbox 目录一次性、结束后删除。
 
-### 2.1 直接身体原语（v2，2026-10-25 需求变更；**已实现，离线 34/34，真机未验**）
+### 2.1 直接身体原语（v2，2026-10-25 需求变更；**已实现，离线 35/35，A18–A20 真机 PASS**）
 
 > 现有手写/生成技能只有编排能力，操作员要求生成代码能直接读 `/state` 并移动、挖掘、点击。
 > `body_*` 权限**已加入** `manifest.js` 白名单（`apiVersion: 2`），并已在 `CodeSkillService`/worker/
-> runner 中实现；**离线测试通过（`p1:m4:test 34/34`），真实客户端验收尚未执行**。设计见
-> [`M4-DIRECT-BODY-PLAN.md`](M4-DIRECT-BODY-PLAN.md)。
+> runner 中实现；离线测试通过（`p1:m4:test 35/35`），真实客户端 A18–A20、A28–A30 已 PASS
+> （A19 残余 PauseScreen/第二玩家仅离线）。设计见 [`M4-DIRECT-BODY-PLAN.md`](M4-DIRECT-BODY-PLAN.md)。
 
 | 能力 | 映射 | 硬限制（已实现） |
 | --- | --- | --- |
@@ -107,7 +107,7 @@ node --permission
 
 ## 6. 验证
 
-- `npm run p1:m4:test`：**34/34**（权限集、状态持久化、生成解析、DeepSeek 请求形状/缓存/隐私过滤、
+- `npm run p1:m4:test`：**35/35**（权限集、状态持久化、生成解析、DeepSeek 请求形状/缓存/隐私过滤、
   真实子进程 read_state/chat/search/wait、能力拒绝、超时、撤销、父进程隔离、subprocess、证据、
   晋升/回退、`isDay` 派生、promote/rollback 单 promoted 记录、启动清扫、vm 逃逸回归、
   subprocess 网络/模块守卫、实时入口任务/命令注册；**v2：bounded read_state、真实 sandbox
