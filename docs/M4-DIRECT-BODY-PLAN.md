@@ -110,7 +110,8 @@ module.exports = {
 - `apiVersion: 2` 是新契约；v1（编排）技能保留为历史，不参与 M4 重新验收；`agent.status_report`
   等可继续作为编排示例，但不能作为 A18 证据。
 - 生成提示词/manifest 白名单加入 `body_*` 权限；静态扫描保持。
-- 面板/`/code-skills` 状态展示声明的 body 权限与最近一次原语调用。
+- `/code-skills` 的 candidates 已展示 manifest 的 permissions；每次原语调用的参数/结果/拒绝原因
+  在 evidence 的 `calls` 与 `body.lastRefusal` 中可查（不单独做“最近原语”面板字段）。
 - 文档：本文件为方案；[`P1-M4.md`](P1-M4.md) 记录状态；[`P1-M4-SANDBOX.md`](P1-M4-SANDBOX.md)
   更新权限表；[`P1-CLIENT-TESTS.md`](P1-CLIENT-TESTS.md)/[`P1-CLIENT-VERIFICATION.md`](P1-CLIENT-VERIFICATION.md)
   重新验收。
@@ -124,3 +125,31 @@ module.exports = {
 4. **测试**：离线假 Body（记录调用、模拟拒绝/超时/取消）+ `p1:m4`；真机 A18 两目标（移动挖掘、容器点击）、
    A19 八类、A28–A30 长任务重跑。
 5. **文档/判定**：回填 M4；只有新证据齐全才重新标 PASS。
+
+## 9. 实施状态（2026-10-25，离线 v2 已落地）
+
+按本方案已完成代码与**离线测试**（明确**未跑真实客户端**）：
+
+- **契约**：`manifest.js` 支持 `apiVersion: 2` 与 7 个 `body_*` 权限；`apiVersion: 1` 声明
+  body 权限会得到 `permission-requires-api-2:*`；未知权限仍拒绝。`capabilities.js` 是
+  worker/runner/service 共用的“ctx 方法 → 权限”表（`block_at/find_blocks` 归 `read_state`）。
+- **host**：`CodeSkillService` 新增 `block_at/find_blocks/body_move/body_dig/body_place/body_use/
+  body_click/body_look/body_look_at/body_attack`；`read_state` 支持有界 `blocks`（palette+cells，
+  ≤24000 字节自动截断）、`players/crops/items/includeMenu`；每个原语有距离/目标/屏幕校验与超时，
+  取消/超时会调用 `body.interrupt()`。
+- **执行权**：试运行与 HTTP `/run` 在执行 body 权限技能前 `TaskSlot.acquire({holdsBody:true})`，
+  忙则返回 `body-busy`（不排队、不并发）；`CodeSkillTask` 传 `slotHeld:true`，避免重复获取；
+  结束/取消/超时在 finally 释放。
+- **worker/runner**：只向 vm 注入声明过的 ctx 方法；runner 按能力表校验权限；worker 新增的
+  `capabilities.js` 已加入 `--allow-fs-read`（仍无写/子进程/网络）。
+- **生成提示词**：`apiVersion: 2`，列出 `read_state` 有界 blocks 与 7 个 body 原语及“必须检查
+  `{ok,reason}`”的约定；静态扫描（require/fs/net/eval/无限循环）不变。
+- **测试**：`p1:m4:test` **34/34**（新增 v2 manifest、bounded read_state、真实 sandbox
+  move+dig、越界拒绝、容器/暂停屏点击、body-busy、取消中断+释放、攻击仅敌对、HTTP/slotHeld
+  租约、body_use 先装备再刷新屏幕后点击）；`p1:contract:test 206/206`；`p1:verify` **11/11**
+  （`--fast` 10/10）。
+- **未执行（需真实客户端）**：A18 两类直接目标、A19 八类安全用例、A20 半途失败、A28–A30
+  直接原语长任务。按操作员口径本轮**不做真实客户端测试**；M4 仍为“未通过（重开）”，
+  旧编排证据仅历史。
+- **离线未覆盖**：真实 `permissionGate` 的 `ask/!yes` 交互、真实导航/挖掘/点击的物理终态、
+  `body.interrupt` 对真实客户端按键释放的效果；这些必须在真机 A18/A19 里验。

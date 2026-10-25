@@ -12,27 +12,31 @@
  *   - `version` is plain semver (`1.2.3`), so promotion/rollback can be exact;
  *   - `entry` is a relative `.js` path with no `..` and no absolute path - the runner must
  *     not be able to point outside the skill directory;
- *   - `permissions` is a subset of what the host offers. The 2026-10-18 sandbox grant is
- *     `read_state/submit_task/chat/wait/search/generate/subprocess`; direct `fs/net/exec`
- *     are still not on the list - search/generate go through the Node broker and subprocess
- *     is a controlled child script, not a raw shell;
- *   - `apiVersion` is the host contract version (currently 1).
+ *   - `permissions` is a subset of what the host offers. apiVersion 1 is the 2026-10-18
+ *     orchestration surface (`read_state/submit_task/chat/wait/search/generate/subprocess`);
+ *     apiVersion 2 (2026-10-25 direct-body requirement) adds `body_move/body_dig/
+ *     body_place/body_use/body_click/body_look/body_attack`. Direct `fs/net/exec` remain
+ *     unavailable; body primitives go through the single TaskSlot owner and permissionGate;
+ *   - `apiVersion` is the host contract version (1 = orchestration, 2 = direct body).
  *
  * This module does not read or run the entry file.
  */
 
 const NAME_PATTERN = /^[a-z][a-z0-9_-]*\.[a-z][a-z0-9_-]*$/;
 const VERSION_PATTERN = /^\d+\.\d+\.\d+$/;
-const ALLOWED_PERMISSIONS = new Set([
-  'read_state',
-  'submit_task',
-  'chat',
-  'wait',
-  'search',
-  'generate',
-  'subprocess'
-]);
-const API_VERSION = 1;
+const API_VERSION = 2;
+const API_VERSIONS = new Set([1, 2]);
+const LEGACY_PERMISSIONS = ['read_state', 'submit_task', 'chat', 'wait', 'search', 'generate', 'subprocess'];
+const BODY_PERMISSIONS = [
+  'body_move',
+  'body_dig',
+  'body_place',
+  'body_use',
+  'body_click',
+  'body_look',
+  'body_attack'
+];
+const ALLOWED_PERMISSIONS = new Set([...LEGACY_PERMISSIONS, ...BODY_PERMISSIONS]);
 
 function validateManifest(manifest) {
   const errors = [];
@@ -44,7 +48,7 @@ function validateManifest(manifest) {
   if (typeof manifest.version !== 'string' || !VERSION_PATTERN.test(manifest.version)) {
     errors.push('version-must-be-semver');
   }
-  if (manifest.apiVersion !== API_VERSION) errors.push(`apiVersion-must-be-${API_VERSION}`);
+  if (!API_VERSIONS.has(manifest.apiVersion)) errors.push('apiVersion-must-be-1-or-2');
 
   if (typeof manifest.entry !== 'string' || !manifest.entry) {
     errors.push('entry-required');
@@ -60,6 +64,9 @@ function validateManifest(manifest) {
   } else {
     for (const permission of manifest.permissions) {
       if (!ALLOWED_PERMISSIONS.has(permission)) errors.push(`permission-not-allowed:${permission}`);
+      else if (manifest.apiVersion === 1 && BODY_PERMISSIONS.includes(permission)) {
+        errors.push(`permission-requires-api-2:${permission}`);
+      }
     }
   }
 
@@ -75,4 +82,12 @@ function compareVersions(a, b) {
   return 0;
 }
 
-module.exports = { validateManifest, compareVersions, ALLOWED_PERMISSIONS, API_VERSION, NAME_PATTERN, VERSION_PATTERN };
+module.exports = {
+  validateManifest,
+  compareVersions,
+  ALLOWED_PERMISSIONS,
+  BODY_PERMISSIONS,
+  API_VERSION,
+  NAME_PATTERN,
+  VERSION_PATTERN
+};

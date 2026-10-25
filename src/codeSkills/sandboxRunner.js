@@ -22,6 +22,7 @@ const { spawn } = require('child_process');
 const fs = require('fs');
 const path = require('path');
 const { ALLOWED_PERMISSIONS } = require('./manifest');
+const { permissionFor } = require('./capabilities');
 
 const DEFAULT_TIMEOUT_MS = 30000;
 const MAX_TIMEOUT_MS = 60000;
@@ -166,6 +167,7 @@ class SandboxRunner {
         '--permission',
         `--allow-fs-read=${path.resolve(sandboxDir)}`,
         `--allow-fs-read=${path.resolve(this.workerPath)}`,
+        `--allow-fs-read=${path.resolve(__dirname, 'capabilities.js')}`,
         '--max-old-space-size=128',
         '--no-warnings',
         this.workerPath
@@ -238,8 +240,9 @@ class SandboxRunner {
           reply(false, 'call-budget-exhausted');
           return;
         }
-        if (!permissions.includes(capability)) {
-          callLog.push({ capability, denied: 'permission' });
+        const required = permissionFor(capability);
+        if (!required || !permissions.includes(required)) {
+          callLog.push({ capability, denied: 'permission', required });
           reply(false, `permission-denied:${capability}`);
           return;
         }

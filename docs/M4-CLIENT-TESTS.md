@@ -1,10 +1,10 @@
 # M4 代码技能客户端测试证据（2026-10-25）
 
-> **2026-10-25 需求变更（重要）**：本文件记录的 PASS 只覆盖**编排子集**——生成代码只能
+> **2026-10-25 需求变更（重要）**：本文件 §1–§7 记录的 PASS 只覆盖**编排子集**——生成代码只能
 > `read_state / submit_task / chat / wait / search / generate / subprocess`，动作全部由命令表任务执行。
 > 操作员随后要求生成代码能**直接读 `/state` 并移动、挖掘、点击**，因此本文件的 A18 按新需求
-> **不成立**，A19/A20/A28–A30 需按直接原语重验，M4 重开。方案见
-> [`M4-DIRECT-BODY-PLAN.md`](M4-DIRECT-BODY-PLAN.md)。本文件保留为历史子集证据。
+> **不成立**，A19/A20/A28–A30 需按直接原语重验，M4 重开。v2 已**离线实现**（§9，`p1:m4:test 34/34`），
+> 但**真实客户端未验**。方案见 [`M4-DIRECT-BODY-PLAN.md`](M4-DIRECT-BODY-PLAN.md)。
 
 环境：真实 Forge 1.20.1 客户端 + `agent-client` mod，`mc.example.com:25565`，Node agent
 `clientmod`；DSH 动作脑会话 **「Minecraft动作脑1」**
@@ -21,7 +21,7 @@
 | `code_skill` 任务类型 | `TASK_BUILDERS` 注册；`mc_plan` 单步计划实跑（见 A18） |
 | 动作脑 `mc_step` | 动作脑两次 `mc_step` 调用 `code-skill agent.status_report`（插件 `steps=2`） |
 | 取消 | `POST /code-skills/cancel` → `AbortController` → 子进程 `SIGKILL`，候选不隔离 |
-| 离线 | `p1:m4:test 24/24`（含任务派发/未晋升拒绝/取消/`isDay`/promote-rollback 状态机） |
+| 离线 | `p1:m4:test 34/34`（含任务派发/未晋升拒绝/取消/`isDay`/promote-rollback 状态机） |
 
 ## 2. A18 真实目标闭环（2 类，生成 → 试运行 → 效果 → 晋升 → 实时调用）
 
@@ -74,7 +74,7 @@
 | **失联（宿主硬杀）** | 运行中 `taskkill /F` 杀 Node agent → 子进程随 IPC 断开退出（无孤儿循环）；trial HTTP 连接失败；`run-*` 目录遗留 |
 | **拒绝清理** | 超时/取消均为 SIGKILL + 目录删除；宿主硬杀遗留的 `run-*` 目录由**启动清扫**移除（本次启动日志 `removed 4 stale sandbox dir(s)`，含 3 个 10-18 遗留） |
 
-加固（本轮新增，均在 `p1:m4:test 24/24`）：
+加固（本轮新增，均在 `p1:m4:test 34/34`）：
 
 1. **模块访问从 denylist 改为全拒**：escape 后也无法加载任何 builtin（原先 repl/crypto/perf_hooks 可达）。
 2. **`subprocessGuard.js` 预载**：子进程无网络/模块/逃逸钩子（Node 24 的 permission model 不覆盖网络）。
@@ -153,15 +153,32 @@
 
 | 项 | 判定 | 依据 |
 | --- | --- | --- |
-| A18 | **不成立（编排子集）** | `status_report`/`dirt_topup` 只做 read_state→submit_task→chat；**没有直接 move/dig/click**，按新需求不算 A18 |
-| A19 | **历史子集；直接原语 8 类未测** | vm/OS/覆盖内置/死循环/失联/清理仍有效；越界挖放用、非容器点击、多任务抢身体、取消后残留动作等未测 |
+| A18 | **不成立（编排子集）** | 旧 `status_report`/`dirt_topup` 只做 read_state→submit_task→chat；**没有直接 move/dig/click**。v2 直接原语已离线实现（§9），**真机 A18 未验** |
+| A19 | **历史子集；直接原语 8 类未测** | vm/OS/覆盖内置/死循环/失联/清理仍有效；越界挖放用、非容器点击、多任务抢身体、取消后残留等只有离线用例（§9），**真机未验** |
 | A20 | **部分** | 旧编排候选的 quarantine/rollback/retire 有效；直接原语候选“动作到一半失败”未测 |
-| A27 代码子项 | **PASS（生成管线部分）** | 真实模型回执、解析、沙箱、证据、token 账本；v2 manifest/原语代码生成未验 |
+| A27 代码子项 | **PASS（生成管线部分）** | 真实模型回执、解析、沙箱、证据、token 账本；v2 提示词已改，v2 真实生成未验 |
 | A28（编码回合） | **需重跑** | 旧 slow_wait 长步骤证据只证明编排长步骤 |
 | A29（编码回合） | **需重跑** | 旧硬杀恢复只覆盖编排计划 |
 | A30（编码回合） | **需重跑** | 旧用量归属仍成立，但需覆盖直接原语长任务 |
 | M4-D01 | **PASS** | code-skill 的 `chat` 经语言脑 roleplay 输出（试运行与实时播报均为语言脑措辞） |
-| M4 阶段 | **未通过（需求变更重开）** | 旧编排子集一度判 PASS；直接 body 原语能力尚未实现 |
+| M4 阶段 | **未通过（重开；v2 离线已实现）** | 旧编排子集一度判 PASS；v2 原语/租约/校验已离线 34/34，真实客户端 A18/A19/A20/A28–A30 未验 |
+
+## 9. v2 直接身体原语离线实现（2026-10-25；**未跑真实客户端**）
+
+按 [`M4-DIRECT-BODY-PLAN.md`](M4-DIRECT-BODY-PLAN.md) 落地，操作员本轮明确“只做离线测试”：
+
+| 项 | 结果 |
+| --- | --- |
+| 契约 | `apiVersion: 2` + 7 个 `body_*` 权限；v1 声明 body 权限被拒；`capabilities.js` 统一“ctx 方法→权限”（`block_at/find_blocks` 归 `read_state`） |
+| 读状态 | `read_state({blocks:{radiusXZ,radiusY,limit}, includePlayers, includeCrops, includeItems, includeMenu})`；blocks 为 palette+相对 cells、服务端限长（>24KB 自动截断），不返回整张 63k 映射 |
+| 原语 | `body_move/body_dig/body_place/body_use/body_click/body_look/body_look_at/body_attack`；距离/屏幕/目标校验，超时与 abort 都调用 `body.interrupt()` |
+| 执行权 | 试运行与 HTTP `/run` 先 `TaskSlot.acquire({holdsBody:true})`，忙返回 `body-busy`；`CodeSkillTask` 传 `slotHeld:true`；finally 释放 |
+| 安全 | `body_click` 只在容器屏（`PauseScreen` → `operator-screen`）；`body_attack` 只接受快照里的敌对生物；静态扫描/vm 模块全拒不变 |
+| 离线证据 | `p1:m4:test` **34/34**（真实 sandbox 执行 move+dig、越界拒绝、容器/暂停屏点击、body-busy、取消中断+释放、攻击仅敌对、HTTP/slotHeld 租约）；`p1:contract:test 206/206`；`p1:verify 11/11` |
+| 未验 | 真实 `permissionGate` ask/`!yes`、真实导航/挖掘/点击物理终态、`body.interrupt` 对真实按键释放；需真机 A18/A19/A20/A28–A30 |
+
+证据路径：`scripts/p1-m4-test.js` §5（v2 用例）、`src/codeSkills/{capabilities,manifest,service,sandboxWorker,sandboxRunner}.js`、
+`src/tasks/codeSkill.js`、`src/codeSkills/generation.js`（v2 提示词）。
 
 证据路径：`runtime/code-skills/`（candidates/promoted/current 指针）、
 `runtime/code-skill-runs/`（每次试运行/实时运行 JSON）、`runtime/llm-usage.jsonl`（code-generation）、

@@ -53,7 +53,12 @@ class CodeSkillTask extends Task {
     const result = await service
       .runPromoted(this.skillName, this.params, {
         timeoutMs: this.timeoutMs,
-        signal: this._controller.signal
+        signal: this._controller.signal,
+        /**
+         * TaskSlot.runTask() acquired the body for this task before execute(); the service
+         * must not try to acquire it again for direct-body skills.
+         */
+        slotHeld: true
       })
       .catch((err) => ({ ok: false, reason: `code-skill-error: ${err.message}` }));
 

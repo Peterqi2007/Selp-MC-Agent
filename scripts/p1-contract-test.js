@@ -952,7 +952,13 @@ function makeBrain() {
       assert(!validateManifest({ ...good, entry: '../evil.js' }).ok, 'entry must not escape the skill directory');
       assert(!validateManifest({ ...good, entry: '/etc/passwd.js' }).ok, 'entry must be relative');
       assert(!validateManifest({ ...good, permissions: ['exec'] }).ok, 'exec is not an allowed permission');
-      assert(!validateManifest({ ...good, apiVersion: 2 }).ok);
+      assert(validateManifest({ ...good, apiVersion: 2 }).ok, 'apiVersion 2 is the direct-body contract');
+      assert(!validateManifest({ ...good, apiVersion: 3 }).ok, 'only apiVersion 1 and 2 are supported');
+      assert(
+        !validateManifest({ ...good, apiVersion: 1, permissions: ['read_state', 'body_dig'] }).ok,
+        'body permissions require apiVersion 2'
+      );
+      assert(validateManifest({ ...good, apiVersion: 2, permissions: ['read_state', 'body_dig'] }).ok);
     });
   }
 

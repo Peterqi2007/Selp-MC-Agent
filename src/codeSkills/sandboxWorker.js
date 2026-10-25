@@ -23,6 +23,7 @@
 const fs = require('fs');
 const vm = require('vm');
 const Module = require('module');
+const { methodsForPermissions } = require('./capabilities');
 
 const spec = JSON.parse(process.env.SANDBOX_SPEC || '{}');
 delete process.env.SANDBOX_SPEC;
@@ -94,11 +95,21 @@ process.on('disconnect', () => exitProcess(0));
 
 const capabilities = {
   read_state: (args) => call('read_state', args || {}),
+  block_at: (args) => call('block_at', args || {}),
+  find_blocks: (args) => call('find_blocks', args || {}),
   submit_task: (args) => call('submit_task', args || {}),
   chat: (args) => call('chat', args || {}),
   search: (args) => call('search', args || {}),
   generate: (args) => call('generate', args || {}),
   subprocess: (args) => call('subprocess', args || {}),
+  body_move: (args) => call('body_move', args || {}),
+  body_dig: (args) => call('body_dig', args || {}),
+  body_place: (args) => call('body_place', args || {}),
+  body_use: (args) => call('body_use', args || {}),
+  body_click: (args) => call('body_click', args || {}),
+  body_look: (args) => call('body_look', args || {}),
+  body_look_at: (args) => call('body_look_at', args || {}),
+  body_attack: (args) => call('body_attack', args || {}),
   wait: async (ms) => {
     const delay = Math.min(Math.max(Number(ms) || 0, 0), 30000);
     await new Promise((resolve) => setTimeout(resolve, delay));
@@ -107,8 +118,10 @@ const capabilities = {
 };
 
 const context = {};
-for (const permission of Array.isArray(spec.permissions) ? spec.permissions : []) {
-  if (typeof capabilities[permission] === 'function') context[permission] = capabilities[permission];
+/** One ctx method may map to a broader permission (block_at/find_blocks -> read_state). */
+const wantedMethods = methodsForPermissions(spec.permissions);
+for (const method of Object.keys(wantedMethods)) {
+  if (typeof capabilities[method] === 'function') context[method] = capabilities[method];
 }
 context.log = (...values) => log('info', values);
 context.console = {

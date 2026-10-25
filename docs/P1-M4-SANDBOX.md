@@ -5,7 +5,8 @@
 > 权限边界：`read_state / submit_task / chat / wait / search / generate / subprocess`；
 > 搜索经 Node 使用 DeepSeek Search；超时、撤销、失败清理、证据保留规则由本文件确定。
 > **2026-10-25 需求变更**：操作员要求生成代码直接 `/state` 读世界并移动/挖掘/点击；`body_*` 权限
-> 与 host 代理见 §2.1 与 [`M4-DIRECT-BODY-PLAN.md`](M4-DIRECT-BODY-PLAN.md)，**当前尚未实现**。
+> 与 host 代理见 §2.1 与 [`M4-DIRECT-BODY-PLAN.md`](M4-DIRECT-BODY-PLAN.md)；**已实现并通过离线测试，
+> 真实客户端未验**。
 
 ## 1. 信任边界
 
@@ -31,14 +32,14 @@
 
 **全部 run 的硬限制**：默认 30s（上限 60s）；最多 100 次能力调用；结果/日志各 32KB；内存 `--max-old-space-size=128`；sandbox 目录一次性、结束后删除。
 
-### 2.1 直接身体原语（v2，2026-10-25 需求变更；**尚未实现**）
+### 2.1 直接身体原语（v2，2026-10-25 需求变更；**已实现，离线 34/34，真机未验**）
 
 > 现有手写/生成技能只有编排能力，操作员要求生成代码能直接读 `/state` 并移动、挖掘、点击。
-> 下列 `body_*` 权限**尚未加入** `manifest.js` 白名单，也未在 `CodeSkillService`/worker 中实现；
-> 在方案落地前，声明这些权限的 manifest 会被 `permission-not-allowed` 拒绝。设计见
+> `body_*` 权限**已加入** `manifest.js` 白名单（`apiVersion: 2`），并已在 `CodeSkillService`/worker/
+> runner 中实现；**离线测试通过（`p1:m4:test 34/34`），真实客户端验收尚未执行**。设计见
 > [`M4-DIRECT-BODY-PLAN.md`](M4-DIRECT-BODY-PLAN.md)。
 
-| 能力 | 映射 | 硬限制（计划） |
+| 能力 | 映射 | 硬限制（已实现） |
 | --- | --- | --- |
 | `block_at` / `find_blocks`（`read_state` 权限） | `body.blockAt/findBlocks` | 目标必须在已加载快照；`count≤32`、`maxDistance≤32`；不返回整图 |
 | `body_move` | `body.moveTo` | 目标距离 ≤64；单次 ≤30s；可被取消，取消后 `body.interrupt` |
@@ -106,10 +107,12 @@ node --permission
 
 ## 6. 验证
 
-- `npm run p1:m4:test`：**24/24**（权限集、状态持久化、生成解析、DeepSeek 请求形状/缓存/隐私过滤、
+- `npm run p1:m4:test`：**34/34**（权限集、状态持久化、生成解析、DeepSeek 请求形状/缓存/隐私过滤、
   真实子进程 read_state/chat/search/wait、能力拒绝、超时、撤销、父进程隔离、subprocess、证据、
   晋升/回退、`isDay` 派生、promote/rollback 单 promoted 记录、启动清扫、vm 逃逸回归、
-  subprocess 网络/模块守卫、实时入口任务/命令注册；2026-10-25 实跑）。
+  subprocess 网络/模块守卫、实时入口任务/命令注册；**v2：bounded read_state、真实 sandbox
+  move+dig、越界拒绝、容器/暂停屏点击、body-busy、取消中断+释放、攻击仅敌对、HTTP/slotHeld
+  租约**；2026-10-25 实跑）。
 - 实时入口（2026-10-25）：`!code-skill list|<name>` 与 `code_skill` 任务类型只派发**当前 promoted**
   版本（`runPromoted`），试运行仍只在 HTTP 入口；`mc_step`/`mc_plan` 可达同一入口，取消经
   AbortController 杀子进程。

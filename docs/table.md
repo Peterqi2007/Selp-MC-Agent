@@ -13,9 +13,9 @@
 | M3-C02 | 任务记忆只靠 grep | grep_task_memory 能召回 MemoryStore/MethodLibrary/AnswerMemory；任务日志不出现在系统上下文 | 未执行 | pass |
 | M3-E02 | 重启持久化 | 15 行窗口、未答问题、动作脑回复挂接 ChatMemory 均恢复；不重放动作；不自动唤醒旧请求 | 本轮只验证 13 行窗口恢复；缺 pending question/action attach | pass（pending question + window；attach 由 B01/集成覆盖） |
 | M3-D03 | taskDone / respawn 播报 | 任务完成、respawn 经语言脑 roleplay，允许 silence；低血/饥饿除外 | 未真机执行 | pass（taskDone + 合成 respawn） |
-| M4-A18 | 直接身体原语技能闭环 | 生成代码用 `read_state` + `body_move/body_dig`（或容器 `body_use/body_click`）产生真实效果；晋升/实时调用；未晋升不可见 | 直接原语未实现；旧编排子集（submit_task）不算 | reopened（2026-10-25 需求变更） |
-| M4-A19 | 直接原语安全边界 | 越界/未加载挖放用、非容器界面点击、多任务抢身体、取消后无残留动作、攻击玩家均被拒；权限门/执行权生效 | `body_*` 未实现；旧 vm/OS 子集仍有效 | reopened（直接原语 8 类未测） |
-| M4-A20 | 直接原语隔离/回退 | 动作到一半失败→quarantined；回退精确；不做半截动作 | 直接原语候选未实现 | reopened（旧编排候选 pass） |
+| M4-A18 | 直接身体原语技能闭环 | 生成代码用 `read_state` + `body_move/body_dig`（或容器 `body_use/body_click`）产生真实效果；晋升/实时调用；未晋升不可见 | v2 已离线实现；**真实客户端 A18 未验** | offline-implemented（真机待验；2026-10-25） |
+| M4-A19 | 直接原语安全边界 | 越界/未加载挖放用、非容器界面点击、多任务抢身体、取消后无残留动作、攻击玩家均被拒；权限门/执行权生效 | v2 越界/屏幕/租约/取消/攻击已离线（34/34）；真实 `permissionGate`/按键释放未验 | offline-implemented（真机待验） |
+| M4-A20 | 直接原语隔离/回退 | 动作到一半失败→quarantined；回退精确；不做半截动作 | 直接原语半途失败真机注入未验 | offline-partial（旧编排候选 pass） |
 | M4-D01 | code-skill 发言 | codeSkill chat 经语言脑 roleplay；不再直接 ctx.reply | 仅发言路径；M4 其他代码技能项见 A18–A20 | pass（2026-10-25：试运行 `chat` 与实时播报均 `why=language-roleplay`） |
 | M6-A23 | 多人普通聊天参与/沉默 | 真实第二名玩家固定 40 组 ×3；参与组 ≥80%；沉默组误插话 ≤10% | 真实玩家 6 条全沉默；缺 40×3 与阈值 | partial（真实玩家 6 条全沉默；未 40×3） |
 | M6-A24 | 聊天并发 | 同批消息不重复回复；不自我对话；过时请求不重判；silence 生效；ChatMemory 上下文更新 | 受控并发已过；真实多人未跑 | pass（4 并发：4 user/1 assistant，无重复；测试钩子合成发送者） |

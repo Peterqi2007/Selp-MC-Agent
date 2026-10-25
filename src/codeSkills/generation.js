@@ -17,8 +17,18 @@
  */
 
 const { parseGeneratedEnvelope } = require('./generator');
+const { ALLOWED_PERMISSIONS } = require('./manifest');
 
-const ALLOWED_PERMISSIONS = ['read_state', 'submit_task', 'chat', 'wait', 'search', 'generate', 'subprocess'];
+const PERMISSION_LIST = [...ALLOWED_PERMISSIONS];
+const BODY_METHODS = [
+  'body_move({x,y,z,range?,timeoutMs?})',
+  'body_dig({x,y,z})',
+  'body_place({item,reference:{x,y,z},face})',
+  'body_use({x,y,z,face?})',
+  'body_click({slot,button?})  // only while a container screen is open',
+  'body_look({yaw,pitch}) / body_look_at({x,y,z})',
+  'body_attack({entityId?|name?})  // hostiles only'
+];
 
 function generationPrompt(prompt, manifest) {
   return [
@@ -28,12 +38,19 @@ function generationPrompt(prompt, manifest) {
     'Manifest requirements:',
     '- name: namespace.skill (lowercase, dot required)',
     '- version: x.y.z',
-    '- apiVersion: 1',
+    '- apiVersion: 2',
     '- entry: "index.js"',
-    `- permissions: subset of ${ALLOWED_PERMISSIONS.join(', ')}`,
+    `- permissions: subset of ${PERMISSION_LIST.join(', ')}`,
     'Runtime contract:',
     '- module.exports = { async run(ctx, params) { ... } }',
-    '- ctx may expose only the declared permissions: read_state, submit_task, chat, wait, search, generate, subprocess.',
+    '- ctx exposes only the declared permissions:',
+    '  read_state (also block_at/find_blocks), submit_task, chat, wait, search, generate, subprocess,',
+    `  and these direct body primitives: ${BODY_METHODS.join('; ')}.`,
+    '- read_state() returns position/health/food/dimension/time/isDay/screen/inventory/hostiles.',
+    '  read_state({blocks:{radiusXZ,radiusY,limit}}) returns a BOUNDED block window (palette+cells),',
+    '  not the full map; use block_at/find_blocks for targeted reads.',
+    '- Body primitives move/dig/place/use/click really act on the world: they go through the single',
+    '  body owner and permissionGate. Check every returned {ok,reason} and handle refusal honestly.',
     '- run() must return a JSON-serializable object.',
     '- No require/import, no fs, no network, no process/globalThis, no eval/Function, no infinite loops.',
     '- Keep it under 300 lines and explain failures honestly in the returned object.',

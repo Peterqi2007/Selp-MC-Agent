@@ -549,6 +549,357 @@ const out = {};
   }
 
   {
+    process.stdout.write('\n5. direct body primitives (v2, 2026-10-25 requirement)\n');
+
+    const v2Manifest = (permissions, name = 'agent.v2') => ({
+      name,
+      version: '1.0.0',
+      apiVersion: 2,
+      entry: 'index.js',
+      title: 'v2 probe',
+      permissions
+    });
+
+    const makeBody = (options = {}) => {
+      const calls = [];
+      const body = {
+        kind: 'fake-body',
+        calls,
+        lastRefusal: null,
+        interrupted: null,
+        snapshot() {
+          return {
+            ready: true,
+            body: 'fake',
+            position: { x: 0, y: 64, z: 0 },
+            health: 20,
+            food: 20,
+            dimension: 'minecraft:overworld',
+            time: { timeOfDay: 6000, day: 2, isDay: true },
+            weather: { raining: false, thundering: false },
+            inventory: { 'minecraft:dirt': 3, 'minecraft:torch': 5 },
+            hostiles: [{ id: 7, name: 'minecraft:zombie', position: { x: 3, y: 64, z: 0 }, distance: 3 }],
+            players: [{ name: 'Owner', distance: 4 }],
+            crops: [{ name: 'minecraft:wheat', position: { x: 2, y: 64, z: 2 }, age: 7, mature: true }],
+            nearbyItems: [{ name: 'minecraft:dirt', count: 1, distance: 1 }],
+            emptySlots: 30,
+            screenOpen: false,
+            screen: null,
+            dead: false,
+            heldItem: null,
+            lightLevel: 15,
+            blockLight: 15,
+            blocks: {
+              cells: {
+                '0,64,0': 'minecraft:grass_block',
+                '1,64,0': 'minecraft:dirt',
+                '3,64,0': 'minecraft:stone'
+              }
+            },
+            observedAt: new Date().toISOString(),
+            ...(options.state || {})
+          };
+        },
+        blockAt(position) {
+          const key = `${position.x},${position.y},${position.z}`;
+          const name = this.snapshot().blocks.cells[key];
+          return name ? { name, position: { x: position.x, y: position.y, z: position.z } } : null;
+        },
+        findBlocks(names, opts = {}) {
+          const out = [];
+          for (const [key, name] of Object.entries(this.snapshot().blocks.cells)) {
+            if (!names.includes(name)) continue;
+            const [x, y, z] = key.split(',').map(Number);
+            out.push({ name, position: { x, y, z }, distance: Math.hypot(x, y - 64, z) });
+          }
+          return out.slice(0, opts.count || 16);
+        },
+        async moveTo(position, opts) {
+          calls.push({ m: 'moveTo', pos: position, opts });
+          if (options.moveTo) return options.moveTo(position, opts);
+          return true;
+        },
+        async dig(block, opts) {
+          calls.push({ m: 'dig', block, opts });
+          return options.dig === undefined ? true : options.dig;
+        },
+        async place(item, reference, face) {
+          calls.push({ m: 'place', item, ref: reference, face });
+          return true;
+        },
+        async useOn(position, opts) {
+          calls.push({ m: 'useOn', pos: position, opts });
+          return true;
+        },
+        async menu() {
+          return options.menu === null
+            ? null
+            : options.menu || { open: true, size: 46, screen: 'ChestScreen', slots: [{ i: 0, item: 'minecraft:torch', count: 5 }] };
+        },
+        async clickSlot(slot, opts) {
+          calls.push({ m: 'clickSlot', slot, opts });
+          return true;
+        },
+        async equip(item) {
+          calls.push({ m: 'equip', item });
+          return true;
+        },
+        async refresh() {
+          calls.push({ m: 'refresh' });
+          if (options.onRefresh) options.onRefresh();
+          return true;
+        },
+        async look(yaw, pitch) {
+          calls.push({ m: 'look', yaw, pitch });
+          return true;
+        },
+        async lookAt(position) {
+          calls.push({ m: 'lookAt', pos: position });
+          return true;
+        },
+        async attack(entity, opts) {
+          calls.push({ m: 'attack', entity, opts });
+          return true;
+        },
+        interrupt(reason) {
+          this.interrupted = reason;
+        },
+        freshness() {
+          return { ageMs: 5, stale: false };
+        }
+      };
+      return body;
+    };
+
+    const makeSlot = () => {
+      const slot = {
+        current: null,
+        releases: 0,
+        acquire(owner) {
+          if (this.current) return { ok: false, current: this.current };
+          this.current = { ...owner };
+          return { ok: true, owner: this.current };
+        },
+        release(owner) {
+          if (this.current !== owner) return false;
+          this.current = null;
+          this.releases += 1;
+          return true;
+        }
+      };
+      return slot;
+    };
+
+    const makeService = (body, slot, extra = {}) =>
+      new CodeSkillService({
+        root: path.join(tempRoot('p1-m4-v2-'), 'skills'),
+        sandboxRoot: path.join(tempRoot('p1-m4-v2-sandbox-'), 'runs'),
+        evidenceDir: path.join(tempRoot('p1-m4-v2-evidence-'), 'evidence'),
+        ctx: { body, slot, world: { summary: () => ({ time: body.snapshot().time }) } },
+        generation: extra.generation,
+        log: silent
+      });
+
+    await check('v2 manifests accept body permissions; v1 and unknown permissions are rejected', () => {
+      const good = validateManifest(v2Manifest(['read_state', 'body_move', 'body_dig']));
+      assert(good.ok, JSON.stringify(good.errors));
+      const legacy = validateManifest({ ...v2Manifest(['read_state', 'body_dig']), apiVersion: 1 });
+      assert.strictEqual(legacy.ok, false);
+      assert(legacy.errors.includes('permission-requires-api-2:body_dig'));
+      const unknown = validateManifest(v2Manifest(['read_state', 'body_fly']));
+      assert.strictEqual(unknown.ok, false);
+      assert(unknown.errors.some((error) => error.includes('permission-not-allowed:body_fly')));
+    });
+
+    await check('read_state exposes a bounded block window, players, crops, items and the menu', async () => {
+      const body = makeBody();
+      const service = makeService(body, makeSlot());
+      const state = await service._host().read_state({
+        blocks: { radiusXZ: 1, radiusY: 1 },
+        includePlayers: true,
+        includeCrops: true,
+        includeItems: true,
+        includeMenu: true
+      });
+      assert(state.ok);
+      assert.strictEqual(state.blocks.count, 2, 'radius 1 keeps (0,0) and (1,0), drops (3,0)');
+      assert(state.blocks.palette.includes('minecraft:grass_block'));
+      assert.strictEqual(state.players[0].name, 'Owner');
+      assert.strictEqual(state.crops[0].mature, true);
+      assert.strictEqual(state.items[0].name, 'minecraft:dirt');
+      assert.strictEqual(state.menu.open, true);
+      assert.strictEqual(state.menu.slots[0].item, 'minecraft:torch');
+    });
+
+    await check('a sandboxed skill can move and dig through the host, with coordinates intact', async () => {
+      const body = makeBody();
+      const service = makeService(body, makeSlot());
+      const code = `
+module.exports = {
+  async run(ctx) {
+    const found = await ctx.find_blocks({ names: ['minecraft:dirt'], maxDistance: 4, count: 1 });
+    const target = found.blocks[0];
+    const moved = await ctx.body_move({ x: target.position.x, y: target.position.y, z: target.position.z, range: 1 });
+    const dug = await ctx.body_dig({ x: target.position.x, y: target.position.y, z: target.position.z });
+    return { ok: moved.ok && dug.ok, moved, dug, block: target.name };
+  }
+};`;
+      const run = await service.sandbox.run({
+        name: 'agent.v2',
+        version: '1.0.0',
+        entry: 'index.js',
+        code,
+        manifest: v2Manifest(['read_state', 'body_move', 'body_dig']),
+        timeoutMs: 5000,
+        host: service._host()
+      });
+      assert(run.ok, run.reason);
+      assert.strictEqual(run.result.ok, true);
+      assert.strictEqual(run.result.block, 'minecraft:dirt');
+      const moved = body.calls.find((call) => call.m === 'moveTo');
+      const dug = body.calls.find((call) => call.m === 'dig');
+      assert(moved && moved.pos.x === 1 && moved.pos.y === 64, JSON.stringify(body.calls));
+      assert(dug && dug.block.name === 'minecraft:dirt' && dug.block.position.x === 1);
+      assert(run.calls.some((call) => call.capability === 'body_dig' && call.ok === true));
+    });
+
+    await check('out-of-reach dig is refused before the body is touched', async () => {
+      const body = makeBody();
+      const service = makeService(body, makeSlot());
+      const refused = await service._host().body_dig({ x: 10, y: 64, z: 0 });
+      assert.strictEqual(refused.ok, false);
+      assert.strictEqual(refused.reason, 'target-too-far');
+      assert.strictEqual(body.calls.length, 0, 'no move/dig call is made');
+    });
+
+    await check('body_click refuses operator screens and clicks a container slot', async () => {
+      const paused = makeBody({ state: { screenOpen: true, screen: 'PauseScreen' } });
+      const pausedService = makeService(paused, makeSlot());
+      const refused = await pausedService._host().body_click({ slot: 0 });
+      assert.strictEqual(refused.ok, false);
+      assert.strictEqual(refused.reason, 'operator-screen');
+
+      const chest = makeBody({ state: { screenOpen: true, screen: 'ChestScreen' } });
+      const chestService = makeService(chest, makeSlot());
+      const clicked = await chestService._host().body_click({ slot: 0 });
+      assert.strictEqual(clicked.ok, true);
+      assert.strictEqual(chest.calls[0].m, 'clickSlot');
+      assert.strictEqual(chest.calls[0].slot, 0);
+    });
+
+    await check('a direct-body trial refuses to run when another owner holds the slot', async () => {
+      const body = makeBody();
+      const slot = makeSlot();
+      slot.current = { kind: 'brain', id: 'mine', note: 'task mine' };
+      const service = makeService(body, slot, {
+        generation: {
+          generate: async () => ({
+            ok: true,
+            manifest: v2Manifest(['body_move']),
+            code: 'module.exports = { async run(ctx) { return ctx.body_move({ x: 1, y: 64, z: 0 }); } };'
+          })
+        }
+      });
+      const generated = await service.generateCandidate({ prompt: 'v2 probe' });
+      assert(generated.ok, JSON.stringify(generated));
+      const trial = await service.trial('agent.v2', '1.0.0', { timeoutMs: 3000 });
+      assert.strictEqual(trial.ok, false);
+      assert.strictEqual(trial.reason, 'body-busy');
+      assert(body.calls.length === 0, 'no body primitive runs');
+      assert(slot.current && slot.current.kind === 'brain');
+    });
+
+    await check('cancelling a direct-body trial interrupts the body and releases the slot', async () => {
+      const body = makeBody({ moveTo: () => new Promise(() => {}) });
+      const slot = makeSlot();
+      const service = makeService(body, slot, {
+        generation: {
+          generate: async () => ({
+            ok: true,
+            manifest: v2Manifest(['body_move']),
+            code: 'module.exports = { async run(ctx) { return ctx.body_move({ x: 1, y: 64, z: 0, timeoutMs: 3000 }); } };'
+          })
+        }
+      });
+      const generated = await service.generateCandidate({ prompt: 'v2 cancel' });
+      assert(generated.ok, JSON.stringify(generated));
+      const pending = service.trial('agent.v2', '1.0.0', { timeoutMs: 5000 });
+      await new Promise((resolve) => setTimeout(resolve, 250));
+      const cancelled = service.cancel('agent.v2', '1.0.0');
+      assert.strictEqual(cancelled.ok, true);
+      const trial = await pending;
+      assert.strictEqual(trial.cancelled, true, JSON.stringify(trial));
+      assert(body.interrupted, 'body.interrupt() must be called on cancel');
+      assert.strictEqual(slot.current, null, 'slot released');
+    });
+
+    await check('body_use equips an item and the refreshed screen enables a container click', async () => {
+      const state = { screenOpen: false, screen: null };
+      const body = makeBody({
+        state,
+        onRefresh: () => {
+          state.screenOpen = true;
+          state.screen = 'ChestScreen';
+        }
+      });
+      const service = makeService(body, makeSlot());
+      const used = await service._host().body_use({ x: 1, y: 64, z: 0, item: 'minecraft:iron_hoe' });
+      assert.strictEqual(used.ok, true, JSON.stringify(used));
+      const equipped = body.calls.find((call) => call.m === 'equip');
+      assert(equipped && equipped.item === 'minecraft:iron_hoe');
+      assert(body.calls.some((call) => call.m === 'useOn'));
+      const clicked = await service._host().body_click({ slot: 0 });
+      assert.strictEqual(clicked.ok, true, JSON.stringify(clicked));
+      assert(body.calls.some((call) => call.m === 'clickSlot'));
+    });
+
+    await check('body_attack refuses players and attacks a hostile id', async () => {
+      const body = makeBody();
+      const service = makeService(body, makeSlot());
+      const refused = await service._host().body_attack({ name: 'Owner' });
+      assert.strictEqual(refused.ok, false);
+      assert.strictEqual(refused.reason, 'not-hostile');
+      const allowed = await service._host().body_attack({ entityId: 7 });
+      assert.strictEqual(allowed.ok, true);
+      assert.strictEqual(body.calls[0].m, 'attack');
+      assert.strictEqual(body.calls[0].entity.id, 7);
+    });
+
+    await check('runPromoted takes the slot for HTTP, respects slotHeld, and refuses when busy', async () => {
+      const body = makeBody();
+      const slot = makeSlot();
+      const service = makeService(body, slot, {
+        generation: {
+          generate: async () => ({
+            ok: true,
+            manifest: v2Manifest(['body_move']),
+            code: 'module.exports = { async run(ctx) { return ctx.body_move({ x: 0, y: 64, z: 0, range: 0 }); } };'
+          })
+        }
+      });
+      const generated = await service.generateCandidate({ prompt: 'v2 run' });
+      assert(generated.ok, JSON.stringify(generated));
+      const trial = await service.trial('agent.v2', '1.0.0', { timeoutMs: 3000 });
+      assert.strictEqual(trial.ok, true, JSON.stringify(trial));
+      const promoted = service.promote('agent.v2', '1.0.0');
+      assert.strictEqual(promoted.ok, true);
+
+      slot.current = { kind: 'brain', id: 'mine', note: 'task mine' };
+      const busy = await service.runPromoted('agent.v2', {});
+      assert.strictEqual(busy.ok, false);
+      assert.strictEqual(busy.reason, 'body-busy');
+
+      const held = await service.runPromoted('agent.v2', {}, { slotHeld: true });
+      assert.strictEqual(held.ok, true, JSON.stringify(held));
+
+      slot.current = null;
+      const http = await service.runPromoted('agent.v2', {});
+      assert.strictEqual(http.ok, true, JSON.stringify(http));
+      assert.strictEqual(slot.current, null, 'HTTP lease released');
+    });
+  }
+
+  {
     process.stdout.write('\n6. live entry: !code-skill + code_skill task\n');
 
     await check('the code_skill task dispatches only the promoted version and forwards params', async () => {
@@ -570,6 +921,7 @@ const out = {};
       assert.deepStrictEqual(seen.params, { threshold: 8 });
       assert(seen.options && typeof seen.options.signal === 'object', 'the sandbox signal is forwarded');
       assert.strictEqual(typeof seen.options.timeoutMs, 'number');
+      assert.strictEqual(seen.options.slotHeld, true, 'the task already owns the body slot');
       assert.strictEqual(result.version, '1.2.3');
       assert.strictEqual(result.evidencePath, '/tmp/evidence.json');
     });
