@@ -2,9 +2,9 @@
 
 > **2026-10-25 需求变更（重要）**：本文件 §1–§7 记录的 PASS 只覆盖**编排子集**——生成代码只能
 > `read_state / submit_task / chat / wait / search / generate / subprocess`，动作全部由命令表任务执行。
-> 操作员随后要求生成代码能**直接读 `/state` 并移动、挖掘、点击**，因此本文件的 A18 按新需求
-> **不成立**，A19/A20/A28–A30 需按直接原语重验，M4 重开。v2 已**离线实现**（§9，`p1:m4:test 34/34`），
-> 但**真实客户端未验**。方案见 [`M4-DIRECT-BODY-PLAN.md`](M4-DIRECT-BODY-PLAN.md)。
+> 操作员随后要求生成代码能**直接读 `/state` 并移动、挖掘、点击**；v2 已离线实现（§9，`p1:m4:test 34/34`），
+> 且 **A18 已按 v2 直接原语在真实客户端 PASS（§10：move+dig、容器+click）**。旧编排 A18 不成立；
+> A19/A20/A28–A30 仍需按直接原语验证。方案见 [`M4-DIRECT-BODY-PLAN.md`](M4-DIRECT-BODY-PLAN.md)。
 
 环境：真实 Forge 1.20.1 客户端 + `agent-client` mod，`mc.example.com:25565`，Node agent
 `clientmod`；DSH 动作脑会话 **「Minecraft动作脑1」**
@@ -153,15 +153,15 @@
 
 | 项 | 判定 | 依据 |
 | --- | --- | --- |
-| A18 | **不成立（编排子集）** | 旧 `status_report`/`dirt_topup` 只做 read_state→submit_task→chat；**没有直接 move/dig/click**。v2 直接原语已离线实现（§9），**真机 A18 未验** |
+| A18 | **PASS（2026-10-25 真机，v2 直接原语）** | `agent.grass_dig@1.0.3`：试运行 dirt **1→2**、实时调用 **2→3**（`body_move`+`body_dig`，calls 无 `submit_task`）；`agent.table_click@1.0.1`：试运行把 cobblestone 从槽 10 移到 11，实时 `mc_plan` 再从 11 移到 10（`body_use`+两次 `body_click`）；两技能均生成→试运行→晋升→实时调用 |
 | A19 | **历史子集；直接原语 8 类未测** | vm/OS/覆盖内置/死循环/失联/清理仍有效；越界挖放用、非容器点击、多任务抢身体、取消后残留等只有离线用例（§9），**真机未验** |
 | A20 | **部分** | 旧编排候选的 quarantine/rollback/retire 有效；直接原语候选“动作到一半失败”未测 |
-| A27 代码子项 | **PASS（生成管线部分）** | 真实模型回执、解析、沙箱、证据、token 账本；v2 提示词已改，v2 真实生成未验 |
+| A27 代码子项 | **PASS（生成管线部分）** | 真实模型回执、解析、沙箱、证据、token 账本；v2 真实生成已验（§10） |
 | A28（编码回合） | **需重跑** | 旧 slow_wait 长步骤证据只证明编排长步骤 |
 | A29（编码回合） | **需重跑** | 旧硬杀恢复只覆盖编排计划 |
 | A30（编码回合） | **需重跑** | 旧用量归属仍成立，但需覆盖直接原语长任务 |
 | M4-D01 | **PASS** | code-skill 的 `chat` 经语言脑 roleplay 输出（试运行与实时播报均为语言脑措辞） |
-| M4 阶段 | **未通过（重开；v2 离线已实现）** | 旧编排子集一度判 PASS；v2 原语/租约/校验已离线 34/34，真实客户端 A18/A19/A20/A28–A30 未验 |
+| M4 阶段 | **未通过（A18 PASS；A19/A20/A28–A30 待真机）** | 旧编排子集一度判 PASS；v2 原语已离线 34/34 且 A18 真机 PASS；A19/A20/A28–A30 未验 |
 
 ## 9. v2 直接身体原语离线实现（2026-10-25；**未跑真实客户端**）
 
@@ -179,6 +179,35 @@
 
 证据路径：`scripts/p1-m4-test.js` §5（v2 用例）、`src/codeSkills/{capabilities,manifest,service,sandboxWorker,sandboxRunner}.js`、
 `src/tasks/codeSkill.js`、`src/codeSkills/generation.js`（v2 提示词）。
+
+## 10. A18 真实客户端（v2 直接原语，2026-10-25）
+
+环境：真实 Forge 1.20.1 客户端 + `agent-client`，`mc.example.com:25565`，动作脑「Minecraft动作脑1」
+（`session-8d816775…`），`planner.mode=off`，生成模型 `deepseek-flash`；日志
+`runtime/logs/start-a18-20261025.log`；游戏内 day 1389。
+
+| 技能 | 生成/权限 | 试运行 | 实时调用 |
+| --- | --- | --- | --- |
+| `agent.grass_dig@1.0.3` | 4108 B；`read_state/body_move/body_dig/wait` | 目标 grass_block (13,63,59)：`body_move`→`body_dig`，dirt **1→2**；calls `read_state/find_blocks/block_at×2/body_move/body_dig/read_state×2`，**无 `submit_task`** | `!code-skill agent.grass_dig`（实时 promoted 1.0.3）：dirt **2→3**，目标方块变 air；calls `read_state/find_blocks/block_at/body_move/body_dig/read_state×2` |
+| `agent.table_click@1.0.1` | 7168 B；`read_state/body_move/body_place/body_use/body_click/wait` | 找到已存在的 crafting_table (13,63,60)：`body_move`→`body_use`→`CraftingScreen`；两次 `body_click` 把 cobblestone×3 从槽 **10→11**，`srcAfter=null/dstAfter=item` | 动作脑 `mc_plan`（`plan-1792906694355-omr8a`，step `code_skill` **done**、计划 completed、postcondition `positionNear` 成立）：再把 cobblestone 从槽 **11→10** |
+
+- 晋升：两个技能 trial `ok:true` 后 `promote` 成功；`/code-skills` promoted 列表可见
+  `agent.grass_dig@1.0.3`、`agent.table_click@1.0.1`。
+- 未晋升不可见：`agent.grass_dig` 的 1.0.0/1.0.1/1.0.2 与 `agent.table_click` 1.0.0 仍是
+  candidate/trialled，实时入口只按 promoted 指针运行 1.0.3/1.0.1。
+- 权限门：测试前加了两条临时规则 `allow place/use minecraft:crafting_table`，测试后已
+  `rule remove`，`rule list` 回到空；`dig` 未触发交互式 `!yes`。
+- 已知限制：在本服务器上，对 `CraftingScreen` 的**制作格槽位**（0–8）点击返回 `ok` 但菜单不变
+  （客户端菜单与服务端 state-id 的差异），因此 1.0.1 用同一容器界面内的**玩家槽位**转移物品
+  作为 A18 的点击效果；这条限制要留到 A19/后续修正。
+
+证据：`runtime/code-skill-runs/agent.grass_dig@1.0.3-run-1792906526564-44k78v.json`（trial）、
+`...-run-1792906681134-ad3nxj-run.json`（实时）、
+`agent.table_click@1.0.1-run-1792906668736-fj97sy.json`（trial）、
+`...-run-1792906694359-oe5r39-run.json`（实时）；`/plan` 记录 `plan-1792906694355-omr8a`；
+`runtime/llm-usage.jsonl` 的两次 `code-generation`（生成 1.0.3/1.0.1）。
+
+**A18 判定：PASS（2026-10-25，v2 直接原语）**；A19/A20/A28–A30 仍未按直接原语验证。
 
 证据路径：`runtime/code-skills/`（candidates/promoted/current 指针）、
 `runtime/code-skill-runs/`（每次试运行/实时运行 JSON）、`runtime/llm-usage.jsonl`（code-generation）、

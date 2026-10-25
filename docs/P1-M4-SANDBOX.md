@@ -5,8 +5,8 @@
 > 权限边界：`read_state / submit_task / chat / wait / search / generate / subprocess`；
 > 搜索经 Node 使用 DeepSeek Search；超时、撤销、失败清理、证据保留规则由本文件确定。
 > **2026-10-25 需求变更**：操作员要求生成代码直接 `/state` 读世界并移动/挖掘/点击；`body_*` 权限
-> 与 host 代理见 §2.1 与 [`M4-DIRECT-BODY-PLAN.md`](M4-DIRECT-BODY-PLAN.md)；**已实现并通过离线测试，
-> 真实客户端未验**。
+> 与 host 代理见 §2.1 与 [`M4-DIRECT-BODY-PLAN.md`](M4-DIRECT-BODY-PLAN.md)；**已实现（离线 34/34），
+> A18 真机 PASS（move+dig、容器+click）；A19/A20 未验**。
 
 ## 1. 信任边界
 
@@ -120,4 +120,7 @@ node --permission
   `SIGKILL` + `quarantined`；运行中 cancel `SIGKILL` 且不隔离；子进程被杀 → `sandbox-exit`，
   宿主硬杀 → 子进程随 IPC 退出、残留目录由启动清扫移除；覆盖内置与 A20 失败隔离/回退/下线见
   [`M4-CLIENT-TESTS.md`](M4-CLIENT-TESTS.md)。
+- v2 真机（2026-10-25）：`agent.grass_dig@1.0.3` 用 `body_move`+`body_dig` 把 dirt 1→2（trial）
+  与 2→3（实时）；`agent.table_click@1.0.1` 用 `body_use`+两次 `body_click` 在 `CraftingScreen`
+  内把 cobblestone 从槽 10→11（trial）与 11→10（实时 `mc_plan`）；见 M4-CLIENT-TESTS §10。
 - 并入 `npm run p1:verify`（9 suites → 10 suites，2026-10-23 加 `p1:language:test`）。

@@ -39,9 +39,9 @@ module.exports = {
 
 | 权限 | ctx 方法 | 语义 | 映射到 Body |
 | --- | --- | --- | --- |
-| `read_state` | `read_state(opts)` | 世界/自身状态；可按需带 `inventory/players/crops/items/screen/time/weather`，以及**有界**的 `blocks` 窗口 | `body.snapshot()` + `body.blockAt/findBlocks` |
-| `read_state` | `block_at({x,y,z})` | 单方块读取（未加载/越界返回 null） | `body.blockAt` |
-| `read_state` | `find_blocks({names, maxDistance, count})` | 最近匹配方块（名称精确/谓词），上限 `count≤32`、`maxDistance≤32` | `body.findBlocks(Matching)` |
+| `read_state` | `read_state(opts)` | 世界/自身状态；可按需带 `inventory`（`{name:count}`）、`inventoryList`（`[{name,count}]`）、`players/crops/items/screen/time/weather`，以及**有界**的 `blocks` 窗口 | `body.snapshot()` + `body.blockAt/findBlocks` |
+| `read_state` | `block_at({x,y,z})` | 单方块读取（未加载/越界返回 `ok:false`） | `body.blockAt` |
+| `read_state` | `find_blocks({names, maxDistance, count})` | 最近匹配方块（名称精确/谓词），上限 `count≤32`、`maxDistance≤32`；返回 `{name,position:{x,y,z},x,y,z,distance}` | `body.findBlocks(Matching)` |
 | `body_move` | `body_move({x,y,z,range?,timeoutMs?})` | 寻路走到坐标；默认 range 1、timeout ≤30s；过程中可被取消 | `body.moveTo` + `body.interrupt` |
 | `body_dig` | `body_dig({x,y,z,face?})` | 挖一个**已加载且可达**的方块；目标必须在快照里，距离 ≤ 5（先走近再挖由技能自己决定） | `body.dig`（**权限门** `dig`） |
 | `body_place` | `body_place({item,x,y,z,face})` | 对参考方块面放置背包物品；距离 ≤5，物品需在背包 | `body.place`（**权限门** `place`） |
@@ -148,8 +148,13 @@ module.exports = {
   move+dig、越界拒绝、容器/暂停屏点击、body-busy、取消中断+释放、攻击仅敌对、HTTP/slotHeld
   租约、body_use 先装备再刷新屏幕后点击）；`p1:contract:test 206/206`；`p1:verify` **11/11**
   （`--fast` 10/10）。
-- **未执行（需真实客户端）**：A18 两类直接目标、A19 八类安全用例、A20 半途失败、A28–A30
-  直接原语长任务。按操作员口径本轮**不做真实客户端测试**；M4 仍为“未通过（重开）”，
-  旧编排证据仅历史。
-- **离线未覆盖**：真实 `permissionGate` 的 `ask/!yes` 交互、真实导航/挖掘/点击的物理终态、
-  `body.interrupt` 对真实客户端按键释放的效果；这些必须在真机 A18/A19 里验。
+- **A18 真机（2026-10-25 追加，PASS）**：真实客户端生成 `agent.grass_dig@1.0.3`（trial dirt
+  1→2、实时 `!code-skill` 2→3，`body_move`+`body_dig`，无 `submit_task`）与
+  `agent.table_click@1.0.1`（trial 槽 10→11、实时 `mc_plan` `plan-1792906694355-omr8a`
+  completed 槽 11→10，`body_use`+`body_click`）；两技能均晋升后实时调用。证据
+  [`M4-CLIENT-TESTS.md`](M4-CLIENT-TESTS.md) §10。
+- **未执行（需真实客户端）**：A19 八类安全用例、A20 半途失败、A28–A30 直接原语长任务。
+  M4 仍为“未通过”（A18 PASS，其余待验），旧编排证据仅历史。
+- **离线未覆盖 / 真机新发现**：真实 `permissionGate` 的 `ask/!yes`（A18 的 dig 未触发交互）、
+  取消/超时的按键释放；以及本服务器上 `CraftingScreen` 制作格槽位点击返回 ok 但菜单不变，
+  1.0.1 改用同一容器界面内的玩家槽位转移物品作为点击效果。

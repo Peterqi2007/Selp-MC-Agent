@@ -53,9 +53,9 @@
 | [`docs/P1-M1.md`](docs/P1-M1.md) | **P1 M1 记录（离线 M1a–M1d）**：`TaskEvents` 汇聚/重放、身份字段、`PlanStore` 单一写者、同端口 SSE、Capability 表、TaskResult 六态、`mine_ore` progress 值域、PlanRunner、TurnLifecycle、HarnessAdapter；契约测试已扩到 206/206。真实 DSH 插件与持久化已于 M3 接线并真机验证 |
 | [`docs/P1-M2.md`](docs/P1-M2.md) | **P1 M2 记录（离线契约 + 地址通道）**：二值闸门、`@` 通道默认关闭、严格 LLM 判定器、双脑工具清单、语言专用 `say`/`silence`、离线 `LanguageAgent`、可选语言对话通道（默认关闭）、快照字段时间戳、刷新调度、威胁订阅、persona 注入；**M2 已真机 PASS**（A01/A02/A03/A09–A12 + H1a/H1b，2026-10-17/18） |
 | [`docs/P1-M3.md`](docs/P1-M3.md) | **P1 M3 记录（2026-10-21 PASS）**：`PlanService`、`POST /plan`、`TurnService`/`/harness/events`、DSH `mc_plan`/`mc_propose`/`mc_state`、持久化、`wait_for_player`、`!state`、`!method`、`Budget`、`verifier`、`draftGuard`；A13–A17/A27（只读/异步）/A28–A30/F2 真机通过；`p1:m3:test 44/44` |
-| [`docs/P1-M4.md`](docs/P1-M4.md) | **P1 M4 记录**：manifest 校验、生成管线、candidates/promoted 目录与指针、晋升/回退/下线、promoted-only 检索；2026-10-18 接真实生成、权限子进程试运行、证据、取消、DeepSeek Search、HTTP `/code-skills`；2026-10-25 接实时入口并完成编排子集真机；**同日因“直接移动/挖掘/点击”需求重开；v2 已离线实现（34/34），真实客户端未验，M4 未通过**。沙箱规则见 [`P1-M4-SANDBOX.md`](docs/P1-M4-SANDBOX.md) |
-| [`docs/M4-DIRECT-BODY-PLAN.md`](docs/M4-DIRECT-BODY-PLAN.md) | **M4 直接身体原语（v2，2026-10-25）**：生成代码直接读 `/state` 并 `body_move/body_dig/body_place/body_use/body_click/body_look/body_attack`；唯一执行权/slot 租约、权限门、容器屏幕限制、取消中断、有界 blocks；**已离线实现并通过 `p1:m4:test 34/34`，真机未验** |
-| [`docs/M4-CLIENT-TESTS.md`](docs/M4-CLIENT-TESTS.md) | **M4 代码技能证据（2026-10-25）**：§1–§7 为编排子集真机；§9 为 v2 直接原语离线实现（34/34，未跑真实客户端）；文首注明需求变更后 A18 不成立 |
+| [`docs/P1-M4.md`](docs/P1-M4.md) | **P1 M4 记录**：manifest 校验、生成管线、candidates/promoted 目录与指针、晋升/回退/下线、promoted-only 检索；2026-10-18 接真实生成、权限子进程试运行、证据、取消、DeepSeek Search、HTTP `/code-skills`；2026-10-25 接实时入口并完成编排子集真机；需求变更后 **v2 已实现（34/34）且 A18 真机 PASS**（`grass_dig` dirt 1→2/2→3、`table_click` 槽 10→11/11→10），A19/A20/A28–A30 未验，M4 未通过。沙箱规则见 [`P1-M4-SANDBOX.md`](docs/P1-M4-SANDBOX.md) |
+| [`docs/M4-DIRECT-BODY-PLAN.md`](docs/M4-DIRECT-BODY-PLAN.md) | **M4 直接身体原语（v2，2026-10-25）**：生成代码直接读 `/state` 并 `body_move/body_dig/body_place/body_use/body_click/body_look/body_attack`；唯一执行权/slot 租约、权限门、容器屏幕限制、取消中断、有界 blocks；**已实现（34/34）且 A18 真机 PASS** |
+| [`docs/M4-CLIENT-TESTS.md`](docs/M4-CLIENT-TESTS.md) | **M4 代码技能证据（2026-10-25）**：§1–§7 编排子集真机；§9 v2 离线实现（34/34）；**§10 A18 v2 真机（move+dig、容器+click）PASS** |
 | [`docs/P1-M5.md`](docs/P1-M5.md) | **P1 M5 记录（窗口策略离线契约）**：CU 默认拒绝（F1 未验证）、窗口/边界/截图限窗、显式 verify+证据、`ComputerUseGuard` 拒绝不触达执行器。GUI 中断、截图成本、A21/A22 未完成 |
 | [`docs/P1-M6.md`](docs/P1-M6.md) | **P1 M6 记录（聊天并发 + 按需接线）**：未读去重、过时回复拒绝、自回声拒绝、限速/重复/截断、随会话持久化；普通聊天 15 行窗口（含自己的回复、随 `p1-state.json` 保存）；**所有非 `!` 玩家消息写入 ChatMemory**；LLM 回复可 opt-in 守卫（默认关闭）；DialogueRouter + `mc_say` 已真机（2026-10-22）；A24/C03/F02 受控 PASS（2026-10-24）；**A23 的 40 组 ×3 与 A25 三条真实提案未完成** |
 | [`docs/LANGUAGE-BRAIN-REPAIR.md`](docs/LANGUAGE-BRAIN-REPAIR.md) | **语言脑统一门面**：`src/llm/languageBrain.js` 的 roleplay/expert/approval、统一语言工具、原文审批、15 行短期窗口 + ChatMemory/任务记忆 grep；**默认 `agent.language.brain=unified`（2026-10-23 真机验证）**，`legacy` 可回退；`p1:language:test 20/20` |
@@ -197,11 +197,11 @@ LLM 层（`src/llm/`，生产配置已开启 `toolCalling`）：8 个工具 —�
   `p1:m3:test 44/44` + `p1:m6:test 24/24` + `p1:proposal-autonomy:test 16/16` + `p1:language:test 20/20` +
   `p1:m7:test 11/11` + `p1:m4:test 34/34` + `p1:fault:test 9/9` + `plan:audit --stage p1 105/105`；
   `--fast` 为 10/10 套件，完整 11/11）。
-* P1 客户端阶段（2026-10-20/21/22/24/25）：**M1 适用子集 PASS、M2 PASS、M3 PASS；M4 重开（未通过）**
+* P1 客户端阶段（2026-10-20/21/22/24/25）：**M1 适用子集 PASS、M2 PASS、M3 PASS；M4 重开（A18 真机 PASS）**
   （A13–A17、A27 只读/异步、A28–A30、F2；均在 `planner.mode=off` 下由 DSH 动作脑/真机注入完成）；
   M4 代码管线、`p1:m4:test 34/34`、`!code-skill`/`code_skill` 实时入口与编排子集真机已完成；
-  **v2 直接身体原语（read_state/移动/挖掘/点击）已离线实现（34/34），真实客户端 A18/A19 未验**，
-  M4 仍未通过（[`docs/M4-DIRECT-BODY-PLAN.md`](docs/M4-DIRECT-BODY-PLAN.md)）；
+  **v2 直接身体原语已实现（34/34）并完成 A18 真机**（`grass_dig` dirt 1→2/2→3、`table_click`
+  槽 10→11/11→10），A19/A20/A28–A30 未验（[`docs/M4-DIRECT-BODY-PLAN.md`](docs/M4-DIRECT-BODY-PLAN.md)）；
   M5 因 CU 未授权 **BLOCKED**；
   M6 对话入口真机通过，2026-10-24 受控测试 **A24/C03/F02 PASS、A25 四路径（accept 真 harness）、
   A23 仅 6 条真实沉默（缺 40×3）**；M7 仅 A26/R1 部分基线，**R2–R4、F3 真机端点、A31 最终组合

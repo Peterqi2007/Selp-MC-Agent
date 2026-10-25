@@ -586,6 +586,9 @@ class CodeSkillService {
     if (opts.blocks && typeof opts.blocks === 'object') {
       state.blocks = this._blockWindow(snap, opts.blocks);
     }
+    if (opts.includeInventory !== false) {
+      state.inventoryList = Object.entries(inventory).map(([name, count]) => ({ name, count }));
+    }
     return state;
   }
 
@@ -770,7 +773,18 @@ class CodeSkillService {
         : typeof body.findBlocksMatching === 'function'
           ? body.findBlocksMatching((name) => names.some((wanted) => name === wanted || name.endsWith(`:${wanted.split(':').pop()}`)), { maxDistance, count })
           : [];
-    return { ok: true, blocks: (found || []).slice(0, count) };
+    return {
+      ok: true,
+      blocks: (found || []).slice(0, count).map((block) => ({
+        name: block.name,
+        position: block.position,
+        /** Flattened coordinates too: generated code often expects {x,y,z} directly. */
+        x: block.position ? block.position.x : null,
+        y: block.position ? block.position.y : null,
+        z: block.position ? block.position.z : null,
+        distance: block.distance
+      }))
+    };
   }
 
   async _bodyMove(args = {}, context = {}) {
