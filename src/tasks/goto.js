@@ -35,11 +35,13 @@ class GoToTask extends Task {
     this.destination = options.position ? { ...options.position } : null;
     this.landmark = options.landmark || null;
     /**
-     * 0.25 by default: the operator needs cell-precise positioning (2026-10-25); the old
+     * 0.4 by default: the operator needs cell-precise positioning (2026-10-25); the old
      * 2-block arrival radius left the body up to two blocks off the requested point.
+     * Live test: the client walker settles ~0.33 blocks from the aim point, so 0.25 was
+     * unreachable; 0.4 is the tightest radius that its physics actually reaches.
      * Callers that want a loose walk (shelter/landmark) can still pass an explicit range.
      */
-    this.range = options.range === undefined ? 0.25 : options.range;
+    this.range = options.range === undefined ? 0.4 : options.range;
   }
 
   progress() {
@@ -83,7 +85,7 @@ class GoToTask extends Task {
         range: this.range,
         timeoutMs: this.timeoutMs - 2000,
         /**
-         * The client walker floors a coordinate unless `precise` is set. With a 0.25
+         * The client walker floors a coordinate unless `precise` is set. With a sub-block
          * arrival radius a floored target is unreachable (the cell centre is 0.5 away),
          * so preserve the doubles the operator asked for.
          */
@@ -98,7 +100,7 @@ class GoToTask extends Task {
       let now = this.position;
       /**
        * A planned walk stops at the goal *cell*, which can be up to ~0.7 blocks from the
-       * requested point. With the 0.25 radius that is not arrival, so make one direct
+       * requested point. With the 0.4 radius that is not arrival, so make one direct
        * precise hop at the exact coordinates before judging the task.
        */
       if (now && !positionReached(now, target, this.range)) {

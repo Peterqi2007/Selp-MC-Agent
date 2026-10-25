@@ -817,13 +817,18 @@ public final class ClientActions {
             this.target = target;
             this.range = range <= 0 ? 1.5D : range;
             /**
-             * A sub-block range means "stand in that block".
+             * Only a very small range means "stand in that block".
              *
              * Waypoints normally stop within `range` of the coordinate, which is right for
              * walking routes; a 1-block tunnel step needs the block itself, so for tiny
              * ranges only the in-block test below counts as arrival.
+             *
+             * The threshold is 0.2 rather than 0.5 so an operator `!goto ...` with a
+             * 0.4-block radius uses the *distance* test: live 2026-10-25 a 0.4 request
+             * switched into strict-block mode and stopped 0.6 blocks away, which GoToTask
+             * (correctly) rejected as not-arrived.
              */
-            this.strictBlock = range > 0 && range <= 0.5D;
+            this.strictBlock = range > 0 && range <= 0.2D;
         }
 
         @Override
