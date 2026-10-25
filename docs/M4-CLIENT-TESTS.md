@@ -1,5 +1,11 @@
 # M4 代码技能客户端测试证据（2026-10-25）
 
+> **2026-10-25 需求变更（重要）**：本文件记录的 PASS 只覆盖**编排子集**——生成代码只能
+> `read_state / submit_task / chat / wait / search / generate / subprocess`，动作全部由命令表任务执行。
+> 操作员随后要求生成代码能**直接读 `/state` 并移动、挖掘、点击**，因此本文件的 A18 按新需求
+> **不成立**，A19/A20/A28–A30 需按直接原语重验，M4 重开。方案见
+> [`M4-DIRECT-BODY-PLAN.md`](M4-DIRECT-BODY-PLAN.md)。本文件保留为历史子集证据。
+
 环境：真实 Forge 1.20.1 客户端 + `agent-client` mod，`mc.example.com:25565`，Node agent
 `clientmod`；DSH 动作脑会话 **「Minecraft动作脑1」**
 `session-8d816775-c46e-4ed7-9b08-115622a84616`（`/health.boundAgentId` 实读）；
@@ -143,19 +149,19 @@
 同一 TaskSlot / PlanRunner / TurnService，M3 的 A28 真机注入证据仍适用；本回合新增的是
 “长编码步骤单次结算、取消后无迟到输出、硬杀恢复不重放、用量可归属”。
 
-## 8. 判定
+## 8. 判定（历史：编排子集；2026-10-25 需求变更后重开）
 
 | 项 | 判定 | 依据 |
 | --- | --- | --- |
-| A18 | **PASS** | 2 类目标真实生成→试运行→真实效果（dirt 0→1）→晋升→`mc_step`/`mc_plan` 实时调用 |
-| A19 | **PASS（适用子集，残余风险明确）** | 越界访问（manifest/扫描/未晋升/vm 逃逸后全模块拒）、覆盖内置（命名空间+命令表隔离）、死循环（SIGKILL+隔离）、失联（子进程被杀/宿主硬杀）、拒绝清理（超时/取消清理 + 启动清扫）全部实测；残余：vm 非内核边界、可读 worker 进程元数据（无密钥），无内核级网络隔离 |
-| A20 | **PASS** | 失败隔离、promote 拒绝、回退（含状态修正）、下线全部实测 |
-| A27 代码子项 | **PASS** | 真实模型回执、解析、沙箱执行、证据与 token 账本 |
-| A28（编码回合） | **PASS** | 长编码步骤 15.1s 单次结算；取消后 14s 无迟到输出 |
-| A29（编码回合） | **PASS** | 宿主硬杀→重启恢复 pending、无重放、启动清扫残留目录 |
-| A30（编码回合） | **PASS** | `code-generation` 用量可归属；沙箱运行无 LLM 用量 |
+| A18 | **不成立（编排子集）** | `status_report`/`dirt_topup` 只做 read_state→submit_task→chat；**没有直接 move/dig/click**，按新需求不算 A18 |
+| A19 | **历史子集；直接原语 8 类未测** | vm/OS/覆盖内置/死循环/失联/清理仍有效；越界挖放用、非容器点击、多任务抢身体、取消后残留动作等未测 |
+| A20 | **部分** | 旧编排候选的 quarantine/rollback/retire 有效；直接原语候选“动作到一半失败”未测 |
+| A27 代码子项 | **PASS（生成管线部分）** | 真实模型回执、解析、沙箱、证据、token 账本；v2 manifest/原语代码生成未验 |
+| A28（编码回合） | **需重跑** | 旧 slow_wait 长步骤证据只证明编排长步骤 |
+| A29（编码回合） | **需重跑** | 旧硬杀恢复只覆盖编排计划 |
+| A30（编码回合） | **需重跑** | 旧用量归属仍成立，但需覆盖直接原语长任务 |
 | M4-D01 | **PASS** | code-skill 的 `chat` 经语言脑 roleplay 输出（试运行与实时播报均为语言脑措辞） |
-| M4 阶段 | **PASS（A19 适用子集）** | A18–A20、A27 代码、A28–A30 编码回合全部有真机证据；残余风险记录在 A19 |
+| M4 阶段 | **未通过（需求变更重开）** | 旧编排子集一度判 PASS；直接 body 原语能力尚未实现 |
 
 证据路径：`runtime/code-skills/`（candidates/promoted/current 指针）、
 `runtime/code-skill-runs/`（每次试运行/实时运行 JSON）、`runtime/llm-usage.jsonl`（code-generation）、

@@ -1,7 +1,9 @@
 # P1 交接（2026-10-25 更新）
 
 > **一句话**：P1 的**离线可交付部分**已实现并通过一键复验；**M1（适用子集）/M2/M3 已通过真机验收**；
-> **P1 仍未整体验收、未发布**（M5 阻塞、M6/M7 部分）。**M4 已 PASS（A19 适用子集）**。
+> **P1 仍未整体验收、未发布**（M4 重开、M5 阻塞、M6/M7 部分）。
+> **M4：编排子集曾判 PASS，2026-10-25 因“生成代码直接移动/挖掘/点击”需求变更重开（未通过）**；
+> 方案见 [`M4-DIRECT-BODY-PLAN.md`](M4-DIRECT-BODY-PLAN.md)。
 > 2026-10-24 补 M6 受控测试（A24/C03/F02 受控 PASS、A25 四路径仅 accept 为真实 harness、
 > A23 仍缺 40 组 ×3），**M6 仍 PARTIAL**。
 > 本文是交接入口；**阶段判定**以 [`P1-CLIENT-VERIFICATION.md`](P1-CLIENT-VERIFICATION.md) 为准，
@@ -48,7 +50,7 @@ M4 测试在真实 Node 子进程中执行了探针技能，并用一次 DeepSee
 | M1 | `TaskEvents`（seq/幂等/重放）、身份字段与 requestId 贯穿、`PlanStore` 单一写者、同端口 SSE、Capability 表、TaskResult 六态、`mine_ore` progress 值域、`PlanRunner`、`TurnLifecycle`、`HarnessAdapter` | **PASS（适用子集）** |
 | M2 | 二值闸门 + `@` 通道（默认关闭）、严格 LLM 判定器、双脑工具清单、`say/silence`、`LanguageAgent`、可选语言对话通道（默认关闭）、快照 `observedAt`、`refreshPlan`、`ThreatObserver`、persona 注入、H1a/H1b | **PASS** |
 | M3 | `PlanService`/`POST /plan`、`TurnService`/`/harness/events`、DSH `mc_plan`、原子持久化、`wait_for_player`、计划问题复用提案、`ResumeBridge`、`MethodLibrary`、`AnswerMemory`、`MemoryStore`、`Budget`、`verifier`、`draftGuard`、`!state`、`!method`；另：持久 goal（`/goal/pause`/`resume`）、`mc_propose`、`mc_state`、`mc_perception` | **PASS（2026-10-21，M3.1–M3.10）** |
-| M4 | manifest 校验、生成管线、candidates/promoted 目录与指针、晋升/回退/下线、promoted-only 检索；2026-10-18 接真实生成、权限子进程试运行、证据、取消、DeepSeek Search、HTTP `/code-skills`；**2026-10-25 接实时入口（`!code-skill`/`code_skill`）并完成真机 A18–A20、A27 代码、A28–A30 编码回合（A19 适用子集）** | **PASS（A19 适用子集）** |
+| M4 | manifest 校验、生成管线、candidates/promoted 目录与指针、晋升/回退/下线、promoted-only 检索；2026-10-18 接真实生成、权限子进程试运行、证据、取消、DeepSeek Search、HTTP `/code-skills`；2026-10-25 接实时入口并完成**编排子集**真机；**2026-10-25 需求变更：生成代码必须直接 `/state` 移动/挖掘/点击，M4 重开** | **未通过（重开）**；直接原语方案 [`M4-DIRECT-BODY-PLAN.md`](M4-DIRECT-BODY-PLAN.md) |
 | M5 | `WindowPolicy`（默认拒绝）+ `ComputerUseGuard`（拒绝不触达执行器） | **阻塞**：F1 未验证 |
 | M6 | `ConversationState`（去重/过期/自回声/限速/截断）+ opt-in 守卫 + `ChatParticipation` 参与/沉默 + `ProposalChat` yes/no + **DialogueRouter + `mc_say`**；2026-10-24 受控测试 A24/C03/F02 PASS、A25 四路径（accept 真 harness） | 部分：A23 缺 40 组 ×3；A25 仅 accept 为真实提案；R2/R3 未执行 |
 | M7 | 故障演练 9/9、A01–A31 矩阵、`p1:verify`、本交接文档；TaskSlot 失败账本持久化 + UsageLedger 逐请求 usage | 部分：R1 部分，R2–R4/F3/A31 最终组合未执行 |
@@ -100,15 +102,16 @@ M4 测试在真实 Node 子进程中执行了探针技能，并用一次 DeepSee
 `silence-corpus-live-2026-10-23.md`（工作副本）；M6 证据已入库为
 [`M6-LANGUAGE-TESTS.md`](M6-LANGUAGE-TESTS.md) 与 [`M6-A25-CLIENT-TESTS.md`](M6-A25-CLIENT-TESTS.md)。
 
-### 3.4 2026-10-25（M4 代码技能窗口）
+### 3.4 2026-10-25（M4 代码技能窗口；编排子集，同日因需求变更重开）
 
 | 项 | 结果 |
 | --- | --- |
-| A18 代码技能 | 2 类目标真实生成/试运行/晋升；dirt 0→1；动作脑 `mc_step`（2 次）+ `mc_plan` 单步 `code_skill`（`plan-1792896332472-ievp8` completed、postcondition 成立） |
-| A19 | PASS（适用子集）：raw `fs`/`require('fs')`/未晋升 run 被拒；vm 逃逸后 `require` 与全部模块被拒、`process.report/chdir` 被 permission model 拒绝；OS 子进程 fs/child 拒绝、网络经 `subprocessGuard` 关闭；覆盖内置、死循环、子进程/宿主失联、清理与启动清扫实测 |
-| A20 | PASS：`agent.boom` quarantine、rollback 1.1.0→1.0.0、retire 移除 promoted 与命令入口 |
-| A27 代码 | PASS：9 次真实 `code-generation` 调用（2 次 token 截断失败，修复预算后 7 次成功），usage 可归属 |
-| A28–A30 编码回合 | PASS：`agent.slow_wait` 15.1s 长步骤单次结算（动作脑 turn 1→0、postcondition 成立）；取消后 14s 无迟到 `done`；硬杀恢复 pending v1/s1 pending 且不重放、启动清扫 1 个残留目录；本回合 1 条 `code-generation` 用量（1064 tok），沙箱运行无 LLM 用量 |
+| 需求变更 | 操作员要求生成代码**直接读 `/state` 并移动/挖掘/点击**；旧编排子集 A18 不成立，M4 重开（[`M4-DIRECT-BODY-PLAN.md`](M4-DIRECT-BODY-PLAN.md)） |
+| A18 代码技能（编排） | 旧证据：2 类目标真实生成/试运行/晋升；dirt 0→1；动作脑 `mc_step`（2 次）+ `mc_plan` 单步 `code_skill`（`plan-1792896332472-ievp8` completed、postcondition 成立）；**不含直接 move/dig/click** |
+| A19（历史子集） | raw `fs`/`require('fs')`/未晋升 run 被拒；vm 逃逸后 `require` 与全部模块被拒、`process.report/chdir` 被 permission model 拒绝；OS 子进程 fs/child 拒绝、网络经 `subprocessGuard` 关闭；覆盖内置、死循环、子进程/宿主失联、清理与启动清扫实测 |
+| A20（旧编排候选） | `agent.boom` quarantine、rollback 1.1.0→1.0.0、retire 移除 promoted 与命令入口 |
+| A27 代码 | 9 次真实 `code-generation` 调用（2 次 token 截断失败，修复预算后 7 次成功），usage 可归属 |
+| A28–A30 编码回合（编排） | `agent.slow_wait` 15.1s 长步骤单次结算（动作脑 turn 1→0、postcondition 成立）；取消后 14s 无迟到 `done`；硬杀恢复 pending v1/s1 pending 且不重放、启动清扫 1 个残留目录；本回合 1 条 `code-generation` 用量（1064 tok），沙箱运行无 LLM 用量 |
 | 安全加固 | 模块 denylist→全拒；新增 `subprocessGuard.js`（子进程无网络/模块）；启动清扫宿主硬杀留下的 `run-*` 目录（本次 4 个） |
 | 真机修复 | `read_state.isDay` 恒空、`code_skill` progress 误停牌、promote/rollback 多版本同时 promoted |
 | 配置 | `codeSkills.generateMaxTokens 2600→16000`、`generationTimeoutMs 30000→180000`（思考模型 reasoning 计入 completion） |
@@ -140,7 +143,7 @@ M4 测试在真实 Node 子进程中执行了探针技能，并用一次 DeepSee
 
 | 项 | 现状 / 下一步 |
 | --- | --- |
-| M4（已完成） | **PASS（A19 适用子集）**：A18/A19/A20/A27 代码 + A28–A30 编码回合真机；残余（vm 非内核边界、无内核级网络隔离）记录在 [`M4-CLIENT-TESTS.md`](M4-CLIENT-TESTS.md) |
+| M4（重开） | **未通过（需求变更）**：编排子集（A18/A19/A20/A27 代码/A28–A30）真机曾 PASS，但生成代码不能直接移动/挖掘/点击；需按 [`M4-DIRECT-BODY-PLAN.md`](M4-DIRECT-BODY-PLAN.md) 实现 `body_*` 并重验 |
 | M5 F1 / A21 / A22 | F1 未验证（CU 无已授权应用），阶段 BLOCKED；需先建 Full Access Ask CU 对话并授权 java 窗口 |
 | M6 A23 / A25 剩余 | A24/C03/F02 受控 PASS；A23 缺真实第二名玩家 40 组 ×3 与 ≥80%/≤10% 阈值；A25 仅 accept 为真 harness，reject/不答/另派需在真实动作脑提案下重跑（单操作员/合成发送者需标注）；R2/R3 未执行 |
 | M7 A26 / R1–R4 | A26 仅 2026-10-17 分项基线；R1 部分，R2–R4 未执行 |
@@ -194,9 +197,10 @@ docs/          P1-M0 … P1-M7, P1-GAP-AUDIT, P1-CLIENT-TESTS
    A24 仅受控并发（合成发送者）。
 2. **A30 按操作员口径通过**：success/compress/failure/cancel 可归属；retry 用量在 DSH 执行中
    无法获取，不再取证。
-3. **代码技能真机通过但有边界**：A18/A19/A20/A27 代码已实测（A19 适用子集）；vm 不是内核边界
-   （逃逸可读 worker 进程元数据/env，无密钥），子进程网络由 `subprocessGuard` 关闭但无内核级
-   网络隔离；实时 `code_skill` 持 body slot，技能内 `submit_task` 会排到自身之后（两阶段语义）。
+3. **代码技能只完成编排子集**：A18/A19/A20/A27 的旧证据只覆盖 read_state→submit_task→chat；
+   操作员要求直接移动/挖掘/点击，M4 重开（[`M4-DIRECT-BODY-PLAN.md`](M4-DIRECT-BODY-PLAN.md)）；
+   vm 不是内核边界（逃逸可读 worker 进程元数据/env，无密钥），子进程网络由 `subprocessGuard`
+   关闭但无内核级网络隔离；实时 `code_skill` 持 body slot，技能内 `submit_task` 会排到自身之后。
 4. **持久化在测试窗口开启**：A17/A29 已验证等待计划/问题/预算恢复与不重放；
    发布前必须决定保持或回退。
 5. **阈值空置**：`/state` 周期、感知成本、聊天节奏、预算数值都未测量（500ms/3 次检索是配置，不是结论）。
@@ -206,7 +210,7 @@ docs/          P1-M0 … P1-M7, P1-GAP-AUDIT, P1-CLIENT-TESTS
 
 1. **M7 回归**：A26 行走/破坏/拾取/取消/双通道 + R1–R4；同窗口补 F3 token 与 A31 最终组合。
 2. **M6**：A23 固定 40 组 ×3（单操作员需标注；A24 受控并发已过，随语料复跑）+ A25 真实动作脑四路径。
-3. **M4**：已完成（PASS，A19 适用子集）；残余（vm 非内核边界、内核级网络隔离）记录在案，不阻塞。
+3. **M4**：重开——按直接身体原语方案实现并重验；旧编排证据仅作历史子集。
 4. **M5**：F1（Full Access Ask + java 授权）→ A21/A22；F1 不过则 N/A。
 5. **修复遗留**：挖石 noPath、夜间入睡、A02 timeout、A10 跨维度/部分刷新、A11 天气/阶段注入。
 6. 每次改动保持 `npm run p1:verify` 全绿（当前 11/11，含 P0 回归；`--fast` 10/10）；删除断言必须同提交替换。

@@ -4,6 +4,8 @@
 > 真实生成代码可写入候选、可在受限进程中真实试运行；**保留沙箱限制、取消逐动作审批**。
 > 权限边界：`read_state / submit_task / chat / wait / search / generate / subprocess`；
 > 搜索经 Node 使用 DeepSeek Search；超时、撤销、失败清理、证据保留规则由本文件确定。
+> **2026-10-25 需求变更**：操作员要求生成代码直接 `/state` 读世界并移动/挖掘/点击；`body_*` 权限
+> 与 host 代理见 §2.1 与 [`M4-DIRECT-BODY-PLAN.md`](M4-DIRECT-BODY-PLAN.md)，**当前尚未实现**。
 
 ## 1. 信任边界
 
@@ -28,6 +30,32 @@
 | `subprocess` | 父进程启动 `node <sandbox>/sub-*.js` | 无 shell；只允许 sandbox 目录内脚本；10s 硬超时；stdout/stderr 各 ≤16KB；`--permission` 只读 sandbox；**`--require subprocessGuard.js`：全拒 require、删 fetch/WebSocket、清 process 逃逸钩子**（Node 24 permission model 不覆盖网络）；不继承密钥环境 |
 
 **全部 run 的硬限制**：默认 30s（上限 60s）；最多 100 次能力调用；结果/日志各 32KB；内存 `--max-old-space-size=128`；sandbox 目录一次性、结束后删除。
+
+### 2.1 直接身体原语（v2，2026-10-25 需求变更；**尚未实现**）
+
+> 现有手写/生成技能只有编排能力，操作员要求生成代码能直接读 `/state` 并移动、挖掘、点击。
+> 下列 `body_*` 权限**尚未加入** `manifest.js` 白名单，也未在 `CodeSkillService`/worker 中实现；
+> 在方案落地前，声明这些权限的 manifest 会被 `permission-not-allowed` 拒绝。设计见
+> [`M4-DIRECT-BODY-PLAN.md`](M4-DIRECT-BODY-PLAN.md)。
+
+| 能力 | 映射 | 硬限制（计划） |
+| --- | --- | --- |
+| `block_at` / `find_blocks`（`read_state` 权限） | `body.blockAt/findBlocks` | 目标必须在已加载快照；`count≤32`、`maxDistance≤32`；不返回整图 |
+| `body_move` | `body.moveTo` | 目标距离 ≤64；单次 ≤30s；可被取消，取消后 `body.interrupt` |
+| `body_dig` | `body.dig` | 目标在快照内、距离 ≤5；**走 permissionGate `dig`**（allow/deny/ask） |
+| `body_place` | `body.place` | 参考方块面合法、物品在背包、距离 ≤5；**走 permissionGate `place`** |
+| `body_use` | `body.useOn` | 目标方块已加载、距离 ≤5；**走 permissionGate `useOn`** |
+| `body_click` | `body.clickSlot` | 只在**容器界面**；聊天/ESC/设置一律 `operator-screen` 拒绝；槽位按界面校验 |
+| `body_look` / `body_look_at` | `body.look/lookAt` | 仅转向，不产生世界效果 |
+| `body_attack` | `body.attack` | 只允许敌对生物；玩家/被动生物拒绝；距离 ≤6 |
+
+**执行权与取消**：实时调用时 `CodeSkillTask` 已持有 TaskSlot；HTTP 试运行必须先
+`TaskSlot.acquire({kind:'code_skill', holdsBody:true})`，忙则返回 `body-busy`（不并发抢身体），
+结束/超时/取消在 finally 释放并 `body.interrupt`。试运行声明的 body 权限会展示在
+`/code-skills` 状态里。
+
+**证据**：每次原语调用记录 `{capability, args(坐标/槽位), ok, reason, ms}`；权限门拒绝写
+`body.lastRefusal`；全部进入现有 evidence JSON 与预算计数。
 
 ## 3. 子进程的隔离参数
 

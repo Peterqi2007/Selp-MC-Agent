@@ -13,6 +13,9 @@
 | M3-C02 | 任务记忆只靠 grep | grep_task_memory 能召回 MemoryStore/MethodLibrary/AnswerMemory；任务日志不出现在系统上下文 | 未执行 | pass |
 | M3-E02 | 重启持久化 | 15 行窗口、未答问题、动作脑回复挂接 ChatMemory 均恢复；不重放动作；不自动唤醒旧请求 | 本轮只验证 13 行窗口恢复；缺 pending question/action attach | pass（pending question + window；attach 由 B01/集成覆盖） |
 | M3-D03 | taskDone / respawn 播报 | 任务完成、respawn 经语言脑 roleplay，允许 silence；低血/饥饿除外 | 未真机执行 | pass（taskDone + 合成 respawn） |
+| M4-A18 | 直接身体原语技能闭环 | 生成代码用 `read_state` + `body_move/body_dig`（或容器 `body_use/body_click`）产生真实效果；晋升/实时调用；未晋升不可见 | 直接原语未实现；旧编排子集（submit_task）不算 | reopened（2026-10-25 需求变更） |
+| M4-A19 | 直接原语安全边界 | 越界/未加载挖放用、非容器界面点击、多任务抢身体、取消后无残留动作、攻击玩家均被拒；权限门/执行权生效 | `body_*` 未实现；旧 vm/OS 子集仍有效 | reopened（直接原语 8 类未测） |
+| M4-A20 | 直接原语隔离/回退 | 动作到一半失败→quarantined；回退精确；不做半截动作 | 直接原语候选未实现 | reopened（旧编排候选 pass） |
 | M4-D01 | code-skill 发言 | codeSkill chat 经语言脑 roleplay；不再直接 ctx.reply | 仅发言路径；M4 其他代码技能项见 A18–A20 | pass（2026-10-25：试运行 `chat` 与实时播报均 `why=language-roleplay`） |
 | M6-A23 | 多人普通聊天参与/沉默 | 真实第二名玩家固定 40 组 ×3；参与组 ≥80%；沉默组误插话 ≤10% | 真实玩家 6 条全沉默；缺 40×3 与阈值 | partial（真实玩家 6 条全沉默；未 40×3） |
 | M6-A24 | 聊天并发 | 同批消息不重复回复；不自我对话；过时请求不重判；silence 生效；ChatMemory 上下文更新 | 受控并发已过；真实多人未跑 | pass（4 并发：4 user/1 assistant，无重复；测试钩子合成发送者） |
@@ -26,6 +29,8 @@
 M6 证据见 [`M6-LANGUAGE-TESTS.md`](M6-LANGUAGE-TESTS.md)。A23 仍缺真实第二名玩家 40×3；A25 详见 [`M6-A25-CLIENT-TESTS.md`](M6-A25-CLIENT-TESTS.md)（accept 真 harness，其余受控植入）。
 
 > **口径（2026-10-25 复核）**：本表的 `pass` 只表示该项在所列条件下已验，**不等于阶段通过**。
+> **M4-A18/A19/A20 因 2026-10-25 需求变更重开**：旧编排子集（只能 `submit_task`）不算 A18，
+> 需按 [`M4-DIRECT-BODY-PLAN.md`](M4-DIRECT-BODY-PLAN.md) 实现直接 `body_*` 原语后重验。
 > `M6-A25` 的 `pass` 只覆盖提案**生命周期**（四路径、3 分钟冷却、不答非同意）；
 > `M6-A24` 的 `pass` 是**受控并发**（发送者由 `/chat/inject` 合成，非真实多人）。
 > M6 阶段判定仍为 **PARTIAL**，以 [`P1-CLIENT-VERIFICATION.md`](P1-CLIENT-VERIFICATION.md) §0/§8 为准。
