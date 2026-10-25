@@ -40,10 +40,11 @@ class CodeSkillTask extends Task {
     this.last = null;
   }
 
-  progress() {
-    return this._ran ? 1 : 0;
-  }
-
+  /**
+   * Deliberately no progress(): a code skill is one atomic sandbox run, and reporting a
+   * constant "1" made the B1 stall detector see two identical progress values and park the
+   * task ("made no progress (1) for 2 runs", live 2026-10-25). null = no comparable progress.
+   */
   async run() {
     const service = this.ctx.codeSkills;
     if (!service || typeof service.runPromoted !== 'function') return this.fail('code-skills-unavailable');

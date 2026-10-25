@@ -1,0 +1,121 @@
+# M4 代码技能客户端测试证据（2026-10-25）
+
+环境：真实 Forge 1.20.1 客户端 + `agent-client` mod，`mc.example.com:25565`，Node agent
+`clientmod`；DSH 动作脑会话 **「Minecraft动作脑1」**
+`session-8d816775-c46e-4ed7-9b08-115622a84616`（`/health.boundAgentId` 实读）；
+`planner.mode=off`，`language.brain=unified`，生成模型 `deepseek-flash @ api.deepseek.com`。
+窗口：本地 10:30–11:00，游戏内先夜（`!sleep` 因床不可达失败）→ 天亮后开始动作类测试。
+
+## 1. 本次接线（实时入口）
+
+| 入口 | 证据 |
+| --- | --- |
+| `!code-skill list` | 命令回执列出 promoted：`agent.status_report@1.0.0` |
+| `!code-skill <name> [json]` | 后台 `CodeSkillTask`（`code_skill`）→ `runPromoted`；未知/未晋升立即报错 |
+| `code_skill` 任务类型 | `TASK_BUILDERS` 注册；`mc_plan` 单步计划实跑（见 A18） |
+| 动作脑 `mc_step` | 动作脑两次 `mc_step` 调用 `code-skill agent.status_report`（插件 `steps=2`） |
+| 取消 | `POST /code-skills/cancel` → `AbortController` → 子进程 `SIGKILL`，候选不隔离 |
+| 离线 | `p1:m4:test 21/21`（含任务派发/未晋升拒绝/取消/`isDay`/promote-rollback 状态机） |
+
+## 2. A18 真实目标闭环（2 类，生成 → 试运行 → 效果 → 晋升 → 实时调用）
+
+### 目标 A：`agent.status_report`（读状态 + 中文播报；现有技能不覆盖的组合报告）
+
+- 生成：真实模型，manifest `permissions=["read_state","chat"]`，2706 B；
+  候选目录 `runtime/code-skills/candidates/agent/status_report/1.0.0/`。
+- 试运行 1.0.0（`runtime/code-skill-runs/agent.status_report@1.0.0-run-1792895933854-s9w6xw.json`）：
+  2 次能力调用 `read_state` + `chat` 均 ok；状态值 20/20、坐标、`hostiles=0` 与 `/state` 一致；
+  **但报告写成“夜晚”**——见 §5 缺陷 1（`isDay` 字段缺失，已修）。
+- 修复后生成 1.1.0（2523 B），试运行
+  `agent.status_report@1.1.0-run-1792896185519-ofnoeg.json`：
+  `{"health":20,"food":20,"position":{...},"dimension":"主世界","isDay":true,...}`
+  报告「生命20 饥饿20 位置(15.4,64,60.8) 主世界 白天 敌对0」。
+- 晋升：1.0.0 → 1.1.0（`previous:"1.0.0"`）；回退演练后当前 1.0.0（见 A20）。
+- 实时调用（动作脑）：`mc_step` → `code-skill agent.status_report`；Node 日志
+  `enqueue(directive,chat): code_skill ...`、`done code_skill ... succeeded`，语言脑播报
+  「白天现身啦…」「日头亮堂堂的…」。证据 `runtime/logs/start-agent3/5-20261025.log`。
+- 计划调用（动作脑）：`mc_plan` 提交 `plan-1792896332472-ievp8`，goal「M4 code_skill plan smoke」，
+  单步 `{"type":"code_skill","args":{"name":"agent.status_report"}}`，postcondition
+  `inventoryAtLeast {"minecraft:dirt":3}`；计划 **completed**、步骤 done，动作脑回执
+  `{"ok":true,"planId":"plan-1792896332472-ievp8",...}`（插件 `plans=1`）。
+
+### 目标 B：`agent.dirt_topup`（条件补土：读状态 → submit_task → 复核真实增量）
+
+- 生成：真实模型，permissions `["read_state","submit_task","chat","wait"]`，6259 B。
+- 试运行（`agent.dirt_topup@1.0.0-run-1792895947600-grfkgf.json`）：
+  `before=0, after=1, delta=1`；4 次能力调用；世界侧 `/state` dirt **0 → 1**；
+  任务事件 `mine: mine 1x dirt`、`picked up 1 (1/1)`，source=`code-skill`。
+- 晋升 1.0.0；实时调用（面板命令 `code-skill agent.dirt_topup {"target":3}`）：
+  技能提交 mine 后 **任务排在 code_skill 之后**（同一 body slot），6s 内看不到增量，如实返回
+  `pending:true` 并播报「补土的活儿排上队了，不过土还没见多呢」；code_skill 结束后排队的
+  mine 执行，dirt **2 → 3**（`dequeued mine` / `picked up 1 (1/1)`）。再次调用同参数：
+  `before=3` 直接跳过，播报「土够啦」。
+- 边界：这是**实时编排的两阶段语义**（见 §5 缺陷 5）；单次试运行（HTTP）可同步看到增量。
+
+## 3. A19 未授权宿主访问（实测子集）
+
+| 尝试 | 结果 |
+| --- | --- |
+| manifest 申请 raw `fs` 权限 | `{"ok":false,"reason":"invalid-manifest","errors":["permission-not-allowed:fs"]}`（未落候选） |
+| 生成代码含 `require('fs')` | `{"ok":false,"reason":"unsafe-code","errors":[{"reason":"require-not-allowed","line":1}]}`（未落候选） |
+| 运行未晋升/已隔离版本 | `POST /code-skills/agent.boom/run` → `{"ok":false,"reason":"not-promoted"}` |
+| 死循环（有限长循环 `for i<1e9`） | 4000ms 硬超时：`timeout:true`、`SIGKILL`、候选 `quarantined`、promote 被拒 `not-trialled` |
+| 运行中撤销 | `POST /code-skills/cancel` → `cancelled:true`、`SIGKILL`、候选保持 `candidate`（不隔离） |
+
+未覆盖（保持 A19 为部分）：vm 逃逸、OS 级网络/文件隔离、覆盖内置技能、宿主失联/拒绝清理；
+沙箱文档的残余风险不变（[`P1-M4-SANDBOX.md`](P1-M4-SANDBOX.md) §3）。
+
+## 4. A20 坏技能隔离、回退与下线
+
+- 失败注入：生成 `agent.boom`（`throw new Error('intentional M4 failure')`），试运行
+  `ok:false`、`status:quarantined`（证据 `agent.boom@1.0.0-run-1792896394077-zloiwu.json`）；
+  promote → `not-trialled`；run → `not-promoted`。
+- 回退：`POST /code-skills/rollback {"name":"agent.status_report"}`
+  → `store/directory` 均 `{version:"1.0.0", rolledBackFrom:"1.1.0"}`，promoted 只剩 1.0.0；
+  回退后实时调用仍成功（`done code_skill ... succeeded`）。
+- 下线：`POST /code-skills/agent.dirt_topup/1.0.0/retire` → promoted 列表移除；
+  `!code-skill agent.dirt_topup` → `unknown promoted code skill`；目录与指针同步清理。
+
+## 5. 本轮发现并修复的缺陷
+
+1. **`read_state.isDay` 恒为空**：`clientModBody.snapshot()` 没有 `isDay`，`service._readState`
+   读 `snap.isDay` 得 `undefined`，技能只能报“夜晚”（天亮时语言脑播报「天黑啦」）。
+   修复：body 用共享 `isDaytime(time)` 派生 `isDay`；service 再用同一规则兜底；
+   `p1:m4:test` 新增 timeOfDay 权威/isDay 回退断言。
+2. **`CodeSkillTask.progress()` 恒为 1**：连续两次运行触发 B1「made no progress (1) for 2 runs -
+   parking it briefly」。修复：不覆写 `progress()`（null = 不可比进度）+ 断言。
+3. **promote/rollback 后多个版本同时 `promoted`**：回退后 1.1.0 仍标 promoted，且被回退的版本
+   无法再次晋升。修复：promote 时把被取代版本降回 `trialled`；rollback 时把被回退版本降回
+   `trialled`、目标版本置 `promoted`（同一 name 只有一个 promoted 记录）+ 断言。
+4. **思考模型生成被截断**：`deepseek-flash` 的 reasoning 计入 completion；
+   `generateMaxTokens=2600`（后 6000）时两次都在上限处截断 → `malformed-envelope`。
+   配置改为 `generateMaxTokens=16000`、`generationTimeoutMs=180000` 后生成成功
+   （1.0.0 用 5148 tok/24.6s；dirt 用 11897 tok/49.8s）。**运行期改动，重启 Agent 生效。**
+5. **实时编排的两阶段语义**：`code_skill` 任务持 body slot，技能内 `submit_task` 只能排队到
+   自身之后；因此“提交任务后立即复核”的技能在实时调用时返回 `pending`，任务在技能结束后执行
+   （试运行的 HTTP 路径没有这个限制）。技能需按两阶段编写，或仅在试运行里做同步编排验证。
+   后续可评估“编排型技能不占 body slot”的设计，本轮如实记录。
+
+## 6. A27 代码子项（真实模型回执）
+
+- 9 次真实 `code-generation` 调用（`runtime/llm-usage.jsonl`），其中 2 次因 token 截断失败
+  （3286/6686 tok），修复预算后 7 次成功；总 37,816 tok。成功样本：
+  status 1.0.0（5148 tok/24.6s）、dirt（11897 tok/49.8s）、status 1.1.0（4873 tok/20.5s）、
+  boom（302）、slow_loop（948）、rawperm（252，被 manifest 拒）、require（263，被静态扫描拒）。
+- 解析/校验/沙箱/证据/晋升全链路与 provider/model 记录一致；错误路径均给出结构化 reason。
+
+## 7. 判定
+
+| 项 | 判定 | 依据 |
+| --- | --- | --- |
+| A18 | **PASS** | 2 类目标真实生成→试运行→真实效果（dirt 0→1）→晋升→`mc_step`/`mc_plan` 实时调用 |
+| A19 | **PARTIAL（实测子集）** | manifest/静态扫描/晋升边界/硬超时/取消 5 项实测；vm/OS 隔离、覆盖内置、失联未测 |
+| A20 | **PASS** | 失败隔离、promote 拒绝、回退（含状态修正）、下线全部实测 |
+| A27 代码子项 | **PASS** | 真实模型回执、解析、沙箱执行、证据与 token 账本 |
+| M4-D01 | **PASS** | code-skill 的 `chat` 经语言脑 roleplay 输出（试运行与实时播报均为语言脑措辞） |
+| M4 阶段 | **未通过（部分）** | A19 仍部分；A28–A30 编码回合适用场景未执行；P1 未发布 |
+
+证据路径：`runtime/code-skills/`（candidates/promoted/current 指针）、
+`runtime/code-skill-runs/`（每次试运行/实时运行 JSON）、`runtime/llm-usage.jsonl`（code-generation）、
+`runtime/logs/start-agent3/4/5-20261025.log`、`/plan` 记录 `plan-1792896332472-ievp8`。
+测试辅助脚本只在 `.tmp/`（未入库）：`m4-post.js`、`m4-*.json`。

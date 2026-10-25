@@ -79,8 +79,8 @@
     "sandboxRoot": "runtime/code-skill-sandbox",
     "sandboxTimeoutMs": 30000,
     "maxCalls": 100,
-    "generateMaxTokens": 2600,
-    "generationTimeoutMs": 30000,
+    "generateMaxTokens": 16000,
+    "generationTimeoutMs": 180000,
     "search": {
       "enabled": true,
       "cacheFile": "runtime/search-cache.json",

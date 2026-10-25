@@ -76,6 +76,16 @@ class CodeSkillStore {
       return { ok: false, reason: 'not-trialled' };
     }
     const current = this.promoted.get(name);
+    /**
+     * A18/A20 live 2026-10-25: promoting 1.0.1 over 1.0.0 left BOTH records `promoted`, and
+     * rollback left the rolled-back version `promoted` too. The pointer was correct, but the
+     * status field claimed two current versions and made an unpromoted version impossible to
+     * promote again. Keep exactly one `promoted` record per name: the pointer.
+     */
+    if (current) {
+      const previousRecord = this.candidates.get(CodeSkillStore.key(name, current.version));
+      if (previousRecord && previousRecord.status === 'promoted') previousRecord.status = 'trialled';
+    }
     this.promoted.set(name, {
       version,
       previous: current ? current.version : null,
@@ -90,12 +100,17 @@ class CodeSkillStore {
   rollback(name) {
     const current = this.promoted.get(name);
     if (!current) return { ok: false, reason: 'not-promoted' };
+    /** Mirror promote(): the version being rolled away from is no longer current. */
+    const currentRecord = this.candidates.get(CodeSkillStore.key(name, current.version));
+    if (currentRecord && currentRecord.status === 'promoted') currentRecord.status = 'trialled';
     if (!current.previous) {
       this.promoted.delete(name);
       this.history.push({ at: new Date(this.now()).toISOString(), action: 'unpromoted', key: `${name}@${current.version}` });
       return { ok: true, version: null, rolledBackFrom: current.version };
     }
     const previous = current.previous;
+    const previousRecord = this.candidates.get(CodeSkillStore.key(name, previous));
+    if (previousRecord && previousRecord.status === 'trialled') previousRecord.status = 'promoted';
     this.promoted.set(name, { version: previous, previous: null, at: new Date(this.now()).toISOString() });
     this.history.push({ at: new Date(this.now()).toISOString(), action: 'rollback', key: `${name}@${previous}` });
     return { ok: true, version: previous, rolledBackFrom: current.version };

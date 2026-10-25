@@ -103,6 +103,25 @@ function fakeSearchResponse(payload) {
     assert.strictEqual(restored.getPromoted(manifest.name).version, manifest.version);
   });
 
+  await check('promote/rollback keep exactly one promoted record per name', () => {
+    const store = new CodeSkillStore({ now: () => 1000 });
+    const v1 = manifestFor('agent.two', ['read_state']);
+    const v2 = { ...manifestFor('agent.two', ['read_state']), version: '1.0.1' };
+    store.addCandidate(v1);
+    store.addCandidate(v2);
+    store.recordTrial(v1.name, '1.0.0', { ok: true, report: {} });
+    store.recordTrial(v1.name, '1.0.1', { ok: true, report: {} });
+    store.promote(v1.name, '1.0.0');
+    store.promote(v1.name, '1.0.1');
+    assert.strictEqual(store.getCandidate(v1.name, '1.0.1').status, 'promoted');
+    assert.strictEqual(store.getCandidate(v1.name, '1.0.0').status, 'trialled', 'the superseded version is no longer "promoted"');
+    const rolled = store.rollback(v1.name);
+    assert.strictEqual(rolled.version, '1.0.0');
+    assert.strictEqual(store.getCandidate(v1.name, '1.0.0').status, 'promoted');
+    assert.strictEqual(store.getCandidate(v1.name, '1.0.1').status, 'trialled', 'the rolled-back version can be promoted again');
+    assert(store.promote(v1.name, '1.0.1').ok);
+  });
+
   process.stdout.write('\n2. generation + search backends\n');
   await check('the generation backend parses the JSON envelope and rejects malformed output', async () => {
     const manifest = manifestFor('agent.gen');
@@ -462,6 +481,7 @@ module.exports = {
       const result = await task.execute();
       assert.strictEqual(result.ok, true, JSON.stringify(result));
       assert.strictEqual(task.name, 'code_skill');
+      assert.strictEqual(task.progress(), null, 'no constant progress value (B1 stall false positive)');
       assert.strictEqual(seen.name, 'agent.status_report');
       assert.deepStrictEqual(seen.params, { threshold: 8 });
       assert(seen.options && typeof seen.options.signal === 'object', 'the sandbox signal is forwarded');
@@ -507,6 +527,44 @@ module.exports = {
       assert.strictEqual(signal.aborted, true);
       assert.strictEqual(result.ok, false);
       assert.strictEqual(result.status, 'cancelled');
+    });
+
+    await check('read_state derives isDay from the shared clock rule', () => {
+      const root = tempRoot('p1-m4-state-');
+      const ctx = {
+        body: {
+          snapshot: () => ({
+            position: { x: 0, y: 64, z: 0 },
+            health: 20,
+            food: 20,
+            dimension: 'overworld',
+            time: { isDay: false, timeOfDay: 1000, day: 1 },
+            inventory: { dirt: 2 },
+            hostiles: []
+          })
+        }
+      };
+      const service = new CodeSkillService({
+        root,
+        sandboxRoot: path.join(root, 'sandbox'),
+        evidenceDir: path.join(root, 'evidence'),
+        ctx,
+        log: silent
+      });
+      const day = service._readState();
+      assert.strictEqual(day.isDay, true, 'timeOfDay 1000 is daytime even when isDay says false');
+      ctx.body.snapshot = () => ({
+        position: { x: 0, y: 64, z: 0 },
+        health: 20,
+        food: 20,
+        dimension: 'overworld',
+        time: { isDay: true, timeOfDay: 15000, day: 1 },
+        inventory: { dirt: 2 },
+        hostiles: []
+      });
+      const night = service._readState();
+      assert.strictEqual(night.isDay, false, 'timeOfDay 15000 is night even when isDay says true');
+      fs.rmSync(root, { recursive: true, force: true });
     });
 
     await check('!code-skill and code_skill are wired into the command table and TASK_BUILDERS', () => {

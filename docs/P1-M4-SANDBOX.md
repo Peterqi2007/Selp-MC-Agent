@@ -78,10 +78,14 @@ node --permission
 
 ## 6. 验证
 
-- `npm run p1:m4:test`：**19/19**（权限集、状态持久化、生成解析、DeepSeek 请求形状/缓存/隐私过滤、
+- `npm run p1:m4:test`：**21/21**（权限集、状态持久化、生成解析、DeepSeek 请求形状/缓存/隐私过滤、
   真实子进程 read_state/chat/search/wait、能力拒绝、超时、撤销、父进程隔离、subprocess、证据、
-  晋升/回退、实时入口任务/命令注册；2026-10-25 实跑）。
+  晋升/回退、`isDay` 派生、promote/rollback 单 promoted 记录、实时入口任务/命令注册；
+  2026-10-25 实跑）。
 - 实时入口（2026-10-25）：`!code-skill list|<name>` 与 `code_skill` 任务类型只派发**当前 promoted**
   版本（`runPromoted`），试运行仍只在 HTTP 入口；`mc_step`/`mc_plan` 可达同一入口，取消经
   AbortController 杀子进程。
+- 真机（2026-10-25）：manifest raw `fs`/代码 `require`/未晋升 run 均被拒；有限死循环 4s 硬超时
+  `SIGKILL` + `quarantined`；运行中 cancel `SIGKILL` 且不隔离；失败隔离/回退/下线见
+  [`M4-CLIENT-TESTS.md`](M4-CLIENT-TESTS.md)。
 - 并入 `npm run p1:verify`（9 suites → 10 suites，2026-10-23 加 `p1:language:test`）。

@@ -25,6 +25,7 @@
 const { Body, BodyUnavailableError } = require('./body');
 const { stampSnapshot, staleFields } = require('../world/freshness');
 const { DEFAULT_BUDGET } = require('../world/refreshPlan');
+const { isDaytime } = require('../world/daytime');
 const { Logger } = require('../util/logger');
 const { chooseTool } = require('../world/toolPolicy');
 
@@ -429,6 +430,12 @@ class ClientModBody extends Body {
             }
           : null,
       time: state.time,
+      /**
+       * Derived from the shared day/night rule (timeOfDay authoritative, isDay fallback).
+       * The raw mod snapshot has no top-level `isDay`, and read_state/panel consumers were
+       * reading an always-undefined field (A18 live 2026-10-25: report said "夜晚" at dawn).
+       */
+      isDay: isDaytime(state.time),
       weather: state.weather,
       inventory: state.inventory || {},
       /**

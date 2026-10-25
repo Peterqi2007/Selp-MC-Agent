@@ -28,6 +28,7 @@ const { spawn } = require('child_process');
 const { CodeSkillStore } = require('./store');
 const { CodeSkillDirectory } = require('./directory');
 const { CodeSkillGenerator, scanCode } = require('./generator');
+const { isDaytime } = require('../world/daytime');
 const { validateManifest, ALLOWED_PERMISSIONS } = require('./manifest');
 const { SandboxRunner } = require('./sandboxRunner');
 
@@ -403,7 +404,18 @@ class CodeSkillService {
       food: snap.food,
       dimension: snap.dimension,
       time: snap.time || (this.ctx.world && typeof this.ctx.world.summary === 'function' ? this.ctx.world.summary().time : null),
-      isDay: snap.isDay,
+      /**
+       * A18 live 2026-10-25: `snap.isDay` did not exist on the client body, so every
+       * generated status report said "夜晚" while the game was in daylight. Derive it from
+       * the same shared clock rule as the rest of the agent (timeOfDay authoritative,
+       * isDay only a fallback) instead of exposing an always-undefined field.
+       */
+      isDay:
+        isDaytime(snap.time) !== null
+          ? isDaytime(snap.time)
+          : typeof snap.isDay === 'boolean'
+            ? snap.isDay
+            : null,
       screenOpen: snap.screenOpen === true,
       inventory,
       hostiles: (snap.hostiles || []).slice(0, 8).map((hostile) => ({

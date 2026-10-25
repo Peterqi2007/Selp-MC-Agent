@@ -23,7 +23,9 @@
 > **2026-10-24/25 增量**：M6 受控测试完成——A24/C03/F02 受控 PASS（发送者由测试钩子合成）、
 > A25 四路径（accept p14 为真实 action-brain 提案，reject/不答/另派由 `/test/proposal-plant` 植入）、
 > A23 仅真实玩家 6 条全沉默（40 组 ×3 未执行）；M1-A01、M2 八项、M3 四项语言脑补充回归 PASS。
-> 阶段判定不变：**M6 PARTIAL、P1 未发布**。详见 [`P1-CLIENT-TESTS.md`](P1-CLIENT-TESTS.md) 与
+> **M4 真机（2026-10-25）**：A18/A20/A27 代码 PASS、A19 PARTIAL，实时入口
+> `!code-skill`/`code_skill` 已接；阶段判定不变：**M6 PARTIAL、M4 部分、P1 未发布**。详见
+> [`P1-CLIENT-TESTS.md`](P1-CLIENT-TESTS.md)、[`M4-CLIENT-TESTS.md`](M4-CLIENT-TESTS.md) 与
 > [`M6-A25-CLIENT-TESTS.md`](M6-A25-CLIENT-TESTS.md)。
 
 ## 1. 逐节状态
@@ -45,8 +47,8 @@
 | §1.5.3 | 观察契约/缓存/订阅/最小威胁观测 | **已落地（2026-10-20）** | `ObservationCache` per-field observedAt/revision/dimension/source/area、TTL single-flight、失败 stale、维度/死亡/断线失效；已由 `mc_state(fields)` 接入动作脑；反射边沿走 `PerceptionWake`/`mc_perception` |
 | §1.6.1 | 分类记忆 | **部分** | `MemoryStore` 三类 + 中文 unigram/bigram 检索 + 持久化；`ChatMemory` 持久化聊天 save/grep/context/compact；task/plan 终态写 episodic；`/memory` + `mc_memory` 显式共享给行为脑；尚未驱动规划决策 |
 | §1.6.2 | 两个学习入口（搜索/指导） | **已落地（真机通过）** | 方法库/回答记忆 + 计划执行回写 + `suggestMethod`/`!method`；语言脑 `web_search`（无首选）与行为脑 `lookup_mod_content`（MC百科优先）均真机通过；A16 验证同条件复用不联网、不同物品重查、网页按不可信处理 |
-| §1.7.1 | 代码技能目录/生命周期 | **部分** | manifest、目录布局（candidates/promoted + 指针）、晋升/回退/下线、promoted-only 检索；真实试运行入口已接，**真机验收未做** |
-| §1.7.2 | 受限执行/后置验证/隔离 | **部分** | 权限子进程 + 超时/取消/清理 + 证据（2026-10-18 接真实执行，`p1:m4:test 19/19`）；2026-10-25 接实时派发入口（`!code-skill`/`code_skill`，promoted-only）；vm/OS 级隔离仍未证明，A19 真机安全验收未执行 |
+| §1.7.1 | 代码技能目录/生命周期 | **已落地（真机 2026-10-25）** | manifest、目录布局（candidates/promoted + 指针）、晋升/回退/下线、promoted-only 检索；真实生成→试运行→晋升→实时派发（`!code-skill`/`code_skill`）已真机；A18/A20/A27 代码 PASS |
+| §1.7.2 | 受限执行/后置验证/隔离 | **部分** | 权限子进程 + 超时/取消/清理 + 证据（`p1:m4:test 21/21`）；真机 manifest/静态扫描/晋升边界/硬超时/取消实测；**vm/OS 级隔离、覆盖内置、失联未证明（A19 PARTIAL）** |
 | §1.7.3 | 动作脑工具面/语言脑收窄 | **已落地（2026-10-17）** | 两套清单、`say/silence`、语言 agent、可选对话通道、persona 注入；M2 真机确认语言面无 body 工具 |
 | §1.8.1 | CU 观察—动作闭环 | **部分** | `WindowPolicy` + `ComputerUseGuard`（拒绝不触达执行器）；**无真实 GUI/观察闭环** |
 | §1.8.2 | CU 中断与复用 | **未开始** | 无 |
@@ -73,15 +75,15 @@
 ## 3. 与验收矩阵的关系
 
 本审计不改变 [`P1-M7.md`](P1-M7.md) 的 A01–A31 矩阵。**2026-10-25 现状**：M1（适用子集）/M2/M3 已通过；
-A02/A03/A06/A09–A17/A27–A30 有真机证据；A01/A08/A26 部分；A24/C03/F02 受控 PASS、A25 四路径
-（accept 真 harness）、A23 仅真实玩家 6 条沉默；A18–A22、A23 的 40×3、A25 三条真实提案、
-A31 最终组合、R1–R4、F3 未执行。
+A02/A03/A06/A09–A17/A27–A30 有真机证据；A01/A08/A26 部分；M4 的 A18/A20/A27 代码 PASS、A19 PARTIAL；
+A24/C03/F02 受控 PASS、A25 四路径（accept 真 harness）、A23 仅真实玩家 6 条沉默；A19 的 vm/OS 子项、
+A21–A22、A23 的 40×3、A25 三条真实提案、A28–A30 编码回合、A31 最终组合、R1–R4、F3 未执行。
 上表的“已落地”只表示实现与夹具齐全，不代表未执行项的真机/模型验收。
 
 ## 4. 下一步建议
 
 1. 离线侧已完成 10-17 审计的 P0 两项（感知盖章、requestId 贯穿）；剩余离线债按 `p1:verify` 维持全绿。
-2. 真机侧只剩 **M4 A18–A20**（安全授权）、**M5 F1/A21/A22**（CU 授权）、**M6 A23 的 40 组 ×3 与
-   A25 三条真实提案**（A24/C03/F02 已受控通过）、**M7 A26/R1–R4/F3/A31 最终组合**；
-   按 [`P1-CLIENT-TESTS.md`](P1-CLIENT-TESTS.md) 逐项执行。
+2. 真机侧只剩 **M4 A19 的 vm/OS/覆盖内置/失联子项与 A28–A30 编码回合**、**M5 F1/A21/A22**（CU 授权）、
+   **M6 A23 的 40 组 ×3 与 A25 三条真实提案**（A24/C03/F02 已受控通过）、
+   **M7 A26/R1–R4/F3/A31 最终组合**；按 [`P1-CLIENT-TESTS.md`](P1-CLIENT-TESTS.md) 逐项执行。
 3. 未批准前保持当前默认配置（`planner.mode=off`、`state.enabled=true` 仅测试窗口）。
