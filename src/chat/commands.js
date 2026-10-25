@@ -44,7 +44,7 @@ const HELP = [
   '!status - health, food, position, current goal',
   '!chop [n] - gather n logs (walk -> break -> collect)',
   '!mine <block> [n] - mine n blocks',
-  '!goto <x> <y> <z> - walk there using pathfinding',
+  '!goto <x> <y> <z> - walk there precisely (0.25-block arrival radius)',
   '!collect - pick up dropped items within 15x15x15 (fresh scan, A* walk)',
   '!eat [food] - eat the best food carried (or a named item)',
   '!equip <item> - hold an item from the inventory',
@@ -411,7 +411,7 @@ class ChatController {
       goto: async (args) => {
         const [x, y, z] = args.map(Number);
         if ([x, y, z].some((n) => Number.isNaN(n))) throw new Error('usage: !goto <x> <y> <z>');
-        const task = new GoToTask(ctx, { position: { x, y, z }, range: 2, timeoutMs: 120000 });
+        const task = new GoToTask(ctx, { position: { x, y, z }, range: 0.25, timeoutMs: 120000 });
         /**
          * Acceptance, not completion: the receipt comes back now and the arrival is
          * announced by the task event (the GoToTask reports the pathfinding reason itself,

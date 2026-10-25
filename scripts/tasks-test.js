@@ -107,6 +107,19 @@ function treeBlocks(x, z, height, species = 'oak', options = {}) {
     return res.reason;
   });
 
+  await scenario('GoToTask defaults to a 0.25-block arrival radius and keeps fractional targets', async () => {
+    const body = new MockBody(cfg, { start: { x: 0, y: 64, z: 0 } });
+    await body.connect();
+    const target = { x: 13.37, y: 64, z: 59.62 };
+    const task = new GoToTask(makeCtx(body, cfg), { position: target });
+    expect(task.range === 0.25, `default goto range must be 0.25, got ${task.range}`);
+    const res = await task.execute();
+    expect(res.ok, `expected precise arrival, got ${res.reason}`);
+    const off = Math.hypot(body.position.x - target.x, body.position.z - target.z);
+    expect(off < 0.25, `expected within 0.25 blocks, off by ${off.toFixed(3)}`);
+    return `arrived within ${off.toFixed(3)} blocks`;
+  });
+
   await scenario('GoToTask reports the pathfinding reason instead of a bare failure', async () => {
     const body = new MockBody(cfg, { start: { x: 0, y: 64, z: 0 } });
     await body.connect();

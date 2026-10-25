@@ -18,7 +18,7 @@
  */
 
 const { Task } = require('./task');
-const { positionReached } = require('../planner/verifier');
+const { positionReached, horizontalDistance } = require('../planner/verifier');
 
 class GoToTask extends Task {
   /**
@@ -34,7 +34,12 @@ class GoToTask extends Task {
     });
     this.destination = options.position ? { ...options.position } : null;
     this.landmark = options.landmark || null;
-    this.range = options.range === undefined ? 2 : options.range;
+    /**
+     * 0.25 by default: the operator needs cell-precise positioning (2026-10-25); the old
+     * 2-block arrival radius left the body up to two blocks off the requested point.
+     * Callers that want a loose walk (shelter/landmark) can still pass an explicit range.
+     */
+    this.range = options.range === undefined ? 0.25 : options.range;
   }
 
   progress() {
@@ -74,23 +79,44 @@ class GoToTask extends Task {
     const started = Date.now();
     let reached = false;
     try {
-      reached = await body.moveTo(target, { range: this.range, timeoutMs: this.timeoutMs - 2000 });
+      reached = await body.moveTo(target, {
+        range: this.range,
+        timeoutMs: this.timeoutMs - 2000,
+        /**
+         * The client walker floors a coordinate unless `precise` is set. With a 0.25
+         * arrival radius a floored target is unreachable (the cell centre is 0.5 away),
+         * so preserve the doubles the operator asked for.
+         */
+        precise: true
+      });
     } catch (err) {
       return this.fail(`walk failed: ${err.message}`);
     }
     const ms = Date.now() - started;
 
     if (reached) {
-      const now = this.position;
+      let now = this.position;
       /**
-       * The walk's own "arrived" and a plan step's `positionNear` postcondition must use
-       * the same measure (A13 live 2026-10-20): horizontal `range` plus a vertical
-       * tolerance. `body.moveTo()` reports arrival horizontally, so a second opinion here
-       * with a different metric would reject walks that did arrive - and a postcondition
-       * that disagrees with the task is a bug in the contract, not in the walking.
+       * A planned walk stops at the goal *cell*, which can be up to ~0.7 blocks from the
+       * requested point. With the 0.25 radius that is not arrival, so make one direct
+       * precise hop at the exact coordinates before judging the task.
        */
       if (now && !positionReached(now, target, this.range)) {
-        return this.fail(`not-arrived: stopped at ${fmt(now)} outside ${this.range} blocks of ${fmt(target)}`);
+        try {
+          await body.moveTo(target, {
+            range: this.range,
+            timeoutMs: Math.min(8000, Math.max(2000, this.timeoutMs - ms - 1000)),
+            raw: true,
+            precise: true
+          });
+        } catch {
+          /* the failure below reports the measured position */
+        }
+        now = this.position;
+      }
+      if (now && !positionReached(now, target, this.range)) {
+        const off = now ? horizontalDistance(now, target).toFixed(2) : '?';
+        return this.fail(`not-arrived: stopped at ${fmt(now)} (${off} blocks) outside ${this.range} of ${fmt(target)}`);
       }
       const travelled = from && now ? +Math.hypot(now.x - from.x, now.z - from.z).toFixed(2) : null;
       return this.succeed(`arrived at ${fmt(target)}${travelled === null ? '' : ` (moved ${travelled} blocks in ${ms}ms)`}`);
