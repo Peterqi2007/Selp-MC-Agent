@@ -127,22 +127,25 @@ context.console = {
      * child_process even if it escapes the context. The Node permission model is the second
      * layer; the static scanner is the first.
      */
-    const denied = new Set([
-      'fs', 'http', 'https', 'net', 'tls', 'dns', 'dgram', 'child_process',
-      'worker_threads', 'cluster', 'inspector', 'module', 'vm', 'os', 'path'
-    ]);
+    /**
+     * Deny EVERY module load after setup, not just a denylist.
+     *
+     * A19 live 2026-10-25: the vm is not a boundary and `console.log.constructor(...)`
+     * reaches this worker's host global (process object). A denylist still left
+     * node:repl/crypto/perf_hooks reachable; generated code has no legitimate module use,
+     * so the second layer becomes "no modules at all". fs/child_process/net stay denied by
+     * name above for the worker's own startup requires, which are already resolved.
+     */
     const originalLoad = Module._load;
-    Module._load = function guardedLoad(request, parent, isMain) {
+    Module._load = function guardedLoad(request) {
       const name = String(request || '').replace(/^node:/, '').split('/')[0];
-      if (denied.has(name)) throw new Error(`sandbox-denied-module:${name}`);
-      return originalLoad.call(this, request, parent, isMain);
+      throw new Error(`sandbox-denied-module:${name}`);
     };
     const originalGetBuiltin = typeof process.getBuiltinModule === 'function' ? process.getBuiltinModule : null;
     if (originalGetBuiltin) {
       process.getBuiltinModule = function guardedGetBuiltin(name) {
         const clean = String(name || '').replace(/^node:/, '').split('/')[0];
-        if (denied.has(clean)) throw new Error(`sandbox-denied-module:${clean}`);
-        return originalGetBuiltin.call(process, name);
+        throw new Error(`sandbox-denied-module:${clean}`);
       };
     }
     for (const escape of ['binding', '_linkedBinding', 'dlopen', 'mainModule', 'kill', 'exit', 'abort']) {

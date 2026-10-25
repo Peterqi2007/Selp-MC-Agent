@@ -25,7 +25,7 @@
 | `wait` | worker 本地 `setTimeout` | 单次 ≤30s；总时长仍受父进程 wall clock |
 | `search` | `SearchService` → DeepSeek `POST /v1/tools/search` | 查询 ≤128 字符；拒绝坐标/IP/@玩家名；8s 超时；结果标记 `untrusted`；写 `runtime/search-cache.json` |
 | `generate` | `CodeSkillGeneration` → 同一 LLM client | 每次 run 最多 1 次；产物仍走 manifest+静态扫描；写 `candidates/`，不自动晋升 |
-| `subprocess` | 父进程启动 `node <sandbox>/sub-*.js` | 无 shell；只允许 sandbox 目录内脚本；10s 硬超时；stdout/stderr 各 ≤16KB；同样 `--permission` 只读 sandbox；不继承密钥环境 |
+| `subprocess` | 父进程启动 `node <sandbox>/sub-*.js` | 无 shell；只允许 sandbox 目录内脚本；10s 硬超时；stdout/stderr 各 ≤16KB；`--permission` 只读 sandbox；**`--require subprocessGuard.js`：全拒 require、删 fetch/WebSocket、清 process 逃逸钩子**（Node 24 permission model 不覆盖网络）；不继承密钥环境 |
 
 **全部 run 的硬限制**：默认 30s（上限 60s）；最多 100 次能力调用；结果/日志各 32KB；内存 `--max-old-space-size=128`；sandbox 目录一次性、结束后删除。
 
@@ -49,11 +49,11 @@ node --permission
 - 生成代码的 vm context 没有 `require/process/fetch/globalThis` 注入；只有声明的 `ctx` 方法和
   受限 console/timer。
 
-> **诚实边界**：`vm` 不是安全边界；本实现用“静态扫描 + 子进程 permission model + worker 模块/全局
-> 封锁 + 父进程 RPC 白名单”做纵深，但 Node permission model 不提供 OS 级网络隔离，vm 逃逸仍可能
-> 拿到 `process`。因此：只运行本流水线生成的代码、不运行未扫描的外部代码；A19 的“阻止未授权宿主
-> 访问”在真机验收前仍保留残余风险说明。`subprocess` 是最高风险能力，默认只允许 Node 脚本且只在
-> sandbox 目录内。
+> **诚实边界**：`vm` 不是安全边界；A19 探针（2026-10-25）确认 `console.log.constructor` 等路径可达
+> worker 进程，但 `require`/全部内置模块被拒、`process.report/chdir` 被 permission model 拒绝、
+> 环境变量已剥离（仅 Windows 用户变量，无密钥）。子进程网络由 `subprocessGuard` 在 JS 层关闭，
+> **不是内核防火墙**。因此：只运行本流水线生成的代码、不运行未扫描的外部代码；A19 判为
+> “适用子集通过”，残余风险保留。`subprocess` 仍是最高风险能力，只允许 sandbox 目录内 Node 脚本。
 
 ## 4. 超时、撤销、失败清理、证据
 
@@ -61,7 +61,7 @@ node --permission
 | --- | --- |
 | **超时** | `SandboxRunner` wall clock 到点 `SIGKILL` 子进程；等待 exit 后删除目录；返回 `timeout:true`，候选进入 `quarantined` |
 | **撤销** | `CodeSkillService.cancel(name,version)` / `cancelAll()` 触发 `AbortController`；runner 杀子进程、清目录；取消**不**隔离候选（不是失败）；HTTP `POST /code-skills/cancel`；面板紧急停止也调用 `cancelAll()` |
-| **失败清理** | 子进程 kill；sandbox 目录删除（重试 5 次）；不留在父进程的 body/timer；失败候选 `recordTrial({ok:false})` → `quarantined`，不可晋升 |
+| **失败清理** | 子进程 kill；sandbox 目录删除（重试 5 次）；不留在父进程的 body/timer；失败候选 `recordTrial({ok:false})` → `quarantined`，不可晋升；**宿主硬杀遗留的 `run-*` 目录在下次启动时清扫**（`CodeSkillService` 构造，仅匹配 `run-*`） |
 | **证据** | 每次 trial 写 `runtime/code-skill-runs/<name>@<version>-<runId>.json`：manifest、权限、params、能力调用表、日志、stdout/stderr、退出码、超时/取消、耗时、限制、result；保留供审阅，不写密钥 |
 | **审批** | 本窗口**没有逐动作审批**；生成/试运行由显式 HTTP/命令入口触发一次，之后全部由上述硬规则约束 |
 | **晋升** | 只有 `trialled + tests.ok` 能 `promote`；失败/取消/超时不能晋升；`rollback` 精确回退，`retire` 下线 |
@@ -78,14 +78,15 @@ node --permission
 
 ## 6. 验证
 
-- `npm run p1:m4:test`：**21/21**（权限集、状态持久化、生成解析、DeepSeek 请求形状/缓存/隐私过滤、
+- `npm run p1:m4:test`：**24/24**（权限集、状态持久化、生成解析、DeepSeek 请求形状/缓存/隐私过滤、
   真实子进程 read_state/chat/search/wait、能力拒绝、超时、撤销、父进程隔离、subprocess、证据、
-  晋升/回退、`isDay` 派生、promote/rollback 单 promoted 记录、实时入口任务/命令注册；
-  2026-10-25 实跑）。
+  晋升/回退、`isDay` 派生、promote/rollback 单 promoted 记录、启动清扫、vm 逃逸回归、
+  subprocess 网络/模块守卫、实时入口任务/命令注册；2026-10-25 实跑）。
 - 实时入口（2026-10-25）：`!code-skill list|<name>` 与 `code_skill` 任务类型只派发**当前 promoted**
   版本（`runPromoted`），试运行仍只在 HTTP 入口；`mc_step`/`mc_plan` 可达同一入口，取消经
   AbortController 杀子进程。
 - 真机（2026-10-25）：manifest raw `fs`/代码 `require`/未晋升 run 均被拒；有限死循环 4s 硬超时
-  `SIGKILL` + `quarantined`；运行中 cancel `SIGKILL` 且不隔离；失败隔离/回退/下线见
+  `SIGKILL` + `quarantined`；运行中 cancel `SIGKILL` 且不隔离；子进程被杀 → `sandbox-exit`，
+  宿主硬杀 → 子进程随 IPC 退出、残留目录由启动清扫移除；覆盖内置与 A20 失败隔离/回退/下线见
   [`M4-CLIENT-TESTS.md`](M4-CLIENT-TESTS.md)。
 - 并入 `npm run p1:verify`（9 suites → 10 suites，2026-10-23 加 `p1:language:test`）。

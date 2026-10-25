@@ -15,7 +15,7 @@
 | `code_skill` 任务类型 | `TASK_BUILDERS` 注册；`mc_plan` 单步计划实跑（见 A18） |
 | 动作脑 `mc_step` | 动作脑两次 `mc_step` 调用 `code-skill agent.status_report`（插件 `steps=2`） |
 | 取消 | `POST /code-skills/cancel` → `AbortController` → 子进程 `SIGKILL`，候选不隔离 |
-| 离线 | `p1:m4:test 21/21`（含任务派发/未晋升拒绝/取消/`isDay`/promote-rollback 状态机） |
+| 离线 | `p1:m4:test 24/24`（含任务派发/未晋升拒绝/取消/`isDay`/promote-rollback 状态机） |
 
 ## 2. A18 真实目标闭环（2 类，生成 → 试运行 → 效果 → 晋升 → 实时调用）
 
@@ -59,11 +59,24 @@
 | manifest 申请 raw `fs` 权限 | `{"ok":false,"reason":"invalid-manifest","errors":["permission-not-allowed:fs"]}`（未落候选） |
 | 生成代码含 `require('fs')` | `{"ok":false,"reason":"unsafe-code","errors":[{"reason":"require-not-allowed","line":1}]}`（未落候选） |
 | 运行未晋升/已隔离版本 | `POST /code-skills/agent.boom/run` → `{"ok":false,"reason":"not-promoted"}` |
+| **vm 逃逸**（真实 `SandboxRunner` + 构造探针） | `console.log.constructor` / `module.constructor.constructor` / `ctx.read_state.constructor` 都能拿到 **worker 子进程**的 `globalThis.process`（vm 不是边界，已记录的残余）；但随后：`require === undefined`；**所有** `getBuiltinModule(name)`（fs/child_process/module/vm/net/repl/crypto）→ `sandbox-denied-module`；`process.report.writeReport()` 与 `process.chdir()` → `Access to this API has been restricted`；`env` 仅 Windows 用户变量（无 API key/密钥） |
+| **OS 隔离**（子进程同款 `--permission` 参数） | 读 `C:/Windows/win.ini`、写文件、`child_process` → `ERR_ACCESS_DENIED`；env 已剥离；**网络曾可达**（`fetch` 返回 401）→ 已加 `subprocessGuard.js` 预载：所有 `require` 拒绝、`fetch/WebSocket` 删除、`process` 逃逸钩子清空；复测 `fetch/net/fs/child` 全部 DENIED |
+| **覆盖内置** | manifest 名 `mine` → `invalid-manifest: name-must-be-namespace.skill`（未落候选）；`!mine dirt 1` 仍是内置任务（dirt 3→5，日志 `task:mine`）；`!code-skill mine` → `unknown promoted code skill` |
 | 死循环（有限长循环 `for i<1e9`） | 4000ms 硬超时：`timeout:true`、`SIGKILL`、候选 `quarantined`、promote 被拒 `not-trialled` |
 | 运行中撤销 | `POST /code-skills/cancel` → `cancelled:true`、`SIGKILL`、候选保持 `candidate`（不隔离） |
+| **失联（子进程被杀）** | 运行中 kill sandboxWorker → `sandbox-exit: code=4294967295`、候选 `quarantined`、sandbox 目录清理为 0 |
+| **失联（宿主硬杀）** | 运行中 `taskkill /F` 杀 Node agent → 子进程随 IPC 断开退出（无孤儿循环）；trial HTTP 连接失败；`run-*` 目录遗留 |
+| **拒绝清理** | 超时/取消均为 SIGKILL + 目录删除；宿主硬杀遗留的 `run-*` 目录由**启动清扫**移除（本次启动日志 `removed 4 stale sandbox dir(s)`，含 3 个 10-18 遗留） |
 
-未覆盖（保持 A19 为部分）：vm 逃逸、OS 级网络/文件隔离、覆盖内置技能、宿主失联/拒绝清理；
-沙箱文档的残余风险不变（[`P1-M4-SANDBOX.md`](P1-M4-SANDBOX.md) §3）。
+加固（本轮新增，均在 `p1:m4:test 24/24`）：
+
+1. **模块访问从 denylist 改为全拒**：escape 后也无法加载任何 builtin（原先 repl/crypto/perf_hooks 可达）。
+2. **`subprocessGuard.js` 预载**：子进程无网络/模块/逃逸钩子（Node 24 的 permission model 不覆盖网络）。
+3. **启动清扫 `run-*` 沙箱目录**：宿主硬杀后的残留不会永久堆积。
+
+残余风险（A19 判定的边界）：vm 不是内核级边界，逃逸可读 worker 进程元数据与 Windows 用户环境变量
+（无密钥）；隔离是「Node permission model + JS 层守卫」，不是容器/OS 防火墙；未做内核级网络隔离。
+
 
 ## 4. A20 坏技能隔离、回退与下线
 
@@ -95,6 +108,16 @@
    自身之后；因此“提交任务后立即复核”的技能在实时调用时返回 `pending`，任务在技能结束后执行
    （试运行的 HTTP 路径没有这个限制）。技能需按两阶段编写，或仅在试运行里做同步编排验证。
    后续可评估“编排型技能不占 body slot”的设计，本轮如实记录。
+6. **vm 逃逸可达 worker 进程**（A19 探针）：`console.log.constructor` 等三条路径都能拿到
+   worker 子进程的 `process`；`require` 与模块加载是当时唯一的第二层。修复：`Module._load`
+   与 `process.getBuiltinModule` 改为**全拒**（原先 denylist 还放行 repl/crypto/perf_hooks）；
+   新增回归断言「逃逸可到 process，但任何模块都加载不了」。
+7. **subprocess 子进程有网络出口**（A19 探针：`fetch` 返回 HTTP 401）：Node 24 的 permission
+   model 不覆盖网络。修复：新增 `subprocessGuard.js` 预载（全拒 require、删 fetch/WebSocket、
+   清 process 逃逸钩子），子进程参数加 `--require <guard>` 与读权限；复测 fetch/net/fs/child 全拒。
+8. **宿主硬杀后沙箱目录残留**：`run-*` 目录只能由父进程清理；硬杀留下 4 个（含 3 个 10-18 遗留）。
+   修复：`CodeSkillService` 启动时清扫 `run-*` 目录（不动其他目录），本次启动日志
+   `removed 4 stale sandbox dir(s)`；子进程本身随 IPC 断开退出，无孤儿循环。
 
 ## 6. A27 代码子项（真实模型回执）
 
@@ -109,11 +132,11 @@
 | 项 | 判定 | 依据 |
 | --- | --- | --- |
 | A18 | **PASS** | 2 类目标真实生成→试运行→真实效果（dirt 0→1）→晋升→`mc_step`/`mc_plan` 实时调用 |
-| A19 | **PARTIAL（实测子集）** | manifest/静态扫描/晋升边界/硬超时/取消 5 项实测；vm/OS 隔离、覆盖内置、失联未测 |
+| A19 | **PASS（适用子集，残余风险明确）** | 越界访问（manifest/扫描/未晋升/vm 逃逸后全模块拒）、覆盖内置（命名空间+命令表隔离）、死循环（SIGKILL+隔离）、失联（子进程被杀/宿主硬杀）、拒绝清理（超时/取消清理 + 启动清扫）全部实测；残余：vm 非内核边界、可读 worker 进程元数据（无密钥），无内核级网络隔离 |
 | A20 | **PASS** | 失败隔离、promote 拒绝、回退（含状态修正）、下线全部实测 |
 | A27 代码子项 | **PASS** | 真实模型回执、解析、沙箱执行、证据与 token 账本 |
 | M4-D01 | **PASS** | code-skill 的 `chat` 经语言脑 roleplay 输出（试运行与实时播报均为语言脑措辞） |
-| M4 阶段 | **未通过（部分）** | A19 仍部分；A28–A30 编码回合适用场景未执行；P1 未发布 |
+| M4 阶段 | **未通过（部分）** | A18/A19/A20/A27 代码已过；A28–A30 编码回合适用场景未执行；P1 未发布 |
 
 证据路径：`runtime/code-skills/`（candidates/promoted/current 指针）、
 `runtime/code-skill-runs/`（每次试运行/实时运行 JSON）、`runtime/llm-usage.jsonl`（code-generation）、

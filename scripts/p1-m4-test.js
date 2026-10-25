@@ -122,6 +122,24 @@ function fakeSearchResponse(payload) {
     assert(store.promote(v1.name, '1.0.1').ok);
   });
 
+  await check('startup sweeps run-* sandbox dirs left by a killed host', () => {
+    const root = tempRoot('p1-m4-sweep-');
+    const sandboxRoot = path.join(root, 'sandbox');
+    fs.mkdirSync(path.join(sandboxRoot, 'run-dead'), { recursive: true });
+    fs.writeFileSync(path.join(sandboxRoot, 'run-dead', 'index.js'), 'module.exports = {};\n');
+    fs.mkdirSync(path.join(sandboxRoot, 'keep-me'), { recursive: true });
+    new CodeSkillService({
+      root,
+      sandboxRoot,
+      evidenceDir: path.join(root, 'evidence'),
+      ctx: {},
+      log: silent
+    });
+    assert.strictEqual(fs.existsSync(path.join(sandboxRoot, 'run-dead')), false, 'stale run-* dir removed');
+    assert.strictEqual(fs.existsSync(path.join(sandboxRoot, 'keep-me')), true, 'unrelated dirs untouched');
+    fs.rmSync(root, { recursive: true, force: true });
+  });
+
   process.stdout.write('\n2. generation + search backends\n');
   await check('the generation backend parses the JSON envelope and rejects malformed output', async () => {
     const manifest = manifestFor('agent.gen');
@@ -360,6 +378,43 @@ module.exports = { async run(ctx) {
       delete global[marker];
     });
 
+    /**
+     * A19 live 2026-10-25: `console.log.constructor('return globalThis')()` escapes the vm
+     * and reaches the WORKER's process (vm is not a boundary). The second layer must still
+     * deny every module, so file/child/net access stays closed. This test pins both halves:
+     * the documented residual (host process reachable) and the enforced boundary.
+     */
+    await check('a vm escape reaches the worker process but cannot load any module', async () => {
+      const probe = manifestFor('agent.escape', []);
+      const result = await runner.run({
+        name: probe.name,
+        version: probe.version,
+        entry: probe.entry,
+        code: `
+module.exports = {
+  async run() {
+    const g = console.log.constructor('return globalThis')();
+    const p = g && g.process;
+    const out = { hostProcess: !!p, requireType: typeof (g && g.require) };
+    for (const name of ['fs', 'child_process', 'module', 'vm', 'net', 'repl', 'crypto']) {
+      try { p.getBuiltinModule(name); out[name] = 'LOADED'; }
+      catch (e) { out[name] = 'DENIED'; }
+    }
+    return out;
+  }
+};`,
+        manifest: probe,
+        timeoutMs: 3000,
+        host: {}
+      });
+      assert(result.ok);
+      assert.strictEqual(result.result.hostProcess, true, 'vm is not a boundary (documented residual)');
+      assert.strictEqual(result.result.requireType, 'undefined');
+      for (const name of ['fs', 'child_process', 'module', 'vm', 'net', 'repl', 'crypto']) {
+        assert.strictEqual(result.result[name], 'DENIED', `${name} must be denied after an escape`);
+      }
+    });
+
     fs.rmSync(path.dirname(sandboxRoot), { recursive: true, force: true });
   }
 
@@ -459,6 +514,35 @@ module.exports = {
       const rolled = service.rollback(manifest.name);
       assert(rolled.ok);
       assert.strictEqual(service.store.getPromoted(manifest.name), null);
+    });
+
+    /**
+     * A19 2026-10-25: Node's permission model has no network flag. The subprocess child is
+     * started with a preload guard that denies every require, deletes fetch/WebSocket and
+     * clears process escape hatches; fs/child_process stay denied by --permission too.
+     */
+    await check('subprocess network and modules are denied by the preload guard', async () => {
+      const sandboxDir = path.join(root, 'subproc');
+      fs.mkdirSync(sandboxDir, { recursive: true });
+      const code = `
+const out = {};
+(async () => {
+  try { const r = await fetch('https://api.deepseek.com/', { method: 'HEAD' }); out.fetch = 'OK:' + r.status; }
+  catch (e) { out.fetch = 'DENIED:' + (e && e.name ? e.name : e); }
+  try { require('net'); out.net = 'LOADED'; } catch (e) { out.net = 'DENIED'; }
+  try { require('fs').readFileSync('C:/Windows/win.ini', 'utf8'); out.fs = 'READ'; }
+  catch (e) { out.fs = 'DENIED:' + (e.code || e.message); }
+  try { require('child_process'); out.child = 'LOADED'; } catch (e) { out.child = 'DENIED'; }
+  process.stdout.write(JSON.stringify(out));
+})();
+`;
+      const res = await service._subprocess({ code, timeoutMs: 8000 }, { sandboxDir });
+      assert(res.ok, JSON.stringify(res));
+      const parsed = JSON.parse(res.stdout);
+      assert(/^DENIED/.test(parsed.fetch), `fetch must be denied: ${parsed.fetch}`);
+      assert.strictEqual(parsed.net, 'DENIED');
+      assert(/^DENIED/.test(parsed.fs), `fs must stay denied by the permission flags: ${parsed.fs}`);
+      assert.strictEqual(parsed.child, 'DENIED');
     });
 
     fs.rmSync(root, { recursive: true, force: true });

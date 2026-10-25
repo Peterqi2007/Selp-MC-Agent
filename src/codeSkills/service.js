@@ -90,7 +90,36 @@ class CodeSkillService {
     this._runGeneration = new Map();
     this._active = new Map();
     this._chatAt = 0;
+    /**
+     * A19 live 2026-10-25: a hard-killed host leaves its throwaway `run-*` sandbox behind
+     * (the parent is the only cleaner). The child does die on IPC disconnect, but the
+     * directory cannot remove itself. Sweep stale run dirs once at startup; never touch
+     * anything that is not a `run-*` dir.
+     */
+    this._sweepStaleSandbox();
     this._load();
+  }
+
+  _sweepStaleSandbox() {
+    const root = this.sandbox && this.sandbox.sandboxRoot;
+    if (!root) return 0;
+    let removed = 0;
+    try {
+      if (!fs.existsSync(root)) return 0;
+      for (const name of fs.readdirSync(root)) {
+        if (!/^run-/.test(name)) continue;
+        try {
+          fs.rmSync(path.join(root, name), { recursive: true, force: true });
+          removed += 1;
+        } catch {
+          /* a locked dir is left for the next start */
+        }
+      }
+    } catch {
+      return removed;
+    }
+    if (removed > 0) this.log.info(`code skills: removed ${removed} stale sandbox dir(s) from an interrupted run`);
+    return removed;
   }
 
   status() {
@@ -505,6 +534,7 @@ class CodeSkillService {
     const scriptPath = path.join(sandboxDir, `sub-${Date.now()}-${Math.floor(Math.random() * 1e6)}.js`);
     if (!path.resolve(scriptPath).startsWith(`${sandboxDir}${path.sep}`)) return { ok: false, reason: 'script-escape' };
     fs.writeFileSync(scriptPath, code);
+    const guardPath = path.join(__dirname, 'subprocessGuard.js');
     return new Promise((resolve) => {
       let stdout = '';
       let stderr = '';
@@ -514,8 +544,11 @@ class CodeSkillService {
         [
           '--permission',
           `--allow-fs-read=${sandboxDir}`,
+          `--allow-fs-read=${guardPath}`,
           '--max-old-space-size=128',
           '--no-warnings',
+          '--require',
+          guardPath,
           scriptPath
         ],
         {
