@@ -16,7 +16,7 @@
 | 编号 | 证据 | 位置 | 强度 |
 | --- | --- | --- | --- |
 | E1 | DSH 运行时版本与包清单：**0.2.0-rc.2**，289 个 `@deepseek-ai/*` 包，sharedPackages/pnpm **11.7.0** | `resources/app.asar` → `dsh/desktop-runtime.json` | 一手（随包数据） |
-| E2 | DSH 的**插件契约与 agent preset 全文**：`persona` / `system-prompt` / `agent-instructions` / `preset-standard|ptc|minimal|cordis` / `tool-subagent-codex` | `%USERPROFILE%\.dsh\profiles\desktop\cordis.yml` | 一手（本机实际加载） |
+| E2 | DSH 的**插件契约与 agent preset 全文**：`persona` / `system-prompt` / `agent-instructions` / `preset-standard\|ptc\|minimal\|cordis` / `tool-subagent-codex` | `%USERPROFILE%\.dsh\profiles\desktop\cordis.yml` | 一手（本机实际加载） |
 | E3 | DSH 的**系统提示词装配契约**（order 表、`{{变量}}`、`complete:true`、`includeHarnessIdentity`） | 包内文档 `@deepseek-ai/dsh-system-prompt/README.md` | 一手（随包文档） |
 | E4 | **Codex hooks 兼容桥**：`dsh-hooks-codex` 支持 Codex `hooks.json` 的 5 个事件点 | 包内文档 `@deepseek-ai/dsh-hooks-codex/README.md` | 一手（随包文档） |
 | E5 | 本机 Codex 配置：`model_provider` / `wire_api` / `notify` CU 钩子 / MCP / `[plugins]` / `[windows] sandbox` | `%USERPROFILE%\.codex\config.toml` | 一手（本机） |

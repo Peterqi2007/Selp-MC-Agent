@@ -58,13 +58,13 @@ LlmCore 不能直接删：任务播报、judge、mining recovery、P0 命令仍�
 | 动作脑输出 | unified 下 Node `/say` 默认全部进语言脑（兼容未带 `source` 的旧 DSH 插件），`raw:true` 才是显式直发；语言脑失败才原文 fallback；计划提问与 code-skill 同样先经 roleplay（提问失败才原文兜底） |
 | 开关 | 默认 `config/agent.json` → `agent.language.brain=unified`；`legacy` 可回退，或 `MC_LANGUAGE_BRAIN=legacy` 覆盖；`maxTokens/historyLimit/maxToolRounds/timeoutMs` 同段 |
 | 动作脑绑定 | unified 启动时若未配置 `chat.harnessAgentId`，按 `/agents` + `/goal` 自动绑定带 "action-brain" 目标的 DSH 会话；DSH 重启后无需手工 `/bind` |
-| 测试 | `npm run p1:language:test` **20/20**；`npm run p1:verify -- --fast` **9/9** 套件 |
+| 测试 | `npm run p1:language:test` **20/20**；`npm run p1:verify -- --fast` **10/10** 套件 |
 | 真机（2026-10-23） | `client:verify 23/23`；unified agent 在 `mc.example.com` 实跑：panel roleplay/expert 回复、approval 拒绝、approval 原文转发、动作脑 `mc_say` 输出经 roleplay 改写、重启恢复 `languageBrain` 13 行窗口；默认 unified 启动自动绑定动作脑。另：40 条标注样本注入，抽样 2/2、held-out 4/4，silence 全链路通过；证据 `.tmp/silence-corpus-live-2026-10-23.md` |
 
 仍待完成（下一阶段）：
 
-1. `unified` 已设为默认；A11（M2-D01）与 hungry/lowHealth（M2-D02）已由操作员手工验证通过（2026-10-23）。剩余缺口是真实第二名玩家 `source=chat` 的完整 A23/A24 多人矩阵。
+1. `unified` 已设为默认；A11（M2-D01）与 hungry/lowHealth（M2-D02）已由操作员手工验证通过（2026-10-23）。剩余缺口是 A23 的 40 组 ×3 与 ≥80%/≤10% 阈值（A24 已有受控并发 PASS，仍需真实语料复跑）。
 2. `ChatParticipation` / `LanguageAgent` / `LlmCore` 的旧代码尚未删除；它们保留为回退（阶段 4 才退役）。
 3. DSH 插件 `mc_say` 的 `source=action-brain` 标记可重新 `npm run dsh:install -- --apply` 后生效；即使不重装，Node `/say` 默认路由也保证旧插件不绕过语言脑。
 4. 动作脑输出在语言脑失败时回退原文直发（`via=fallback`）；语言脑主动选择 `silence` 时不发。两者都由 `/say` 记录。
-5. 真机 A03/A11/A14/A17/A25/A23–A24 需按新入口重测；离线契约不替代真机证据。
+5. A03/A11/A14/A17 已按新入口重测（2026-10-23/24）；A25 已跑四路径但仅 accept 为真实提案；A23 的 40×3 与 A24 真实多人仍待重测。

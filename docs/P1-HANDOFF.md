@@ -1,12 +1,14 @@
-# P1 交接（2026-10-23 更新）
+# P1 交接（2026-10-25 更新）
 
 > **一句话**：P1 的**离线可交付部分**已实现并通过一键复验；**M1（适用子集）/M2/M3 已通过真机验收**；
 > **P1 仍未整体验收、未发布**（M4 部分、M5 阻塞、M6/M7 部分）。
+> 2026-10-24 补 M6 受控测试（A24/C03/F02 受控 PASS、A25 四路径仅 accept 为真实 harness、
+> A23 仍缺 40 组 ×3），**M6 仍 PARTIAL**。
 > 本文是交接入口；**阶段判定**以 [`P1-CLIENT-VERIFICATION.md`](P1-CLIENT-VERIFICATION.md) 为准，
 > 逐项证据见 [`P1-M7.md`](P1-M7.md) 的 A01–A31 矩阵与 [`P1-M3.md`](P1-M3.md) §3。
 >
 > **2026-10-22 文档同步**：本文件此前停留在 2026-10-18 的“M3 仅接线、真机未执行”状态，
-> 与 2026-10-20/21/22 的实测不符。本次回填：M3 真机通过、`p1:verify --fast` **9/9 套件**、
+> 与 2026-10-20/21/22 的实测不符。本次回填：M3 真机通过、`p1:verify --fast` **9/9 套件**（当时；2026-10-25 为 10/10）、
 > 套件计数更新、DialogueRouter/`mc_say` 真机链路、客户端 Mod（Veil 输入崩溃）修复；
 > 2026-10-23 增加统一语言脑门面（`p1:language:test 20/20`）。
 > **未通过阶段仍不通过**；未执行项仍保持未执行。
@@ -19,22 +21,23 @@ npm run p1:verify -- --fast  # 跳过 P0 回归
 npm run p1:baseline -- --suites  # 记录提交/配置指纹/套件结果到 runtime/p1-baseline.json
 ```
 
-最近一次实测（离线，2026-10-23）：
+最近一次实测（离线，2026-10-25）：
 
 | 套件 | 结果 |
 | --- | --- |
-| P0 regression（8 suites，含 `selftest 181/181`） | **8/8** |
+| P0 regression（8 suites，含 `selftest 183/183`） | **8/8** |
 | `planner:test` | **35/35** |
 | `p1:contract:test` | **206/206** |
 | `p1:m3:test` | **44/44** |
 | `p1:m6:test` | **24/24** |
+| `p1:proposal-autonomy:test` | **16/16** |
 | `p1:language:test` | **20/20** |
 | `p1:m7:test` | **11/11** |
 | `p1:m4:test` | **15/15** |
 | `p1:fault:test` | **9/9** |
 | `plan:audit --stage p1` | **105/105** |
 
-`p1:verify --fast` 为 **9/9 套件**（跳过 P0 回归）。没有启动 Minecraft、没有 GUI 自动化、没有调用生成模型；
+`p1:verify --fast` 为 **10/10 套件**（跳过 P0 回归）。没有启动 Minecraft、没有 GUI 自动化、没有调用生成模型；
 M4 测试在真实 Node 子进程中执行了探针技能，并用一次 DeepSeek Search 请求验证了搜索端点。
 
 ## 2. 已交付（按里程碑）
@@ -47,7 +50,7 @@ M4 测试在真实 Node 子进程中执行了探针技能，并用一次 DeepSee
 | M3 | `PlanService`/`POST /plan`、`TurnService`/`/harness/events`、DSH `mc_plan`、原子持久化、`wait_for_player`、计划问题复用提案、`ResumeBridge`、`MethodLibrary`、`AnswerMemory`、`MemoryStore`、`Budget`、`verifier`、`draftGuard`、`!state`、`!method`；另：持久 goal（`/goal/pause`/`resume`）、`mc_propose`、`mc_state`、`mc_perception` | **PASS（2026-10-21，M3.1–M3.10）** |
 | M4 | manifest 校验、生成管线、candidates/promoted 目录与指针、晋升/回退/下线、promoted-only 检索；2026-10-18 接真实生成、权限子进程试运行、证据、取消、DeepSeek Search、HTTP `/code-skills` | 部分：代码已接，A18–A20 未执行 |
 | M5 | `WindowPolicy`（默认拒绝）+ `ComputerUseGuard`（拒绝不触达执行器） | **阻塞**：F1 未验证 |
-| M6 | `ConversationState`（去重/过期/自回声/限速/截断）+ opt-in 守卫 + `ChatParticipation` 参与/沉默 + `ProposalChat` yes/no + **DialogueRouter + `mc_say`** | 部分：对话入口已真机，A23–A25 未执行 |
+| M6 | `ConversationState`（去重/过期/自回声/限速/截断）+ opt-in 守卫 + `ChatParticipation` 参与/沉默 + `ProposalChat` yes/no + **DialogueRouter + `mc_say`**；2026-10-24 受控测试 A24/C03/F02 PASS、A25 四路径（accept 真 harness） | 部分：A23 缺 40 组 ×3；A25 仅 accept 为真实提案；R2/R3 未执行 |
 | M7 | 故障演练 9/9、A01–A31 矩阵、`p1:verify`、本交接文档；TaskSlot 失败账本持久化 + UsageLedger 逐请求 usage | 部分：R1 部分，R2–R4/F3/A31 最终组合未执行 |
 
 ## 3. 客户端窗口实测
@@ -82,6 +85,21 @@ M4 测试在真实 Node 子进程中执行了探针技能，并用一次 DeepSee
 `state-idle-2026-10-17.json`；M3 证据见 `runtime/` 计划/事件与 `.tmp/*-evidence-*.md`（工作副本）。
 摘要见 [`CLIENT-TEST-2026-10-17.md`](CLIENT-TEST-2026-10-17.md) 与 [`P1-M3.md`](P1-M3.md)。
 
+### 3.3 2026-10-23/24（语言脑 unified 与 M6 受控）
+
+| 项 | 结果 |
+| --- | --- |
+| unified 语言脑真机 | 面板与游戏内同一 `LanguageBrain` 路径；roleplay/expert/approval；`mc_say` 输出经 roleplay 改写；重启恢复 13→15 行窗口；启动自动绑定动作脑（[`LANGUAGE-BRAIN-REPAIR.md`](LANGUAGE-BRAIN-REPAIR.md)） |
+| M1-A01 / M2 回归（10-23） | `!` 免审查（tokens 0→0）；A02 20 条 approval（应拒 10/10、应放 10/10）；A03 工具面/真实玩家插话；B01 原文身份链；C01 记忆隔离；D01/D02 操作员手工 PASS；语料沉默学习（40 条，真实玩家 6 条全沉默） |
+| M2/M3 语言脑补充（10-24） | E01/F01/A14/C02/E02/D03 全过（[`M2-M3-LANGUAGE-TESTS.md`](M2-M3-LANGUAGE-TESTS.md)） |
+| M6 受控（10-24） | A24 4 并发 4 user/1 assistant；C03 compact 41 entries + 跨重启 grep；F02 无 chat wake；A25 四路径（accept p14 真 harness，reject/不答/另派为测试钩子植入，[`M6-A25-CLIENT-TESTS.md`](M6-A25-CLIENT-TESTS.md)） |
+| 动作脑自主任务申请（10-24） | 空闲 5 分钟 → prep goal（禁 step/plan/say，只能 `mc_propose(autonomous)`）→ 30 秒窗口 → 接受后 execution goal；Node 不建本地任务；`p1:proposal-autonomy:test 16/16` |
+
+证据：`.tmp/` 下 `m1-a01-2026-10-23.md`、`m2-a02-2026-10-23.md`、`m2-a03-2026-10-23.md`、
+`m2-b01-2026-10-23.md`、`m2-c01-2026-10-23.md`、`language-brain-live-2026-10-23.md`、
+`silence-corpus-live-2026-10-23.md`（工作副本）；M6 证据已入库为
+[`M6-LANGUAGE-TESTS.md`](M6-LANGUAGE-TESTS.md) 与 [`M6-A25-CLIENT-TESTS.md`](M6-A25-CLIENT-TESTS.md)。
+
 ## 4. 默认配置（2026-10-22 测试窗口）
 
 | 配置 | 默认 |
@@ -93,7 +111,9 @@ M4 测试在真实 Node 子进程中执行了探针技能，并用一次 DeepSee
 | `chat.languageAgent` | `false` |
 | `chat.conversationGuard` | `false` |
 | `chat.participate` / `chat.proposalChat` | `false` / `false`（M6 客户端窗口显式打开） |
-| `chat.harnessAgentId` | `""`（未预绑定；由 `/bind` 或 `/goal {agentId}` 绑定 live 对话） |
+| `chat.harnessAgentId` | `session-8d816775-c46e-4ed7-9b08-115622a84616`（预绑定「Minecraft动作脑1」；置空则由 auto-bind/`/bind` 决定） |
+| `language.brain` | `unified`（2026-10-23 起默认；`legacy` 可完整回退） |
+| `planner.autonomousProposals` | `enabled=true`，`idleMs=300000`、`responseMs=30000`、`prepTimeoutMs=90000`、`maxGoalRounds=3`（动作脑自主提案；未接受不执行） |
 | `state.enabled` | `true`（A17/A29 测试窗口；`P1_STATE=off` 或改 `false` 可关） |
 | `state.path` / `debounceMs` | `runtime/p1-state.json` / `1000` |
 | `web.eventsToken` | `""`（仅本机；F3 真机鉴权未执行） |
@@ -106,7 +126,7 @@ M4 测试在真实 Node 子进程中执行了探针技能，并用一次 DeepSee
 | M4 A18–A20（代码技能） | 生成/权限子进程/证据/晋升/回退代码已接；真机目标、失败注入与安全验收未执行，需安全评审与授权 |
 | M4 A27（代码子项） | 只读/异步子项已通过；候选代码测试调用未执行 |
 | M5 F1 / A21 / A22 | F1 未验证（CU 无已授权应用），阶段 BLOCKED；需先建 Full Access Ask CU 对话并授权 java 窗口 |
-| M6 A23–A25 | 参与/沉默、提案 yes/no、DialogueRouter 已接；真实多人语料与提案四路径未执行（单操作员模拟需标注） |
+| M6 A23 / A25 剩余 | A24/C03/F02 受控 PASS；A23 缺真实第二名玩家 40 组 ×3 与 ≥80%/≤10% 阈值；A25 仅 accept 为真 harness，reject/不答/另派需在真实动作脑提案下重跑（单操作员/合成发送者需标注）；R2/R3 未执行 |
 | M7 A26 / R1–R4 | A26 仅 2026-10-17 分项基线；R1 部分，R2–R4 未执行 |
 | M7 F3 / A31 最终组合 | F3 真机 token 端点未验；A31 双 emitter/planVersion 未验 |
 | M0-C1 剩余负载 | 仅空闲 30 次测时；移动/挖矿/反射/GUI 负载未测，阈值不得回填 |
@@ -121,7 +141,7 @@ M4 测试在真实 Node 子进程中执行了探针技能，并用一次 DeepSee
 2. **M7 回归**：A26 完整回归、R1–R4、F3 真机 token、A31 最终组合；每项记录版本/账号/日志路径。
 3. **M4**：先做安全授权/评审，再跑 A18–A20；沙箱规则见 [`P1-M4-SANDBOX.md`](P1-M4-SANDBOX.md)。
 4. **M5**：先跑 F1；F1 不通过则 A21/A22 记 N/A，不要开额外在线能力。
-5. **M6**：按 40 组语料跑 A23/A24、按四路径跑 A25；单操作员时标注“非真实多人”。
+5. **M6**：按 40 组 ×3 语料跑 A23（A24 受控并发已过，随语料复跑）、按四路径跑 A25 的真实动作脑部分；单操作员时标注“非真实多人”。
 6. 完成一项就回填清单，**未测不填、代码存在不算通过**。
 
 ## 7. 代码地图（P1 新增）
@@ -129,7 +149,7 @@ M4 测试在真实 Node 子进程中执行了探针技能，并用一次 DeepSee
 ```
 src/core/      taskEvents, planStore, planService, taskSlot, capabilities, stateStore,
                sessionState, planRunner, turnLifecycle
-src/planner/   evaluator, proposals, budget, verifier, draftGuard, planQuestions
+src/planner/   evaluator, proposals, autonomousProposals, budget, verifier, draftGuard, planQuestions
 src/chat/      commandGate, addressedHandler, harnessBridge, conversation,
                languageDialogue, chatParticipation, proposalChat, dialogueRouter,
                playerChatLog（非 ! 玩家消息 → ChatMemory）
@@ -152,8 +172,9 @@ docs/          P1-M0 … P1-M7, P1-GAP-AUDIT, P1-CLIENT-TESTS
 
 ## 8. 已知风险
 
-1. **真实模型行为只覆盖已跑场景**：A02 判定、H1a/H1b、M3 动作脑/真机注入已有真实回执；
-   语言 agent、多人聊天（A23/A24）、提案措辞（A25）仍未实测。
+1. **真实模型行为只覆盖已跑场景**：A02 判定、H1a/H1b、M3 动作脑/真机注入、unified 语言脑
+   已有真实回执；A23 的 40 组 ×3、A25 三条真实提案（reject/不答/另派）仍未实测；
+   A24 仅受控并发（合成发送者）。
 2. **A30 按操作员口径通过**：success/compress/failure/cancel 可归属；retry 用量在 DSH 执行中
    无法获取，不再取证。
 3. **代码技能已接但未验收**：vm 不是安全边界、permission model 无 OS 级网络隔离，
@@ -166,8 +187,8 @@ docs/          P1-M0 … P1-M7, P1-GAP-AUDIT, P1-CLIENT-TESTS
 ## 9. 建议顺序
 
 1. **M7 回归**：A26 行走/破坏/拾取/取消/双通道 + R1–R4；同窗口补 F3 token 与 A31 最终组合。
-2. **M6**：A23/A24 固定 40 组语料（单操作员需标注）+ A25 四路径。
+2. **M6**：A23 固定 40 组 ×3（单操作员需标注；A24 受控并发已过，随语料复跑）+ A25 真实动作脑四路径。
 3. **M4**：安全授权后跑 A18–A20 与 A27 代码子项。
 4. **M5**：F1（Full Access Ask + java 授权）→ A21/A22；F1 不过则 N/A。
 5. **修复遗留**：挖石 noPath、夜间入睡、A02 timeout、A10 跨维度/部分刷新、A11 天气/阶段注入。
-6. 每次改动保持 `npm run p1:verify` 全绿（当前 10/10；`--fast` 9/9）；删除断言必须同提交替换。
+6. 每次改动保持 `npm run p1:verify` 全绿（当前 11/11，含 P0 回归；`--fast` 10/10）；删除断言必须同提交替换。

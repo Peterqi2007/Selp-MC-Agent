@@ -12,8 +12,11 @@
 >
 > **2026-10-20/21 已执行**：A13–A17、A27（只读/异步）、A28–A30、F2 均在 `planner.mode=off` 下
 > 由 DSH 动作脑/真机注入跑通，状态见下方矩阵；2026-10-22 补 M6 对话入口真机（DialogueRouter +
-> `mc_say`）。**未执行项仍保持「未执行」**（A18–A25、A31 最终组合、R2–R4、F3 真机端点、
-> M0-C1 剩余负载等），不得因为其它项通过而推断通过。
+> `mc_say`）。**2026-10-24 补 M6 受控测试**：A24/C03/F02 受控 PASS，A23 记 PARTIAL（真实玩家
+> 6 条全沉默，缺 40 组 ×3），A25 四路径已跑（accept 为真实 action-brain 提案，其余三条为测试钩子
+> 植入）。**未执行项仍保持「未执行」**（A18–A22、A23 的 40 组 ×3、A25 的真实动作脑
+> reject/不答/另派、A31 最终组合、R2–R4、F3 真机端点、M0-C1 剩余负载等），不得因为其它项
+> 通过而推断通过。
 >
 > 规则：
 > 1. 只有实际运行并留下证据的项才能改状态；失败要写失败，不能写“未测”。
@@ -45,9 +48,9 @@
 | A17 | 记忆与重启（真机） | 客户端 + 真实任务 | 等回答、部分完成时重启 Agent | 恢复对话/未答问题/身份链；不自动动作 | **PASS（2026-10-21 硬重启）**：s1 craft 4 stick done + s2 wait_for_player → 硬杀 Agent 重启；`state restored` 全 true（含 conversation/chatMemory）、`plan questions restored`；plan 仍 waiting v3（s1 done/s2 waiting、question 原文、budget 3/2/2），dirt/stick/planks/pos 不变（无重放）；proposal p10 恢复 awaiting 并再提示；`!answer 继续` → completed v4、world 仍不变；同一 DSH 会话/问题原文可查；ChatMemory summary/compact/原文由离线契约覆盖；旧 harness turn 不自动唤醒（文档化边界） |
 | A21 | CU 实时反馈（真 GUI） | 客户端 + `dsh-computer-use` | ≥2 类真 GUI，插失焦、界面/库存变化、长按 | 每步新鲜观察并验结果；不点旧坐标；产出可验证 | 未执行（依赖 F1） |
 | A22 | CU 中断与复用 | 客户端 + 真实 GUI | GUI 中反射/急停；稳定流程提炼后同条件复用 | 清理按键/执行权；模型调用与截图 token 下降且效果一致 | 未执行（依赖 F1） |
-| A23 | 插话/沉默（多人聊天） | 客户端 + 多玩家 | 固定 40 组聊天 ×3 次 | 参与组 ≥80%；沉默组误插话 ≤10% | **未执行**（转写语料已从真实日志导出 1401 行：玩家 382 / Agent 1019，Agent 行自动 exclude，待操作员标注） |
-| A24 | 聊天并发（真机） | 客户端 + 多玩家 | 连续消息、上下文更新、回声、silence | 同批不重复、不自我对话、过时重判 | 未执行 |
-| A25 | 自主提案（接受/拒绝/不答/另派） | 客户端 + 玩家 | 四条路径各若干次 | **`planner.mode=off`；自主 proposal 只能由 DSH harness `mc_propose` 提出，本地 planner 不生成**；未接受不执行；拒绝后按 `proposalCooldownMs` 不重复，动作脑自主提案批准/拒绝/30s 过期后重新等 5 分钟；不答非同意；离线 `p1:proposal-autonomy:test 16/16` + `plugin-goal-test` 覆盖 prep/execution goal、30s、prep guard；真机四路径未执行 | 未执行 |
+| A23 | 插话/沉默（多人聊天） | 客户端 + 多玩家 | 固定 40 组聊天 ×3 次 | 参与组 ≥80%；沉默组误插话 ≤10% | **PARTIAL（2026-10-24）**：真实玩家 `Eggxxh`/`Stark_the_wolf`/`Logos_Fyan` 6 条未点名普通聊天全部沉默（`handled=7/silent=7/said=0`）；**40 组 ×3 与 ≥80%/≤10% 阈值未执行**；转写语料已导出 1401 行（玩家 382 / Agent 1019，待标注）。证据 [`M6-LANGUAGE-TESTS.md`](M6-LANGUAGE-TESTS.md) |
+| A24 | 聊天并发（真机） | 客户端 + 多玩家 | 连续消息、上下文更新、回声、silence | 同批不重复、不自我对话、过时重判 | **PASS（受控，2026-10-24）**：4 条并发普通聊天 → 4 user / 1 assistant，无重复回复、无自我对话，silence 生效，ChatMemory 更新；**发送者为 `/chat/inject` 合成，不是真实多人**；真实多人语料复跑并入 A23 窗口。证据 [`M6-LANGUAGE-TESTS.md`](M6-LANGUAGE-TESTS.md) |
+| A25 | 自主提案（接受/拒绝/不答/另派） | 客户端 + 玩家 | 四条路径各若干次 | **`planner.mode=off`；自主 proposal 只能由 DSH harness `mc_propose` 提出，本地 planner 不生成**；未接受不执行；拒绝后按 `proposalCooldownMs` 不重复，动作脑自主提案批准/拒绝/30s 过期后重新等 5 分钟；不答非同意；离线 `p1:proposal-autonomy:test 16/16` + `plugin-goal-test` 覆盖 prep/execution goal、30s、prep guard；真机四路径见右列（accept 为真实提案，其余受控植入） | **PARTIAL（2026-10-24）**：accept p14 为真实动作脑 `mc_propose`（玩家 `!proposal accept` 后才注入 execution goal）；reject p15 冷却 3 分钟、不答 p16 `expired`、另派 p17 `superseded`，但 p15–p17 由 `P1_TEST_HOOKS` 的 `/test/proposal-plant` 植入，生命周期/语言脑提问/执行阻断为真。真实动作脑逐条自主提案仅 1/4。证据 [`M6-A25-CLIENT-TESTS.md`](M6-A25-CLIENT-TESTS.md) |
 | A26 | 回归/降级（真机） | 客户端 | 行走、破坏、拾取、取消、双通道；关模型/搜索/CU | 不退化；无 LLM 时 `!` 与反射仍工作 | **部分通过（2026-10-17）**：协议 23/23、登录+寻路 7/7、砍树 PASS、独立 mine 2/2 PASS；`--dig stone` 前置点位失败；取消/反射/双通道未测 |
 | A28 | 事件唤醒与单规划者（真机） | 客户端 + 事件注入 | 步骤 >11 秒、等待 60 秒、重复/乱序/取消后事件 | 无事件不调模型；事件只推进所属任务一次 | **PASS（2026-10-20 真机注入）**：mine 4 dirt 步骤 ~25s 仅结算时 1 次 resume；停靠 60s+ 无推进；同 turn 重复 completed → `turn-running`、乱序 step → `ignored`；取消后 late completed → `no-turn-for-plan`；问题到期 → `expired`+plan failed |
 | A29 | 会话丢失与恢复（真机） | 客户端 + 宿主重启 | 部分完成/等回答时关闭宿主 | 恢复目标/版本/步骤/问题；不重放动作 | **PASS（2026-10-21）**：`a29-old`/`turn-1` running（mine 8 dirt）硬杀重启 → plan **pending v1/s1 pending**、turns=0、budget 3/2/2、world dirt 32/pos 不变（无重放）；注入旧 `plan:completed` → `no-turn-for-plan`；注入旧 `turn:resumable`（已发布 eventId）→ plugin turns=[]、DSH 会话 mtime 不变、plan/世界不变（旧 session 输出失效）；A17 另证 waiting/question 恢复与 `!answer` 继续 |
@@ -120,6 +123,7 @@
   输出经 roleplay 改写（`why=language-roleplay`）；重启恢复 13 行窗口；默认 unified 启动
   自动绑定 DSH action-brain 会话。证据 `.tmp/language-brain-live-2026-10-23.md`。
   **A23/A24 等多人矩阵仍保持未执行**；本轮未用第二名真实玩家发游戏内普通聊天。
+  （2026-10-24 补：A24 受控并发 PASS、A25 四路径、A23 真实玩家 6 条全沉默，见下。）
 - **已执行（2026-10-23，M1-A01 `!` 免语言审查）**：游戏内 `!status`、非法 `!mine`、
   `!shoot`、`!shoot player A01_NoSuchPlayer`（不存在玩家，安全替身）、未知命令；全部由
   命令表直接处理，回执明确，原文完整；`tokens 0→0`、`llm-trace` 0 字节增量。
@@ -154,13 +158,24 @@
   真实客户端 `client:verify 23/23`；游戏内 `@` roleplay 无 action；
   **真实玩家 6 条未点名普通聊天（Eggxxh/Stark_the_wolf/Logos_Fyan）全部沉默，
   `handled=7/silent=7/said=0`**。证据 `.tmp/silence-corpus-live-2026-10-23.md`。
-  **完整 A23/A24（40 组 ×3、真实第二名玩家）仍未执行**；受控普通聊天由
-  `POST /chat/inject`（仅 `P1_TEST_HOOKS=on`）注入，发送者合成。
+  **完整 A23（40 组 ×3、真实第二名玩家）仍未执行**；受控普通聊天由
+  `POST /chat/inject`（仅 `P1_TEST_HOOKS=on`）注入，发送者合成（A24 受控并发见下）。
+- **已执行（2026-10-24，M2/M3 语言脑补充）**：M2-E01（taskDone 成功/失败、plan question、
+  code-skill、silence、raw、fallback）、M2-F01（auto-bind + 409 `no-live-agent` 故障注入）、
+  M3-A14（`/plan` waiting → 语言脑提问 → `!answer 继续` → completed）、M3-C02（`grep_task_memory`
+  召回 AnswerMemory）、M3-E02（重启 `plan questions restored` + 15 行窗口）、M3-D03（taskDone 真机、
+  respawn 合成事件，修复 `fireOnRespawn` 别名）。证据 [`M2-M3-LANGUAGE-TESTS.md`](M2-M3-LANGUAGE-TESTS.md)。
+- **已执行（2026-10-24，M6 受控并发/记忆/提案）**：A24 4 条并发 → 4 user/1 assistant；C03
+  compact 180→41 entries、重启后 `grep_chat_memory` 召回；F02 普通聊天无 `perception wake: chat`、
+  同批仅 1 assistant；A25 四路径（p14 accept 真 harness；p15 reject 冷却、p16 不答 expired、
+  p17 另派 superseded 为测试钩子植入）。证据 [`M6-LANGUAGE-TESTS.md`](M6-LANGUAGE-TESTS.md)、
+  [`M6-A25-CLIENT-TESTS.md`](M6-A25-CLIENT-TESTS.md)。
 - **操作员手工 PASS（2026-10-23，M2-D01/M2-D02）**：A11 unified 主动感知
   （天气/阶段边沿、重复不重复、允许 silence、无“注意到”模板）手工通过；
   hungry / lowHealth 直发（不经语言脑）手工通过。按操作员口径记录，未补造自动证据。
-- **未执行**：A18–A22、A23–A25、A31 双 emitter/planVersion、R1 完整回归、R2–R4、F3 真机端点、
-  M0-C1 的移动/挖矿/反射/GUI 负载。未测的阈值不得回填。
+- **未执行**：A18–A22、A23 的 40 组 ×3、A25 的真实动作脑 reject/不答/另派、A31 双
+  emitter/planVersion、R1 完整回归、R2–R4、F3 真机端点、M0-C1 的移动/挖矿/反射/GUI 负载。
+  未测的阈值不得回填。
 - **夜间安全**：后续所有客户端窗口执行前先确认时间；夜里先睡觉（`client-real` 自动，
   或面板 `!sleep`），无床则停止测试。
   **已实测（2026-10-17 09:20）**：门禁在 `timeOfDay=12774` 触发，找到床但无法到达，

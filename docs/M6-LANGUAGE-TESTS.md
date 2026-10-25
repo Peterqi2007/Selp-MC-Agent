@@ -61,11 +61,16 @@ wow / 有吃的吗 / 这个 / 你们需要什么
 
 ## M6-A25 自主提案
 
-当前 DSH 插件 `boundAgentId=null`/无 action-brain 会话，无法让 harness
-调用 `mc_propose` 生成自主提案。现有 proposal 记录多为 plan_question，
-不是 A25 要求的自主提案四路径。未执行。
+本文件 11:16 记录时 DSH 插件 `boundAgentId=null`/无 action-brain 会话，无法让 harness
+调用 `mc_propose` 生成自主提案；现有 proposal 记录多为 plan_question，不是 A25 要求的
+自主提案四路径，当时未执行。
 
-判定：**未执行/阻塞**，不能标记 A25 pass。
+**同日晚间已补跑四路径**（[`M6-A25-CLIENT-TESTS.md`](M6-A25-CLIENT-TESTS.md)）：
+accept p14 为真实 action-brain `mc_propose`（`Minecraft动作脑1`）；reject/不答/另派
+p15–p17 由 `/test/proposal-plant` 植入。
+
+判定：**PARTIAL**——提案生命周期、语言脑提问、冷却/过期/取代与执行阻断为真，
+真实动作脑逐条自主提案仅 1/4；不能标记 A25 pass。
 
 ## 钩子状态
 

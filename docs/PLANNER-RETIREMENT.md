@@ -94,7 +94,7 @@ S3 交付时仍为 `legacy`，2026-10-18 改为 `off`，2026-10-19 起为 `propo
 | **S1 抽 evaluator ✅（离线）** | 规则表搬进 `planner/evaluator.js`，输出声明式候选；`brain.decide()` 变薄壳 | 仍由 legacy 执行（`buildTask` 工厂留在 `brain.js`） | A10 改为直接测 evaluator；`plan:audit` 加"evaluator 不构造 Task 实例"；差分对照 28 组 |
 | **S2a 所有权 ✅（离线）** | `src/core/taskSlot.js` 成为唯一身体所有者；brain 任务与 hub 作业都经 acquire/release；`activeTask`/`currentTask`/`hub.current` 变成视图；hub 从 brain 任务接管前等待其释放 | `!`/`do_task` 行为等价（52/37/176 等套件证明） | `control:test` 37/37、`selftest` 176/176；Q3 的"两套所有权"消除 |
 | **S2b 执行器 ✅（离线）** | B1/B2（停牌/罢工）、任务执行、结算与**统一事件出口**迁进 TaskSlot；`brain.runTask` 退化为委托；超时仍由 `Task.execute` 的 `timeoutMs` 承担（由 slot 调用） | `!`/`do_task` 行为等价（52/37/25/176 等套件证明） | `control:test` 37/37、`selftest` 176/176；事件只有 `slot.publish` 一个出口 |
-| **S3 提案 + 授权 ✅（离线）** | `src/planner/proposals.js`：提案生命周期、3 分钟冷却、无答过期（不等于同意）、显式任务取代、常驻授权；`planner.mode=proposals` 时 `slowLoop` 只提议不执行；确定性入口 `!proposal status\|accept [always]\|reject` | `!`/`do_task` 不变（默认 `legacy`） | A25 四条离线路径全过；语言脑措辞/解析仍在 P1 的 M3/M6，真机多人 A25 未执行 |
+| **S3 提案 + 授权 ✅（离线）** | `src/planner/proposals.js`：提案生命周期、3 分钟冷却、无答过期（不等于同意）、显式任务取代、常驻授权；`planner.mode=proposals` 时 `slowLoop` 只提议不执行；确定性入口 `!proposal status\|accept [always]\|reject` | `!`/`do_task` 不变（默认 `legacy`） | A25 四条离线路径全过；语言脑措辞/解析已在 M3/M6 接入；2026-10-24 真机四路径（accept 真 harness，其余受控） |
 | **S4 删代码 ✅（范围完成，非全删）** | 只删除无调用者的 `pickRule()`；`plan:audit` 改 `--stage p0\|p1`；`PLANNER-REFACTOR.md` 加退休状态表；**明确保留** `decide()/buildTask`（legacy 后端）、`slowLoop`（调度器）、`planner.mode`（回退开关） | — | p0 29/29、p1 34/34；P1–P10 全部关闭或转 M1；**legacy 全删仍未完成** |
 
 **安全姿势**："退役执行权"和"退役代码"分开——S3 先把 `slowLoop` 变成"只提议 + `mode=legacy` 仍可执行"，跑一段真机；确认常驻授权够用后，S4 只按范围删死代码，legacy 后端保留到 M6 再删。这样任何一步出问题都能用开关退回。
@@ -152,7 +152,9 @@ brain 任务释放身体（最多 `settleTimeoutMs`）；原实现是"取消后�
 **S3 的边界**：S3 当时 `planner.mode` 默认 `legacy`，所以生产行为不变；`proposals` 模式下 `slowLoop` 只产出提案，
 **不**执行。`!proposal` 是语言脑接管（P1 M3/M6）前的确定性入口，不是最终交互形态：最终由语言脑把提案
 措辞成问句、解析玩家回答，再调用同一组 `acceptProposal/rejectProposal`。A25 的"接受/拒绝/不答/另派"
-四条状态机已离线验收；**真机多人 A25 仍是未执行项**（见 [`P1-CLIENT-TESTS.md`](P1-CLIENT-TESTS.md)）。
+四条状态机已离线验收；**真机多人 A25 当时仍是未执行项**（见 [`P1-CLIENT-TESTS.md`](P1-CLIENT-TESTS.md)）。
+2026-10-24 已补四路径：accept 为真实动作脑提案，reject/不答/另派为测试钩子植入
+（[`M6-A25-CLIENT-TESTS.md`](M6-A25-CLIENT-TESTS.md)）；真实动作脑逐条提案仍待重跑。
 
 **S4 的边界（删什么、留什么）**：删除 `pickRule()`——S1 之后它已无调用者，是纯 legacy 死代码；
 `decide()/buildTask()` **保留**为 `planner.mode=legacy` 的后端（S4 当时默认模式，生产行为不变），
@@ -171,7 +173,8 @@ brain 任务释放身体（最多 `settleTimeoutMs`）；原实现是"取消后�
 - **离线证据（2026-10-22 实跑）**：`planner:test` 35/35；`plan:audit` p0 29/29、**p1 105/105**；`p0:verify` 8/8；
   `control:test` 43/43；`selftest` 181/181；`tasks` 57/57；`skills` 74/74；mining 25/24/18。
 - **真机判据未全部执行**：`!`/`do_task` 等价仅抽测（A26/R1 部分）、空闲授权口径与重启账本未测、
-  A25 未执行——统一登记在 [`P1-CLIENT-TESTS.md`](P1-CLIENT-TESTS.md)。
+  A25 的真实动作脑逐条提案未执行（2026-10-24 已跑四路径：accept 为真实提案，其余受控）——
+  统一登记在 [`P1-CLIENT-TESTS.md`](P1-CLIENT-TESTS.md)。
 
 ### 9.2 当前运行状态（2026-10-20）
 
