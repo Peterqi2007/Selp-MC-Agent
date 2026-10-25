@@ -14,10 +14,10 @@
 > 由 DSH 动作脑/真机注入跑通，状态见下方矩阵；2026-10-22 补 M6 对话入口真机（DialogueRouter +
 > `mc_say`）。**2026-10-24 补 M6 受控测试**：A24/C03/F02 受控 PASS，A23 记 PARTIAL（真实玩家
 > 6 条全沉默，缺 40 组 ×3），A25 四路径已跑（accept 为真实 action-brain 提案，其余三条为测试钩子
-> 植入）。**2026-10-25 补 M4 代码技能**：A18/A19/A20 与 A27 代码子项 PASS（A19 为适用子集，
-> vm/OS 残余已记录），并接入实时调用入口（`!code-skill` / `code_skill` 任务与计划步骤）。
+> 植入）。**2026-10-25 补 M4 代码技能**：A18/A19/A20、A27 代码子项与 A28–A30 编码回合 PASS
+> （A19 为适用子集，vm/OS 残余已记录），并接入实时调用入口（`!code-skill` / `code_skill`）。
 > **未执行项仍保持「未执行」**（A21–A22、A23 的 40 组 ×3、A25 的真实动作脑 reject/不答/另派、
-> A28–A30 编码回合、A31 最终组合、R2–R4、F3 真机端点、M0-C1 剩余负载等），不得因为其它项
+> A31 最终组合、R2–R4、F3 真机端点、M0-C1 剩余负载等），不得因为其它项
 > 通过而推断通过。
 >
 > 规则：
@@ -58,8 +58,8 @@
 | A24 | 聊天并发（真机） | 客户端 + 多玩家 | 连续消息、上下文更新、回声、silence | 同批不重复、不自我对话、过时重判 | **PASS（受控，2026-10-24）**：4 条并发普通聊天 → 4 user / 1 assistant，无重复回复、无自我对话，silence 生效，ChatMemory 更新；**发送者为 `/chat/inject` 合成，不是真实多人**；真实多人语料复跑并入 A23 窗口。证据 [`M6-LANGUAGE-TESTS.md`](M6-LANGUAGE-TESTS.md) |
 | A25 | 自主提案（接受/拒绝/不答/另派） | 客户端 + 玩家 | 四条路径各若干次 | **`planner.mode=off`；自主 proposal 只能由 DSH harness `mc_propose` 提出，本地 planner 不生成**；未接受不执行；拒绝后按 `proposalCooldownMs` 不重复，动作脑自主提案批准/拒绝/30s 过期后重新等 5 分钟；不答非同意；离线 `p1:proposal-autonomy:test 16/16` + `plugin-goal-test` 覆盖 prep/execution goal、30s、prep guard；真机四路径见右列（accept 为真实提案，其余受控植入） | **PARTIAL（2026-10-24）**：accept p14 为真实动作脑 `mc_propose`（玩家 `!proposal accept` 后才注入 execution goal）；reject p15 冷却 3 分钟、不答 p16 `expired`、另派 p17 `superseded`，但 p15–p17 由 `P1_TEST_HOOKS` 的 `/test/proposal-plant` 植入，生命周期/语言脑提问/执行阻断为真。真实动作脑逐条自主提案仅 1/4。证据 [`M6-A25-CLIENT-TESTS.md`](M6-A25-CLIENT-TESTS.md) |
 | A26 | 回归/降级（真机） | 客户端 | 行走、破坏、拾取、取消、双通道；关模型/搜索/CU | 不退化；无 LLM 时 `!` 与反射仍工作 | **部分通过（2026-10-17）**：协议 23/23、登录+寻路 7/7、砍树 PASS、独立 mine 2/2 PASS；`--dig stone` 前置点位失败；取消/反射/双通道未测 |
-| A28 | 事件唤醒与单规划者（真机） | 客户端 + 事件注入 | 步骤 >11 秒、等待 60 秒、重复/乱序/取消后事件 | 无事件不调模型；事件只推进所属任务一次 | **PASS（2026-10-20 真机注入）**：mine 4 dirt 步骤 ~25s 仅结算时 1 次 resume；停靠 60s+ 无推进；同 turn 重复 completed → `turn-running`、乱序 step → `ignored`；取消后 late completed → `no-turn-for-plan`；问题到期 → `expired`+plan failed |
-| A29 | 会话丢失与恢复（真机） | 客户端 + 宿主重启 | 部分完成/等回答时关闭宿主 | 恢复目标/版本/步骤/问题；不重放动作 | **PASS（2026-10-21）**：`a29-old`/`turn-1` running（mine 8 dirt）硬杀重启 → plan **pending v1/s1 pending**、turns=0、budget 3/2/2、world dirt 32/pos 不变（无重放）；注入旧 `plan:completed` → `no-turn-for-plan`；注入旧 `turn:resumable`（已发布 eventId）→ plugin turns=[]、DSH 会话 mtime 不变、plan/世界不变（旧 session 输出失效）；A17 另证 waiting/question 恢复与 `!answer` 继续 |
+| A28 | 事件唤醒与单规划者（真机） | 客户端 + 事件注入 | 步骤 >11 秒、等待 60 秒、重复/乱序/取消后事件 | 无事件不调模型；事件只推进所属任务一次 | **PASS（2026-10-20 真机注入）**：mine 4 dirt 步骤 ~25s 仅结算时 1 次 resume；停靠 60s+ 无推进；同 turn 重复 completed → `turn-running`、乱序 step → `ignored`；取消后 late completed → `no-turn-for-plan`；问题到期 → `expired`+plan failed；**编码回合（2026-10-25）**：`agent.slow_wait` 长步骤 15.1s 单次结算（turn 1→0）、取消后 14s 无迟到 `done` |
+| A29 | 会话丢失与恢复（真机） | 客户端 + 宿主重启 | 部分完成/等回答时关闭宿主 | 恢复目标/版本/步骤/问题；不重放动作 | **PASS（2026-10-21）**：`a29-old`/`turn-1` running（mine 8 dirt）硬杀重启 → plan **pending v1/s1 pending**、turns=0、budget 3/2/2、world dirt 32/pos 不变（无重放）；注入旧 `plan:completed` → `no-turn-for-plan`；注入旧 `turn:resumable`（已发布 eventId）→ plugin turns=[]、DSH 会话 mtime 不变、plan/世界不变（旧 session 输出失效）；A17 另证 waiting/question 恢复与 `!answer` 继续；**编码回合（2026-10-25）**：slow_wait 计划运行中硬杀 → 恢复 pending v1/s1 pending、无重放、启动清扫残留目录 |
 
 ## 2. 需要客户端 / 服务器的 RETIREMENT 判据
 
@@ -190,7 +190,12 @@
   本轮共修复 6 个缺陷（`read_state.isDay` 恒空、`code_skill` progress 误停牌、promote/rollback
   多版本同时 promoted、模块 denylist→全拒、subprocess 网络出口、宿主硬杀留下的沙箱目录），
   生成预算 2600→16000。证据 [`M4-CLIENT-TESTS.md`](M4-CLIENT-TESTS.md)。
-- **未执行**：A21–A22、A23 的 40 组 ×3、A25 的真实动作脑 reject/不答/另派、A28–A30 编码回合、
+- **已执行（2026-10-25，M4 A28–A30 编码回合）**：新增 `agent.slow_wait`（wait 15s）真实生成/
+  试运行（15101ms）/晋升。动作脑 `mc_plan` 长步骤 **15.1s 只结算一次**（turn 1→0、postcondition
+  成立）；取消后越过 wait 期限 **无迟到 `done`**；运行中硬杀 agent → 重启恢复 **pending v1/
+  s1 pending、无重放**、启动清扫 1 个残留 sandbox 目录；本回合仅 1 条 `code-generation` 用量
+  （1064 tok），沙箱运行无 LLM 用量。**M4 判定改为 PASS（A19 适用子集），P1 阶段 4/7，仍未发布。**
+- **未执行**：A21–A22、A23 的 40 组 ×3、A25 的真实动作脑 reject/不答/另派、
   A31 双 emitter/planVersion、R1 完整回归、R2–R4、F3 真机端点、M0-C1 的移动/挖矿/反射/GUI 负载。
   未测的阈值不得回填。
 - **夜间安全**：后续所有客户端窗口执行前先确认时间；夜里先睡觉（`client-real` 自动，

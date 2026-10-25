@@ -23,8 +23,9 @@
 > **2026-10-24/25 增量**：M6 受控测试完成——A24/C03/F02 受控 PASS（发送者由测试钩子合成）、
 > A25 四路径（accept p14 为真实 action-brain 提案，reject/不答/另派由 `/test/proposal-plant` 植入）、
 > A23 仅真实玩家 6 条全沉默（40 组 ×3 未执行）；M1-A01、M2 八项、M3 四项语言脑补充回归 PASS。
-> **M4 真机（2026-10-25）**：A18/A19/A20/A27 代码 PASS（A19 适用子集），实时入口
-> `!code-skill`/`code_skill` 已接；阶段判定不变：**M6 PARTIAL、M4 部分（仅 A28–A30 未跑）、P1 未发布**。详见
+> **M4 真机（2026-10-25）**：A18/A19/A20/A27 代码 **PASS**（A19 适用子集）+ **A28–A30 编码回合 PASS**，
+> 实时入口 `!code-skill`/`code_skill` 已接；**M4 判定 PASS（A19 适用子集）**；阶段判定：
+> **M6 PARTIAL、P1 未发布**。详见
 > [`P1-CLIENT-TESTS.md`](P1-CLIENT-TESTS.md)、[`M4-CLIENT-TESTS.md`](M4-CLIENT-TESTS.md) 与
 > [`M6-A25-CLIENT-TESTS.md`](M6-A25-CLIENT-TESTS.md)。
 
@@ -75,15 +76,17 @@
 ## 3. 与验收矩阵的关系
 
 本审计不改变 [`P1-M7.md`](P1-M7.md) 的 A01–A31 矩阵。**2026-10-25 现状**：M1（适用子集）/M2/M3 已通过；
-A02/A03/A06/A09–A17/A27–A30 有真机证据；A01/A08/A26 部分；M4 的 A18/A19/A20/A27 代码 PASS（A19 适用子集）；
+A02/A03/A06/A09–A17/A27–A30 有真机证据；A01/A08/A26 部分；M4 的 A18/A19/A20/A27 代码与
+A28–A30 编码回合 PASS（A19 适用子集）；
 A24/C03/F02 受控 PASS、A25 四路径（accept 真 harness）、A23 仅真实玩家 6 条沉默；
-A21–A22、A23 的 40×3、A25 三条真实提案、A28–A30 编码回合、A31 最终组合、R1–R4、F3 未执行。
+A21–A22、A23 的 40×3、A25 三条真实提案、A31 最终组合、R1–R4、F3 未执行。
 上表的“已落地”只表示实现与夹具齐全，不代表未执行项的真机/模型验收。
 
 ## 4. 下一步建议
 
 1. 离线侧已完成 10-17 审计的 P0 两项（感知盖章、requestId 贯穿）；剩余离线债按 `p1:verify` 维持全绿。
-2. 真机侧只剩 **M4 A28–A30 编码回合**、**M5 F1/A21/A22**（CU 授权）、
+2. 真机侧只剩 **M5 F1/A21/A22**（CU 授权）、
    **M6 A23 的 40 组 ×3 与 A25 三条真实提案**（A24/C03/F02 已受控通过）、
-   **M7 A26/R1–R4/F3/A31 最终组合**；按 [`P1-CLIENT-TESTS.md`](P1-CLIENT-TESTS.md) 逐项执行。
+   **M7 A26/R1–R4/F3/A31 最终组合**；M4 已完成（PASS，A19 适用子集）。
+   按 [`P1-CLIENT-TESTS.md`](P1-CLIENT-TESTS.md) 逐项执行。
 3. 未批准前保持当前默认配置（`planner.mode=off`、`state.enabled=true` 仅测试窗口）。

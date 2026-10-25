@@ -127,7 +127,23 @@
   boom（302）、slow_loop（948）、rawperm（252，被 manifest 拒）、require（263，被静态扫描拒）。
 - 解析/校验/沙箱/证据/晋升全链路与 provider/model 记录一致；错误路径均给出结构化 reason。
 
-## 7. 判定
+## 7. A28–A30 编码回合（2026-10-25，真实客户端 + 动作脑「Minecraft动作脑1」）
+
+新增技能 `agent.slow_wait`（`wait 15000ms`，651 B）作为“长编码步骤”探针：真实生成、试运行
+（15101ms）后晋升。
+
+| 项 | 场景 | 结果 |
+| --- | --- | --- |
+| A28 | 长步骤 | 动作脑 `mc_plan` 提交 `code_skill agent.slow_wait`，计划 `plan-1792903645487-t146k`：s1 运行 **15.1s**，只产生 **1 次** `done code_skill`，计划 completed（version 2、step done、postcondition `positionNear` 成立）；动作脑 turn **1→0**（单次续轮），无重复结算 |
+| A28 | 取消/迟到输出 | 直接 `/plan` 提交 slow_wait，3s 后 `POST /plan/<id>/cancel` → 计划 `cancelled` v2、step `cancelled`，1 次 `failed code_skill: code skill cancelled`；再等 14s（越过 15s wait）**没有**迟到的 `done code_skill` |
+| A29 | 宿主硬杀/恢复 | slow_wait 计划运行中 `taskkill /F` 杀 Node agent；沙箱子进程随 IPC 退出；重启后 `state restored` 全 true、**启动清扫移除 1 个残留 sandbox 目录**；计划恢复为 **pending v1 / s1 pending / runId=null**，无重放、无新 `code_skill` 事件；动作脑 turn 为空 |
+| A30 | 用量归属 | 本回合仅 1 条 `code-generation` 记录（`code-generation-1792903594211`，1064 tok，2.6s）；3 次沙箱运行（trial/长计划/取消）**没有**产生 LLM 用量（slow_wait 只 `wait`、长计划为 HTTP 直提），编码回合的模型用量可归到生成请求而非沙箱执行 |
+
+边界：重复/乱序/迟到事件注入未在编码回合重跑（需要 `P1_TEST_HOOKS`），但编码步骤与普通任务共用
+同一 TaskSlot / PlanRunner / TurnService，M3 的 A28 真机注入证据仍适用；本回合新增的是
+“长编码步骤单次结算、取消后无迟到输出、硬杀恢复不重放、用量可归属”。
+
+## 8. 判定
 
 | 项 | 判定 | 依据 |
 | --- | --- | --- |
@@ -135,10 +151,15 @@
 | A19 | **PASS（适用子集，残余风险明确）** | 越界访问（manifest/扫描/未晋升/vm 逃逸后全模块拒）、覆盖内置（命名空间+命令表隔离）、死循环（SIGKILL+隔离）、失联（子进程被杀/宿主硬杀）、拒绝清理（超时/取消清理 + 启动清扫）全部实测；残余：vm 非内核边界、可读 worker 进程元数据（无密钥），无内核级网络隔离 |
 | A20 | **PASS** | 失败隔离、promote 拒绝、回退（含状态修正）、下线全部实测 |
 | A27 代码子项 | **PASS** | 真实模型回执、解析、沙箱执行、证据与 token 账本 |
+| A28（编码回合） | **PASS** | 长编码步骤 15.1s 单次结算；取消后 14s 无迟到输出 |
+| A29（编码回合） | **PASS** | 宿主硬杀→重启恢复 pending、无重放、启动清扫残留目录 |
+| A30（编码回合） | **PASS** | `code-generation` 用量可归属；沙箱运行无 LLM 用量 |
 | M4-D01 | **PASS** | code-skill 的 `chat` 经语言脑 roleplay 输出（试运行与实时播报均为语言脑措辞） |
-| M4 阶段 | **未通过（部分）** | A18/A19/A20/A27 代码已过；A28–A30 编码回合适用场景未执行；P1 未发布 |
+| M4 阶段 | **PASS（A19 适用子集）** | A18–A20、A27 代码、A28–A30 编码回合全部有真机证据；残余风险记录在 A19 |
 
 证据路径：`runtime/code-skills/`（candidates/promoted/current 指针）、
 `runtime/code-skill-runs/`（每次试运行/实时运行 JSON）、`runtime/llm-usage.jsonl`（code-generation）、
-`runtime/logs/start-agent3/4/5-20261025.log`、`/plan` 记录 `plan-1792896332472-ievp8`。
-测试辅助脚本只在 `.tmp/`（未入库）：`m4-post.js`、`m4-*.json`。
+`runtime/logs/start-agent3/4/5/6/7-20261025.log`（M4 主窗口）、
+`runtime/logs/start-m4rem-20261025.log`（A28）、`runtime/logs/start-a29-20261025.log`（A29）、
+`/plan` 记录 `plan-1792896332472-ievp8`、`plan-1792903645487-t146k`、`plan-1792903706375-1`、
+`plan-1792903734718-2`。测试辅助脚本只在 `.tmp/`（未入库）：`m4-post.js`、`m4g-*.json`。
