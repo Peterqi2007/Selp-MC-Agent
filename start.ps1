@@ -38,7 +38,7 @@
 [CmdletBinding()]
 param(
   [string]$Server,
-  [string]$Profile = 'local',
+  [string]$Profile = '',
   [switch]$NoClient,
   [switch]$NoAgent,
   [int]$Wait = 300,
@@ -63,8 +63,8 @@ if ($Help) {
   .\start.ps1                        客户端 + Agent（客户端已在跑则自动跳过）
   .\start.ps1 -NoClient              客户端已经开着了，只起 Agent
   .\start.ps1 -NoAgent               只把客户端送进世界，自己再手动起 Agent
-  .\start.ps1 -Server host:25565     换服务器
-  .\start.ps1 -Profile local         换 config/servers.json 里的档位
+  .\start.ps1 -Server host:25565     这次换服务器
+  .\start.ps1 -Profile example       用 config/servers.json 里的档位（默认走 config/agent.local.json）
   .\start.ps1 -Goal "gather wood" -Day
   .\start.ps1 -AgentArg --force      额外参数原样传给 Agent
   .\start.ps1 -Wait 420              多等一会儿（默认 300 秒）
@@ -77,15 +77,22 @@ if ($Help) {
   exit 0
 }
 
-# 服务器地址从 config/servers.json 的档位里取，取不到就用默认值（本地实验服）。
+# 目标地址交给 node 的 loadConfig 解析，脚本不再自己读 servers.json 维护第二份逻辑。
+# 它会按 环境变量 > config/*.local.json > config/<名>.json > 代码默认值 的顺序合并，
+# 所以本机真实服务器写在未入库的 config/agent.local.json 里即可，-Profile 仍然有效。
 $McHost = '127.0.0.1'
 $McPort = 25565
 try {
-  $servers = Get-Content (Join-Path $Root 'config\servers.json') -Raw -Encoding UTF8 | ConvertFrom-Json
-  $p = $servers.profiles.$Profile
-  if ($p) { $McHost = $p.host; $McPort = $p.port }
+  $prevProfile = $env:MC_PROFILE
+  if ($Profile) { $env:MC_PROFILE = $Profile }
+  $resolved = & node -e "const{loadConfig}=require('./src/util/config');const c=loadConfig();process.stdout.write(JSON.stringify({host:c.agent.bot.host,port:c.agent.bot.port}))" 2>$null
+  $env:MC_PROFILE = $prevProfile
+  if ($resolved) {
+    $j = "$resolved".Trim() | ConvertFrom-Json
+    if ($j.host) { $McHost = $j.host; $McPort = $j.port }
+  }
 } catch {
-  Write-Host '  [!!]   读 config\servers.json 失败，改用默认地址' -ForegroundColor Yellow
+  Write-Host '  [!!]   解析服务器地址失败，改用默认地址 127.0.0.1:25565' -ForegroundColor Yellow
 }
 $Target = if ($Server) { $Server } else { "${McHost}:${McPort}" }
 
@@ -288,7 +295,11 @@ if (Test-Path $lockFile) {
   } catch { }
 }
 
-$agentArgs = @('src\index.js', '--body', 'clientmod', '--profile', $Profile)
+$agentArgs = @('src\index.js', '--body', 'clientmod')
+if ($Profile) { $agentArgs += @('--profile', $Profile) }
+# -Server 只改客户端目标的话，Agent 的 host/port（锁文件、日志、AuthMe 提示）会和它对不上，
+# 所以两边一起改。
+if ($Server) { $agentArgs += @('--server', $Target) }
 if ($Day) { $agentArgs += '--day' }
 if ($Goal) { $agentArgs += @('--goal', $Goal) }
 if ($AgentArg.Count -gt 0) { $agentArgs += $AgentArg }

@@ -35,9 +35,11 @@ mod-bridge/verify/raw.txt
 # ---------------------------------------------------------------------------
 # CREDENTIALS - never commit these
 # ---------------------------------------------------------------------------
-# Put keys in the environment (LLM_API_KEY) or in an untracked .env, never in a
-# tracked json file. config/llm.json and config/agent.json ship with empty
-# credential fields on purpose; a local overlay keeps your own values out of git.
+# Put keys in config/*.local.json (untracked overlay, merged over the tracked
+# config) or in the environment (LLM_API_KEY). Never in a tracked json file.
+# config/llm.json and config/agent.json ship with empty credential fields on
+# purpose; the overlay keeps your own values out of git without changing how
+# start.ps1 works.
 .env
 .env.*
 !.env.example
