@@ -315,9 +315,22 @@ function loadConfig(overrides = {}) {
     llm: path.join(CONFIG_DIR, 'llm.json')
   };
 
+  /**
+   * Per-machine overlay: `config/<name>.local.json`, same shape as the tracked file it sits
+   * next to and merged on top of it (gitignored via `config/*.local.json`).
+   *
+   * This exists so credentials can be absent from git WITHOUT giving up one-click auto-login:
+   * the tracked config/agent.json keeps `bot.authme.password: null`, this untracked file
+   * carries the real value, and `node src/index.js` / start.ps1 load it with no setup.
+   * Environment variables (MC_AUTHME_PASSWORD, LLM_API_KEY) still win over both - they are
+   * applied after this merge.
+   */
+  const localOverlay = (file) => file.replace(/\.json$/i, '.local.json');
+
   const merged = {};
   for (const [key, file] of Object.entries(files)) {
-    merged[key] = deepMerge(DEFAULTS[key], readJsonIfExists(file));
+    const tracked = deepMerge(DEFAULTS[key], readJsonIfExists(file));
+    merged[key] = deepMerge(tracked, readJsonIfExists(localOverlay(file)));
   }
 
   // Named server profiles (config/servers.json) let one checkout target several

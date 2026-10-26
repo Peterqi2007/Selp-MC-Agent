@@ -99,13 +99,23 @@ npm run client:build     # 编译控制 Mod（离线 Gradle）
 npm run client:install   # 装进 PCL 版本隔离的 mods 目录
 ```
 
-**凭据一律走环境变量，不要写进 `config/*.json`**（这些文件是入库的）：
+**凭据不要写进入库的 `config/*.json`**，放本机覆盖文件（自动合并、已被 gitignore，一键流程不变）：
+
+```jsonc
+// config/agent.local.json —— 不进 git，start.ps1 照旧自动登录
+{
+  "bot": {
+    "host": "your-server.example", "port": 25565,
+    "authme": { "password": "<your-login-password>" }
+  }
+}
+// config/llm.local.json -> { "apiKey": "<your-key>" }
+```
+
+也可以用环境变量（优先级更高，适合临时切换）：`LLM_API_KEY`、`MC_AUTHME_PASSWORD`、`MC_ADDRESS`、
+`OPENAI_BASE_URL`。优先级：**环境变量 > `*.local.json` > 入库的 `*.json` > 默认值**。
 
 ```powershell
-$env:LLM_API_KEY       = 'sk-...'          # 大模型 key（src/llm/index.js 读取；OPENAI_API_KEY 亦可）
-$env:MC_AUTHME_PASSWORD= '...'             # 游戏内 /login 密码（config/agent.json 里留 null）
-$env:MC_ADDRESS        = 'host:port'       # 服务器地址，覆盖 config/servers.json 的档位
-$env:OPENAI_BASE_URL   = 'https://api.deepseek.com'
 npm run secrets:scan                       # 提交前自查；加 --history 扫全部历史对象
 ```
 

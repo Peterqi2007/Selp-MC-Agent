@@ -178,7 +178,7 @@
     "profilesFolder": null,
     "_comment_auth": "This server needs a real Forge client (see body.kind='clientmod'). AuthMe login happens in-game via chat, see auth section below.",
     "_comment_NEVER_REGISTER": "registerOnMissing MUST stay false. On an AuthMe server a /register for an existing name RESETS that character (experience and inventory are wiped). Authentication is /login only. Four independent gates enforce this: ControlHttpServer, ClientActions, ClientModBody.isForbidden and the CLI, plus the mod's own refusal.",
-    "_comment_authmePassword": "NEVER put the password in this file - it is tracked by git. Leave null and export MC_AUTHME_PASSWORD instead; a null password makes the AuthMe module report 'not configured' and skip, never guess.",
+    "_comment_authmePassword": "NEVER put the password in this file - it is tracked by git. Put it in the untracked overlay config/agent.local.json ({\"bot\":{\"authme\":{\"password\":\"...\"}}}) so start.ps1 keeps auto-login working, or export MC_AUTHME_PASSWORD. A null password makes the AuthMe module report 'not configured' and skip, never guess.",
     "authme": {
       "enabled": true,
       "password": null,

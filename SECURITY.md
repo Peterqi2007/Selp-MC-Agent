@@ -5,6 +5,35 @@ fork 会保留副本）。所以凭据只走环境变量或未入库的本地文
 
 ## 1. 凭据放在哪里
 
+### 方式 A：本机覆盖文件（推荐——一键流程完全不变）
+
+在 `config/` 下放一个 `*.local.json`，形状和被覆盖的文件一样，启动时自动合并上去：
+
+```
+config/agent.local.json   ->  覆盖 config/agent.json
+config/llm.local.json     ->  覆盖 config/llm.json
+config/pcl.local.json     ->  覆盖 config/pcl.json
+config/server.local.json  ->  覆盖 config/server.json
+```
+
+`.gitignore` 里的 `config/*.local.json` 已经把这类文件全部排除，`git status` 里看不到它们。
+本机示例（`config/agent.local.json`）：
+
+```json
+{
+  "bot": {
+    "host": "your-server.example",
+    "port": 25565,
+    "authme": { "password": "<your-login-password>" }
+  }
+}
+```
+
+这样 `start.ps1` / `npm run agent` 照旧自动登录，一个字母都不用改；入库的
+`config/agent.json` 里 `bot.authme.password` 永远是 `null`、host 永远是安全默认值。
+
+### 方式 B：环境变量（CI / 临时切换用）
+
 | 环境变量 | 用途 | 读取位置 |
 | --- | --- | --- |
 | `LLM_API_KEY` | 大模型 API key（`OPENAI_API_KEY` 是后备名） | `src/llm/index.js` |
@@ -14,7 +43,8 @@ fork 会保留副本）。所以凭据只走环境变量或未入库的本地文
 | `MC_USERNAME` / `MC_AUTH` / `MC_VERSION` / `MC_PROXY` | 其余联机字段 | `src/util/config.js` |
 | `MC_PROFILE` | 选 `config/servers.json` 里的档位（`local` / `example`） | `src/util/config.js` |
 
-PowerShell：
+优先级：**环境变量 > `*.local.json` > 入库的 `*.json` > 代码默认值**。所以临时跑一次别的服务器，
+用 `MC_ADDRESS` 就行，不用改任何文件。
 
 ```powershell
 $env:LLM_API_KEY        = 'sk-...'
