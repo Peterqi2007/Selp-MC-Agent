@@ -29,9 +29,26 @@ const { Logger } = require('../src/util/logger');
 const { waitForPort, withTimeout, READY_RE } = require('../src/server/serverManager');
 const { prepareForgeServer, startForgeServer, detectForgeServer, parseForgeVersion } = require('../src/server/forgeServer');
 
-/** Java 21 (the runtime PCL2/vanilla uses) - Forge 47.x is unhappy on Java 25. */
-const PREFERRED_JAVA =
-  'C:\\Users\\<you>\\AppData\\Local\\Packages\\Microsoft.4297127D64EC6_8wekyb3d8bbwe\\LocalCache\\Local\\runtime\\java-runtime-delta\\windows-x64\\java-runtime-delta\\bin\\java.exe';
+/**
+ * Java 21 (the runtime the launcher ships) - Forge 47.x is unhappy on Java 25. Built from
+ * %LOCALAPPDATA% rather than a hardcoded C:\Users\<name>\... path so no personal directory
+ * ends up in git; pass --java to override.
+ */
+const PREFERRED_JAVA = process.env.LOCALAPPDATA
+  ? path.join(
+      process.env.LOCALAPPDATA,
+      'Packages',
+      'Microsoft.4297127D64EC6_8wekyb3d8bbwe',
+      'LocalCache',
+      'Local',
+      'runtime',
+      'java-runtime-delta',
+      'windows-x64',
+      'java-runtime-delta',
+      'bin',
+      'java.exe'
+    )
+  : null;
 
 function parse(argv) {
   const args = {
@@ -58,7 +75,7 @@ function parse(argv) {
 
 function pickJava(explicit) {
   if (explicit) return explicit;
-  if (fs.existsSync(PREFERRED_JAVA)) return PREFERRED_JAVA;
+  if (PREFERRED_JAVA && fs.existsSync(PREFERRED_JAVA)) return PREFERRED_JAVA;
   const { detectEnvironment } = require('../src/pcl/detect');
   const env = detectEnvironment(loadConfig());
   if (!env.serverJava) throw new Error('no java runtime found - pass --java <path>');

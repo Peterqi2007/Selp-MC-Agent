@@ -22,9 +22,9 @@
  * window - re-sending it trips the server's rate limiter, which looks like a bad password.
  *
  * Usage:
- *   node scripts/client-real.js --login <your-password>
- *   node scripts/client-real.js --login <your-password> --walk 6
- *   node scripts/client-real.js --login <your-password> --primitives        # world-changing
+ *   node scripts/client-real.js --login "$MC_AUTHME_PASSWORD"
+ *   node scripts/client-real.js --login "$MC_AUTHME_PASSWORD" --walk 6
+ *   node scripts/client-real.js --login "$MC_AUTHME_PASSWORD" --primitives   # world-changing
  *   node scripts/client-real.js --no-login --primitives --dig dirt:8,stone:4
  *   node scripts/client-real.js --no-login --primitives            # already logged in
  *   node scripts/client-real.js --status                           # no login, just report

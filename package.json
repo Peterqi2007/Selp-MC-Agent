@@ -65,9 +65,11 @@
     "personal:test": "node scripts/personal-test.js",
     "plan:audit": "node scripts/plan-audit.js",
     "doctor": "node scripts/agent-doctor.js",
-    "agent:client": "node src/index.js --body clientmod --profile simpfun",
+    "agent:client": "node src/index.js --body clientmod --profile example",
     "play": "powershell -NoProfile -ExecutionPolicy Bypass -File start.ps1",
-    "play:stop": "powershell -NoProfile -ExecutionPolicy Bypass -File stop.ps1"
+    "play:stop": "powershell -NoProfile -ExecutionPolicy Bypass -File stop.ps1",
+    "secrets:scan": "node scripts/scan-secrets.js",
+    "secrets:scan:history": "node scripts/scan-secrets.js --history"
   },
   "keywords": [
     "mineflayer",

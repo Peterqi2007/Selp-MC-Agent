@@ -13,6 +13,7 @@ refs/
 # Runtime state, downloaded servers, logs, traces
 runtime/
 logs/
+ui.json
 
 # Gradle build outputs and caches
 mod-client/build/
@@ -21,9 +22,30 @@ mod-client/run/
 mod-bridge/build/
 mod-bridge/.gradle/
 mod-bridge/run/
+# Generated compile-classpath dump (absolute paths from whoever built it)
+mod-bridge/verify/cp.txt
+mod-bridge/verify/raw.txt
 
 # Stray log files
 *.log
 
 # IDE
 .idea/
+
+# ---------------------------------------------------------------------------
+# CREDENTIALS - never commit these
+# ---------------------------------------------------------------------------
+# Put keys in the environment (LLM_API_KEY) or in an untracked .env, never in a
+# tracked json file. config/llm.json and config/agent.json ship with empty
+# credential fields on purpose; a local overlay keeps your own values out of git.
+.env
+.env.*
+!.env.example
+config/*.local.json
+config/llm.local.json
+config/servers.local.json
+*.secrets.json
+
+# Local-only launcher/toolchain paths
+mod-*/local.properties
+mod-*/gradle.properties.local

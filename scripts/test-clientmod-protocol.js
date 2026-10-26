@@ -1160,12 +1160,15 @@ function check(name, ok, detail) {
     );
 
     // ---- the AuthMe path -------------------------------------------------
-    const loggedIn = await body.login('<your-password>');
+    // The password is never a literal in this repo: export MC_AUTHME_PASSWORD to run the
+    // real login against a live server, otherwise the probe uses a throwaway sentinel.
+    const probePassword = process.env.MC_AUTHME_PASSWORD || 'probe-password';
+    const loggedIn = await body.login(probePassword);
     check('login() sends the AuthMe command', loggedIn === true, `chat log: ${JSON.stringify(chatLog)}`);
 
     const chatted = await body.chat('/say hello');
     check('chat() with a slash routes to cmd', chatted === true, `chat log: ${JSON.stringify(chatLog)}`);
-    check('login went out as "login <pw>" (no double slash)', chatLog.includes('login <your-password>'));
+    check('login went out as "login <pw>" (no double slash)', chatLog.includes(`login ${probePassword}`));
 
     // ---- degradation -----------------------------------------------------
     body.interrupt();

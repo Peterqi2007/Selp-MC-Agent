@@ -64,13 +64,19 @@ const DEFAULT_VERSION = '1.20.1-Forge_47.4.10';
 const DEFAULT_OFFLINE_USERNAME = 'AgentDeepSeek';
 
 // The java-runtime-delta shipped with the Microsoft Store Minecraft launcher: Java 21, which is
-// the right JVM for 1.20.1 Forge. Java 25 (C:\Users\<you>\.jdks\openjdk-25.0.1) will NOT boot it.
+// the right JVM for 1.20.1 Forge. A Java 25 JDK will NOT boot it, so the delta runtime is tried
+// first. Paths are built from %LOCALAPPDATA% / %APPDATA% instead of being hardcoded - an absolute
+// C:\Users\<name>\... path in this file is somebody's username, and that does not belong in git.
+const STORE_LAUNCHER_PACKAGE = 'Microsoft.4297127D64EC6_8wekyb3d8bbwe';
 const KNOWN_JAVA_DIRS = [
-  'C:\\Users\\<you>\\AppData\\Local\\Packages\\Microsoft.4297127D64EC6_8wekyb3d8bbwe\\LocalCache\\Local\\runtime\\java-runtime-delta\\windows-x64\\java-runtime-delta',
-  'C:\\Users\\<you>\\AppData\\Roaming\\.minecraft\\runtime\\java-runtime-delta',
+  process.env.LOCALAPPDATA
+    ? path.join(process.env.LOCALAPPDATA, 'Packages', STORE_LAUNCHER_PACKAGE, 'LocalCache', 'Local',
+                'runtime', 'java-runtime-delta', 'windows-x64', 'java-runtime-delta')
+    : null,
+  process.env.APPDATA ? path.join(process.env.APPDATA, '.minecraft', 'runtime', 'java-runtime-delta') : null,
   'C:\\Program Files\\Java\\jdk-17',
   'C:\\Program Files\\Eclipse Adoptium\\jdk-17'
-];
+].filter(Boolean);
 
 // ---------------------------------------------------------------------------
 // small helpers

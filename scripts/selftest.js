@@ -320,16 +320,19 @@ async function main() {
       throw new Error(`bare host -> ${bare.agent.bot.host}:${bare.agent.bot.port}`);
     }
     const keepsPort = loadConfig();
+    // A port that is deliberately NOT the 25565 fallback, so "bare host keeps the configured
+    // port" cannot pass by accident just because both numbers happen to match.
+    keepsPort.agent.bot.port = 25566;
     applyAddress(keepsPort, 'example.org');
-    if (keepsPort.agent.bot.port !== 25565) throw new Error('bare host wrongly reset the configured port');
+    if (keepsPort.agent.bot.port !== 25566) throw new Error('bare host wrongly reset the configured port');
     return 'host:port, IPv6 and bare host (keeps configured port)';
   });
   check('named server profiles resolve', () => {
-    const c = loadConfig({ profile: 'simpfun' });
+    const c = loadConfig({ profile: 'example' });
     if (c.agent.bot.host !== 'mc.example.com' || c.agent.bot.port !== 25565) {
-      throw new Error(`profile simpfun resolved to ${c.agent.bot.host}:${c.agent.bot.port}`);
+      throw new Error(`profile example resolved to ${c.agent.bot.host}:${c.agent.bot.port}`);
     }
-    return `simpfun -> ${c.agent.bot.host}:${c.agent.bot.port}, publicServerMode=${c.agent.behaviour.publicServerMode}`;
+    return `example -> ${c.agent.bot.host}:${c.agent.bot.port}, publicServerMode=${c.agent.behaviour.publicServerMode}`;
   });
   check('unknown profile is rejected loudly', () => {
     try {

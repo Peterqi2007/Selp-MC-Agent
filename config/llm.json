@@ -2,6 +2,7 @@
   "enabled": true,
   "provider": "openai-compatible",
   "baseUrl": "https://api.deepseek.com",
+  "_comment_apiKey": "NEVER put a key in this file - it is tracked by git. Leave this empty and export LLM_API_KEY (read by src/llm/index.js; OPENAI_API_KEY is the fallback name) in your shell or in an untracked .env. A key committed here is a key published here.",
   "apiKey": "",
   "model": "deepseek-flash",
   "timeouts": { "intentMs": 8000, "followUpMs": 8000 },

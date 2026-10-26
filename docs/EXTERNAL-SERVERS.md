@@ -38,15 +38,15 @@ Forge 的 Mod 列表）、以及一次可选的登录尝试，最后给出 `verd
 {
   "profiles": {
     "local":   { "host": "127.0.0.1",        "port": 25565, "auth": "offline", "publicServerMode": false },
-    "simpfun": { "host": "mc.example.com",  "port": 25565, "auth": "offline", "publicServerMode": true }
+    "example": { "host": "mc.example.com",  "port": 25565, "auth": "offline", "publicServerMode": true }
   }
 }
 ```
 
 ```powershell
-node src/index.js --profile simpfun
+node src/index.js --profile example
 # 或
-$env:MC_PROFILE='simpfun'; npm run agent
+$env:MC_PROFILE='example'; npm run agent
 ```
 
 ### 方式 B：命令行直接指定

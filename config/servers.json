@@ -1,5 +1,5 @@
 {
-  "_comment": "Named server profiles. Use with: node src/index.js --profile <name>  (or set MC_PROFILE). A profile only overrides the fields it lists.",
+  "_comment": "Named server profiles. Use with: node src/index.js --profile <name>  (or set MC_PROFILE). A profile only overrides the fields it lists. Copy a profile and edit it for your own server - do not commit real addresses. `--server host:port` / MC_HOST+MC_PORT / MC_ADDRESS override the profile without touching this file.",
   "profiles": {
     "local": {
       "description": "The bundled headless 1.20.1 lab server started by npm start",
@@ -10,14 +10,14 @@
       "proxy": null,
       "publicServerMode": false
     },
-    "simpfun": {
-      "description": "mc.example.com:25565 - external multiplayer server",
+    "example": {
+      "description": "Template for an external AuthMe multiplayer server - replace host/port, or pass them on the CLI. The in-game password belongs in MC_AUTHME_PASSWORD, never here.",
       "host": "mc.example.com",
       "port": 25565,
       "auth": "offline",
       "proxy": null,
       "publicServerMode": true,
-      "username": "AgentDeepSeek"
+      "username": "Agent"
     }
   }
 }

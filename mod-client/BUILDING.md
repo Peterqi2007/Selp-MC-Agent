@@ -1,4 +1,4 @@
-﻿# mod-client 构建与安装
+# mod-client 构建与安装
 
 ## 一、这个 Mod 是什么
 
@@ -137,7 +137,7 @@ npm run client:launch               # 启动客户端，60-90 秒到世界
 npm run client:check                # 确认控制接口起来
 npm run client:verify               # 只读验证（24 项）
 npm run client:verify -- --active   # 加上走路
-npm run agent:client                # 用客户端躯体跑 agent（连 simpfun）
+npm run agent:client                # 用客户端躯体跑 agent（连 config/servers.json 的 example 档位）
 ```
 
 ## 十、真机验证记录

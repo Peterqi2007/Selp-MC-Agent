@@ -44,7 +44,7 @@ set DEFAULT_JVM_OPTS="-Xmx64m" "-Xms64m"
 @rem configures the Gradle *daemon* only, so the launcher still needs a java.exe
 @rem of its own. Fall back to the Java 21 runtime that ships with the Minecraft
 @rem launcher (Java 25 is too new for this Gradle version).
-if not defined JAVA_HOME set "AGENT_BRIDGE_JDK=C:\Users\<you>\AppData\Local\Packages\Microsoft.4297127D64EC6_8wekyb3d8bbwe\LocalCache\Local\runtime\java-runtime-delta\windows-x64\java-runtime-delta"
+if not defined JAVA_HOME set "AGENT_BRIDGE_JDK=%LOCALAPPDATA%\Packages\Microsoft.4297127D64EC6_8wekyb3d8bbwe\LocalCache\Local\runtime\java-runtime-delta\windows-x64\java-runtime-delta"
 if not defined JAVA_HOME if exist "%AGENT_BRIDGE_JDK%\bin\java.exe" set "JAVA_HOME=%AGENT_BRIDGE_JDK%"
 
 @rem Find java.exe

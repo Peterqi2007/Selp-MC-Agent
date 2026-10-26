@@ -87,7 +87,7 @@ const out = (s = '') => process.stdout.write(`${s}\n`);
   out(`    hostiles    ${(state.hostiles || []).length}`);
   out(`    inventory   ${Object.keys(state.inventory || {}).length} kinds`);
   out('');
-  out('  OK - start the agent with:  node src/index.js --body clientmod --profile simpfun');
+  out('  OK - start the agent with:  node src/index.js --body clientmod --profile example');
 })().catch((err) => {
   out(`client check crashed: ${err.stack}`);
   process.exitCode = 1;

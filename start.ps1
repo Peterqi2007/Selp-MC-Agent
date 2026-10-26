@@ -38,7 +38,7 @@
 [CmdletBinding()]
 param(
   [string]$Server,
-  [string]$Profile = 'simpfun',
+  [string]$Profile = 'local',
   [switch]$NoClient,
   [switch]$NoAgent,
   [int]$Wait = 300,
@@ -77,8 +77,8 @@ if ($Help) {
   exit 0
 }
 
-# 服务器地址从 config/servers.json 的档位里取，取不到就用默认值。
-$McHost = 'mc.example.com'
+# 服务器地址从 config/servers.json 的档位里取，取不到就用默认值（本地实验服）。
+$McHost = '127.0.0.1'
 $McPort = 25565
 try {
   $servers = Get-Content (Join-Path $Root 'config\servers.json') -Raw -Encoding UTF8 | ConvertFrom-Json

@@ -653,7 +653,7 @@ PASS  the agent can still be commanded after a stop
 & node scripts\launch-forge-client.js --server mc.example.com:25565
 
 # 指令 2：启动 Agent（等到 inWorld 之后）
-& node src\index.js --body clientmod --profile simpfun
+& node src\index.js --body clientmod --profile example
 ```
 
 两条命令之间那点"胶水"是必要的，不是装饰：

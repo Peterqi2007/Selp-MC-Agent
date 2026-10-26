@@ -82,6 +82,7 @@
 | [`docs/EXTERNAL-SERVERS.md`](docs/EXTERNAL-SERVERS.md) | 联机玩法：外部服务器配置、Forge 限制、历史方案对比 |
 | [`mod-client/BUILDING.md`](mod-client/BUILDING.md) | 控制 Mod 的构建与安装 |
 | [`mod-bridge/README.md`](mod-bridge/README.md) | 可选的 Fabric 服务端桥（服务器权威状态） |
+| [`SECURITY.md`](SECURITY.md) | **凭据怎么放**（环境变量清单）、不要提交什么、`npm run secrets:scan`、首次公开前的历史清理记录 |
 
 ---
 
@@ -97,6 +98,18 @@ npm install
 npm run client:build     # 编译控制 Mod（离线 Gradle）
 npm run client:install   # 装进 PCL 版本隔离的 mods 目录
 ```
+
+**凭据一律走环境变量，不要写进 `config/*.json`**（这些文件是入库的）：
+
+```powershell
+$env:LLM_API_KEY       = 'sk-...'          # 大模型 key（src/llm/index.js 读取；OPENAI_API_KEY 亦可）
+$env:MC_AUTHME_PASSWORD= '...'             # 游戏内 /login 密码（config/agent.json 里留 null）
+$env:MC_ADDRESS        = 'host:port'       # 服务器地址，覆盖 config/servers.json 的档位
+$env:OPENAI_BASE_URL   = 'https://api.deepseek.com'
+npm run secrets:scan                       # 提交前自查；加 --history 扫全部历史对象
+```
+
+细节与历史清理说明见 [`SECURITY.md`](SECURITY.md)。
 
 日常（联机主线：客户端 + Agent 一键起）：
 
@@ -120,7 +133,7 @@ npm run agent:client                                      # 只起 Agent（接�
 本地无头服务器（可选，离线 / 个人测试用）：`npm run server:setup` 准备 1.20.1 服务器，
 `node scripts/run-all.js --no-agent` 只起服务器，然后把 Forge 客户端指向 `127.0.0.1:25565`。
 旧的一键 `npm start`（服务器 + mineflayer 时代流程）仍保留，但当前配置默认躯体是 `clientmod`、
-bot 指向外部服务器，沿用前请先检查 `config/agent.json`。
+bot 指向 `config/agent.json` 里的地址（默认 `127.0.0.1:25565`，可用 `MC_ADDRESS` / `--server` 换），沿用前请先检查。
 
 | 端口 | 用途 |
 | --- | --- |
@@ -522,7 +535,7 @@ P0 已于 2026-10-16 收官（`p0:verify` 8/8、`plan:audit` 29/29）；[`docs/P
 * **采矿批次已真机验证**（2026-10-08 首轮，10-10～10-12 续测，见 REWRITE-PLAN §12.6 与 MINING-LLM-PLAN 附二/附三）：
   numen 采矿重构、tunnel、防坠落补丁、逐格垫柱、共享收集（入包证据）与有限清障全部通过；
   遗留“吃饭 → tunnel”序列待自然饥饿时补测（逻辑已有离线用例覆盖）。
-* **AuthMe**：只 `/login`，永不 `/register`（在 simpfun 类服务器上 `/register` 会重置角色数据）。
+* **AuthMe**：只 `/login`，永不 `/register`（在此类 AuthMe 服务器上 `/register` 会重置角色数据）。
 * **规划器是下一阶段重构对象，问题单独立账**：自主规划（`slowLoop → decide() → runTask`）的问题与
   `!` 命令、LLM 工具分开记录，但**退避机制是共用的**——B1/B2 的记账在 `runTask` 内，凡是经
   `brain.enqueue` 的任务都会写（规划器任务、`!` 材料类、LLM `do_task` 材料类）；`quarantine` 的拦截

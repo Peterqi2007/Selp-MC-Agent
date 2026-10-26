@@ -363,6 +363,9 @@ function loadConfig(overrides = {}) {
   if (process.env.MC_PROXY) cfg.agent.bot.proxy = process.env.MC_PROXY;
   if (process.env.MC_ADDRESS) applyAddress(cfg, process.env.MC_ADDRESS);
   if (process.env.MC_LANGUAGE_BRAIN) cfg.agent.language.brain = process.env.MC_LANGUAGE_BRAIN;
+  // Credentials never live in a tracked file. MC_AUTHME_PASSWORD is the only supported
+  // home for the in-game AuthMe password; config/agent.json keeps `password: null`.
+  if (process.env.MC_AUTHME_PASSWORD) cfg.agent.bot.authme.password = process.env.MC_AUTHME_PASSWORD;
 
   cfg.root = ROOT;
   cfg.paths = {
