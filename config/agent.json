@@ -112,6 +112,7 @@
   "_comment_language": "Language-brain owner (docs/LANGUAGE-BRAIN-REPAIR.md). 'unified' (default since 2026-10-23) routes every non-'!' player line through src/llm/languageBrain.js (roleplay/expert/approval profiles); 'legacy' keeps the old P0/P1 wiring as a rollback. Tools stay language-only: say/silence/approve/lookup_item/web_search/grep_chat_memory/grep_task_memory.",
   "language": {
     "brain": "unified",
+    "personaFile": "config/persona.language.md",
     "maxTokens": 800,
     "historyLimit": 15,
     "maxToolRounds": 2,

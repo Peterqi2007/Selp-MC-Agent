@@ -181,6 +181,7 @@ const DEFAULTS = {
      */
     language: {
       brain: 'unified',
+      personaFile: null,
       maxTokens: 800,
       historyLimit: 15,
       maxToolRounds: 2,

@@ -668,8 +668,41 @@ async function main() {
    * character is 大肥鱼) would leave the in-game channel silently dead. An explicit config value
    * still wins, so an operator can point the trigger at a nickname without touching the sheet.
    */
-  const { resolveTrigger, personaForConfig } = require('./llm/persona');
+  const { resolveTrigger, personaForConfig, loadPersona } = require('./llm/persona');
   const persona = personaForConfig(ctx, { log: new Logger('persona') });
+  /**
+   * LanguageBrain has its own character sheet. Keeping it separate from the local
+   * LlmCore/legacy sheet means the language prompt does not inherit the action-brain
+   * capability table or old `{say,action}` examples. The language sheet is passed whole;
+   * only the legacy fallback keeps the historical 1500-char cap.
+   */
+  const languagePersonaFile = languageCfg.personaFile
+    ? path.resolve(cfg.root || process.cwd(), languageCfg.personaFile)
+    : null;
+  let languagePersonaText = null;
+  if (languagePersonaFile) {
+    const languagePersona = loadPersona({
+      cfg: cfg.llm || {},
+      root: cfg.root,
+      file: languagePersonaFile,
+      log: new Logger('persona')
+    });
+    if (languagePersona.loaded && String(languagePersona.body || '').trim()) {
+      languagePersonaText =
+        [languagePersona.name, languagePersona.body].filter(Boolean).join('\n') || null;
+      log.info(
+        `language persona: ${languageCfg.personaFile} (${String(languagePersona.body).length} chars, full body)`
+      );
+    } else {
+      log.warn(
+        `language persona ${languageCfg.personaFile} missing/unreadable - falling back to the legacy persona text`
+      );
+    }
+  }
+  if (!languagePersonaText) {
+    languagePersonaText =
+      [persona.name, persona.body].filter(Boolean).join('\n').slice(0, 1500) || null;
+  }
   const dialogueTrigger = resolveTrigger(ctx, { log });
   if (chatCfg.addressedPrefix && dialogueTrigger && chatCfg.addressedPrefix === dialogueTrigger) {
     /** A02 needs the gate; ChatListener checks dialogue first, so equal prefixes bypass it. */
@@ -734,7 +767,7 @@ async function main() {
           }
         : null,
       reply: ctx.reply,
-      persona: [persona.name, persona.body].filter(Boolean).join('\n').slice(0, 1500) || null,
+      persona: languagePersonaText,
       chatMemory: ctx.chatMemory,
       memoryStore: ctx.memoryStore,
       methods: ctx.methods,
