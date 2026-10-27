@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "generatedAt": "2026-10-27T13:37:50.549Z",
+  "generatedAt": "2026-10-27T13:43:17.489Z",
   "source": {
     "file": "fixtures/p1/chat-corpus-2026-10-23.csv",
     "sha256": "f718a6687d717f9f5384e6d0e843da088b7b83bb2d2bb7ca724656493d91deb8"
@@ -13,7 +13,7 @@
       "participate": 20
     }
   },
-  "policy": "Default to silence on unaddressed background chat. Participate when the line directly addresses or mentions the agent/group, asks or offers help, continues a conversation the agent is part of, shares a player achievement (boss kill, rare drop, finished build) where a short praise fits, expresses frustration/loss/died/confusion where a short comfort fits, or is clear group banter where a brief reaction fits. Stay silent on neutral statements, acknowledgements, bare reactions/fragments, and third-party dialogue that does not invite the agent.",
+  "policy": "Default to silence on unaddressed background chat. Participate when the line directly addresses or mentions the agent/group, asks or offers help, continues a conversation the agent is part of, shares a player achievement (boss kill, rare drop, finished build) where a short praise fits, expresses frustration or grief after a loss/death where a short comfort fits, expresses confusion about a gameplay mechanic where a short search-backed explanation fits, or is clear group banter where a brief reaction fits. Stay silent on neutral statements, acknowledgements, bare reactions/fragments, and third-party dialogue that does not invite the agent.",
   "examples": [
     {
       "id": "c0061",
@@ -328,14 +328,6 @@
       "flags": []
     },
     {
-      "id": "c0145",
-      "label": "participate",
-      "text": "不过其实说说话也挺有意思的",
-      "speaker": "Logos_Fyan",
-      "session": "forge-client-2026-10-23_12-31-38",
-      "flags": []
-    },
-    {
       "id": "persona-praise",
       "label": "participate",
       "text": "boss已被击毙",
@@ -348,6 +340,14 @@
       "label": "participate",
       "text": "完了，物资全丢了",
       "speaker": "玩家B",
+      "session": "persona.language.md",
+      "flags": []
+    },
+    {
+      "id": "persona-gameplay-confusion",
+      "label": "participate",
+      "text": "这个红石中继器怎么调延迟啊，我搞不懂",
+      "speaker": "玩家C",
       "session": "persona.language.md",
       "flags": []
     }

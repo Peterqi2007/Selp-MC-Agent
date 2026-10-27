@@ -35,7 +35,7 @@ function formatSilencePolicy(profile, options = {}) {
     `- Injected examples: ${silent} SILENT + ${participate} PARTICIPATE.`,
     `- ${profile.policy || 'Default to silence on background chat; participate only when directly relevant.'}`,
     '- This is UNADDRESSED background chat. Use the policy and examples above; the speaker is not necessarily talking to you.',
-    '- Speak when the policy says so: a direct question or mention, help/plan talk, continuing your conversation, a player achievement worth a short praise, frustration/loss worth a short comfort, or clear group banter where a brief reaction fits.',
+    '- Speak when the policy says so: a direct question or mention, help/plan talk, continuing your conversation, a player achievement worth a short praise, frustration/loss worth a short comfort, confusion about a gameplay mechanic worth a short search-backed explanation, or clear group banter where a brief reaction fits.',
     '- Stay silent on neutral statements, acknowledgements, bare reactions/fragments, and third-party dialogue that does not invite you.',
     '- When genuinely unsure, prefer {"tool":"silence"}; do not turn every background line into an interjection.',
     'Labelled examples (player line -> decision):',

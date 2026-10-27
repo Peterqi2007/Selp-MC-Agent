@@ -44,6 +44,14 @@ const CURATED_PARTICIPATE = [
     speaker: '玩家B',
     session: 'persona.language.md',
     flags: []
+  },
+  {
+    id: 'persona-gameplay-confusion',
+    label: 'participate',
+    text: '这个红石中继器怎么调延迟啊，我搞不懂',
+    speaker: '玩家C',
+    session: 'persona.language.md',
+    flags: []
   }
 ];
 
@@ -219,7 +227,7 @@ function main() {
       }
     },
     policy:
-      'Default to silence on unaddressed background chat. Participate when the line directly addresses or mentions the agent/group, asks or offers help, continues a conversation the agent is part of, shares a player achievement (boss kill, rare drop, finished build) where a short praise fits, expresses frustration/loss/died/confusion where a short comfort fits, or is clear group banter where a brief reaction fits. Stay silent on neutral statements, acknowledgements, bare reactions/fragments, and third-party dialogue that does not invite the agent.',
+      'Default to silence on unaddressed background chat. Participate when the line directly addresses or mentions the agent/group, asks or offers help, continues a conversation the agent is part of, shares a player achievement (boss kill, rare drop, finished build) where a short praise fits, expresses frustration or grief after a loss/death where a short comfort fits, expresses confusion about a gameplay mechanic where a short search-backed explanation fits, or is clear group banter where a brief reaction fits. Stay silent on neutral statements, acknowledgements, bare reactions/fragments, and third-party dialogue that does not invite the agent.',
     examples
   };
 
