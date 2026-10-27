@@ -1,373 +1,355 @@
 {
   "version": 1,
-  "generatedAt": "2026-10-23T14:26:05.136Z",
+  "generatedAt": "2026-10-27T13:37:50.549Z",
   "source": {
-    "file": "fixtures/p1/chat-corpus.csv",
-    "sha256": "66ea4aa18190f4ac54334d1b2292030259549c16ef99333552f5ea14f4a3e5e4"
+    "file": "fixtures/p1/chat-corpus-2026-10-23.csv",
+    "sha256": "f718a6687d717f9f5384e6d0e843da088b7b83bb2d2bb7ca724656493d91deb8"
   },
   "counts": {
-    "silent": 223,
-    "participate": 72,
+    "silent": 45,
+    "participate": 30,
     "selected": {
       "silent": 20,
       "participate": 20
     }
   },
-  "policy": "Default to silence on unaddressed background chat. Participate only when the line directly asks the agent/group a question, mentions the agent, offers or requests help, or continues a conversation the agent is part of. Silence on reactions, acknowledgements, third-party dialogue and fragments.",
+  "policy": "Default to silence on unaddressed background chat. Participate when the line directly addresses or mentions the agent/group, asks or offers help, continues a conversation the agent is part of, shares a player achievement (boss kill, rare drop, finished build) where a short praise fits, expresses frustration/loss/died/confusion where a short comfort fits, or is clear group banter where a brief reaction fits. Stay silent on neutral statements, acknowledgements, bare reactions/fragments, and third-party dialogue that does not invite the agent.",
   "examples": [
     {
-      "id": "c0847",
+      "id": "c0061",
       "label": "silent",
-      "text": "1",
-      "speaker": "acdcdcggb_fish",
-      "session": "forge-client-2026-10-17_14-16-59",
-      "flags": [
-        "very-short"
-      ]
-    },
-    {
-      "id": "c0003",
-      "label": "silent",
-      "text": "这个",
+      "text": "牛福",
       "speaker": "Eggxxh",
-      "session": "real-client",
+      "session": "forge-client-2026-10-23_12-31-38",
       "flags": [
         "very-short"
       ]
     },
     {
-      "id": "c0348",
+      "id": "c0065",
       "label": "silent",
-      "text": "对",
-      "speaker": "Floating_Star",
-      "session": "forge-client-2026-10-13_05-27-54",
-      "flags": [
-        "very-short"
-      ]
-    },
-    {
-      "id": "c0005",
-      "label": "silent",
-      "text": "牛逼",
+      "text": "我去",
       "speaker": "Logos_Fyan",
-      "session": "real-client",
+      "session": "forge-client-2026-10-23_12-31-38",
       "flags": [
         "very-short"
       ]
     },
     {
-      "id": "c1063",
+      "id": "c0125",
       "label": "silent",
-      "text": "ok",
+      "text": "logos 看微信",
       "speaker": "Stark_the_wolf",
-      "session": "forge-client-2026-10-18_14-20-27",
-      "flags": [
-        "very-short"
-      ]
-    },
-    {
-      "id": "c0114",
-      "label": "silent",
-      "text": "wlgcb-",
-      "speaker": "acdcdcggb_fish",
-      "session": "forge-client-2026-10-03_02-34-28",
+      "session": "forge-client-2026-10-23_12-31-38",
       "flags": []
     },
     {
-      "id": "c0007",
+      "id": "c0140",
+      "label": "silent",
+      "text": "1",
+      "speaker": "Eggxxh",
+      "session": "forge-client-2026-10-23_12-31-38",
+      "flags": [
+        "very-short"
+      ]
+    },
+    {
+      "id": "c0095",
+      "label": "silent",
+      "text": "没事",
+      "speaker": "Logos_Fyan",
+      "session": "forge-client-2026-10-23_12-31-38",
+      "flags": [
+        "very-short"
+      ]
+    },
+    {
+      "id": "c0174",
+      "label": "silent",
+      "text": "开船的",
+      "speaker": "Stark_the_wolf",
+      "session": "forge-client-2026-10-23_12-31-38",
+      "flags": []
+    },
+    {
+      "id": "c0143",
+      "label": "silent",
+      "text": "卡了",
+      "speaker": "Eggxxh",
+      "session": "forge-client-2026-10-23_12-31-38",
+      "flags": [
+        "very-short"
+      ]
+    },
+    {
+      "id": "c0182",
+      "label": "silent",
+      "text": "伟大",
+      "speaker": "Logos_Fyan",
+      "session": "forge-client-2026-10-23_14-36-40",
+      "flags": [
+        "very-short"
+      ]
+    },
+    {
+      "id": "c0149",
       "label": "silent",
       "text": "XD",
       "speaker": "Eggxxh",
-      "session": "real-client",
+      "session": "forge-client-2026-10-23_12-31-38",
       "flags": [
         "very-short"
       ]
     },
     {
-      "id": "c0419",
+      "id": "c0055",
       "label": "silent",
-      "text": "不是",
-      "speaker": "Floating_Star",
-      "session": "forge-client-2026-10-13_05-27-54",
-      "flags": [
-        "very-short"
-      ]
-    },
-    {
-      "id": "c0105",
-      "label": "silent",
-      "text": "我也",
+      "text": "我现在都是用手枪",
       "speaker": "Logos_Fyan",
-      "session": "forge-client-2026-10-03_02-34-28",
-      "flags": [
-        "very-short"
-      ]
-    },
-    {
-      "id": "c1113",
-      "label": "silent",
-      "text": "oo",
-      "speaker": "Stark_the_wolf",
-      "session": "forge-client-2026-10-18_14-20-27",
-      "flags": [
-        "very-short"
-      ]
-    },
-    {
-      "id": "c0118",
-      "label": "silent",
-      "text": "哦对了",
-      "speaker": "acdcdcggb_fish",
-      "session": "forge-client-2026-10-03_02-34-28",
+      "session": "forge-client-2026-10-23_12-31-38",
       "flags": []
     },
     {
-      "id": "c0117",
+      "id": "c0179",
       "label": "silent",
-      "text": "-",
+      "text": "发了",
       "speaker": "Eggxxh",
-      "session": "forge-client-2026-10-03_02-34-28",
+      "session": "forge-client-2026-10-23_14-36-40",
       "flags": [
-        "punctuation-only"
+        "very-short"
       ]
     },
     {
-      "id": "c0395",
+      "id": "c0059",
       "label": "silent",
-      "text": "大地主",
-      "speaker": "Floating_Star",
-      "session": "forge-client-2026-10-13_05-27-54",
-      "flags": []
-    },
-    {
-      "id": "c0338",
-      "label": "silent",
-      "text": "卡了",
+      "text": "这是新人的家",
       "speaker": "Logos_Fyan",
-      "session": "forge-client-2026-10-13_05-27-54",
-      "flags": [
-        "very-short"
-      ]
-    },
-    {
-      "id": "c1150",
-      "label": "silent",
-      "text": "nb",
-      "speaker": "Stark_the_wolf",
-      "session": "forge-client-2026-10-18_14-20-27",
-      "flags": [
-        "very-short"
-      ]
-    },
-    {
-      "id": "c0129",
-      "label": "silent",
-      "text": "nmsl",
-      "speaker": "acdcdcggb_fish",
-      "session": "forge-client-2026-10-03_02-34-28",
+      "session": "forge-client-2026-10-23_12-31-38",
       "flags": []
     },
     {
-      "id": "c0122",
+      "id": "c0076",
       "label": "silent",
-      "text": "还行",
+      "text": "想到籽岷那个虚无世界了",
       "speaker": "Eggxxh",
-      "session": "forge-client-2026-10-03_02-34-28",
-      "flags": [
-        "very-short"
-      ]
-    },
-    {
-      "id": "c0398",
-      "label": "silent",
-      "text": "我是说强制加载区块有一个领地功能",
-      "speaker": "Floating_Star",
-      "session": "forge-client-2026-10-13_05-27-54",
+      "session": "forge-client-2026-10-23_12-31-38",
       "flags": []
     },
     {
-      "id": "c1029",
+      "id": "c0069",
       "label": "silent",
-      "text": "(",
+      "text": "这个还没考虑过",
       "speaker": "Logos_Fyan",
-      "session": "forge-client-2026-10-18_14-20-27",
-      "flags": [
-        "punctuation-only"
-      ]
+      "session": "forge-client-2026-10-23_12-31-38",
+      "flags": []
     },
     {
-      "id": "c1279",
+      "id": "c0087",
       "label": "silent",
-      "text": "wc",
-      "speaker": "Stark_the_wolf",
-      "session": "forge-client-2026-10-22_13-12-36",
-      "flags": [
-        "very-short"
-      ]
+      "text": "我靠完犊子了",
+      "speaker": "Eggxxh",
+      "session": "forge-client-2026-10-23_12-31-38",
+      "flags": []
+    },
+    {
+      "id": "c0097",
+      "label": "silent",
+      "text": "很便宜",
+      "speaker": "Logos_Fyan",
+      "session": "forge-client-2026-10-23_12-31-38",
+      "flags": []
+    },
+    {
+      "id": "c0104",
+      "label": "silent",
+      "text": "好像这个袪魔池洗满了",
+      "speaker": "Eggxxh",
+      "session": "forge-client-2026-10-23_12-31-38",
+      "flags": []
     },
     {
       "id": "c0119",
-      "label": "participate",
-      "text": "你们缺吃的吗",
-      "speaker": "acdcdcggb_fish",
-      "session": "forge-client-2026-10-03_02-34-28",
-      "flags": []
-    },
-    {
-      "id": "c0013",
-      "label": "participate",
-      "text": "这agent看没人睡自己起床了",
-      "speaker": "Eggxxh",
-      "session": "real-client",
-      "flags": []
-    },
-    {
-      "id": "c0435",
-      "label": "participate",
-      "text": "假人分别在logis房子旁边的岩浆机器地下以及火药塔挂机处，你要睡觉就把他们杀了就行",
-      "speaker": "Floating_Star",
-      "session": "forge-client-2026-10-13_06-25-53",
-      "flags": []
-    },
-    {
-      "id": "c1157",
-      "label": "participate",
-      "text": "agent会睡觉吗",
+      "label": "silent",
+      "text": "往里放本书就连上了",
       "speaker": "Logos_Fyan",
-      "session": "forge-client-2026-10-19_13-34-00",
+      "session": "forge-client-2026-10-23_12-31-38",
       "flags": []
     },
     {
-      "id": "c1124",
-      "label": "participate",
-      "text": "i have to build my own house",
-      "speaker": "Stark_the_wolf",
-      "session": "forge-client-2026-10-18_14-20-27",
+      "id": "c0106",
+      "label": "silent",
+      "text": "吸不了我的经验了",
+      "speaker": "Eggxxh",
+      "session": "forge-client-2026-10-23_12-31-38",
       "flags": []
     },
     {
       "id": "c0121",
-      "label": "participate",
-      "text": "如果缺我来搞农业",
-      "speaker": "acdcdcggb_fish",
-      "session": "forge-client-2026-10-03_02-34-28",
+      "label": "silent",
+      "text": "现在是衰落缓冲",
+      "speaker": "Logos_Fyan",
+      "session": "forge-client-2026-10-23_12-31-38",
       "flags": []
     },
     {
-      "id": "c0175",
+      "id": "c0137",
       "label": "participate",
-      "text": "这是人还是机",
+      "text": "没绷住",
       "speaker": "Eggxxh",
-      "session": "forge-client-2026-10-03_07-49-39",
+      "session": "forge-client-2026-10-23_12-31-38",
       "flags": []
     },
     {
-      "id": "c0547",
-      "label": "participate",
-      "text": "我这里怎么是经验修补",
-      "speaker": "Floating_Star",
-      "session": "forge-client-2026-10-14_14-01-11",
-      "flags": []
-    },
-    {
-      "id": "c0357",
+      "id": "c0133",
       "label": "participate",
       "text": "这谁能绷住",
       "speaker": "Logos_Fyan",
-      "session": "forge-client-2026-10-13_05-27-54",
+      "session": "forge-client-2026-10-23_12-31-38",
       "flags": []
     },
     {
-      "id": "c0166",
+      "id": "c0192",
       "label": "participate",
-      "text": "我吃饭去了，-",
-      "speaker": "acdcdcggb_fish",
-      "session": "forge-client-2026-10-03_02-34-28",
-      "flags": []
-    },
-    {
-      "id": "c0163",
-      "label": "participate",
-      "text": "你们需要什么",
+      "text": "大肥鱼",
       "speaker": "Eggxxh",
-      "session": "forge-client-2026-10-03_02-34-28",
+      "session": "forge-client-2026-10-23_14-36-40",
       "flags": []
     },
     {
-      "id": "c0550",
+      "id": "c0200",
       "label": "participate",
-      "text": "他怎么会变呢",
-      "speaker": "Floating_Star",
-      "session": "forge-client-2026-10-14_14-01-11",
-      "flags": []
-    },
-    {
-      "id": "c0452",
-      "label": "participate",
-      "text": "其实睡不了",
+      "text": "是吧大肥鱼",
       "speaker": "Logos_Fyan",
-      "session": "forge-client-2026-10-13_08-49-39",
+      "session": "forge-client-2026-10-23_14-36-40",
       "flags": []
     },
     {
-      "id": "c0169",
+      "id": "c0054",
       "label": "participate",
-      "text": "然后我可以搞基建",
-      "speaker": "acdcdcggb_fish",
-      "session": "forge-client-2026-10-03_02-34-28",
-      "flags": []
-    },
-    {
-      "id": "c0635",
-      "label": "participate",
-      "text": "这谁在操控，辅助吗",
+      "text": "人机又来了",
       "speaker": "Eggxxh",
-      "session": "forge-client-2026-10-15_07-38-41",
+      "session": "forge-client-2026-10-23_12-31-38",
       "flags": []
     },
     {
-      "id": "c0352",
+      "id": "c0099",
       "label": "participate",
-      "text": "?",
-      "speaker": "Floating_Star",
-      "session": "forge-client-2026-10-13_05-27-54",
-      "flags": [
-        "punctuation-only"
-      ]
-    },
-    {
-      "id": "c0990",
-      "label": "participate",
-      "text": "你可以去拿铁换自己想要的",
+      "text": "我三枪把凋零秒了谁能绷住",
       "speaker": "Logos_Fyan",
-      "session": "forge-client-2026-10-18_14-20-27",
+      "session": "forge-client-2026-10-23_12-31-38",
       "flags": []
     },
     {
-      "id": "c0838",
+      "id": "c0089",
       "label": "participate",
-      "text": "这是让ds看到屏幕吗",
-      "speaker": "acdcdcggb_fish",
-      "session": "forge-client-2026-10-17_14-08-45",
-      "flags": []
-    },
-    {
-      "id": "c0012",
-      "label": "participate",
-      "text": "要睡吗",
+      "text": "兄弟这附魔室让我敲下来了",
       "speaker": "Eggxxh",
-      "session": "real-client",
+      "session": "forge-client-2026-10-23_12-31-38",
       "flags": []
     },
     {
-      "id": "c0537",
+      "id": "c0044",
       "label": "participate",
-      "text": "睡了",
-      "speaker": "Floating_Star",
-      "session": "forge-client-2026-10-14_14-01-11",
-      "flags": [
-        "very-short"
-      ]
+      "text": "经典吃白饭",
+      "speaker": "Logos_Fyan",
+      "session": "forge-client-2026-10-23_12-31-38",
+      "flags": []
+    },
+    {
+      "id": "c0131",
+      "label": "participate",
+      "text": "现在还会接话茬吗",
+      "speaker": "Eggxxh",
+      "session": "forge-client-2026-10-23_12-31-38",
+      "flags": []
+    },
+    {
+      "id": "c0071",
+      "label": "participate",
+      "text": "可以让他了解一下",
+      "speaker": "Logos_Fyan",
+      "session": "forge-client-2026-10-23_12-31-38",
+      "flags": []
+    },
+    {
+      "id": "c0173",
+      "label": "participate",
+      "text": "阿基米德？",
+      "speaker": "Eggxxh",
+      "session": "forge-client-2026-10-23_12-31-38",
+      "flags": []
+    },
+    {
+      "id": "c0123",
+      "label": "participate",
+      "text": "缺经验可以去我家找",
+      "speaker": "Logos_Fyan",
+      "session": "forge-client-2026-10-23_12-31-38",
+      "flags": []
+    },
+    {
+      "id": "c0188",
+      "label": "participate",
+      "text": "实则不会基建",
+      "speaker": "Eggxxh",
+      "session": "forge-client-2026-10-23_14-36-40",
+      "flags": []
+    },
+    {
+      "id": "c0051",
+      "label": "participate",
+      "text": "有点费火药",
+      "speaker": "Logos_Fyan",
+      "session": "forge-client-2026-10-23_12-31-38",
+      "flags": []
+    },
+    {
+      "id": "c0180",
+      "label": "participate",
+      "text": "给你们又整了几个鞘翅",
+      "speaker": "Eggxxh",
+      "session": "forge-client-2026-10-23_14-36-40",
+      "flags": []
+    },
+    {
+      "id": "c0085",
+      "label": "participate",
+      "text": "我在地下",
+      "speaker": "Logos_Fyan",
+      "session": "forge-client-2026-10-23_12-31-38",
+      "flags": []
+    },
+    {
+      "id": "c0050",
+      "label": "participate",
+      "text": "这枪比那老机枪猛太多了",
+      "speaker": "Eggxxh",
+      "session": "forge-client-2026-10-23_12-31-38",
+      "flags": []
+    },
+    {
+      "id": "c0145",
+      "label": "participate",
+      "text": "不过其实说说话也挺有意思的",
+      "speaker": "Logos_Fyan",
+      "session": "forge-client-2026-10-23_12-31-38",
+      "flags": []
+    },
+    {
+      "id": "persona-praise",
+      "label": "participate",
+      "text": "boss已被击毙",
+      "speaker": "玩家A",
+      "session": "persona.language.md",
+      "flags": []
+    },
+    {
+      "id": "persona-comfort",
+      "label": "participate",
+      "text": "完了，物资全丢了",
+      "speaker": "玩家B",
+      "session": "persona.language.md",
+      "flags": []
     }
   ]
 }

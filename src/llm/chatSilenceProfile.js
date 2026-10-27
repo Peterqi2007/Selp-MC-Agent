@@ -34,10 +34,10 @@ function formatSilencePolicy(profile, options = {}) {
     `- Corpus labels: silent=${counts.silent || '?'}, participate=${counts.participate || '?'}.`,
     `- Injected examples: ${silent} SILENT + ${participate} PARTICIPATE.`,
     `- ${profile.policy || 'Default to silence on background chat; participate only when directly relevant.'}`,
-    '- This is UNADDRESSED. The speaker is not talking to you. Statements, reactions, acknowledgements, fragments and third-party dialogue are SILENT.',
-    '- Speak only for a direct question to you/your group, an explicit mention of you, a line that talks about you (agent/bot/是不是人/机), a direct suggestion/plan for the group (可以/要不要/一起/搞/造/建), or a direct request for help.',
-    '- Background chat is usually not addressed to you. Do not answer reactions, acknowledgements, fragments, or third-party dialogue.',
-    '- When unsure, prefer {"tool":"silence"}. A silence costs nothing; an unnecessary interjection is a failure.',
+    '- This is UNADDRESSED background chat. Use the policy and examples above; the speaker is not necessarily talking to you.',
+    '- Speak when the policy says so: a direct question or mention, help/plan talk, continuing your conversation, a player achievement worth a short praise, frustration/loss worth a short comfort, or clear group banter where a brief reaction fits.',
+    '- Stay silent on neutral statements, acknowledgements, bare reactions/fragments, and third-party dialogue that does not invite you.',
+    '- When genuinely unsure, prefer {"tool":"silence"}; do not turn every background line into an interjection.',
     'Labelled examples (player line -> decision):',
     ...examples.map((row) => `- ${JSON.stringify(String(row.text || ''))} -> ${String(row.label).toUpperCase()}`)
   ];

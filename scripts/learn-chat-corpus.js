@@ -23,6 +23,30 @@ const ROOT = path.resolve(__dirname, '..');
 const DEFAULT_IN = path.join(ROOT, 'fixtures', 'p1', 'chat-corpus.csv');
 const DEFAULT_OUT = path.join(ROOT, 'config', 'chat-silence-profile.json');
 
+/**
+ * Curated examples that are not player rows in the corpus but are part of the intended
+ * behaviour (praise an achievement, comfort a loss). They are kept here so `corpus:learn`
+ * does not silently drop them when the profile is regenerated.
+ */
+const CURATED_PARTICIPATE = [
+  {
+    id: 'persona-praise',
+    label: 'participate',
+    text: 'boss已被击毙',
+    speaker: '玩家A',
+    session: 'persona.language.md',
+    flags: []
+  },
+  {
+    id: 'persona-comfort',
+    label: 'participate',
+    text: '完了，物资全丢了',
+    speaker: '玩家B',
+    session: 'persona.language.md',
+    flags: []
+  }
+];
+
 function argValue(name, fallback) {
   const hit = process.argv.find((arg) => arg.startsWith(`--${name}=`));
   return hit ? hit.slice(name.length + 3) : fallback;
@@ -97,6 +121,8 @@ function selectDiverse(rows, limit, usedTexts) {
     if (/agent|bot|机器人|大肥鱼|人还是机|机器/i.test(text)) value += 4;
     if (/你们|大家|有人|谁/.test(text)) value += 1;
     if (/punctuation-only|very-short/.test(row.flags || '')) value -= 1;
+    /** The operator explicitly marked these as examples worth teaching first. */
+    if (/good example/i.test(row.note || '')) value += 8;
     return row.label === 'participate' ? value : -value;
   };
   for (const bucket of groups.values()) {
@@ -170,9 +196,12 @@ function main() {
   }
 
   const used = new Set();
+  const curatedParticipate = CURATED_PARTICIPATE.slice(0, perLabel);
+  const corpusParticipateLimit = Math.max(0, perLabel - curatedParticipate.length);
   const examples = [
     ...selectDiverse(silentRows, perLabel, used),
-    ...selectDiverse(participateRows, perLabel, used)
+    ...selectDiverse(participateRows, corpusParticipateLimit, used),
+    ...curatedParticipate
   ];
   const profile = {
     version: 1,
@@ -190,7 +219,7 @@ function main() {
       }
     },
     policy:
-      'Default to silence on unaddressed background chat. Participate only when the line directly asks the agent/group a question, mentions the agent, offers or requests help, or continues a conversation the agent is part of. Silence on reactions, acknowledgements, third-party dialogue and fragments.',
+      'Default to silence on unaddressed background chat. Participate when the line directly addresses or mentions the agent/group, asks or offers help, continues a conversation the agent is part of, shares a player achievement (boss kill, rare drop, finished build) where a short praise fits, expresses frustration/loss/died/confusion where a short comfort fits, or is clear group banter where a brief reaction fits. Stay silent on neutral statements, acknowledgements, bare reactions/fragments, and third-party dialogue that does not invite the agent.',
     examples
   };
 

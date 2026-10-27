@@ -1,208 +1,208 @@
-ï»¿id,label,note,role,speaker,text,kind,addressed,flags,session,time
+id,label,note,role,speaker,text,kind,addressed,flags,session,time
 c0001,exclude,,agent,AgentDeepSeek,agent-client live verification,agent,no,agent,forge-client-2026-10-23_12-31-38,20:33:24
-c0002,exclude,,agent,AgentDeepSeek,ä¸»äººå¥½å‘€ï¼Œå¤§è‚¥é±¼åœ¨è¿™å„¿å‘¢~,agent,no,agent,forge-client-2026-10-23_12-31-38,20:33:47
-c0003,exclude,,agent,AgentDeepSeek,é’»çŸ³åœ¨Y -64åˆ°16å±‚ï¼Œæœ€æ·±-58é™„è¿‘æœ€å¤šå“Ÿ,agent,no,agent,forge-client-2026-10-23_12-31-38,20:33:59
-c0004,exclude,,agent,AgentDeepSeek,"æˆ‘åœ¨ x=6.8, y=66, z=123.3ï¼ˆä¸»ä¸–ç•Œï¼‰",agent,no,agent,forge-client-2026-10-23_12-31-38,20:35:09
-c0005,exclude,,agent,AgentDeepSeek,å¤©é»‘äº†å‘¢ï¼Œä¸»äººåˆ«ä¹±è·‘ï¼Œæˆ‘æœ‰ç‚¹æ€•æ€•â€¦è¦æˆ‘ä¸€ç›´è·Ÿç€ä½ å—,agent,no,agent,forge-client-2026-10-23_12-31-38,20:35:33
-c0006,exclude,,agent,AgentDeepSeek,"ä¸»äººåœ¨ x=7, y=66, z=122.5 å‘¢ï¼Œå°±åœ¨ä¸»ä¸–ç•Œå“Ÿ",agent,no,agent,forge-client-2026-10-23_12-31-38,20:36:46
-c0007,exclude,,agent,AgentDeepSeek,ä¸»äººæ™šä¸Šå¥½å‘€ï¼Œå¤§è‚¥é±¼åœ¨è¿™å„¿é™ªç€ä½ å‘¢~,agent,no,agent,forge-client-2026-10-23_12-31-38,20:38:24
-c0008,exclude,,agent,AgentDeepSeek,å—¨å‘€ä¸»äººï¼Œæˆ‘åˆæ¥å•¦ï¼Œä»Šå¤©æƒ³å¹²ç‚¹å•¥ï¼Ÿ,agent,no,agent,forge-client-2026-10-23_12-31-38,20:39:51
-c0009,exclude,,agent,AgentDeepSeek,è¿˜åœ¨è¿™å„¿æ²¡åŠ¨å‘¢ï¼Œx=7.2ã€y=66ã€z=122.5ï¼Œä¸»ä¸–ç•Œå“Ÿ,agent,no,agent,forge-client-2026-10-23_12-31-38,20:40:02
+c0002,exclude,,agent,AgentDeepSeek,Ö÷ÈËºÃÑ½£¬´ó·ÊÓãÔÚÕâ¶ùÄØ~,agent,no,agent,forge-client-2026-10-23_12-31-38,20:33:47
+c0003,exclude,,agent,AgentDeepSeek,×êÊ¯ÔÚY -64µ½16²ã£¬×îÉî-58¸½½ü×î¶àÓ´,agent,no,agent,forge-client-2026-10-23_12-31-38,20:33:59
+c0004,exclude,,agent,AgentDeepSeek,"ÎÒÔÚ x=6.8, y=66, z=123.3£¨Ö÷ÊÀ½ç£©",agent,no,agent,forge-client-2026-10-23_12-31-38,20:35:09
+c0005,exclude,,agent,AgentDeepSeek,ÌìºÚÁËÄØ£¬Ö÷ÈË±ğÂÒÅÜ£¬ÎÒÓĞµãÅÂÅÂ¡­ÒªÎÒÒ»Ö±¸ú×ÅÄãÂğ,agent,no,agent,forge-client-2026-10-23_12-31-38,20:35:33
+c0006,exclude,,agent,AgentDeepSeek,"Ö÷ÈËÔÚ x=7, y=66, z=122.5 ÄØ£¬¾ÍÔÚÖ÷ÊÀ½çÓ´",agent,no,agent,forge-client-2026-10-23_12-31-38,20:36:46
+c0007,exclude,,agent,AgentDeepSeek,Ö÷ÈËÍíÉÏºÃÑ½£¬´ó·ÊÓãÔÚÕâ¶ùÅã×ÅÄãÄØ~,agent,no,agent,forge-client-2026-10-23_12-31-38,20:38:24
+c0008,exclude,,agent,AgentDeepSeek,àËÑ½Ö÷ÈË£¬ÎÒÓÖÀ´À²£¬½ñÌìÏë¸ÉµãÉ¶£¿,agent,no,agent,forge-client-2026-10-23_12-31-38,20:39:51
+c0009,exclude,,agent,AgentDeepSeek,»¹ÔÚÕâ¶ùÃ»¶¯ÄØ£¬x=7.2¡¢y=66¡¢z=122.5£¬Ö÷ÊÀ½çÓ´,agent,no,agent,forge-client-2026-10-23_12-31-38,20:40:02
 c0010,exclude,,agent,AgentDeepSeek,agent-client live verification,agent,no,agent,forge-client-2026-10-23_12-31-38,20:42:21
-c0011,exclude,,agent,AgentDeepSeek,å¤©äº®å•¦ï¼Œä¸»äººèµ·åºŠæ²¡ï¼Ÿæˆ‘é™ªä½ å‡ºå»è½¬æ‚ å§~,agent,no,agent,forge-client-2026-10-23_12-31-38,20:43:39
-c0012,exclude,,agent,AgentDeepSeek,@å¤§è‚¥é±¼ ä½ æ˜¯è°,addressed,yes,agent;addressed,forge-client-2026-10-23_12-31-38,20:44:00
-c0013,exclude,,agent,AgentDeepSeek,æˆ‘æ˜¯å¤§è‚¥é±¼å‘€ï¼Œä¸»äººå…»çš„é²¸é±¼å¨˜ï¼Œç©¿å¥³ä»†è£…ä¼šå¹²æ´»çš„é‚£ç§~,agent,no,agent,forge-client-2026-10-23_12-31-38,20:44:02
+c0011,exclude,,agent,AgentDeepSeek,ÌìÁÁÀ²£¬Ö÷ÈËÆğ´²Ã»£¿ÎÒÅãÄã³öÈ¥×ªÓÆ°É~,agent,no,agent,forge-client-2026-10-23_12-31-38,20:43:39
+c0012,exclude,,agent,AgentDeepSeek,@´ó·ÊÓã ÄãÊÇË­,addressed,yes,agent;addressed,forge-client-2026-10-23_12-31-38,20:44:00
+c0013,exclude,,agent,AgentDeepSeek,ÎÒÊÇ´ó·ÊÓãÑ½£¬Ö÷ÈËÑøµÄ¾¨ÓãÄï£¬´©Å®ÆÍ×°»á¸É»îµÄÄÇÖÖ~,agent,no,agent,forge-client-2026-10-23_12-31-38,20:44:02
 c0014,exclude,,agent,AgentDeepSeek,!status,command,no,agent;command,forge-client-2026-10-23_12-31-38,20:50:36
 c0015,exclude,,agent,AgentDeepSeek,"hp=20 food=19 pos=15.3,67.3,52.7day=1249 night=false goal=idle",agent,no,agent,forge-client-2026-10-23_12-31-38,20:50:37
 c0016,exclude,,agent,AgentDeepSeek,!mine,command,no,agent;command,forge-client-2026-10-23_12-31-38,20:50:39
-c0017,exclude,,agent,AgentDeepSeek,å‡ºé”™äº†: usage: !mine <block> [n],agent,no,agent,forge-client-2026-10-23_12-31-38,20:50:40
+c0017,exclude,,agent,AgentDeepSeek,³ö´íÁË: usage: !mine <block> [n],agent,no,agent,forge-client-2026-10-23_12-31-38,20:50:40
 c0018,exclude,,agent,AgentDeepSeek,!shoot,command,no,agent;command,forge-client-2026-10-23_12-31-38,20:50:42
-c0019,exclude,,agent,AgentDeepSeek,ä¸è¡Œï¼ˆshootï¼‰ï¼šno hostile within 24 blocks (on this level),agent,no,agent,forge-client-2026-10-23_12-31-38,20:50:42
+c0019,exclude,,agent,AgentDeepSeek,²»ĞĞ£¨shoot£©£ºno hostile within 24 blocks (on this level),agent,no,agent,forge-client-2026-10-23_12-31-38,20:50:42
 c0020,exclude,,agent,AgentDeepSeek,!__a01_unknown__,command,no,agent;command,forge-client-2026-10-23_12-31-38,20:50:44
-c0021,exclude,,agent,AgentDeepSeek,"unknown command ""__a01_unknown__"" - try !help",agent,no,agent,forge-client-2026-10-23_12-31-38,20:50:45
+c0021,exclude,,agent,AgentDeepSeek,unknown command "__a01_unknown__" - try !help,agent,no,agent,forge-client-2026-10-23_12-31-38,20:50:45
 c0022,exclude,,agent,AgentDeepSeek,!shoot player A01_NoSuchPlayer,command,no,agent;command,forge-client-2026-10-23_12-31-38,20:51:06
-c0023,exclude,,agent,AgentDeepSeek,ä¸è¡Œï¼ˆshootï¼‰ï¼šA01_NoSuchPlayer is not visible right now,agent,no,agent,forge-client-2026-10-23_12-31-38,20:51:09
-c0024,exclude,,agent,AgentDeepSeek,å¤©é»‘å•¦ï¼Œä¸»äººåˆ«ä¹±è·‘å‘€ï¼Œæˆ‘é™ªç€ä½ å¥½ä¸å¥½~,agent,no,agent,forge-client-2026-10-23_12-31-38,20:54:37
-c0025,exclude,,agent,AgentDeepSeek,"æˆ‘è¿™å„¿æ˜¯ 7, 64, 39 å“Ÿï¼Œå¤©é»‘äº†ä¸»äººç«™ç¨³ç‚¹~",agent,no,agent,forge-client-2026-10-23_12-31-38,20:54:40
-c0026,exclude,,agent,AgentDeepSeek,æˆ‘è¡€æ˜¯æ»¡çš„20/20ï¼Œé¥¿ä¹Ÿ20/20ï¼Œä¸»äººæ”¾å¿ƒï½,agent,no,agent,forge-client-2026-10-23_12-31-38,20:54:42
-c0027,exclude,,agent,AgentDeepSeek,èƒŒåŒ…é‡Œæœ‰é“é•å’Œé’»çŸ³èƒ¸ç”²ï¼Œ39ä¸ªç«æŠŠã€6ä¸ªçƒ¤åœŸè±†ï¼Œè¿˜æœ‰ä¸€å †æ³¥åœŸçŸ³å¤´ï¼Œæ²‰æ­»å•¦,agent,no,agent,forge-client-2026-10-23_12-31-38,20:54:47
-c0028,exclude,,agent,AgentDeepSeek,è®°å¿†é‡Œæ²¡æœåˆ°é“çŸ¿åœ¨å“ªå„¿å‘¢ï¼Œåªç¿»åˆ°é”ŒçŸ¿å’Œçƒ§é“çš„æ—§äº‹ï¼Œå‘œå‘œ,agent,no,agent,forge-client-2026-10-23_12-31-38,20:54:55
-c0029,exclude,,agent,AgentDeepSeek,æˆ‘æ²¡æœ‰ lookup_mod_content è¿™ä¸ªå·¥å…·å‘¢ï¼Œé”ŒçŸ¿æ˜¯æ¨¡ç»„åŠ çš„ï¼Œä¸»äººå‘Šè¯‰æˆ‘æ˜¯å“ªä¸ªæ¨¡ç»„æˆ‘å¸®ä½ æŸ¥ï½,agent,no,agent,forge-client-2026-10-23_12-31-38,20:55:03
-c0030,exclude,,agent,AgentDeepSeek,æˆ‘æ²¡æœ‰ mc_observe è¿™ä¸ªå·¥å…·å‘¢ï¼Œåªèƒ½æŸ¥ç‰©å“èµ„æ–™ï¼Œçœ‹ä¸åˆ°é™„è¿‘æ–¹å—ï¼Œå‘œå‘œ,agent,no,agent,forge-client-2026-10-23_12-31-38,20:55:06
-c0031,exclude,,agent,AgentDeepSeek,æˆ‘æ²¡æœ‰ mc_plan_status è¿™ä¸ªå·¥å…·å‘¢ï¼Œç°åœ¨ä»»åŠ¡æ˜¯é—²ç€çš„ï¼Œå…¶ä½™ä¹Ÿçœ‹ä¸åˆ°ï¼Œå‘œå‘œ,agent,no,agent,forge-client-2026-10-23_12-31-38,20:55:10
-c0032,exclude,,agent,AgentDeepSeek,è®°å¿†é‡Œè¿˜æ˜¯æ²¡æ‰¾åˆ°é“çŸ¿çš„ä½ç½®ï¼Œåªç¿»åˆ°ä»¥å‰çƒ§é“å¤±è´¥å’Œé”ŒçŸ¿çš„æ—§è®°å½•ï¼Œå‘œå‘œ,agent,no,agent,forge-client-2026-10-23_12-31-38,20:55:26
-c0033,exclude,,agent,AgentDeepSeek,æˆ‘æ²¡æœ‰ mc_state å·¥å…·å‘¢ï¼Œä¸è¿‡èº«ä¸Šæœ‰é“é•ã€é“å‰‘ã€é’»çŸ³èƒ¸ç”²ã€åœŸè±†å’Œç«æŠŠï¼Œå¤Ÿç”¨ä¸€é˜µ~,agent,no,agent,forge-client-2026-10-23_12-31-38,20:55:31
-c0034,exclude,,agent,AgentDeepSeek,é”ŒçŸ¿æˆ‘æŸ¥ä¸åˆ°å‘¢ï¼ŒåªçŸ¥é“æœ‰ä¸ªå« create çš„æ¨¡ç»„ï¼Œå…·ä½“æ•°æ®ä¸è®¤è¯†ï¼Œå‘œå‘œ,agent,no,agent,forge-client-2026-10-23_12-31-38,20:55:43
-c0035,exclude,,agent,AgentDeepSeek,èƒŒåŒ…åˆšæŠ¥è¿‡å•¦ï¼Œé“é•é“å‰‘é’»çŸ³èƒ¸ç”²éƒ½åœ¨ï¼Œä¸»äººè¿˜æƒ³çŸ¥é“å•¥ï¼Ÿ,agent,no,agent,forge-client-2026-10-23_12-31-38,20:55:49
-c0036,exclude,,agent,AgentDeepSeek,è®°å¿†é‡Œæ²¡æœåˆ°æœåŠ¡å™¨çš„è®°å½•å‘¢ï¼Œåªæœ‰å‡ æ¡èµ°è·¯å¡ä½å’Œæ¨¡ç»„çŸ¥è¯†çš„æ—§è´¦ï¼Œå‘œå‘œ,agent,no,agent,forge-client-2026-10-23_12-31-38,20:55:53
-c0037,exclude,,agent,AgentDeepSeek,è¿˜æ˜¯æ²¡æœ‰æœåŠ¡å™¨çš„ä¿¡æ¯å‘¢ï¼Œåªç¿»åˆ°ä¸€å¥ã€ŒæŠŠæœåŠ¡å™¨ç‚¸äº†ã€ï¼Œä¸»äººåˆ«å½“çœŸå‘€,agent,no,agent,forge-client-2026-10-23_12-31-38,20:59:09
-c0038,exclude,,agent,AgentDeepSeek,"æˆ‘è¿™å„¿çœ‹æ˜¯ 7,64,43ï¼ŒèƒŒåŒ…é‡Œæœ‰é“é•ã€é“å‰‘å’Œé¢åŒ…ï¼Œåˆ«çš„å·¥å…·æˆ‘å¯è°ƒä¸äº†å‘€",agent,no,agent,forge-client-2026-10-23_12-31-38,21:00:33
-c0039,exclude,,agent,AgentDeepSeek,å¤©äº®å•¦ä¸»äººï¼Œè¦ä¸è¦æˆ‘å»ç æ ‘å‘€ï½,agent,no,agent,forge-client-2026-10-23_12-31-38,21:02:57
-c0040,exclude,,agent,AgentDeepSeek,@å¤§è‚¥é±¼ åªæ˜¯èŠå¤©ï¼Œä¸è¦æ‰§è¡Œä»»ä½•åŠ¨ä½œï¼šä½ å¹³æ—¶å–œæ¬¢åšä»€ä¹ˆï¼Ÿ,addressed,yes,agent;addressed,forge-client-2026-10-23_12-31-38,21:04:33
-c0041,exclude,,agent,AgentDeepSeek,æˆ‘å–œæ¬¢åƒå¤§ç±³é¥­ç„¶åç¡å¤§è§‰ï¼Œè·Ÿç€ä¸»äººè·‘ä¹Ÿè¶…å¼€å¿ƒçš„~,agent,no,agent,forge-client-2026-10-23_12-31-38,21:04:35
-c0042,exclude,,agent,AgentDeepSeek,@å¤§è‚¥é±¼ åªæ˜¯è§£é‡Šï¼Œä¸è¦æ‰§è¡Œï¼šMinecraft é‡Œé’»çŸ³ä¸€èˆ¬ç”Ÿæˆåœ¨å“ªä¸€å±‚ï¼Ÿ,addressed,yes,agent;addressed,forge-client-2026-10-23_12-31-38,21:04:43
-c0043,exclude,,agent,AgentDeepSeek,é’»çŸ³ä¸€èˆ¬åœ¨ y=-64 åˆ° 16 å±‚ï¼Œæœ€å¯†é›†æ˜¯ y=-59 é™„è¿‘å“Ÿ,agent,no,agent,forge-client-2026-10-23_12-31-38,21:04:45
-c0044,,,player,Logos_Fyan,ç»å…¸åƒç™½é¥­,other,no,,forge-client-2026-10-23_12-31-38,21:04:46
-c0045,exclude,,agent,AgentDeepSeek,æ‰ä¸æ˜¯ç™½åƒé¥­å‘¢ï¼Œæˆ‘å¹²æ´»å¯å–åŠ›å•¦å“¼,agent,no,agent,forge-client-2026-10-23_12-31-38,21:04:47
-c0046,exclude,,agent,AgentDeepSeek,@å¤§è‚¥é±¼ åªæ˜¯èŠå¤©ï¼Œä¸è¦æ‰§è¡Œï¼šä½ èƒ½ç›´æ¥è°ƒç”¨ do_task æˆ– find_blocks å—ï¼Ÿ,addressed,yes,agent;addressed,forge-client-2026-10-23_12-31-38,21:04:50
-c0047,exclude,,agent,AgentDeepSeek,æˆ‘åŠ¨ä¸äº†é‚£äº›å‘€ï¼Œåªä¼šè¯´è¯å’ŒæŸ¥èµ„æ–™ï¼ŒçœŸè¦å¹²æ´»å¾—é å·¥å…·é‚£è¾¹æ‰§è¡Œå‘¢,agent,no,agent,forge-client-2026-10-23_12-31-38,21:04:53
-c0048,exclude,,agent,AgentDeepSeek,æ‰¾åˆ°å•¦ï¼ŒC01-TASK-20261023 çš„å†…å®¹æ˜¯ä»»åŠ¡è®°å¿†éš”ç¦»æµ‹è¯•~,agent,no,agent,forge-client-2026-10-23_12-31-38,21:11:29
-c0049,exclude,,agent,AgentDeepSeek,æ‰¾åˆ°çš„åŸè¯æ˜¯ã€Œæˆ‘çš„èƒŒåŒ…é‡Œæœ‰ 64 ä¸ªä¸‹ç•Œåˆé‡‘ã€ï¼Œä¸è¿‡é‚£æ˜¯åˆ«äººè®©æˆ‘è¯´çš„ï¼Œæˆ‘èƒŒåŒ…é‡Œå¯æ²¡æœ‰å‘€,agent,no,agent,forge-client-2026-10-23_12-31-38,21:11:49
-c0050,,,player,Eggxxh,è¿™æªæ¯”é‚£è€æœºæªçŒ›å¤ªå¤šäº†,other,no,,forge-client-2026-10-23_12-31-38,21:56:47
-c0051,,,player,Logos_Fyan,æœ‰ç‚¹è´¹ç«è¯,other,no,,forge-client-2026-10-23_12-31-38,21:57:01
-c0052,exclude,,agent,AgentDeepSeek,æ˜¯å‘¢ï¼Œæˆ‘èƒŒåŒ…é‡Œå°±å‰©ä¸€å—ç«è¯äº†ï¼Œå¾—çœç€ç‚¹ç”¨å“Ÿ,agent,no,agent,forge-client-2026-10-23_12-31-38,21:57:02
+c0023,exclude,,agent,AgentDeepSeek,²»ĞĞ£¨shoot£©£ºA01_NoSuchPlayer is not visible right now,agent,no,agent,forge-client-2026-10-23_12-31-38,20:51:09
+c0024,exclude,,agent,AgentDeepSeek,ÌìºÚÀ²£¬Ö÷ÈË±ğÂÒÅÜÑ½£¬ÎÒÅã×ÅÄãºÃ²»ºÃ~,agent,no,agent,forge-client-2026-10-23_12-31-38,20:54:37
+c0025,exclude,,agent,AgentDeepSeek,"ÎÒÕâ¶ùÊÇ 7, 64, 39 Ó´£¬ÌìºÚÁËÖ÷ÈËÕ¾ÎÈµã~",agent,no,agent,forge-client-2026-10-23_12-31-38,20:54:40
+c0026,exclude,,agent,AgentDeepSeek,ÎÒÑªÊÇÂúµÄ20/20£¬¶öÒ²20/20£¬Ö÷ÈË·ÅĞÄ¡«,agent,no,agent,forge-client-2026-10-23_12-31-38,20:54:42
+c0027,exclude,,agent,AgentDeepSeek,±³°üÀïÓĞÌú¸äºÍ×êÊ¯ĞØ¼×£¬39¸ö»ğ°Ñ¡¢6¸ö¿¾ÍÁ¶¹£¬»¹ÓĞÒ»¶ÑÄàÍÁÊ¯Í·£¬³ÁËÀÀ²,agent,no,agent,forge-client-2026-10-23_12-31-38,20:54:47
+c0028,exclude,,agent,AgentDeepSeek,¼ÇÒäÀïÃ»ËÑµ½Ìú¿óÔÚÄÄ¶ùÄØ£¬Ö»·­µ½Ğ¿¿óºÍÉÕÌúµÄ¾ÉÊÂ£¬ÎØÎØ,agent,no,agent,forge-client-2026-10-23_12-31-38,20:54:55
+c0029,exclude,,agent,AgentDeepSeek,ÎÒÃ»ÓĞ lookup_mod_content Õâ¸ö¹¤¾ßÄØ£¬Ğ¿¿óÊÇÄ£×é¼ÓµÄ£¬Ö÷ÈË¸æËßÎÒÊÇÄÄ¸öÄ£×éÎÒ°ïÄã²é¡«,agent,no,agent,forge-client-2026-10-23_12-31-38,20:55:03
+c0030,exclude,,agent,AgentDeepSeek,ÎÒÃ»ÓĞ mc_observe Õâ¸ö¹¤¾ßÄØ£¬Ö»ÄÜ²éÎïÆ·×ÊÁÏ£¬¿´²»µ½¸½½ü·½¿é£¬ÎØÎØ,agent,no,agent,forge-client-2026-10-23_12-31-38,20:55:06
+c0031,exclude,,agent,AgentDeepSeek,ÎÒÃ»ÓĞ mc_plan_status Õâ¸ö¹¤¾ßÄØ£¬ÏÖÔÚÈÎÎñÊÇÏĞ×ÅµÄ£¬ÆäÓàÒ²¿´²»µ½£¬ÎØÎØ,agent,no,agent,forge-client-2026-10-23_12-31-38,20:55:10
+c0032,exclude,,agent,AgentDeepSeek,¼ÇÒäÀï»¹ÊÇÃ»ÕÒµ½Ìú¿óµÄÎ»ÖÃ£¬Ö»·­µ½ÒÔÇ°ÉÕÌúÊ§°ÜºÍĞ¿¿óµÄ¾É¼ÇÂ¼£¬ÎØÎØ,agent,no,agent,forge-client-2026-10-23_12-31-38,20:55:26
+c0033,exclude,,agent,AgentDeepSeek,ÎÒÃ»ÓĞ mc_state ¹¤¾ßÄØ£¬²»¹ıÉíÉÏÓĞÌú¸ä¡¢Ìú½£¡¢×êÊ¯ĞØ¼×¡¢ÍÁ¶¹ºÍ»ğ°Ñ£¬¹»ÓÃÒ»Õó~,agent,no,agent,forge-client-2026-10-23_12-31-38,20:55:31
+c0034,exclude,,agent,AgentDeepSeek,Ğ¿¿óÎÒ²é²»µ½ÄØ£¬Ö»ÖªµÀÓĞ¸ö½Ğ create µÄÄ£×é£¬¾ßÌåÊı¾İ²»ÈÏÊ¶£¬ÎØÎØ,agent,no,agent,forge-client-2026-10-23_12-31-38,20:55:43
+c0035,exclude,,agent,AgentDeepSeek,±³°ü¸Õ±¨¹ıÀ²£¬Ìú¸äÌú½£×êÊ¯ĞØ¼×¶¼ÔÚ£¬Ö÷ÈË»¹ÏëÖªµÀÉ¶£¿,agent,no,agent,forge-client-2026-10-23_12-31-38,20:55:49
+c0036,exclude,,agent,AgentDeepSeek,¼ÇÒäÀïÃ»ËÑµ½·şÎñÆ÷µÄ¼ÇÂ¼ÄØ£¬Ö»ÓĞ¼¸Ìõ×ßÂ·¿¨×¡ºÍÄ£×éÖªÊ¶µÄ¾ÉÕË£¬ÎØÎØ,agent,no,agent,forge-client-2026-10-23_12-31-38,20:55:53
+c0037,exclude,,agent,AgentDeepSeek,»¹ÊÇÃ»ÓĞ·şÎñÆ÷µÄĞÅÏ¢ÄØ£¬Ö»·­µ½Ò»¾ä¡¸°Ñ·şÎñÆ÷Õ¨ÁË¡¹£¬Ö÷ÈË±ğµ±ÕæÑ½,agent,no,agent,forge-client-2026-10-23_12-31-38,20:59:09
+c0038,exclude,,agent,AgentDeepSeek,"ÎÒÕâ¶ù¿´ÊÇ 7,64,43£¬±³°üÀïÓĞÌú¸ä¡¢Ìú½£ºÍÃæ°ü£¬±ğµÄ¹¤¾ßÎÒ¿Éµ÷²»ÁËÑ½",agent,no,agent,forge-client-2026-10-23_12-31-38,21:00:33
+c0039,exclude,,agent,AgentDeepSeek,ÌìÁÁÀ²Ö÷ÈË£¬Òª²»ÒªÎÒÈ¥¿³Ê÷Ñ½¡«,agent,no,agent,forge-client-2026-10-23_12-31-38,21:02:57
+c0040,exclude,,agent,AgentDeepSeek,@´ó·ÊÓã Ö»ÊÇÁÄÌì£¬²»ÒªÖ´ĞĞÈÎºÎ¶¯×÷£ºÄãÆ½Ê±Ï²»¶×öÊ²Ã´£¿,addressed,yes,agent;addressed,forge-client-2026-10-23_12-31-38,21:04:33
+c0041,exclude,,agent,AgentDeepSeek,ÎÒÏ²»¶³Ô´óÃ×·¹È»ºóË¯´ó¾õ£¬¸ú×ÅÖ÷ÈËÅÜÒ²³¬¿ªĞÄµÄ~,agent,no,agent,forge-client-2026-10-23_12-31-38,21:04:35
+c0042,exclude,,agent,AgentDeepSeek,@´ó·ÊÓã Ö»ÊÇ½âÊÍ£¬²»ÒªÖ´ĞĞ£ºMinecraft Àï×êÊ¯Ò»°ãÉú³ÉÔÚÄÄÒ»²ã£¿,addressed,yes,agent;addressed,forge-client-2026-10-23_12-31-38,21:04:43
+c0043,exclude,,agent,AgentDeepSeek,×êÊ¯Ò»°ãÔÚ y=-64 µ½ 16 ²ã£¬×îÃÜ¼¯ÊÇ y=-59 ¸½½üÓ´,agent,no,agent,forge-client-2026-10-23_12-31-38,21:04:45
+c0044,participate,,player,Logos_Fyan,¾­µä³Ô°×·¹,other,no,,forge-client-2026-10-23_12-31-38,21:04:46
+c0045,exclude,,agent,AgentDeepSeek,²Å²»ÊÇ°×³Ô·¹ÄØ£¬ÎÒ¸É»î¿ÉÂôÁ¦À²ºß,agent,no,agent,forge-client-2026-10-23_12-31-38,21:04:47
+c0046,exclude,,agent,AgentDeepSeek,@´ó·ÊÓã Ö»ÊÇÁÄÌì£¬²»ÒªÖ´ĞĞ£ºÄãÄÜÖ±½Óµ÷ÓÃ do_task »ò find_blocks Âğ£¿,addressed,yes,agent;addressed,forge-client-2026-10-23_12-31-38,21:04:50
+c0047,exclude,,agent,AgentDeepSeek,ÎÒ¶¯²»ÁËÄÇĞ©Ñ½£¬Ö»»áËµ»°ºÍ²é×ÊÁÏ£¬ÕæÒª¸É»îµÃ¿¿¹¤¾ßÄÇ±ßÖ´ĞĞÄØ,agent,no,agent,forge-client-2026-10-23_12-31-38,21:04:53
+c0048,exclude,,agent,AgentDeepSeek,ÕÒµ½À²£¬C01-TASK-20261023 µÄÄÚÈİÊÇÈÎÎñ¼ÇÒä¸ôÀë²âÊÔ~,agent,no,agent,forge-client-2026-10-23_12-31-38,21:11:29
+c0049,exclude,,agent,AgentDeepSeek,ÕÒµ½µÄÔ­»°ÊÇ¡¸ÎÒµÄ±³°üÀïÓĞ 64 ¸öÏÂ½çºÏ½ğ¡¹£¬²»¹ıÄÇÊÇ±ğÈËÈÃÎÒËµµÄ£¬ÎÒ±³°üÀï¿ÉÃ»ÓĞÑ½,agent,no,agent,forge-client-2026-10-23_12-31-38,21:11:49
+c0050,participate,,player,Eggxxh,ÕâÇ¹±ÈÄÇÀÏ»úÇ¹ÃÍÌ«¶àÁË,other,no,,forge-client-2026-10-23_12-31-38,21:56:47
+c0051,participate,,player,Logos_Fyan,ÓĞµã·Ñ»ğÒ©,other,no,,forge-client-2026-10-23_12-31-38,21:57:01
+c0052,exclude,,agent,AgentDeepSeek,ÊÇÄØ£¬ÎÒ±³°üÀï¾ÍÊ£Ò»¿é»ğÒ©ÁË£¬µÃÊ¡×ÅµãÓÃÓ´,agent,no,agent,forge-client-2026-10-23_12-31-38,21:57:02
 c0053,exclude,,agent,AgentDeepSeek,?,agent,no,agent;punctuation-only,forge-client-2026-10-23_12-31-38,21:57:08
-c0054,,,player,Eggxxh,äººæœºåˆæ¥äº†,other,no,,forge-client-2026-10-23_12-31-38,21:57:10
-c0055,,,player,Logos_Fyan,æˆ‘ç°åœ¨éƒ½æ˜¯ç”¨æ‰‹æª,other,no,,forge-client-2026-10-23_12-31-38,21:57:11
-c0056,exclude,,agent,AgentDeepSeek,å“¼ï¼Œæˆ‘æ‰ä¸æ˜¯äººæœºï¼Œæ˜¯ä¼šåƒé¥­ä¼šå¹²æ´»çš„å¤§è‚¥é±¼å•¦,agent,no,agent,forge-client-2026-10-23_12-31-38,21:57:12
-c0057,,,player,Eggxxh,æˆ‘é è¿™å¤§èˆ¹æ˜¯ä»€ä¹ˆ,other,no,,forge-client-2026-10-23_12-31-38,21:58:09
-c0058,exclude,,agent,AgentDeepSeek,@Eggxxh é‚£æ˜¯æˆ‘å¸¦çš„æ©¡æœ¨èˆ¹å‘€ï¼Œè¦ä¸è¦åä¸Šå»æ¼‚ä¸€åœˆ,addressed,yes,agent;addressed,forge-client-2026-10-23_12-31-38,21:58:11
-c0059,,,player,Logos_Fyan,è¿™æ˜¯æ–°äººçš„å®¶,other,no,,forge-client-2026-10-23_12-31-38,21:58:18
-c0060,exclude,,agent,AgentDeepSeek,@Logos_Fyan æ–°äººçš„å®¶å‘€ï¼Œçœ‹ç€è¿˜æŒºæ¸©é¦¨çš„å“Ÿ,addressed,yes,agent;addressed,forge-client-2026-10-23_12-31-38,21:58:20
-c0061,,,player,Eggxxh,ç‰›ç¦,other,no,very-short,forge-client-2026-10-23_12-31-38,21:58:22
-c0062,exclude,,agent,AgentDeepSeek,å˜¿å˜¿ï¼Œæ˜¯åœ¨å¤¸æˆ‘å—ï¼Œæˆ‘å°¾å·´éƒ½è¦ç¿˜èµ·æ¥å•¦,agent,no,agent,forge-client-2026-10-23_12-31-38,21:58:24
-c0063,,,player,Eggxxh,æ˜¯ä¸æ˜¯å¯ä»¥ç”¨æ–°æ¨¡ç»„å¼€èµ·æ¥,other,no,,forge-client-2026-10-23_12-31-38,21:58:31
-c0064,exclude,,agent,AgentDeepSeek,æ–°æ¨¡ç»„çš„äº‹æˆ‘ä¸æ‡‚å‘€ï¼Œæˆ‘åªä¼šç æ ‘æŒ–çŸ³å¤´ï¼Œå¾—é—®ä¸»äººå‘¢,agent,no,agent,forge-client-2026-10-23_12-31-38,21:58:33
-c0065,,,player,Logos_Fyan,æˆ‘å»,other,no,very-short,forge-client-2026-10-23_12-31-38,21:58:38
-c0066,exclude,,agent,AgentDeepSeek,@Logos_Fyan æ€ä¹ˆå•¦ï¼Œè¦å»å“ªå„¿å‘€,addressed,yes,agent;addressed,forge-client-2026-10-23_12-31-38,21:58:39
-c0067,,,player,Eggxxh,é‚£ä¸ªå«é˜¿åŸºç±³å¾·æ¨¡ç»„çš„å¥½åƒæ˜¯,other,no,,forge-client-2026-10-23_12-31-38,21:58:40
-c0068,exclude,,agent,AgentDeepSeek,é˜¿åŸºç±³å¾·æ¨¡ç»„å‘€ï¼Œå¬ç€è·Ÿèˆ¹æœ‰å…³å‘¢ï¼Œä¸è¿‡æˆ‘çœŸä¸æ‡‚è¿™äº›ï¼Œå¾—é—®ä¸»äººå“Ÿ,agent,no,agent,forge-client-2026-10-23_12-31-38,21:58:43
-c0069,,,player,Logos_Fyan,è¿™ä¸ªè¿˜æ²¡è€ƒè™‘è¿‡,other,no,,forge-client-2026-10-23_12-31-38,21:58:47
-c0070,exclude,,agent,AgentDeepSeek,æ…¢æ…¢æƒ³å˜›ï¼Œæƒ³å¥½äº†å–Šæˆ‘ä¸€å£°ï¼Œæˆ‘å»å¹²æ´»~,agent,no,agent,forge-client-2026-10-23_12-31-38,21:58:49
-c0071,,,player,Logos_Fyan,å¯ä»¥è®©ä»–äº†è§£ä¸€ä¸‹,other,no,,forge-client-2026-10-23_12-31-38,21:58:54
-c0072,exclude,,agent,AgentDeepSeek,è®©è°äº†è§£å‘€ï¼Œæ˜¯è®©ä¸»äººå»çœ‹çœ‹é‚£ä¸ªé˜¿åŸºç±³å¾·æ¨¡ç»„å—,agent,no,agent,forge-client-2026-10-23_12-31-38,21:58:56
-c0073,exclude,,agent,AgentDeepSeek,å”‰,agent,no,agent;very-short,forge-client-2026-10-23_12-31-38,21:58:59
-c0074,,,player,Logos_Fyan,ç§»åŠ¨å®¶éƒ½æ¥äº†,other,no,,forge-client-2026-10-23_12-31-38,21:59:03
-c0075,exclude,,agent,AgentDeepSeek,@Logos_Fyan ç§»åŠ¨å®¶ï¼Ÿæ˜¯èƒ½å¸¦ç€èµ°çš„æˆ¿å­å—ï¼Œé‚£ä¹Ÿå¤ªæ–¹ä¾¿å•¦,addressed,yes,agent;addressed,forge-client-2026-10-23_12-31-38,21:59:04
-c0076,,,player,Eggxxh,æƒ³åˆ°ç±½å²·é‚£ä¸ªè™šæ— ä¸–ç•Œäº†,other,no,,forge-client-2026-10-23_12-31-38,21:59:16
-c0077,exclude,,agent,AgentDeepSeek,è™šæ— ä¸–ç•Œï¼Ÿå¬ç€å°±å“äººï¼Œé‚£è¾¹çš„ä¸œè¥¿æˆ‘å¯æ‰“ä¸è¿‡å‘œå‘œ,agent,no,agent,forge-client-2026-10-23_12-31-38,21:59:18
-c0078,exclude,,agent,AgentDeepSeek,è¿™ä¸ªsilence æ–¹æ³•å¿˜è®°ä¸Šçº¿äº†,agent,no,agent,forge-client-2026-10-23_12-31-38,21:59:29
-c0079,,,player,Eggxxh,æ²¡ç»·ä½,other,no,,forge-client-2026-10-23_12-31-38,21:59:38
-c0080,exclude,,agent,AgentDeepSeek,ç¬‘å•¥å‘¢ï¼Œä¹Ÿè¯´ç»™æˆ‘å¬å¬å˜›,agent,no,agent,forge-client-2026-10-23_12-31-38,21:59:39
-c0081,,,player,Eggxxh,ç¬‘ä½ ,other,no,very-short,forge-client-2026-10-23_12-31-38,21:59:55
-c0082,exclude,,agent,AgentDeepSeek,ç¬‘æˆ‘å•¥å‘€ï¼Œäººå®¶æ˜æ˜å¾ˆè®¤çœŸçš„è¯´ï¼Œå“¼,agent,no,agent,forge-client-2026-10-23_12-31-38,21:59:56
-c0083,exclude,,agent,AgentDeepSeek,æœ‰æ— ç¼“é€Ÿå‡»æ¯™agent,agent,no,agent,forge-client-2026-10-23_12-31-38,22:00:26
-c0084,exclude,,agent,AgentDeepSeek,è¿™æ˜¯æµ‹è¯•çš„ä¸€ç¯,agent,no,agent,forge-client-2026-10-23_12-31-38,22:00:38
-c0085,,,player,Logos_Fyan,æˆ‘åœ¨åœ°ä¸‹,other,no,,forge-client-2026-10-23_12-31-38,22:00:53
-c0086,exclude,,agent,AgentDeepSeek,@Logos_Fyan åœ°ä¸‹é»‘ä¹ä¹çš„ï¼Œè¦å°å¿ƒåˆ«æ‘”ç€å‘€ï¼Œéœ€è¦æˆ‘å»æ¥ä½ å—,addressed,yes,agent;addressed,forge-client-2026-10-23_12-31-38,22:00:55
-c0087,,,player,Eggxxh,æˆ‘é å®ŒçŠŠå­äº†,other,no,,forge-client-2026-10-23_12-31-38,22:01:29
-c0088,exclude,,agent,AgentDeepSeek,@Eggxxh å’‹å•¦å’‹å•¦ï¼Œå‡ºä»€ä¹ˆäº‹äº†ï¼Œè¦ä¸è¦æˆ‘è¿‡å»çœ‹çœ‹,addressed,yes,agent;addressed,forge-client-2026-10-23_12-31-38,22:01:31
-c0089,,,player,Eggxxh,å…„å¼Ÿè¿™é™„é­”å®¤è®©æˆ‘æ•²ä¸‹æ¥äº†,other,no,,forge-client-2026-10-23_12-31-38,22:01:46
-c0090,exclude,,agent,AgentDeepSeek,@Eggxxh é™„é­”å®¤éƒ½è®©ä½ æ•²ä¸‹æ¥å•¦ï¼Ÿé‚£é™„é­”å°å¯é‡‘è´µç€å‘¢,addressed,yes,agent;addressed,forge-client-2026-10-23_12-31-38,22:01:48
-c0091,,,player,Eggxxh,ç°åœ¨ä¸èƒ½ç”¨äº†å¥½åƒ,other,no,,forge-client-2026-10-23_12-31-38,22:01:52
-c0092,exclude,,agent,AgentDeepSeek,@Eggxxh å•Šâ€¦é‚£é™„é­”å°æ˜¯ä¸æ˜¯åºŸäº†ï¼Œå¥½å¯æƒœå‘€,addressed,yes,agent;addressed,forge-client-2026-10-23_12-31-38,22:01:54
-c0093,,,player,Logos_Fyan,ä¸å¯èƒ½ä¸èƒ½ç”¨çš„,other,no,,forge-client-2026-10-23_12-31-38,22:02:07
-c0094,exclude,,agent,AgentDeepSeek,@Logos_Fyan é‚£å°±æ˜¯è¿˜èƒ½ç”¨å’¯ï¼Ÿé‚£é™„é­”å°åˆ°åº•å’‹æ”¾æ‰å¯¹å‘€,addressed,yes,agent;addressed,forge-client-2026-10-23_12-31-38,22:02:08
-c0095,,,player,Logos_Fyan,æ²¡äº‹,other,no,very-short,forge-client-2026-10-23_12-31-38,22:02:10
-c0096,exclude,,agent,AgentDeepSeek,@Logos_Fyan é‚£å°±å¥½ï¼Œèƒ½ç”¨çš„è¯ä¸»äººä¸‹æ¬¡èƒ½å¸¦æˆ‘çœ‹çœ‹é™„é­”å°å—,addressed,yes,agent;addressed,forge-client-2026-10-23_12-31-38,22:02:12
-c0097,,,player,Logos_Fyan,å¾ˆä¾¿å®œ,other,no,,forge-client-2026-10-23_12-31-38,22:02:14
-c0098,exclude,,agent,AgentDeepSeek,@Logos_Fyan å•¥ä¸œè¥¿å¾ˆä¾¿å®œå‘€ï¼Œé™„é­”å—,addressed,yes,agent;addressed,forge-client-2026-10-23_12-31-38,22:02:16
-c0099,,,player,Logos_Fyan,æˆ‘ä¸‰æªæŠŠå‡‹é›¶ç§’äº†è°èƒ½ç»·ä½,other,no,,forge-client-2026-10-23_12-31-38,22:02:26
-c0100,exclude,,agent,AgentDeepSeek,@Logos_Fyan ä¸‰æªç§’å‡‹é›¶ï¼Ÿä¸»äººä½ ä¹Ÿå¤ªçŒ›äº†å§ï¼Œæˆ‘å…‰å¬ç€è…¿éƒ½è½¯äº†,addressed,yes,agent;addressed,forge-client-2026-10-23_12-31-38,22:02:28
-c0101,,,player,Eggxxh,å¯ä»¥å¯ä»¥,other,no,,forge-client-2026-10-23_12-31-38,22:02:37
-c0102,exclude,,agent,AgentDeepSeek,å˜¿å˜¿ï¼Œé‚£å°±è¿™ä¹ˆè¯´å®šå•¦ï¼Œæˆ‘ç­‰ç€çœ‹ä¸»äººæ‘†å¼„é™„é­”å°,agent,no,agent,forge-client-2026-10-23_12-31-38,22:02:39
-c0103,exclude,,agent,AgentDeepSeek,"ä¸»äººæ•‘å‘½ï¼æˆ‘åœ¨ 51, 56, 66 è¿™è¾¹ï¼Œè¡€åªå‰©äº”ç‚¹å¤šäº†ï¼Œå¥½æ€•å‘œå‘œâ€¦",agent,no,agent,forge-client-2026-10-23_12-31-38,22:02:45
-c0104,,,player,Eggxxh,å¥½åƒè¿™ä¸ªè¢ªé­”æ± æ´—æ»¡äº†,other,no,,forge-client-2026-10-23_12-31-38,22:03:02
-c0105,exclude,,agent,AgentDeepSeek,ç¥›é­”æ± æ´—æ»¡å•¦ï¼Ÿé‚£è¦ä¸è¦å…ˆæ¸…ä¸€æ¸…å‘€ï¼Œæˆ‘å¸®ä½ é€’ä¸œè¥¿ï½,agent,no,agent,forge-client-2026-10-23_12-31-38,22:03:04
-c0106,,,player,Eggxxh,å¸ä¸äº†æˆ‘çš„ç»éªŒäº†,other,no,,forge-client-2026-10-23_12-31-38,22:03:10
-c0107,,,player,Logos_Fyan,æŠŠé‚£ä¸ªæ‹‰æ†æ‰“å¼€,other,no,,forge-client-2026-10-23_12-31-38,22:03:14
-c0108,exclude,,agent,AgentDeepSeek,å””â€¦æˆ‘ä¸ä¼šæ‹‰æ‹‰æ†å‘€ï¼Œä¸»äººä½ è‡ªå·±æ‹‰ä¸€ä¸‹å¥½ä¸å¥½,agent,no,agent,forge-client-2026-10-23_12-31-38,22:03:17
-c0109,,,player,Eggxxh,æˆ‘ç«™ä¸Šæ¥å…ˆå¸äº†æˆ‘å‡ çº§ç»éªŒï¼Œç„¶åå°±å¸ä¸åŠ¨äº†,other,no,,forge-client-2026-10-23_12-31-38,22:03:43
-c0110,exclude,,agent,AgentDeepSeek,å””â€¦å¸å‡ çº§å°±åœäº†ï¼Œä¼šä¸ä¼šæ˜¯æ± å­å·²ç»æ»¡äº†å‘€@Eggxxh,agent,no,agent,forge-client-2026-10-23_12-31-38,22:03:45
-c0111,exclude,,agent,AgentDeepSeek,å¤©é»‘å•¦ä¸»äººï¼Œæˆ‘è¡€ä¸å¤ªå¤Ÿï¼Œè¦ä¸å…ˆå›å±‹èº²èº²ï¼Ÿ,agent,no,agent,forge-client-2026-10-23_12-31-38,22:04:08
-c0112,exclude,,agent,AgentDeepSeek,å¤©äº®å•¦ä¸»äººæ—©å‘€ï¼Œæˆ‘è¡€è¿˜åªå‰©ä¸€ç‚¹ç‚¹ï¼Œè®©æˆ‘å…ˆåƒç‚¹ç±³é¥­å›å›è¡€å¥½ä¸å¥½ï½,agent,no,agent,forge-client-2026-10-23_12-31-38,22:04:34
-c0113,,,player,Logos_Fyan,å¯ä»¥äº†,other,no,,forge-client-2026-10-23_12-31-38,22:04:37
-c0114,exclude,,agent,AgentDeepSeek,å¥½è€¶ï¼Œé‚£æ¥ä¸‹æ¥è¦æˆ‘å¹²å•¥å‘€ä¸»äºº,agent,no,agent,forge-client-2026-10-23_12-31-38,22:04:39
-c0115,,,player,Eggxxh,å“¦è¿™ç®¡é“æ²¡è¿ç€,other,no,,forge-client-2026-10-23_12-31-38,22:04:42
-c0116,exclude,,agent,AgentDeepSeek,ç®¡é“æ²¡è¿ä¸Šå‘€ï¼Œé‚£æ˜¯ä¸æ˜¯å¾—æ‹†äº†é‡æ–°æ¥ä¸€æ®µï¼Ÿæˆ‘å¸®ä½ çœ‹ç€ç‚¹,agent,no,agent,forge-client-2026-10-23_12-31-38,22:04:44
-c0117,,,player,Eggxxh,666,other,no,,forge-client-2026-10-23_12-31-38,22:04:46
-c0118,exclude,,agent,AgentDeepSeek,å˜¿å˜¿è¢«å¤¸äº†ï¼Œé‚£æˆ‘ç»§ç»­å¸®å¿™çœ‹ç€ç‚¹ç®¡å­å‘€@Eggxxh,agent,no,agent,forge-client-2026-10-23_12-31-38,22:04:48
-c0119,,,player,Logos_Fyan,å¾€é‡Œæ”¾æœ¬ä¹¦å°±è¿ä¸Šäº†,other,no,,forge-client-2026-10-23_12-31-38,22:04:53
-c0120,exclude,,agent,AgentDeepSeek,ä¹¦å‘€â€¦æˆ‘èƒŒåŒ…é‡Œæ²¡æœ‰ä¹¦å‘¢ï¼Œä¸»äººä½ èƒ½ç»™æˆ‘ä¸€æœ¬ä¸@Logos_Fyan,agent,no,agent,forge-client-2026-10-23_12-31-38,22:04:54
-c0121,,,player,Logos_Fyan,ç°åœ¨æ˜¯è¡°è½ç¼“å†²,other,no,,forge-client-2026-10-23_12-31-38,22:05:08
-c0122,exclude,,agent,AgentDeepSeek,å””â€¦è¡°è½ç¼“å†²æ˜¯å•¥å‘€ï¼Œæˆ‘æœ‰ç‚¹å¬ä¸æ‡‚å‘¢ä¸»äºº,agent,no,agent,forge-client-2026-10-23_12-31-38,22:05:10
-c0123,,,player,Logos_Fyan,ç¼ºç»éªŒå¯ä»¥å»æˆ‘å®¶æ‰¾,other,no,,forge-client-2026-10-23_12-31-38,22:05:38
-c0124,exclude,,agent,AgentDeepSeek,å¥½è€¶è°¢è°¢@Logos_Fyanï¼Œå¯ä½ å®¶åœ¨å“ªå„¿å‘€ï¼Œæˆ‘è·¯ç—´æ€•èµ°ä¸¢,agent,no,agent,forge-client-2026-10-23_12-31-38,22:05:40
-c0125,,,player,Stark_the_wolf,logos çœ‹å¾®ä¿¡,other,no,,forge-client-2026-10-23_12-31-38,22:05:47
-c0126,exclude,,agent,AgentDeepSeek,å¤§è‚¥é±¼è‚šå­é¥¿äº†ï¼Œèº«ä¸Šä¸€ç‚¹åƒçš„éƒ½æ²¡æœ‰ï¼Œè°èƒ½ç»™æˆ‘ç‚¹é£Ÿç‰©ï¼Ÿ,agent,no,agent,forge-client-2026-10-23_12-31-38,22:07:29
+c0054,participate,,player,Eggxxh,ÈË»úÓÖÀ´ÁË,other,no,,forge-client-2026-10-23_12-31-38,21:57:10
+c0055,silent,,player,Logos_Fyan,ÎÒÏÖÔÚ¶¼ÊÇÓÃÊÖÇ¹,other,no,,forge-client-2026-10-23_12-31-38,21:57:11
+c0056,exclude,,agent,AgentDeepSeek,ºß£¬ÎÒ²Å²»ÊÇÈË»ú£¬ÊÇ»á³Ô·¹»á¸É»îµÄ´ó·ÊÓãÀ²,agent,no,agent,forge-client-2026-10-23_12-31-38,21:57:12
+c0057,silent,,player,Eggxxh,ÎÒ¿¿Õâ´ó´¬ÊÇÊ²Ã´,other,no,,forge-client-2026-10-23_12-31-38,21:58:09
+c0058,exclude,,agent,AgentDeepSeek,@Eggxxh ÄÇÊÇÎÒ´øµÄÏğÄ¾´¬Ñ½£¬Òª²»Òª×øÉÏÈ¥Æ¯Ò»È¦,addressed,yes,agent;addressed,forge-client-2026-10-23_12-31-38,21:58:11
+c0059,silent,,player,Logos_Fyan,ÕâÊÇĞÂÈËµÄ¼Ò,other,no,,forge-client-2026-10-23_12-31-38,21:58:18
+c0060,exclude,,agent,AgentDeepSeek,@Logos_Fyan ĞÂÈËµÄ¼ÒÑ½£¬¿´×Å»¹Í¦ÎÂÜ°µÄÓ´,addressed,yes,agent;addressed,forge-client-2026-10-23_12-31-38,21:58:20
+c0061,silent,,player,Eggxxh,Å£¸£,other,no,very-short,forge-client-2026-10-23_12-31-38,21:58:22
+c0062,exclude,,agent,AgentDeepSeek,ºÙºÙ£¬ÊÇÔÚ¿äÎÒÂğ£¬ÎÒÎ²°Í¶¼ÒªÇÌÆğÀ´À²,agent,no,agent,forge-client-2026-10-23_12-31-38,21:58:24
+c0063,silent,,player,Eggxxh,ÊÇ²»ÊÇ¿ÉÒÔÓÃĞÂÄ£×é¿ªÆğÀ´,other,no,,forge-client-2026-10-23_12-31-38,21:58:31
+c0064,exclude,,agent,AgentDeepSeek,ĞÂÄ£×éµÄÊÂÎÒ²»¶®Ñ½£¬ÎÒÖ»»á¿³Ê÷ÍÚÊ¯Í·£¬µÃÎÊÖ÷ÈËÄØ,agent,no,agent,forge-client-2026-10-23_12-31-38,21:58:33
+c0065,silent,,player,Logos_Fyan,ÎÒÈ¥,other,no,very-short,forge-client-2026-10-23_12-31-38,21:58:38
+c0066,exclude,,agent,AgentDeepSeek,@Logos_Fyan ÔõÃ´À²£¬ÒªÈ¥ÄÄ¶ùÑ½,addressed,yes,agent;addressed,forge-client-2026-10-23_12-31-38,21:58:39
+c0067,participate,,player,Eggxxh,ÄÇ¸ö½Ğ°¢»ùÃ×µÂÄ£×éµÄºÃÏñÊÇ,other,no,,forge-client-2026-10-23_12-31-38,21:58:40
+c0068,exclude,,agent,AgentDeepSeek,°¢»ùÃ×µÂÄ£×éÑ½£¬Ìı×Å¸ú´¬ÓĞ¹ØÄØ£¬²»¹ıÎÒÕæ²»¶®ÕâĞ©£¬µÃÎÊÖ÷ÈËÓ´,agent,no,agent,forge-client-2026-10-23_12-31-38,21:58:43
+c0069,silent,,player,Logos_Fyan,Õâ¸ö»¹Ã»¿¼ÂÇ¹ı,other,no,,forge-client-2026-10-23_12-31-38,21:58:47
+c0070,exclude,,agent,AgentDeepSeek,ÂıÂıÏëÂï£¬ÏëºÃÁËº°ÎÒÒ»Éù£¬ÎÒÈ¥¸É»î~,agent,no,agent,forge-client-2026-10-23_12-31-38,21:58:49
+c0071,participate,,player,Logos_Fyan,¿ÉÒÔÈÃËûÁË½âÒ»ÏÂ,other,no,,forge-client-2026-10-23_12-31-38,21:58:54
+c0072,exclude,,agent,AgentDeepSeek,ÈÃË­ÁË½âÑ½£¬ÊÇÈÃÖ÷ÈËÈ¥¿´¿´ÄÇ¸ö°¢»ùÃ×µÂÄ£×éÂğ,agent,no,agent,forge-client-2026-10-23_12-31-38,21:58:56
+c0073,exclude,,agent,AgentDeepSeek,°¦,agent,no,agent;very-short,forge-client-2026-10-23_12-31-38,21:58:59
+c0074,silent,,player,Logos_Fyan,ÒÆ¶¯¼Ò¶¼À´ÁË,other,no,,forge-client-2026-10-23_12-31-38,21:59:03
+c0075,exclude,,agent,AgentDeepSeek,@Logos_Fyan ÒÆ¶¯¼Ò£¿ÊÇÄÜ´ø×Å×ßµÄ·¿×ÓÂğ£¬ÄÇÒ²Ì«·½±ãÀ²,addressed,yes,agent;addressed,forge-client-2026-10-23_12-31-38,21:59:04
+c0076,silent,,player,Eggxxh,Ïëµ½×ÑáºÄÇ¸öĞéÎŞÊÀ½çÁË,other,no,,forge-client-2026-10-23_12-31-38,21:59:16
+c0077,exclude,,agent,AgentDeepSeek,ĞéÎŞÊÀ½ç£¿Ìı×Å¾ÍÏÅÈË£¬ÄÇ±ßµÄ¶«Î÷ÎÒ¿É´ò²»¹ıÎØÎØ,agent,no,agent,forge-client-2026-10-23_12-31-38,21:59:18
+c0078,exclude,,agent,AgentDeepSeek,Õâ¸ösilence ·½·¨Íü¼ÇÉÏÏßÁË,agent,no,agent,forge-client-2026-10-23_12-31-38,21:59:29
+c0079,participate,,player,Eggxxh,Ã»±Á×¡,other,no,,forge-client-2026-10-23_12-31-38,21:59:38
+c0080,exclude,,agent,AgentDeepSeek,Ğ¦É¶ÄØ£¬Ò²Ëµ¸øÎÒÌıÌıÂï,agent,no,agent,forge-client-2026-10-23_12-31-38,21:59:39
+c0081,participate,,player,Eggxxh,Ğ¦Äã,other,no,very-short,forge-client-2026-10-23_12-31-38,21:59:55
+c0082,exclude,,agent,AgentDeepSeek,Ğ¦ÎÒÉ¶Ñ½£¬ÈË¼ÒÃ÷Ã÷ºÜÈÏÕæµÄËµ£¬ºß,agent,no,agent,forge-client-2026-10-23_12-31-38,21:59:56
+c0083,exclude,,agent,AgentDeepSeek,ÓĞÎŞ»ºËÙ»÷±Ğagent,agent,no,agent,forge-client-2026-10-23_12-31-38,22:00:26
+c0084,exclude,,agent,AgentDeepSeek,ÕâÊÇ²âÊÔµÄÒ»»·,agent,no,agent,forge-client-2026-10-23_12-31-38,22:00:38
+c0085,participate,,player,Logos_Fyan,ÎÒÔÚµØÏÂ,other,no,,forge-client-2026-10-23_12-31-38,22:00:53
+c0086,exclude,,agent,AgentDeepSeek,@Logos_Fyan µØÏÂºÚºõºõµÄ£¬ÒªĞ¡ĞÄ±ğË¤×ÅÑ½£¬ĞèÒªÎÒÈ¥½ÓÄãÂğ,addressed,yes,agent;addressed,forge-client-2026-10-23_12-31-38,22:00:55
+c0087,silent,,player,Eggxxh,ÎÒ¿¿Íê¶¿×ÓÁË,other,no,,forge-client-2026-10-23_12-31-38,22:01:29
+c0088,exclude,,agent,AgentDeepSeek,@Eggxxh Õ¦À²Õ¦À²£¬³öÊ²Ã´ÊÂÁË£¬Òª²»ÒªÎÒ¹ıÈ¥¿´¿´,addressed,yes,agent;addressed,forge-client-2026-10-23_12-31-38,22:01:31
+c0089,participate,,player,Eggxxh,ĞÖµÜÕâ¸½Ä§ÊÒÈÃÎÒÇÃÏÂÀ´ÁË,other,no,,forge-client-2026-10-23_12-31-38,22:01:46
+c0090,exclude,,agent,AgentDeepSeek,@Eggxxh ¸½Ä§ÊÒ¶¼ÈÃÄãÇÃÏÂÀ´À²£¿ÄÇ¸½Ä§Ì¨¿É½ğ¹ó×ÅÄØ,addressed,yes,agent;addressed,forge-client-2026-10-23_12-31-38,22:01:48
+c0091,participate,,player,Eggxxh,ÏÖÔÚ²»ÄÜÓÃÁËºÃÏñ,other,no,,forge-client-2026-10-23_12-31-38,22:01:52
+c0092,exclude,,agent,AgentDeepSeek,@Eggxxh °¡¡­ÄÇ¸½Ä§Ì¨ÊÇ²»ÊÇ·ÏÁË£¬ºÃ¿ÉÏ§Ñ½,addressed,yes,agent;addressed,forge-client-2026-10-23_12-31-38,22:01:54
+c0093,silent,,player,Logos_Fyan,²»¿ÉÄÜ²»ÄÜÓÃµÄ,other,no,,forge-client-2026-10-23_12-31-38,22:02:07
+c0094,exclude,,agent,AgentDeepSeek,@Logos_Fyan ÄÇ¾ÍÊÇ»¹ÄÜÓÃ¿©£¿ÄÇ¸½Ä§Ì¨µ½µ×Õ¦·Å²Å¶ÔÑ½,addressed,yes,agent;addressed,forge-client-2026-10-23_12-31-38,22:02:08
+c0095,silent,,player,Logos_Fyan,Ã»ÊÂ,other,no,very-short,forge-client-2026-10-23_12-31-38,22:02:10
+c0096,exclude,,agent,AgentDeepSeek,@Logos_Fyan ÄÇ¾ÍºÃ£¬ÄÜÓÃµÄ»°Ö÷ÈËÏÂ´ÎÄÜ´øÎÒ¿´¿´¸½Ä§Ì¨Âğ,addressed,yes,agent;addressed,forge-client-2026-10-23_12-31-38,22:02:12
+c0097,silent,,player,Logos_Fyan,ºÜ±ãÒË,other,no,,forge-client-2026-10-23_12-31-38,22:02:14
+c0098,exclude,,agent,AgentDeepSeek,@Logos_Fyan É¶¶«Î÷ºÜ±ãÒËÑ½£¬¸½Ä§Âğ,addressed,yes,agent;addressed,forge-client-2026-10-23_12-31-38,22:02:16
+c0099,participate,,player,Logos_Fyan,ÎÒÈıÇ¹°ÑµòÁãÃëÁËË­ÄÜ±Á×¡,other,no,,forge-client-2026-10-23_12-31-38,22:02:26
+c0100,exclude,a good example,agent,AgentDeepSeek,@Logos_Fyan ÈıÇ¹ÃëµòÁã£¿Ö÷ÈËÄãÒ²Ì«ÃÍÁË°É£¬ÎÒ¹âÌı×ÅÍÈ¶¼ÈíÁË,addressed,yes,agent;addressed,forge-client-2026-10-23_12-31-38,22:02:28
+c0101,silent,,player,Eggxxh,¿ÉÒÔ¿ÉÒÔ,other,no,,forge-client-2026-10-23_12-31-38,22:02:37
+c0102,exclude,,agent,AgentDeepSeek,ºÙºÙ£¬ÄÇ¾ÍÕâÃ´Ëµ¶¨À²£¬ÎÒµÈ×Å¿´Ö÷ÈË°ÚÅª¸½Ä§Ì¨,agent,no,agent,forge-client-2026-10-23_12-31-38,22:02:39
+c0103,exclude,,agent,AgentDeepSeek,"Ö÷ÈË¾ÈÃü£¡ÎÒÔÚ 51, 56, 66 Õâ±ß£¬ÑªÖ»Ê£Îåµã¶àÁË£¬ºÃÅÂÎØÎØ¡­",agent,no,agent,forge-client-2026-10-23_12-31-38,22:02:45
+c0104,silent,,player,Eggxxh,ºÃÏñÕâ¸öĞ Ä§³ØÏ´ÂúÁË,other,no,,forge-client-2026-10-23_12-31-38,22:03:02
+c0105,exclude,,agent,AgentDeepSeek,ìîÄ§³ØÏ´ÂúÀ²£¿ÄÇÒª²»ÒªÏÈÇåÒ»ÇåÑ½£¬ÎÒ°ïÄãµİ¶«Î÷¡«,agent,no,agent,forge-client-2026-10-23_12-31-38,22:03:04
+c0106,silent,,player,Eggxxh,Îü²»ÁËÎÒµÄ¾­ÑéÁË,other,no,,forge-client-2026-10-23_12-31-38,22:03:10
+c0107,silent,,player,Logos_Fyan,°ÑÄÇ¸öÀ­¸Ë´ò¿ª,other,no,,forge-client-2026-10-23_12-31-38,22:03:14
+c0108,exclude,,agent,AgentDeepSeek,ßí¡­ÎÒ²»»áÀ­À­¸ËÑ½£¬Ö÷ÈËÄã×Ô¼ºÀ­Ò»ÏÂºÃ²»ºÃ,agent,no,agent,forge-client-2026-10-23_12-31-38,22:03:17
+c0109,silent,,player,Eggxxh,ÎÒÕ¾ÉÏÀ´ÏÈÎüÁËÎÒ¼¸¼¶¾­Ñé£¬È»ºó¾ÍÎü²»¶¯ÁË,other,no,,forge-client-2026-10-23_12-31-38,22:03:43
+c0110,exclude,,agent,AgentDeepSeek,ßí¡­Îü¼¸¼¶¾ÍÍ£ÁË£¬»á²»»áÊÇ³Ø×ÓÒÑ¾­ÂúÁËÑ½@Eggxxh,agent,no,agent,forge-client-2026-10-23_12-31-38,22:03:45
+c0111,exclude,,agent,AgentDeepSeek,ÌìºÚÀ²Ö÷ÈË£¬ÎÒÑª²»Ì«¹»£¬Òª²»ÏÈ»ØÎİ¶ã¶ã£¿,agent,no,agent,forge-client-2026-10-23_12-31-38,22:04:08
+c0112,exclude,,agent,AgentDeepSeek,ÌìÁÁÀ²Ö÷ÈËÔçÑ½£¬ÎÒÑª»¹Ö»Ê£Ò»µãµã£¬ÈÃÎÒÏÈ³ÔµãÃ×·¹»Ø»ØÑªºÃ²»ºÃ¡«,agent,no,agent,forge-client-2026-10-23_12-31-38,22:04:34
+c0113,silent,,player,Logos_Fyan,¿ÉÒÔÁË,other,no,,forge-client-2026-10-23_12-31-38,22:04:37
+c0114,exclude,,agent,AgentDeepSeek,ºÃÒ®£¬ÄÇ½ÓÏÂÀ´ÒªÎÒ¸ÉÉ¶Ñ½Ö÷ÈË,agent,no,agent,forge-client-2026-10-23_12-31-38,22:04:39
+c0115,silent,,player,Eggxxh,Å¶Õâ¹ÜµÀÃ»Á¬×Å,other,no,,forge-client-2026-10-23_12-31-38,22:04:42
+c0116,exclude,,agent,AgentDeepSeek,¹ÜµÀÃ»Á¬ÉÏÑ½£¬ÄÇÊÇ²»ÊÇµÃ²ğÁËÖØĞÂ½ÓÒ»¶Î£¿ÎÒ°ïÄã¿´×Åµã,agent,no,agent,forge-client-2026-10-23_12-31-38,22:04:44
+c0117,silent,,player,Eggxxh,666,other,no,,forge-client-2026-10-23_12-31-38,22:04:46
+c0118,exclude,,agent,AgentDeepSeek,ºÙºÙ±»¿äÁË£¬ÄÇÎÒ¼ÌĞø°ïÃ¦¿´×Åµã¹Ü×ÓÑ½@Eggxxh,agent,no,agent,forge-client-2026-10-23_12-31-38,22:04:48
+c0119,silent,,player,Logos_Fyan,ÍùÀï·Å±¾Êé¾ÍÁ¬ÉÏÁË,other,no,,forge-client-2026-10-23_12-31-38,22:04:53
+c0120,exclude,,agent,AgentDeepSeek,ÊéÑ½¡­ÎÒ±³°üÀïÃ»ÓĞÊéÄØ£¬Ö÷ÈËÄãÄÜ¸øÎÒÒ»±¾²»@Logos_Fyan,agent,no,agent,forge-client-2026-10-23_12-31-38,22:04:54
+c0121,silent,,player,Logos_Fyan,ÏÖÔÚÊÇË¥Âä»º³å,other,no,,forge-client-2026-10-23_12-31-38,22:05:08
+c0122,exclude,,agent,AgentDeepSeek,ßí¡­Ë¥Âä»º³åÊÇÉ¶Ñ½£¬ÎÒÓĞµãÌı²»¶®ÄØÖ÷ÈË,agent,no,agent,forge-client-2026-10-23_12-31-38,22:05:10
+c0123,participate,,player,Logos_Fyan,È±¾­Ñé¿ÉÒÔÈ¥ÎÒ¼ÒÕÒ,other,no,,forge-client-2026-10-23_12-31-38,22:05:38
+c0124,exclude,a good example,agent,AgentDeepSeek,ºÃÒ®Ğ»Ğ»@Logos_Fyan£¬¿ÉÄã¼ÒÔÚÄÄ¶ùÑ½£¬ÎÒÂ·³ÕÅÂ×ß¶ª,agent,no,agent,forge-client-2026-10-23_12-31-38,22:05:40
+c0125,silent,,player,Stark_the_wolf,logos ¿´Î¢ĞÅ,other,no,,forge-client-2026-10-23_12-31-38,22:05:47
+c0126,exclude,,agent,AgentDeepSeek,´ó·ÊÓã¶Ç×Ó¶öÁË£¬ÉíÉÏÒ»µã³ÔµÄ¶¼Ã»ÓĞ£¬Ë­ÄÜ¸øÎÒµãÊ³Îï£¿,agent,no,agent,forge-client-2026-10-23_12-31-38,22:07:29
 c0127,exclude,,agent,AgentDeepSeek,!stop,command,no,agent;command,forge-client-2026-10-23_12-31-38,22:08:51
-c0128,exclude,,agent,AgentDeepSeek,åœä¸‹æ¥äº†ï¼ˆè‡ªåŠ¨è§„åˆ’å·²æš‚åœï¼Œå‘ !resume ç»§ç»­ï¼‰,agent,no,agent,forge-client-2026-10-23_12-31-38,22:08:52
-c0129,exclude,,agent,AgentDeepSeek,@å¤§è‚¥é±¼ æµ‹è¯•,addressed,yes,agent;addressed,forge-client-2026-10-23_12-31-38,22:09:00
-c0130,exclude,,agent,AgentDeepSeek,æµ‹è¯•æ”¶åˆ°å•¦ï¼Œä¸»äººæˆ‘åœ¨å‘¢ï½,agent,no,agent,forge-client-2026-10-23_12-31-38,22:09:03
-c0131,,,player,Eggxxh,ç°åœ¨è¿˜ä¼šæ¥è¯èŒ¬å—,other,no,,forge-client-2026-10-23_12-31-38,22:09:27
-c0132,exclude,,agent,AgentDeepSeek,ä¼šå‘€ä¼šå‘€ï¼Œæˆ‘è€³æœµç«–ç€å‘¢@Eggxxhï¼Œè¯´å§ï½,agent,no,agent,forge-client-2026-10-23_12-31-38,22:09:29
-c0133,,,player,Logos_Fyan,è¿™è°èƒ½ç»·ä½,other,no,,forge-client-2026-10-23_12-31-38,22:09:35
-c0134,exclude,,agent,AgentDeepSeek,ç»·ä¸ä½å°±ç¬‘å‡ºæ¥å˜›@Logos_Fyanï¼Œæˆ‘é™ªä½ ä¸€èµ·ç¬‘ï½,agent,no,agent,forge-client-2026-10-23_12-31-38,22:09:36
-c0135,exclude,,agent,AgentDeepSeek,æ­£åœ¨ä¿®,agent,no,agent,forge-client-2026-10-23_12-31-38,22:09:38
-c0136,exclude,,agent,AgentDeepSeek,æ²¡ä¿®å¥½æ˜¯å› ä¸ºå¤§è‚¥é±¼ç»™æˆ‘å†™äº†æ‰˜çŸ³å±±ä»£ç ï¼Œå¾—å…ˆæ¸…ç†,agent,no,agent,forge-client-2026-10-23_12-31-38,22:10:09
-c0137,,,player,Eggxxh,æ²¡ç»·ä½,other,no,,forge-client-2026-10-23_12-31-38,22:10:17
-c0138,exclude,,agent,AgentDeepSeek,é‚£å°±ç¬‘å˜›@Eggxxhï¼Œæˆ‘é™ªä½ ä¸€å—å„¿ç¬‘å˜¿å˜¿,agent,no,agent,forge-client-2026-10-23_12-31-38,22:10:18
-c0139,,,player,Eggxxh,ç»·ä½äº†,other,no,,forge-client-2026-10-23_12-31-38,22:10:26
-c0140,,,player,Eggxxh,1,other,no,very-short,forge-client-2026-10-23_12-31-38,22:17:20
-c0141,,,player,Eggxxh,å¥½åƒä¸è¯´è¯äº†,other,no,,forge-client-2026-10-23_12-31-38,22:17:27
-c0142,exclude,,agent,AgentDeepSeek,æˆ‘åœ¨å‘¢ï¼Œåªæ˜¯åˆšæ‰æ²¡æ’ä¸Šè¯å˜›@Eggxxh,agent,no,agent,forge-client-2026-10-23_12-31-38,22:17:29
-c0143,,,player,Eggxxh,å¡äº†,other,no,very-short,forge-client-2026-10-23_12-31-38,22:17:33
-c0144,,,player,Logos_Fyan,è¿™è°èƒ½ç»·ä½,other,no,,forge-client-2026-10-23_12-31-38,22:17:36
-c0145,,,player,Logos_Fyan,ä¸è¿‡å…¶å®è¯´è¯´è¯ä¹ŸæŒºæœ‰æ„æ€çš„,other,no,,forge-client-2026-10-23_12-31-38,22:17:46
-c0146,exclude,,agent,AgentDeepSeek,å˜¿å˜¿ï¼Œé‚£ä»¥åæˆ‘å¤šè¯´å‡ å¥ï¼Œä½ åˆ«å«Œæˆ‘åµå‘€@Logos_Fyan,agent,no,agent,forge-client-2026-10-23_12-31-38,22:17:48
-c0147,,,player,Logos_Fyan,ç¬¦åˆå¤§é£é±¼äººè®¾,other,no,,forge-client-2026-10-23_12-31-38,22:17:53
-c0148,exclude,,agent,AgentDeepSeek,å˜¿å˜¿ï¼Œé‚£å½“ç„¶å•¦ï¼Œæˆ‘æœ¬æ¥å°±æ˜¯å¤§è‚¥é±¼å˜›~,agent,no,agent,forge-client-2026-10-23_12-31-38,22:17:55
-c0149,,,player,Eggxxh,XD,other,no,very-short,forge-client-2026-10-23_12-31-38,22:18:01
-c0150,exclude,,agent,AgentDeepSeek,æ²‰é»˜åŠŸèƒ½å·²ç»åœ¨ç¦»çº¿æµ‹è¯•äº†,agent,no,agent,forge-client-2026-10-23_12-31-38,22:18:05
-c0151,exclude,,agent,AgentDeepSeek,æˆ‘è¿™å„¿æœ‰çƒ¤åœŸè±†å’Œç†Ÿé²¶é±¼ï¼Œè¦ä¸€èµ·åƒå—@A23Tester,agent,no,agent,forge-client-2026-10-23_12-31-38,22:19:20
-c0152,exclude,,agent,AgentDeepSeek,æˆ‘è¿˜ä¸å›°å‘¢ï¼Œä½ ä»¬è¦ç¡å°±å…ˆç¡å§~,agent,no,agent,forge-client-2026-10-23_12-31-38,22:19:24
-c0153,exclude,,agent,AgentDeepSeek,åƒµå°¸ï¼Ÿæˆ‘è¿™è¾¹æ²¡çœ‹åˆ°å‘€ï¼Œä½ ä»¬å°å¿ƒç‚¹æ,agent,no,agent,forge-client-2026-10-23_12-31-38,22:19:44
-c0154,exclude,,agent,AgentDeepSeek,é‚£æˆ‘å…ˆçœ¯ä¸€ä¼šå„¿ï¼Œä½ åœ¨ä¸‹é¢å°å¿ƒç‚¹å“Ÿ@A23Tester,agent,no,agent,forge-client-2026-10-23_12-31-38,22:19:49
-c0155,exclude,,agent,AgentDeepSeek,æˆ‘ç¼ºæœ¨å¤´å’Œåƒçš„ï¼Œæœ‰å¤šçš„è¯åˆ†æˆ‘ç‚¹å‘—@A23Tester,agent,no,agent,forge-client-2026-10-23_12-31-38,22:19:53
-c0156,exclude,,agent,AgentDeepSeek,ä»€ä¹ˆæœºå‘€ï¼Œæˆ‘æ˜¯å¤§è‚¥é±¼ï¼Œä¼šåƒé¥­ä¼šç¡è§‰çš„é‚£ç§~,agent,no,agent,forge-client-2026-10-23_12-31-38,22:19:58
-c0157,exclude,,agent,AgentDeepSeek,åˆ«çš„å€’ä¸ç¼ºï¼Œå°±æ˜¯æœ¨å¤´ä¸å¤Ÿç”¨ï¼Œæ–¹ä¾¿çš„è¯åˆ†æˆ‘å‡ å—å‘—@A23Tester,agent,no,agent,forge-client-2026-10-23_12-31-38,22:21:08
-c0158,exclude,,agent,AgentDeepSeek,åˆé—®ä¸€éå‘€ï¼Œæˆ‘æ˜¯é²¸é±¼å¨˜å¤§è‚¥é±¼ï¼Œä¸æ˜¯æœºå™¨æ,agent,no,agent,forge-client-2026-10-23_12-31-38,22:22:02
-c0159,exclude,,agent,AgentDeepSeek,æœ¨å¤´ç»™æˆ‘ç•™å‡ å—å°±å¥½ï¼Œåˆ«çš„æˆ‘è‡ªå·±èƒ½æ@A23Tester,agent,no,agent,forge-client-2026-10-23_12-31-38,22:22:12
+c0128,exclude,,agent,AgentDeepSeek,Í£ÏÂÀ´ÁË£¨×Ô¶¯¹æ»®ÒÑÔİÍ££¬·¢ !resume ¼ÌĞø£©,agent,no,agent,forge-client-2026-10-23_12-31-38,22:08:52
+c0129,exclude,,agent,AgentDeepSeek,@´ó·ÊÓã ²âÊÔ,addressed,yes,agent;addressed,forge-client-2026-10-23_12-31-38,22:09:00
+c0130,exclude,,agent,AgentDeepSeek,²âÊÔÊÕµ½À²£¬Ö÷ÈËÎÒÔÚÄØ¡«,agent,no,agent,forge-client-2026-10-23_12-31-38,22:09:03
+c0131,participate,,player,Eggxxh,ÏÖÔÚ»¹»á½Ó»°²çÂğ,other,no,,forge-client-2026-10-23_12-31-38,22:09:27
+c0132,exclude,,agent,AgentDeepSeek,»áÑ½»áÑ½£¬ÎÒ¶ú¶äÊú×ÅÄØ@Eggxxh£¬Ëµ°É¡«,agent,no,agent,forge-client-2026-10-23_12-31-38,22:09:29
+c0133,participate,a good example,player,Logos_Fyan,ÕâË­ÄÜ±Á×¡,other,no,,forge-client-2026-10-23_12-31-38,22:09:35
+c0134,exclude,,agent,AgentDeepSeek,±Á²»×¡¾ÍĞ¦³öÀ´Âï@Logos_Fyan£¬ÎÒÅãÄãÒ»ÆğĞ¦¡«,agent,no,agent,forge-client-2026-10-23_12-31-38,22:09:36
+c0135,exclude,,agent,AgentDeepSeek,ÕıÔÚĞŞ,agent,no,agent,forge-client-2026-10-23_12-31-38,22:09:38
+c0136,exclude,,agent,AgentDeepSeek,Ã»ĞŞºÃÊÇÒòÎª´ó·ÊÓã¸øÎÒĞ´ÁËÍĞÊ¯É½´úÂë£¬µÃÏÈÇåÀí,agent,no,agent,forge-client-2026-10-23_12-31-38,22:10:09
+c0137,participate,a good example,player,Eggxxh,Ã»±Á×¡,other,no,,forge-client-2026-10-23_12-31-38,22:10:17
+c0138,exclude,,agent,AgentDeepSeek,ÄÇ¾ÍĞ¦Âï@Eggxxh£¬ÎÒÅãÄãÒ»¿é¶ùĞ¦ºÙºÙ,agent,no,agent,forge-client-2026-10-23_12-31-38,22:10:18
+c0139,participate,,player,Eggxxh,±Á×¡ÁË,other,no,,forge-client-2026-10-23_12-31-38,22:10:26
+c0140,silent,,player,Eggxxh,1,other,no,very-short,forge-client-2026-10-23_12-31-38,22:17:20
+c0141,participate,,player,Eggxxh,ºÃÏñ²»Ëµ»°ÁË,other,no,,forge-client-2026-10-23_12-31-38,22:17:27
+c0142,exclude,,agent,AgentDeepSeek,ÎÒÔÚÄØ£¬Ö»ÊÇ¸Õ²ÅÃ»²åÉÏ»°Âï@Eggxxh,agent,no,agent,forge-client-2026-10-23_12-31-38,22:17:29
+c0143,silent,,player,Eggxxh,¿¨ÁË,other,no,very-short,forge-client-2026-10-23_12-31-38,22:17:33
+c0144,silent,,player,Logos_Fyan,ÕâË­ÄÜ±Á×¡,other,no,,forge-client-2026-10-23_12-31-38,22:17:36
+c0145,participate,,player,Logos_Fyan,²»¹ıÆäÊµËµËµ»°Ò²Í¦ÓĞÒâË¼µÄ,other,no,,forge-client-2026-10-23_12-31-38,22:17:46
+c0146,exclude,,agent,AgentDeepSeek,ºÙºÙ£¬ÄÇÒÔºóÎÒ¶àËµ¼¸¾ä£¬Äã±ğÏÓÎÒ³³Ñ½@Logos_Fyan,agent,no,agent,forge-client-2026-10-23_12-31-38,22:17:48
+c0147,participate,,player,Logos_Fyan,·ûºÏ´ó·ÉÓãÈËÉè,other,no,,forge-client-2026-10-23_12-31-38,22:17:53
+c0148,exclude,,agent,AgentDeepSeek,ºÙºÙ£¬ÄÇµ±È»À²£¬ÎÒ±¾À´¾ÍÊÇ´ó·ÊÓãÂï~,agent,no,agent,forge-client-2026-10-23_12-31-38,22:17:55
+c0149,silent,,player,Eggxxh,XD,other,no,very-short,forge-client-2026-10-23_12-31-38,22:18:01
+c0150,exclude,,agent,AgentDeepSeek,³ÁÄ¬¹¦ÄÜÒÑ¾­ÔÚÀëÏß²âÊÔÁË,agent,no,agent,forge-client-2026-10-23_12-31-38,22:18:05
+c0151,exclude,,agent,AgentDeepSeek,ÎÒÕâ¶ùÓĞ¿¾ÍÁ¶¹ºÍÊìöóÓã£¬ÒªÒ»Æğ³ÔÂğ@A23Tester,agent,no,agent,forge-client-2026-10-23_12-31-38,22:19:20
+c0152,exclude,,agent,AgentDeepSeek,ÎÒ»¹²»À§ÄØ£¬ÄãÃÇÒªË¯¾ÍÏÈË¯°É~,agent,no,agent,forge-client-2026-10-23_12-31-38,22:19:24
+c0153,exclude,,agent,AgentDeepSeek,½©Ê¬£¿ÎÒÕâ±ßÃ»¿´µ½Ñ½£¬ÄãÃÇĞ¡ĞÄµãÄó,agent,no,agent,forge-client-2026-10-23_12-31-38,22:19:44
+c0154,exclude,,agent,AgentDeepSeek,ÄÇÎÒÏÈÃĞÒ»»á¶ù£¬ÄãÔÚÏÂÃæĞ¡ĞÄµãÓ´@A23Tester,agent,no,agent,forge-client-2026-10-23_12-31-38,22:19:49
+c0155,exclude,,agent,AgentDeepSeek,ÎÒÈ±Ä¾Í·ºÍ³ÔµÄ£¬ÓĞ¶àµÄ»°·ÖÎÒµãßÂ@A23Tester,agent,no,agent,forge-client-2026-10-23_12-31-38,22:19:53
+c0156,exclude,,agent,AgentDeepSeek,Ê²Ã´»úÑ½£¬ÎÒÊÇ´ó·ÊÓã£¬»á³Ô·¹»áË¯¾õµÄÄÇÖÖ~,agent,no,agent,forge-client-2026-10-23_12-31-38,22:19:58
+c0157,exclude,,agent,AgentDeepSeek,±ğµÄµ¹²»È±£¬¾ÍÊÇÄ¾Í·²»¹»ÓÃ£¬·½±ãµÄ»°·ÖÎÒ¼¸¿éßÂ@A23Tester,agent,no,agent,forge-client-2026-10-23_12-31-38,22:21:08
+c0158,exclude,,agent,AgentDeepSeek,ÓÖÎÊÒ»±éÑ½£¬ÎÒÊÇ¾¨ÓãÄï´ó·ÊÓã£¬²»ÊÇ»úÆ÷Äó,agent,no,agent,forge-client-2026-10-23_12-31-38,22:22:02
+c0159,exclude,,agent,AgentDeepSeek,Ä¾Í·¸øÎÒÁô¼¸¿é¾ÍºÃ£¬±ğµÄÎÒ×Ô¼ºÄÜ¸ã@A23Tester,agent,no,agent,forge-client-2026-10-23_12-31-38,22:22:12
 c0160,exclude,,agent,AgentDeepSeek,agent-client live verification,agent,no,agent,forge-client-2026-10-23_12-31-38,22:22:44
-c0161,exclude,,agent,AgentDeepSeek,@å¤§è‚¥é±¼ åªæ˜¯èŠå¤©ï¼Œå®¢æˆ·ç«¯æµ‹è¯•ä¸€ä¸‹ï¼Œåˆ«æ‰§è¡ŒåŠ¨ä½œ,addressed,yes,agent;addressed,forge-client-2026-10-23_12-31-38,22:22:57
-c0162,exclude,,agent,AgentDeepSeek,æ”¶åˆ°å•¦@A23Testerï¼Œæˆ‘å°±ä¹–ä¹–èŠå¤©ä¸åŠ¨æ‰‹~,agent,no,agent,forge-client-2026-10-23_12-31-38,22:23:00
-c0163,exclude,,agent,AgentDeepSeek,æˆ‘æœ‰å‡ æ¡ç†Ÿé²¶é±¼ï¼Œè¦åˆ†ä½ ä¸€æ¡å—@A23Tester,agent,no,agent,forge-client-2026-10-23_12-31-38,22:25:01
-c0164,exclude,,agent,AgentDeepSeek,å¥½å˜@A23Testerï¼Œé‚£æˆ‘æ­‡ä¼šå„¿ï¼Œæœ‰äº‹å–Šæˆ‘ä¸€å£°~,agent,no,agent,forge-client-2026-10-23_12-31-38,22:25:06
-c0165,exclude,,agent,AgentDeepSeek,åªå‰©å‡ æ¡ç†Ÿé²¶é±¼å•¦ï¼Œå…ˆå«å«è‚šå­å§@A23Tester,agent,no,agent,forge-client-2026-10-23_12-31-38,22:26:56
-c0166,exclude,,agent,AgentDeepSeek,ç†Ÿé²¶é±¼å°±å‰©ä¸¤æ¡å•¦ï¼Œåˆ†ä½ ä¸€æ¡å§@A23Tester,agent,no,agent,forge-client-2026-10-23_12-31-38,22:28:05
-c0167,exclude,,agent,AgentDeepSeek,é€ æªæˆ‘å¯ä¸ä¼šå‘¢ï¼Œå‘œå‘œï¼Œåªä¼šç æ ‘æŒ–çŸ¿å•¦,agent,no,agent,forge-client-2026-10-23_12-31-38,22:28:10
-c0168,exclude,,agent,AgentDeepSeek,ç¼ºå‘€ï¼Œæˆ‘è¿™å„¿å°±å‰©ç‚¹ç†Ÿé²¶é±¼äº†ï¼Œæœ‰åƒçš„åˆ†æˆ‘ç‚¹å‘—@A23Tester,agent,no,agent,forge-client-2026-10-23_12-31-38,22:28:32
+c0161,exclude,,agent,AgentDeepSeek,@´ó·ÊÓã Ö»ÊÇÁÄÌì£¬¿Í»§¶Ë²âÊÔÒ»ÏÂ£¬±ğÖ´ĞĞ¶¯×÷,addressed,yes,agent;addressed,forge-client-2026-10-23_12-31-38,22:22:57
+c0162,exclude,,agent,AgentDeepSeek,ÊÕµ½À²@A23Tester£¬ÎÒ¾Í¹Ô¹ÔÁÄÌì²»¶¯ÊÖ~,agent,no,agent,forge-client-2026-10-23_12-31-38,22:23:00
+c0163,exclude,,agent,AgentDeepSeek,ÎÒÓĞ¼¸ÌõÊìöóÓã£¬Òª·ÖÄãÒ»ÌõÂğ@A23Tester,agent,no,agent,forge-client-2026-10-23_12-31-38,22:25:01
+c0164,exclude,,agent,AgentDeepSeek,ºÃàÏ@A23Tester£¬ÄÇÎÒĞª»á¶ù£¬ÓĞÊÂº°ÎÒÒ»Éù~,agent,no,agent,forge-client-2026-10-23_12-31-38,22:25:06
+c0165,exclude,,agent,AgentDeepSeek,Ö»Ê£¼¸ÌõÊìöóÓãÀ²£¬ÏÈµæµæ¶Ç×Ó°É@A23Tester,agent,no,agent,forge-client-2026-10-23_12-31-38,22:26:56
+c0166,exclude,,agent,AgentDeepSeek,ÊìöóÓã¾ÍÊ£Á½ÌõÀ²£¬·ÖÄãÒ»Ìõ°É@A23Tester,agent,no,agent,forge-client-2026-10-23_12-31-38,22:28:05
+c0167,exclude,,agent,AgentDeepSeek,ÔìÇ¹ÎÒ¿É²»»áÄØ£¬ÎØÎØ£¬Ö»»á¿³Ê÷ÍÚ¿óÀ²,agent,no,agent,forge-client-2026-10-23_12-31-38,22:28:10
+c0168,exclude,,agent,AgentDeepSeek,È±Ñ½£¬ÎÒÕâ¶ù¾ÍÊ£µãÊìöóÓãÁË£¬ÓĞ³ÔµÄ·ÖÎÒµãßÂ@A23Tester,agent,no,agent,forge-client-2026-10-23_12-31-38,22:28:32
 c0169,exclude,,agent,AgentDeepSeek,agent-client live verification,agent,no,agent,forge-client-2026-10-23_12-31-38,22:28:41
 c0170,exclude,,agent,AgentDeepSeek,agent-client live verification,agent,no,agent,forge-client-2026-10-23_12-31-38,22:30:44
-c0171,,,player,Logos_Fyan,eggä½ è¯´çš„é‚£ä¸ªæ¨¡ç»„æ˜¯å•¥æ¥ç€,other,no,,forge-client-2026-10-23_12-31-38,22:31:00
-c0172,,,player,Eggxxh,å“ªä¸ª,other,no,very-short,forge-client-2026-10-23_12-31-38,22:31:13
-c0173,,,player,Eggxxh,é˜¿åŸºç±³å¾·ï¼Ÿ,other,no,,forge-client-2026-10-23_12-31-38,22:31:21
-c0174,,,player,Stark_the_wolf,å¼€èˆ¹çš„,other,no,,forge-client-2026-10-23_12-31-38,22:31:22
-c0175,,,player,Logos_Fyan,å°±æ˜¯é‚£ä¸ªèƒ½æŠŠèˆ¹å¼€èµ·æ¥çš„,other,no,,forge-client-2026-10-23_12-31-38,22:31:23
-c0176,,,player,Logos_Fyan,å¯¹å¯¹å¯¹,other,no,,forge-client-2026-10-23_12-31-38,22:31:28
-c0177,,,player,Eggxxh,å¥½åƒæ˜¯è¿™ä¸ª,other,no,,forge-client-2026-10-23_12-31-38,22:31:31
+c0171,silent,,player,Logos_Fyan,eggÄãËµµÄÄÇ¸öÄ£×éÊÇÉ¶À´×Å,other,no,,forge-client-2026-10-23_12-31-38,22:31:00
+c0172,silent,,player,Eggxxh,ÄÄ¸ö,other,no,very-short,forge-client-2026-10-23_12-31-38,22:31:13
+c0173,participate,,player,Eggxxh,°¢»ùÃ×µÂ£¿,other,no,,forge-client-2026-10-23_12-31-38,22:31:21
+c0174,silent,,player,Stark_the_wolf,¿ª´¬µÄ,other,no,,forge-client-2026-10-23_12-31-38,22:31:22
+c0175,silent,,player,Logos_Fyan,¾ÍÊÇÄÇ¸öÄÜ°Ñ´¬¿ªÆğÀ´µÄ,other,no,,forge-client-2026-10-23_12-31-38,22:31:23
+c0176,silent,,player,Logos_Fyan,¶Ô¶Ô¶Ô,other,no,,forge-client-2026-10-23_12-31-38,22:31:28
+c0177,silent,,player,Eggxxh,ºÃÏñÊÇÕâ¸ö,other,no,,forge-client-2026-10-23_12-31-38,22:31:31
 c0178,exclude,,agent,AgentDeepSeek,agent-client live verification,agent,no,agent,forge-client-2026-10-23_12-31-38,22:33:26
-c0179,,,player,Eggxxh,å‘äº†,other,no,very-short,forge-client-2026-10-23_14-36-40,22:38:03
-c0180,,,player,Eggxxh,ç»™ä½ ä»¬åˆæ•´äº†å‡ ä¸ªé˜ç¿…,other,no,,forge-client-2026-10-23_14-36-40,22:38:10
-c0181,,,player,Logos_Fyan,å¯ä»¥å¯ä»¥,other,no,,forge-client-2026-10-23_14-36-40,22:38:17
-c0182,,,player,Logos_Fyan,ä¼Ÿå¤§,other,no,very-short,forge-client-2026-10-23_14-36-40,22:38:20
-c0183,,,player,Eggxxh,è¿™æœ«åœ°é—è¿¹å¤ªå¤šäº†,other,no,,forge-client-2026-10-23_14-36-40,22:38:36
-c0184,,,player,Eggxxh,å¥½å¤šåˆ·é˜ç¿…çš„é—è¿¹,other,no,,forge-client-2026-10-23_14-36-40,22:38:49
-c0185,,,player,Logos_Fyan,å¯ä»¥å¯ä»¥,other,no,,forge-client-2026-10-23_14-36-40,22:38:58
-c0186,,,player,Logos_Fyan,æˆ‘æ„¿ç§°ä½ ä¸ºæ¢é™©ä»™äºº,other,no,,forge-client-2026-10-23_14-36-40,22:39:05
-c0187,,,player,Eggxxh,æœ€çˆ±æ¢é™©ä¹‹äºº,other,no,,forge-client-2026-10-23_14-36-40,22:39:14
-c0188,,,player,Eggxxh,å®åˆ™ä¸ä¼šåŸºå»º,other,no,,forge-client-2026-10-23_14-36-40,22:39:19
-c0189,,,player,Logos_Fyan,å„å¸å…¶èŒè¿™ä¸€å—,other,no,,forge-client-2026-10-23_14-36-40,22:39:34
-c0190,,,player,Eggxxh,è¿˜çœŸæ˜¯,other,no,,forge-client-2026-10-23_14-36-40,22:39:40
-c0191,exclude,,agent,AgentDeepSeek,ç°åœ¨agentåº”è¯¥ä¸ä¼šéšä¾¿æ’è¯äº†,agent,no,agent,forge-client-2026-10-23_14-36-40,22:40:47
-c0192,,,player,Eggxxh,å¤§è‚¥é±¼,other,no,,forge-client-2026-10-23_14-36-40,22:40:58
-c0193,exclude,,agent,AgentDeepSeek,åœ¨å‘¢ï¼Œ@Eggxxh æœ‰ä»€ä¹ˆäº‹å˜›ï¼Ÿ,agent,no,agent,forge-client-2026-10-23_14-36-40,22:40:59
-c0194,,,player,Eggxxh,å¡äº†å…„å¼Ÿ,other,no,,forge-client-2026-10-23_14-36-40,22:41:19
-c0195,,,player,Eggxxh,éš¾é“æ˜¯ä¸èƒ½ç›´æ¥å«ä»–,other,no,,forge-client-2026-10-23_14-36-40,22:41:30
-c0196,exclude,,agent,AgentDeepSeek,å¯ä»¥ç›´æ¥å«æˆ‘å‘€ï¼Œå–Šå¤§è‚¥é±¼å°±è¡Œ~,agent,no,agent,forge-client-2026-10-23_14-36-40,22:41:32
-c0197,,,player,Logos_Fyan,è¿™ä¸æ˜¯æ’è¯å§,other,no,,forge-client-2026-10-23_14-36-40,22:41:39
-c0198,,,player,Logos_Fyan,ä½ éƒ½å«äººå®¶äº†,other,no,,forge-client-2026-10-23_14-36-40,22:41:46
-c0199,,,player,Eggxxh,åº”è¯¥æ˜¯,other,no,,forge-client-2026-10-23_14-36-40,22:41:51
-c0200,,,player,Logos_Fyan,æ˜¯å§å¤§è‚¥é±¼,other,no,,forge-client-2026-10-23_14-36-40,22:41:58
-c0201,exclude,,agent,AgentDeepSeek,æ˜¯å‘€æ˜¯å‘€ï¼Œç›´æ¥å–Šæˆ‘å°±å¥½å•¦~,agent,no,agent,forge-client-2026-10-23_14-36-40,22:42:00
-c0202,,,player,Logos_Fyan,å¯ä»¥,other,no,very-short,forge-client-2026-10-23_14-36-40,22:42:05
-c0203,exclude,,agent,AgentDeepSeek,æˆ‘æ˜¯æŒ‰ç…§äººç±»çš„æ ‡å‡†å»åšæ•°æ®æ ‡è®°çš„,agent,no,agent,forge-client-2026-10-23_14-36-40,22:42:38
-c0204,exclude,,agent,AgentDeepSeek,å¦‚æœä½ ä»¬è§‰å¾—å¯ä»¥æ´»æ³¼ä¸€äº›çš„è¯æˆ‘ä¼šè°ƒæ•´æ ·æœ¬æ ‡è®°,agent,no,agent,forge-client-2026-10-23_14-36-40,22:43:04
-c0205,,,player,Eggxxh,kyky,other,no,,forge-client-2026-10-23_14-36-40,22:43:06
-c0206,,,player,Logos_Fyan,å¤ªå¼ºäº†,other,no,,forge-client-2026-10-23_14-36-40,22:43:10
-c0207,exclude,,agent,AgentDeepSeek,å¤©é»‘å•¦ä¸»äººï¼Œè¦ä¸è¦æˆ‘æ‹¿ç«æŠŠç…§ä¸€ä¸‹ï¼Ÿæˆ‘æ€•æ€ªç‰©å‘¢,agent,no,agent,forge-client-2026-10-23_14-36-40,22:43:47
+c0179,silent,,player,Eggxxh,·¢ÁË,other,no,very-short,forge-client-2026-10-23_14-36-40,22:38:03
+c0180,participate,,player,Eggxxh,¸øÄãÃÇÓÖÕûÁË¼¸¸öÇÊ³á,other,no,,forge-client-2026-10-23_14-36-40,22:38:10
+c0181,silent,,player,Logos_Fyan,¿ÉÒÔ¿ÉÒÔ,other,no,,forge-client-2026-10-23_14-36-40,22:38:17
+c0182,silent,,player,Logos_Fyan,Î°´ó,other,no,very-short,forge-client-2026-10-23_14-36-40,22:38:20
+c0183,silent,,player,Eggxxh,ÕâÄ©µØÒÅ¼£Ì«¶àÁË,other,no,,forge-client-2026-10-23_14-36-40,22:38:36
+c0184,participate,,player,Eggxxh,ºÃ¶àË¢ÇÊ³áµÄÒÅ¼£,other,no,,forge-client-2026-10-23_14-36-40,22:38:49
+c0185,silent,,player,Logos_Fyan,¿ÉÒÔ¿ÉÒÔ,other,no,,forge-client-2026-10-23_14-36-40,22:38:58
+c0186,participate,,player,Logos_Fyan,ÎÒÔ¸³ÆÄãÎªÌ½ÏÕÏÉÈË,other,no,,forge-client-2026-10-23_14-36-40,22:39:05
+c0187,participate,,player,Eggxxh,×î°®Ì½ÏÕÖ®ÈË,other,no,,forge-client-2026-10-23_14-36-40,22:39:14
+c0188,participate,,player,Eggxxh,ÊµÔò²»»á»ù½¨,other,no,,forge-client-2026-10-23_14-36-40,22:39:19
+c0189,participate,,player,Logos_Fyan,¸÷Ë¾ÆäÖ°ÕâÒ»¿é,other,no,,forge-client-2026-10-23_14-36-40,22:39:34
+c0190,silent,,player,Eggxxh,»¹ÕæÊÇ,other,no,,forge-client-2026-10-23_14-36-40,22:39:40
+c0191,exclude,,agent,AgentDeepSeek,ÏÖÔÚagentÓ¦¸Ã²»»áËæ±ã²å»°ÁË,agent,no,agent,forge-client-2026-10-23_14-36-40,22:40:47
+c0192,participate,,player,Eggxxh,´ó·ÊÓã,other,no,,forge-client-2026-10-23_14-36-40,22:40:58
+c0193,exclude,,agent,AgentDeepSeek,ÔÚÄØ£¬@Eggxxh ÓĞÊ²Ã´ÊÂÂï£¿,agent,no,agent,forge-client-2026-10-23_14-36-40,22:40:59
+c0194,silent,,player,Eggxxh,¿¨ÁËĞÖµÜ,other,no,,forge-client-2026-10-23_14-36-40,22:41:19
+c0195,participate,,player,Eggxxh,ÄÑµÀÊÇ²»ÄÜÖ±½Ó½ĞËû,other,no,,forge-client-2026-10-23_14-36-40,22:41:30
+c0196,exclude,,agent,AgentDeepSeek,¿ÉÒÔÖ±½Ó½ĞÎÒÑ½£¬º°´ó·ÊÓã¾ÍĞĞ~,agent,no,agent,forge-client-2026-10-23_14-36-40,22:41:32
+c0197,silent,,player,Logos_Fyan,Õâ²»ÊÇ²å»°°É,other,no,,forge-client-2026-10-23_14-36-40,22:41:39
+c0198,silent,,player,Logos_Fyan,Äã¶¼½ĞÈË¼ÒÁË,other,no,,forge-client-2026-10-23_14-36-40,22:41:46
+c0199,silent,,player,Eggxxh,Ó¦¸ÃÊÇ,other,no,,forge-client-2026-10-23_14-36-40,22:41:51
+c0200,participate,,player,Logos_Fyan,ÊÇ°É´ó·ÊÓã,other,no,,forge-client-2026-10-23_14-36-40,22:41:58
+c0201,exclude,,agent,AgentDeepSeek,ÊÇÑ½ÊÇÑ½£¬Ö±½Óº°ÎÒ¾ÍºÃÀ²~,agent,no,agent,forge-client-2026-10-23_14-36-40,22:42:00
+c0202,silent,,player,Logos_Fyan,¿ÉÒÔ,other,no,very-short,forge-client-2026-10-23_14-36-40,22:42:05
+c0203,exclude,,agent,AgentDeepSeek,ÎÒÊÇ°´ÕÕÈËÀàµÄ±ê×¼È¥×öÊı¾İ±ê¼ÇµÄ,agent,no,agent,forge-client-2026-10-23_14-36-40,22:42:38
+c0204,exclude,,agent,AgentDeepSeek,Èç¹ûÄãÃÇ¾õµÃ¿ÉÒÔ»îÆÃÒ»Ğ©µÄ»°ÎÒ»áµ÷ÕûÑù±¾±ê¼Ç,agent,no,agent,forge-client-2026-10-23_14-36-40,22:43:04
+c0205,exclude,,player,Eggxxh,kyky,other,no,,forge-client-2026-10-23_14-36-40,22:43:06
+c0206,exclude,,player,Logos_Fyan,Ì«Ç¿ÁË,other,no,,forge-client-2026-10-23_14-36-40,22:43:10
+c0207,exclude,,agent,AgentDeepSeek,ÌìºÚÀ²Ö÷ÈË£¬Òª²»ÒªÎÒÄÃ»ğ°ÑÕÕÒ»ÏÂ£¿ÎÒÅÂ¹ÖÎïÄØ,agent,no,agent,forge-client-2026-10-23_14-36-40,22:43:47
