@@ -491,7 +491,7 @@ class LanguageBrain {
         ? '- This arrived through the addressed dialogue channel; the player expects an answer or a refusal.'
         : null,
       source === 'chat'
-        ? '- SOURCE=CHAT is UNADDRESSED background chat. Default: silence. Speak when they explicitly mention you, ask you/your group a direct question, talk about you (agent/bot/是不是人/机), make a direct group suggestion/plan (可以/要不要/一起/搞/造/建), ask for help, share a player achievement worth a short praise, express frustration/loss worth a short comfort, express confusion about a gameplay mechanic (you may use web_search once before answering), or make a clear group joke/banter where a brief reaction fits. Stay silent on neutral statements, acknowledgements, bare reactions/fragments, and third-party dialogue that does not invite you.'
+        ? '- SOURCE=CHAT is UNADDRESSED background chat. Default: silence. Speak when they explicitly mention you, ask you/your group a direct question, talk about you (agent/bot/是不是人/机), make a direct group suggestion/plan (可以/要不要/一起/搞/造/建), ask for help, share a player achievement worth a short praise, express frustration/loss worth a short comfort, express confusion about a gameplay mechanic (you MUST call web_search once before answering, even if you think you know; if search fails, say you cannot confirm), or make a clear group joke/banter where a brief reaction fits. Stay silent on neutral statements, acknowledgements, bare reactions/fragments, and third-party dialogue that does not invite you.'
         : null,
       source === 'chat' && this.silencePolicy ? this.silencePolicy : null,
       this.persona ? `Persona:\n${this.persona}` : null,

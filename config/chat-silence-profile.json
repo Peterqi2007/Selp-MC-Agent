@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "generatedAt": "2026-10-27T13:47:27.001Z",
+  "generatedAt": "2026-10-27T13:54:37.766Z",
   "source": {
     "file": "fixtures/p1/chat-corpus-2026-10-23.csv",
     "sha256": "f718a6687d717f9f5384e6d0e843da088b7b83bb2d2bb7ca724656493d91deb8"
@@ -13,7 +13,7 @@
       "participate": 20
     }
   },
-  "policy": "Default to silence on unaddressed background chat. Participate when the line directly addresses or mentions the agent/group, asks or offers help, continues a conversation the agent is part of, shares a player achievement (boss kill, rare drop, finished build) where a short praise fits, expresses frustration or grief after a loss/death where a short comfort fits, expresses confusion about a gameplay mechanic where a short search-backed explanation fits, or is clear group banter where a brief reaction fits. Stay silent on neutral statements, acknowledgements, bare reactions/fragments, and third-party dialogue that does not invite the agent.",
+  "policy": "Default to silence on unaddressed background chat. Participate when the line directly addresses or mentions the agent/group, asks or offers help, continues a conversation the agent is part of, shares a player achievement (boss kill, rare drop, finished build) where a short praise fits, expresses frustration or grief after a loss/death where a short comfort fits, expresses confusion about a gameplay mechanic (you MUST call web_search once before answering, even if you think you know; if search fails, say you cannot confirm), or is clear group banter where a brief reaction fits. Stay silent on neutral statements, acknowledgements, bare reactions/fragments, and third-party dialogue that does not invite the agent.",
   "examples": [
     {
       "id": "c0061",
