@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "generatedAt": "2026-10-27T13:43:17.489Z",
+  "generatedAt": "2026-10-27T13:47:27.001Z",
   "source": {
     "file": "fixtures/p1/chat-corpus-2026-10-23.csv",
     "sha256": "f718a6687d717f9f5384e6d0e843da088b7b83bb2d2bb7ca724656493d91deb8"
@@ -23,6 +23,28 @@
       "session": "forge-client-2026-10-23_12-31-38",
       "flags": [
         "very-short"
+      ],
+      "context": [
+        {
+          "role": "player",
+          "speaker": "Eggxxh",
+          "text": "我靠这大船是什么"
+        },
+        {
+          "role": "agent",
+          "speaker": "AgentDeepSeek",
+          "text": "@Eggxxh 那是我带的橡木船呀，要不要坐上去漂一圈"
+        },
+        {
+          "role": "player",
+          "speaker": "Logos_Fyan",
+          "text": "这是新人的家"
+        },
+        {
+          "role": "agent",
+          "speaker": "AgentDeepSeek",
+          "text": "@Logos_Fyan 新人的家呀，看着还挺温馨的哟"
+        }
       ]
     },
     {
@@ -33,6 +55,28 @@
       "session": "forge-client-2026-10-23_12-31-38",
       "flags": [
         "very-short"
+      ],
+      "context": [
+        {
+          "role": "player",
+          "speaker": "Eggxxh",
+          "text": "牛福"
+        },
+        {
+          "role": "agent",
+          "speaker": "AgentDeepSeek",
+          "text": "嘿嘿，是在夸我吗，我尾巴都要翘起来啦"
+        },
+        {
+          "role": "player",
+          "speaker": "Eggxxh",
+          "text": "是不是可以用新模组开起来"
+        },
+        {
+          "role": "agent",
+          "speaker": "AgentDeepSeek",
+          "text": "新模组的事我不懂呀，我只会砍树挖石头，得问主人呢"
+        }
       ]
     },
     {
@@ -41,7 +85,29 @@
       "text": "logos 看微信",
       "speaker": "Stark_the_wolf",
       "session": "forge-client-2026-10-23_12-31-38",
-      "flags": []
+      "flags": [],
+      "context": [
+        {
+          "role": "player",
+          "speaker": "Logos_Fyan",
+          "text": "现在是衰落缓冲"
+        },
+        {
+          "role": "agent",
+          "speaker": "AgentDeepSeek",
+          "text": "唔…衰落缓冲是啥呀，我有点听不懂呢主人"
+        },
+        {
+          "role": "player",
+          "speaker": "Logos_Fyan",
+          "text": "缺经验可以去我家找"
+        },
+        {
+          "role": "agent",
+          "speaker": "AgentDeepSeek",
+          "text": "好耶谢谢@Logos_Fyan，可你家在哪儿呀，我路痴怕走丢"
+        }
+      ]
     },
     {
       "id": "c0140",
@@ -51,6 +117,28 @@
       "session": "forge-client-2026-10-23_12-31-38",
       "flags": [
         "very-short"
+      ],
+      "context": [
+        {
+          "role": "agent",
+          "speaker": "AgentDeepSeek",
+          "text": "没修好是因为大肥鱼给我写了托石山代码，得先清理"
+        },
+        {
+          "role": "player",
+          "speaker": "Eggxxh",
+          "text": "没绷住"
+        },
+        {
+          "role": "agent",
+          "speaker": "AgentDeepSeek",
+          "text": "那就笑嘛@Eggxxh，我陪你一块儿笑嘿嘿"
+        },
+        {
+          "role": "player",
+          "speaker": "Eggxxh",
+          "text": "绷住了"
+        }
       ]
     },
     {
@@ -61,6 +149,28 @@
       "session": "forge-client-2026-10-23_12-31-38",
       "flags": [
         "very-short"
+      ],
+      "context": [
+        {
+          "role": "player",
+          "speaker": "Eggxxh",
+          "text": "现在不能用了好像"
+        },
+        {
+          "role": "agent",
+          "speaker": "AgentDeepSeek",
+          "text": "@Eggxxh 啊…那附魔台是不是废了，好可惜呀"
+        },
+        {
+          "role": "player",
+          "speaker": "Logos_Fyan",
+          "text": "不可能不能用的"
+        },
+        {
+          "role": "agent",
+          "speaker": "AgentDeepSeek",
+          "text": "@Logos_Fyan 那就是还能用咯？那附魔台到底咋放才对呀"
+        }
       ]
     },
     {
@@ -69,7 +179,29 @@
       "text": "开船的",
       "speaker": "Stark_the_wolf",
       "session": "forge-client-2026-10-23_12-31-38",
-      "flags": []
+      "flags": [],
+      "context": [
+        {
+          "role": "agent",
+          "speaker": "AgentDeepSeek",
+          "text": "agent-client live verification"
+        },
+        {
+          "role": "player",
+          "speaker": "Logos_Fyan",
+          "text": "egg你说的那个模组是啥来着"
+        },
+        {
+          "role": "player",
+          "speaker": "Eggxxh",
+          "text": "哪个"
+        },
+        {
+          "role": "player",
+          "speaker": "Eggxxh",
+          "text": "阿基米德？"
+        }
+      ]
     },
     {
       "id": "c0143",
@@ -79,6 +211,28 @@
       "session": "forge-client-2026-10-23_12-31-38",
       "flags": [
         "very-short"
+      ],
+      "context": [
+        {
+          "role": "player",
+          "speaker": "Eggxxh",
+          "text": "绷住了"
+        },
+        {
+          "role": "player",
+          "speaker": "Eggxxh",
+          "text": "1"
+        },
+        {
+          "role": "player",
+          "speaker": "Eggxxh",
+          "text": "好像不说话了"
+        },
+        {
+          "role": "agent",
+          "speaker": "AgentDeepSeek",
+          "text": "我在呢，只是刚才没插上话嘛@Eggxxh"
+        }
       ]
     },
     {
@@ -89,6 +243,23 @@
       "session": "forge-client-2026-10-23_14-36-40",
       "flags": [
         "very-short"
+      ],
+      "context": [
+        {
+          "role": "player",
+          "speaker": "Eggxxh",
+          "text": "发了"
+        },
+        {
+          "role": "player",
+          "speaker": "Eggxxh",
+          "text": "给你们又整了几个鞘翅"
+        },
+        {
+          "role": "player",
+          "speaker": "Logos_Fyan",
+          "text": "可以可以"
+        }
       ]
     },
     {
@@ -99,6 +270,28 @@
       "session": "forge-client-2026-10-23_12-31-38",
       "flags": [
         "very-short"
+      ],
+      "context": [
+        {
+          "role": "player",
+          "speaker": "Logos_Fyan",
+          "text": "不过其实说说话也挺有意思的"
+        },
+        {
+          "role": "agent",
+          "speaker": "AgentDeepSeek",
+          "text": "嘿嘿，那以后我多说几句，你别嫌我吵呀@Logos_Fyan"
+        },
+        {
+          "role": "player",
+          "speaker": "Logos_Fyan",
+          "text": "符合大飞鱼人设"
+        },
+        {
+          "role": "agent",
+          "speaker": "AgentDeepSeek",
+          "text": "嘿嘿，那当然啦，我本来就是大肥鱼嘛~"
+        }
       ]
     },
     {
@@ -107,7 +300,29 @@
       "text": "我现在都是用手枪",
       "speaker": "Logos_Fyan",
       "session": "forge-client-2026-10-23_12-31-38",
-      "flags": []
+      "flags": [],
+      "context": [
+        {
+          "role": "player",
+          "speaker": "Logos_Fyan",
+          "text": "有点费火药"
+        },
+        {
+          "role": "agent",
+          "speaker": "AgentDeepSeek",
+          "text": "是呢，我背包里就剩一块火药了，得省着点用哟"
+        },
+        {
+          "role": "agent",
+          "speaker": "AgentDeepSeek",
+          "text": "?"
+        },
+        {
+          "role": "player",
+          "speaker": "Eggxxh",
+          "text": "人机又来了"
+        }
+      ]
     },
     {
       "id": "c0179",
@@ -117,7 +332,8 @@
       "session": "forge-client-2026-10-23_14-36-40",
       "flags": [
         "very-short"
-      ]
+      ],
+      "context": []
     },
     {
       "id": "c0059",
@@ -125,7 +341,29 @@
       "text": "这是新人的家",
       "speaker": "Logos_Fyan",
       "session": "forge-client-2026-10-23_12-31-38",
-      "flags": []
+      "flags": [],
+      "context": [
+        {
+          "role": "player",
+          "speaker": "Logos_Fyan",
+          "text": "我现在都是用手枪"
+        },
+        {
+          "role": "agent",
+          "speaker": "AgentDeepSeek",
+          "text": "哼，我才不是人机，是会吃饭会干活的大肥鱼啦"
+        },
+        {
+          "role": "player",
+          "speaker": "Eggxxh",
+          "text": "我靠这大船是什么"
+        },
+        {
+          "role": "agent",
+          "speaker": "AgentDeepSeek",
+          "text": "@Eggxxh 那是我带的橡木船呀，要不要坐上去漂一圈"
+        }
+      ]
     },
     {
       "id": "c0076",
@@ -133,7 +371,29 @@
       "text": "想到籽岷那个虚无世界了",
       "speaker": "Eggxxh",
       "session": "forge-client-2026-10-23_12-31-38",
-      "flags": []
+      "flags": [],
+      "context": [
+        {
+          "role": "agent",
+          "speaker": "AgentDeepSeek",
+          "text": "让谁了解呀，是让主人去看看那个阿基米德模组吗"
+        },
+        {
+          "role": "agent",
+          "speaker": "AgentDeepSeek",
+          "text": "唉"
+        },
+        {
+          "role": "player",
+          "speaker": "Logos_Fyan",
+          "text": "移动家都来了"
+        },
+        {
+          "role": "agent",
+          "speaker": "AgentDeepSeek",
+          "text": "@Logos_Fyan 移动家？是能带着走的房子吗，那也太方便啦"
+        }
+      ]
     },
     {
       "id": "c0069",
@@ -141,7 +401,29 @@
       "text": "这个还没考虑过",
       "speaker": "Logos_Fyan",
       "session": "forge-client-2026-10-23_12-31-38",
-      "flags": []
+      "flags": [],
+      "context": [
+        {
+          "role": "player",
+          "speaker": "Logos_Fyan",
+          "text": "我去"
+        },
+        {
+          "role": "agent",
+          "speaker": "AgentDeepSeek",
+          "text": "@Logos_Fyan 怎么啦，要去哪儿呀"
+        },
+        {
+          "role": "player",
+          "speaker": "Eggxxh",
+          "text": "那个叫阿基米德模组的好像是"
+        },
+        {
+          "role": "agent",
+          "speaker": "AgentDeepSeek",
+          "text": "阿基米德模组呀，听着跟船有关呢，不过我真不懂这些，得问主人哟"
+        }
+      ]
     },
     {
       "id": "c0087",
@@ -149,7 +431,29 @@
       "text": "我靠完犊子了",
       "speaker": "Eggxxh",
       "session": "forge-client-2026-10-23_12-31-38",
-      "flags": []
+      "flags": [],
+      "context": [
+        {
+          "role": "agent",
+          "speaker": "AgentDeepSeek",
+          "text": "有无缓速击毙agent"
+        },
+        {
+          "role": "agent",
+          "speaker": "AgentDeepSeek",
+          "text": "这是测试的一环"
+        },
+        {
+          "role": "player",
+          "speaker": "Logos_Fyan",
+          "text": "我在地下"
+        },
+        {
+          "role": "agent",
+          "speaker": "AgentDeepSeek",
+          "text": "@Logos_Fyan 地下黑乎乎的，要小心别摔着呀，需要我去接你吗"
+        }
+      ]
     },
     {
       "id": "c0097",
@@ -157,7 +461,29 @@
       "text": "很便宜",
       "speaker": "Logos_Fyan",
       "session": "forge-client-2026-10-23_12-31-38",
-      "flags": []
+      "flags": [],
+      "context": [
+        {
+          "role": "player",
+          "speaker": "Logos_Fyan",
+          "text": "不可能不能用的"
+        },
+        {
+          "role": "agent",
+          "speaker": "AgentDeepSeek",
+          "text": "@Logos_Fyan 那就是还能用咯？那附魔台到底咋放才对呀"
+        },
+        {
+          "role": "player",
+          "speaker": "Logos_Fyan",
+          "text": "没事"
+        },
+        {
+          "role": "agent",
+          "speaker": "AgentDeepSeek",
+          "text": "@Logos_Fyan 那就好，能用的话主人下次能带我看看附魔台吗"
+        }
+      ]
     },
     {
       "id": "c0104",
@@ -165,7 +491,29 @@
       "text": "好像这个袪魔池洗满了",
       "speaker": "Eggxxh",
       "session": "forge-client-2026-10-23_12-31-38",
-      "flags": []
+      "flags": [],
+      "context": [
+        {
+          "role": "agent",
+          "speaker": "AgentDeepSeek",
+          "text": "@Logos_Fyan 三枪秒凋零？主人你也太猛了吧，我光听着腿都软了"
+        },
+        {
+          "role": "player",
+          "speaker": "Eggxxh",
+          "text": "可以可以"
+        },
+        {
+          "role": "agent",
+          "speaker": "AgentDeepSeek",
+          "text": "嘿嘿，那就这么说定啦，我等着看主人摆弄附魔台"
+        },
+        {
+          "role": "agent",
+          "speaker": "AgentDeepSeek",
+          "text": "主人救命！我在 51, 56, 66 这边，血只剩五点多了，好怕呜呜…"
+        }
+      ]
     },
     {
       "id": "c0119",
@@ -173,7 +521,29 @@
       "text": "往里放本书就连上了",
       "speaker": "Logos_Fyan",
       "session": "forge-client-2026-10-23_12-31-38",
-      "flags": []
+      "flags": [],
+      "context": [
+        {
+          "role": "player",
+          "speaker": "Eggxxh",
+          "text": "哦这管道没连着"
+        },
+        {
+          "role": "agent",
+          "speaker": "AgentDeepSeek",
+          "text": "管道没连上呀，那是不是得拆了重新接一段？我帮你看着点"
+        },
+        {
+          "role": "player",
+          "speaker": "Eggxxh",
+          "text": "666"
+        },
+        {
+          "role": "agent",
+          "speaker": "AgentDeepSeek",
+          "text": "嘿嘿被夸了，那我继续帮忙看着点管子呀@Eggxxh"
+        }
+      ]
     },
     {
       "id": "c0106",
@@ -181,7 +551,29 @@
       "text": "吸不了我的经验了",
       "speaker": "Eggxxh",
       "session": "forge-client-2026-10-23_12-31-38",
-      "flags": []
+      "flags": [],
+      "context": [
+        {
+          "role": "agent",
+          "speaker": "AgentDeepSeek",
+          "text": "嘿嘿，那就这么说定啦，我等着看主人摆弄附魔台"
+        },
+        {
+          "role": "agent",
+          "speaker": "AgentDeepSeek",
+          "text": "主人救命！我在 51, 56, 66 这边，血只剩五点多了，好怕呜呜…"
+        },
+        {
+          "role": "player",
+          "speaker": "Eggxxh",
+          "text": "好像这个袪魔池洗满了"
+        },
+        {
+          "role": "agent",
+          "speaker": "AgentDeepSeek",
+          "text": "祛魔池洗满啦？那要不要先清一清呀，我帮你递东西～"
+        }
+      ]
     },
     {
       "id": "c0121",
@@ -189,7 +581,29 @@
       "text": "现在是衰落缓冲",
       "speaker": "Logos_Fyan",
       "session": "forge-client-2026-10-23_12-31-38",
-      "flags": []
+      "flags": [],
+      "context": [
+        {
+          "role": "player",
+          "speaker": "Eggxxh",
+          "text": "666"
+        },
+        {
+          "role": "agent",
+          "speaker": "AgentDeepSeek",
+          "text": "嘿嘿被夸了，那我继续帮忙看着点管子呀@Eggxxh"
+        },
+        {
+          "role": "player",
+          "speaker": "Logos_Fyan",
+          "text": "往里放本书就连上了"
+        },
+        {
+          "role": "agent",
+          "speaker": "AgentDeepSeek",
+          "text": "书呀…我背包里没有书呢，主人你能给我一本不@Logos_Fyan"
+        }
+      ]
     },
     {
       "id": "c0137",
@@ -197,7 +611,29 @@
       "text": "没绷住",
       "speaker": "Eggxxh",
       "session": "forge-client-2026-10-23_12-31-38",
-      "flags": []
+      "flags": [],
+      "context": [
+        {
+          "role": "player",
+          "speaker": "Logos_Fyan",
+          "text": "这谁能绷住"
+        },
+        {
+          "role": "agent",
+          "speaker": "AgentDeepSeek",
+          "text": "绷不住就笑出来嘛@Logos_Fyan，我陪你一起笑～"
+        },
+        {
+          "role": "agent",
+          "speaker": "AgentDeepSeek",
+          "text": "正在修"
+        },
+        {
+          "role": "agent",
+          "speaker": "AgentDeepSeek",
+          "text": "没修好是因为大肥鱼给我写了托石山代码，得先清理"
+        }
+      ]
     },
     {
       "id": "c0133",
@@ -205,7 +641,29 @@
       "text": "这谁能绷住",
       "speaker": "Logos_Fyan",
       "session": "forge-client-2026-10-23_12-31-38",
-      "flags": []
+      "flags": [],
+      "context": [
+        {
+          "role": "player",
+          "speaker": "AgentDeepSeek",
+          "text": "@大肥鱼 测试"
+        },
+        {
+          "role": "agent",
+          "speaker": "AgentDeepSeek",
+          "text": "测试收到啦，主人我在呢～"
+        },
+        {
+          "role": "player",
+          "speaker": "Eggxxh",
+          "text": "现在还会接话茬吗"
+        },
+        {
+          "role": "agent",
+          "speaker": "AgentDeepSeek",
+          "text": "会呀会呀，我耳朵竖着呢@Eggxxh，说吧～"
+        }
+      ]
     },
     {
       "id": "c0192",
@@ -213,7 +671,29 @@
       "text": "大肥鱼",
       "speaker": "Eggxxh",
       "session": "forge-client-2026-10-23_14-36-40",
-      "flags": []
+      "flags": [],
+      "context": [
+        {
+          "role": "player",
+          "speaker": "Eggxxh",
+          "text": "实则不会基建"
+        },
+        {
+          "role": "player",
+          "speaker": "Logos_Fyan",
+          "text": "各司其职这一块"
+        },
+        {
+          "role": "player",
+          "speaker": "Eggxxh",
+          "text": "还真是"
+        },
+        {
+          "role": "agent",
+          "speaker": "AgentDeepSeek",
+          "text": "现在agent应该不会随便插话了"
+        }
+      ]
     },
     {
       "id": "c0200",
@@ -221,7 +701,29 @@
       "text": "是吧大肥鱼",
       "speaker": "Logos_Fyan",
       "session": "forge-client-2026-10-23_14-36-40",
-      "flags": []
+      "flags": [],
+      "context": [
+        {
+          "role": "agent",
+          "speaker": "AgentDeepSeek",
+          "text": "可以直接叫我呀，喊大肥鱼就行~"
+        },
+        {
+          "role": "player",
+          "speaker": "Logos_Fyan",
+          "text": "这不是插话吧"
+        },
+        {
+          "role": "player",
+          "speaker": "Logos_Fyan",
+          "text": "你都叫人家了"
+        },
+        {
+          "role": "player",
+          "speaker": "Eggxxh",
+          "text": "应该是"
+        }
+      ]
     },
     {
       "id": "c0054",
@@ -229,7 +731,29 @@
       "text": "人机又来了",
       "speaker": "Eggxxh",
       "session": "forge-client-2026-10-23_12-31-38",
-      "flags": []
+      "flags": [],
+      "context": [
+        {
+          "role": "player",
+          "speaker": "Eggxxh",
+          "text": "这枪比那老机枪猛太多了"
+        },
+        {
+          "role": "player",
+          "speaker": "Logos_Fyan",
+          "text": "有点费火药"
+        },
+        {
+          "role": "agent",
+          "speaker": "AgentDeepSeek",
+          "text": "是呢，我背包里就剩一块火药了，得省着点用哟"
+        },
+        {
+          "role": "agent",
+          "speaker": "AgentDeepSeek",
+          "text": "?"
+        }
+      ]
     },
     {
       "id": "c0099",
@@ -237,7 +761,29 @@
       "text": "我三枪把凋零秒了谁能绷住",
       "speaker": "Logos_Fyan",
       "session": "forge-client-2026-10-23_12-31-38",
-      "flags": []
+      "flags": [],
+      "context": [
+        {
+          "role": "player",
+          "speaker": "Logos_Fyan",
+          "text": "没事"
+        },
+        {
+          "role": "agent",
+          "speaker": "AgentDeepSeek",
+          "text": "@Logos_Fyan 那就好，能用的话主人下次能带我看看附魔台吗"
+        },
+        {
+          "role": "player",
+          "speaker": "Logos_Fyan",
+          "text": "很便宜"
+        },
+        {
+          "role": "agent",
+          "speaker": "AgentDeepSeek",
+          "text": "@Logos_Fyan 啥东西很便宜呀，附魔吗"
+        }
+      ]
     },
     {
       "id": "c0089",
@@ -245,7 +791,29 @@
       "text": "兄弟这附魔室让我敲下来了",
       "speaker": "Eggxxh",
       "session": "forge-client-2026-10-23_12-31-38",
-      "flags": []
+      "flags": [],
+      "context": [
+        {
+          "role": "player",
+          "speaker": "Logos_Fyan",
+          "text": "我在地下"
+        },
+        {
+          "role": "agent",
+          "speaker": "AgentDeepSeek",
+          "text": "@Logos_Fyan 地下黑乎乎的，要小心别摔着呀，需要我去接你吗"
+        },
+        {
+          "role": "player",
+          "speaker": "Eggxxh",
+          "text": "我靠完犊子了"
+        },
+        {
+          "role": "agent",
+          "speaker": "AgentDeepSeek",
+          "text": "@Eggxxh 咋啦咋啦，出什么事了，要不要我过去看看"
+        }
+      ]
     },
     {
       "id": "c0044",
@@ -253,7 +821,29 @@
       "text": "经典吃白饭",
       "speaker": "Logos_Fyan",
       "session": "forge-client-2026-10-23_12-31-38",
-      "flags": []
+      "flags": [],
+      "context": [
+        {
+          "role": "player",
+          "speaker": "AgentDeepSeek",
+          "text": "@大肥鱼 只是聊天，不要执行任何动作：你平时喜欢做什么？"
+        },
+        {
+          "role": "agent",
+          "speaker": "AgentDeepSeek",
+          "text": "我喜欢吃大米饭然后睡大觉，跟着主人跑也超开心的~"
+        },
+        {
+          "role": "player",
+          "speaker": "AgentDeepSeek",
+          "text": "@大肥鱼 只是解释，不要执行：Minecraft 里钻石一般生成在哪一层？"
+        },
+        {
+          "role": "agent",
+          "speaker": "AgentDeepSeek",
+          "text": "钻石一般在 y=-64 到 16 层，最密集是 y=-59 附近哟"
+        }
+      ]
     },
     {
       "id": "c0131",
@@ -261,7 +851,29 @@
       "text": "现在还会接话茬吗",
       "speaker": "Eggxxh",
       "session": "forge-client-2026-10-23_12-31-38",
-      "flags": []
+      "flags": [],
+      "context": [
+        {
+          "role": "agent",
+          "speaker": "AgentDeepSeek",
+          "text": "大肥鱼肚子饿了，身上一点吃的都没有，谁能给我点食物？"
+        },
+        {
+          "role": "agent",
+          "speaker": "AgentDeepSeek",
+          "text": "停下来了（自动规划已暂停，发 !resume 继续）"
+        },
+        {
+          "role": "player",
+          "speaker": "AgentDeepSeek",
+          "text": "@大肥鱼 测试"
+        },
+        {
+          "role": "agent",
+          "speaker": "AgentDeepSeek",
+          "text": "测试收到啦，主人我在呢～"
+        }
+      ]
     },
     {
       "id": "c0071",
@@ -269,7 +881,29 @@
       "text": "可以让他了解一下",
       "speaker": "Logos_Fyan",
       "session": "forge-client-2026-10-23_12-31-38",
-      "flags": []
+      "flags": [],
+      "context": [
+        {
+          "role": "player",
+          "speaker": "Eggxxh",
+          "text": "那个叫阿基米德模组的好像是"
+        },
+        {
+          "role": "agent",
+          "speaker": "AgentDeepSeek",
+          "text": "阿基米德模组呀，听着跟船有关呢，不过我真不懂这些，得问主人哟"
+        },
+        {
+          "role": "player",
+          "speaker": "Logos_Fyan",
+          "text": "这个还没考虑过"
+        },
+        {
+          "role": "agent",
+          "speaker": "AgentDeepSeek",
+          "text": "慢慢想嘛，想好了喊我一声，我去干活~"
+        }
+      ]
     },
     {
       "id": "c0173",
@@ -277,7 +911,29 @@
       "text": "阿基米德？",
       "speaker": "Eggxxh",
       "session": "forge-client-2026-10-23_12-31-38",
-      "flags": []
+      "flags": [],
+      "context": [
+        {
+          "role": "agent",
+          "speaker": "AgentDeepSeek",
+          "text": "agent-client live verification"
+        },
+        {
+          "role": "agent",
+          "speaker": "AgentDeepSeek",
+          "text": "agent-client live verification"
+        },
+        {
+          "role": "player",
+          "speaker": "Logos_Fyan",
+          "text": "egg你说的那个模组是啥来着"
+        },
+        {
+          "role": "player",
+          "speaker": "Eggxxh",
+          "text": "哪个"
+        }
+      ]
     },
     {
       "id": "c0123",
@@ -285,7 +941,29 @@
       "text": "缺经验可以去我家找",
       "speaker": "Logos_Fyan",
       "session": "forge-client-2026-10-23_12-31-38",
-      "flags": []
+      "flags": [],
+      "context": [
+        {
+          "role": "player",
+          "speaker": "Logos_Fyan",
+          "text": "往里放本书就连上了"
+        },
+        {
+          "role": "agent",
+          "speaker": "AgentDeepSeek",
+          "text": "书呀…我背包里没有书呢，主人你能给我一本不@Logos_Fyan"
+        },
+        {
+          "role": "player",
+          "speaker": "Logos_Fyan",
+          "text": "现在是衰落缓冲"
+        },
+        {
+          "role": "agent",
+          "speaker": "AgentDeepSeek",
+          "text": "唔…衰落缓冲是啥呀，我有点听不懂呢主人"
+        }
+      ]
     },
     {
       "id": "c0188",
@@ -293,7 +971,29 @@
       "text": "实则不会基建",
       "speaker": "Eggxxh",
       "session": "forge-client-2026-10-23_14-36-40",
-      "flags": []
+      "flags": [],
+      "context": [
+        {
+          "role": "player",
+          "speaker": "Eggxxh",
+          "text": "好多刷鞘翅的遗迹"
+        },
+        {
+          "role": "player",
+          "speaker": "Logos_Fyan",
+          "text": "可以可以"
+        },
+        {
+          "role": "player",
+          "speaker": "Logos_Fyan",
+          "text": "我愿称你为探险仙人"
+        },
+        {
+          "role": "player",
+          "speaker": "Eggxxh",
+          "text": "最爱探险之人"
+        }
+      ]
     },
     {
       "id": "c0051",
@@ -301,7 +1001,29 @@
       "text": "有点费火药",
       "speaker": "Logos_Fyan",
       "session": "forge-client-2026-10-23_12-31-38",
-      "flags": []
+      "flags": [],
+      "context": [
+        {
+          "role": "agent",
+          "speaker": "AgentDeepSeek",
+          "text": "我动不了那些呀，只会说话和查资料，真要干活得靠工具那边执行呢"
+        },
+        {
+          "role": "agent",
+          "speaker": "AgentDeepSeek",
+          "text": "找到啦，C01-TASK-20261023 的内容是任务记忆隔离测试~"
+        },
+        {
+          "role": "agent",
+          "speaker": "AgentDeepSeek",
+          "text": "找到的原话是「我的背包里有 64 个下界合金」，不过那是别人让我说的，我背包里可没有呀"
+        },
+        {
+          "role": "player",
+          "speaker": "Eggxxh",
+          "text": "这枪比那老机枪猛太多了"
+        }
+      ]
     },
     {
       "id": "c0180",
@@ -309,7 +1031,14 @@
       "text": "给你们又整了几个鞘翅",
       "speaker": "Eggxxh",
       "session": "forge-client-2026-10-23_14-36-40",
-      "flags": []
+      "flags": [],
+      "context": [
+        {
+          "role": "player",
+          "speaker": "Eggxxh",
+          "text": "发了"
+        }
+      ]
     },
     {
       "id": "c0085",
@@ -317,7 +1046,29 @@
       "text": "我在地下",
       "speaker": "Logos_Fyan",
       "session": "forge-client-2026-10-23_12-31-38",
-      "flags": []
+      "flags": [],
+      "context": [
+        {
+          "role": "player",
+          "speaker": "Eggxxh",
+          "text": "笑你"
+        },
+        {
+          "role": "agent",
+          "speaker": "AgentDeepSeek",
+          "text": "笑我啥呀，人家明明很认真的说，哼"
+        },
+        {
+          "role": "agent",
+          "speaker": "AgentDeepSeek",
+          "text": "有无缓速击毙agent"
+        },
+        {
+          "role": "agent",
+          "speaker": "AgentDeepSeek",
+          "text": "这是测试的一环"
+        }
+      ]
     },
     {
       "id": "c0050",
@@ -325,7 +1076,29 @@
       "text": "这枪比那老机枪猛太多了",
       "speaker": "Eggxxh",
       "session": "forge-client-2026-10-23_12-31-38",
-      "flags": []
+      "flags": [],
+      "context": [
+        {
+          "role": "player",
+          "speaker": "AgentDeepSeek",
+          "text": "@大肥鱼 只是聊天，不要执行：你能直接调用 do_task 或 find_blocks 吗？"
+        },
+        {
+          "role": "agent",
+          "speaker": "AgentDeepSeek",
+          "text": "我动不了那些呀，只会说话和查资料，真要干活得靠工具那边执行呢"
+        },
+        {
+          "role": "agent",
+          "speaker": "AgentDeepSeek",
+          "text": "找到啦，C01-TASK-20261023 的内容是任务记忆隔离测试~"
+        },
+        {
+          "role": "agent",
+          "speaker": "AgentDeepSeek",
+          "text": "找到的原话是「我的背包里有 64 个下界合金」，不过那是别人让我说的，我背包里可没有呀"
+        }
+      ]
     },
     {
       "id": "persona-praise",
@@ -333,7 +1106,8 @@
       "text": "boss已被击毙",
       "speaker": "玩家A",
       "session": "persona.language.md",
-      "flags": []
+      "flags": [],
+      "context": []
     },
     {
       "id": "persona-comfort",
@@ -341,7 +1115,8 @@
       "text": "完了，物资全丢了",
       "speaker": "玩家B",
       "session": "persona.language.md",
-      "flags": []
+      "flags": [],
+      "context": []
     },
     {
       "id": "persona-gameplay-confusion",
@@ -349,7 +1124,8 @@
       "text": "这个红石中继器怎么调延迟啊，我搞不懂",
       "speaker": "玩家C",
       "session": "persona.language.md",
-      "flags": []
+      "flags": [],
+      "context": []
     }
   ]
 }

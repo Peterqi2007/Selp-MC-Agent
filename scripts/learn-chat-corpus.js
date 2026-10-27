@@ -148,6 +148,7 @@ function selectDiverse(rows, limit, usedTexts) {
         if (!text || usedTexts.has(text)) continue;
         usedTexts.add(text);
         selected.push({
+          _index: row._index,
           id: row.id || null,
           label: row.label,
           text,
@@ -179,7 +180,8 @@ function main() {
   }
 
   const labelled = rows
-    .map((row) => ({
+    .map((row, i) => ({
+      _index: i,
       id: row[index.id] || null,
       label: String(row[index.label] || '').trim().toLowerCase(),
       role: String(row[index.role] || '').trim(),
@@ -192,6 +194,40 @@ function main() {
     }))
     .filter((row) => row.role === 'player' && row.kind === 'other')
     .filter((row) => row.label === 'silent' || row.label === 'participate');
+
+  /**
+   * The model should see what happened immediately before each labelled line, not just
+   * the line itself. Keep the last four conversational rows in the same session, exclude
+   * the trigger row itself, include the agent's own speech, and drop commands/system noise.
+   */
+  const conversation = rows
+    .map((row, i) => ({
+      index: i,
+      role: String(row[index.role] || '').trim(),
+      kind: String(row[index.kind] || '').trim(),
+      session: String(row[index.session] || '').trim(),
+      speaker: String(row[index.speaker] || '').trim(),
+      text: String(row[index.text] || '').trim()
+    }))
+    .filter((row) => row.text && row.role && row.kind !== 'command');
+  const contextFor = (row, limit = 4) => {
+    return conversation
+      .filter((item) => item.session === row.session && item.index < row._index)
+      .slice(-limit)
+      .map((item) => ({
+        /**
+         * `role=agent` covers both the bot's own lines and the log's copy of an
+         * addressed player line. A line addressed to 大肥鱼 is player input; the bot's
+         * replies are addressed to another player (or are plain agent lines).
+         */
+        role:
+          item.role === 'agent' && !/^@大肥鱼(?:\s|$)/.test(item.text)
+            ? 'agent'
+            : 'player',
+        speaker: item.speaker || null,
+        text: item.text
+      }));
+  };
 
   const silentRows = labelled.filter((row) => row.label === 'silent').sort((a, b) => String(a.id).localeCompare(String(b.id)));
   const participateRows = labelled
@@ -210,7 +246,10 @@ function main() {
     ...selectDiverse(silentRows, perLabel, used),
     ...selectDiverse(participateRows, corpusParticipateLimit, used),
     ...curatedParticipate
-  ];
+  ].map(({ _index, ...row }) => ({
+    ...row,
+    context: _index === undefined ? [] : contextFor({ ...row, _index })
+  }));
   const profile = {
     version: 1,
     generatedAt: new Date().toISOString(),

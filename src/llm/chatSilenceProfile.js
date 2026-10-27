@@ -38,8 +38,25 @@ function formatSilencePolicy(profile, options = {}) {
     '- Speak when the policy says so: a direct question or mention, help/plan talk, continuing your conversation, a player achievement worth a short praise, frustration/loss worth a short comfort, confusion about a gameplay mechanic worth a short search-backed explanation, or clear group banter where a brief reaction fits.',
     '- Stay silent on neutral statements, acknowledgements, bare reactions/fragments, and third-party dialogue that does not invite you.',
     '- When genuinely unsure, prefer {"tool":"silence"}; do not turn every background line into an interjection.',
-    'Labelled examples (player line -> decision):',
-    ...examples.map((row) => `- ${JSON.stringify(String(row.text || ''))} -> ${String(row.label).toUpperCase()}`)
+    'Labelled examples (up to 4 preceding chat lines -> player line -> decision):',
+    ...examples.map((row) => {
+      const context = Array.isArray(row.context) ? row.context.slice(-4) : [];
+      const lines = [];
+      if (context.length) {
+        lines.push('  - context:');
+        for (const item of context) {
+          const who =
+            item.role === 'agent'
+              ? 'self'
+              : item.speaker && !/^AgentDeepSeek$/i.test(item.speaker)
+                ? item.speaker
+                : 'player';
+          lines.push(`    - ${who}: ${String(item.text || '')}`);
+        }
+      }
+      lines.push(`  - ${JSON.stringify(String(row.text || ''))} -> ${String(row.label).toUpperCase()}`);
+      return lines.join('\n');
+    })
   ];
   return lines.join('\n');
 }
