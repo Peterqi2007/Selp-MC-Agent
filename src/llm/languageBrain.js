@@ -184,9 +184,17 @@ class LanguageBrain {
     let requestId = null;
     if (source === 'chat' && this.conversation && typeof this.conversation.rememberIncoming === 'function') {
       const incoming = this.conversation.rememberIncoming({ text, from: speaker });
-      if (!incoming.ok) return { ok: false, reason: incoming.reason, profile: null };
-      requestId = `language-${Date.now()}-${++this.seq}`;
-      if (typeof this.conversation.beginRequest === 'function') this.conversation.beginRequest(requestId);
+      if (!incoming.ok) {
+        this.log.debug(`ordinary chat dropped (${incoming.reason}): ${text}`);
+        return { ok: false, reason: incoming.reason, profile: null };
+      }
+      /**
+       * Ordinary chat is a stream of independent lines, not a single request whose newest
+       * turn supersedes the older ones. Do not `beginRequest()` here: that marks every
+       * queued older line stale and silently discards it. The queue below still serializes
+       * the model calls, and ConversationState still dedupes and rate-limits replies.
+       */
+      requestId = null;
     }
     if (source === 'chat' || source === 'dialogue' || source === 'panel') {
       this._rememberIncoming({ from: speaker, text });
@@ -275,17 +283,36 @@ class LanguageBrain {
   }
 
   async _approval({ text, speaker, source }) {
+    const unavailable = async (reason, forwarded = null) => {
+      /**
+       * An action request that cannot reach the action brain used to end as a silent
+       * approval record. The player only saw their own line and assumed the agent had
+       * swallowed it. Say that nothing was executed; never claim the task was done.
+       */
+      const line = '我现在没法动手，主人稍后再叫我试试好不好…';
+      const spoke = await this._say(line, { source, profile: 'approval', kind: 'message' });
+      return {
+        ok: false,
+        profile: 'approval',
+        decision: 'approve',
+        approved: false,
+        spoke,
+        text: spoke === true ? line : null,
+        forwarded,
+        reason
+      };
+    };
     if (typeof this.approvalGate !== 'function') {
-      return { ok: false, profile: 'approval', decision: 'reject', reason: 'approval-unavailable' };
+      return unavailable('approval-unavailable');
     }
     if (typeof this.forwardToActionBrain !== 'function') {
-      return { ok: false, profile: 'approval', decision: 'reject', reason: 'action-bridge-unavailable' };
+      return unavailable('action-bridge-unavailable');
     }
     let verdict;
     try {
       verdict = await this.approvalGate(text);
     } catch (err) {
-      return { ok: false, profile: 'approval', decision: 'reject', reason: 'approval-error', error: err.message };
+      return unavailable('approval-error', { error: err.message });
     }
     const allowed = verdict && (verdict.ok === true || verdict.verdict === 'allow');
     if (!allowed) {
@@ -306,16 +333,20 @@ class LanguageBrain {
     if (forwarded && forwarded.ok === true) {
       /** Remember the request so a later mc_say can attach the assistant half in ChatMemory. */
       this._lastActionRequest = { text, at: Date.now() };
+      return {
+        ok: true,
+        profile: 'approval',
+        decision: 'approve',
+        approved: true,
+        spoke: false,
+        forwarded,
+        reason: null
+      };
     }
-    return {
-      ok: forwarded && forwarded.ok === true,
-      profile: 'approval',
-      decision: 'approve',
-      approved: true,
-      spoke: false,
-      forwarded,
-      reason: forwarded && forwarded.ok === true ? null : (forwarded && forwarded.reason) || 'forward-failed'
-    };
+    return unavailable(
+      (forwarded && forwarded.reason) || 'forward-failed',
+      forwarded || null
+    );
   }
 
   /**
@@ -596,6 +627,21 @@ class LanguageBrain {
 
   async _say(text, { source, profile, kind, requestId, inputText }) {
     if (typeof this.reply !== 'function') return false;
+    /**
+     * ConversationState rate-limits replies, and a queued answer can reach this point less
+     * than `minGapMs` after the previous one. Wait for the gap instead of dropping the line:
+     * a delayed answer is useful, a swallowed answer is not. The chat queue serializes these
+     * calls, so this wait cannot overlap another language reply.
+     */
+    if (source === 'chat' && this.conversation && typeof this.conversation.status === 'function') {
+      const status = this.conversation.status();
+      const minGap = Number(this.conversation.minGapMs) || 0;
+      const lastSentAt = Number(status && status.lastSentAt) || 0;
+      const waitMs = minGap > 0 && lastSentAt ? lastSentAt + minGap - Date.now() : 0;
+      if (waitMs > 0) {
+        await new Promise((resolve) => setTimeout(resolve, Math.min(waitMs, minGap)));
+      }
+    }
     const options = { why: `language-${profile}` };
     if (source === 'chat' && this.conversation) {
       options.conversation = true;

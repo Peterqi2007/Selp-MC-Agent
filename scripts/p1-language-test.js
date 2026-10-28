@@ -277,6 +277,20 @@ function check(name, fn) {
     assert.strictEqual(attached[0].reply, '好的');
   });
 
+  check('approval forward failure speaks instead of swallowing the request', async () => {
+    const { brain, forwarded, replies } = makeBrain({
+      responses: [],
+      approvalGate: async () => ({ verdict: 'allow' }),
+      forwardResult: { ok: false, reason: 'no-live-agent' }
+    });
+    const result = await brain.handle({ text: '从箱子里拿点腐肉出来', source: 'dialogue', profile: 'approval' });
+    assert.strictEqual(forwarded.length, 1);
+    assert.strictEqual(result.spoke, true);
+    assert.strictEqual(result.reason, 'no-live-agent');
+    assert(result.text.includes('没法动手'));
+    assert.strictEqual(replies.length, 1);
+  });
+
   check('approval rejection sends nothing to the action brain', async () => {
     const { brain, forwarded, replies } = makeBrain({
       responses: [],
@@ -376,6 +390,25 @@ function check(name, fn) {
     assert.strictEqual(first.spoke, true);
     assert.strictEqual(second.reason, 'duplicate');
     assert.strictEqual(calls.length, 1);
+  });
+
+  check('rapid independent ordinary-chat lines are queued, not stale-dropped', async () => {
+    const { brain, calls, replies } = makeBrain({
+      responses: [
+        '{"tool":"say","args":{"text":"第一句"}}',
+        '{"tool":"say","args":{"text":"第二句"}}',
+        '{"tool":"say","args":{"text":"第三句"}}'
+      ],
+      deps: { conversation: new ConversationState({ minGapMs: 0, dedupeMs: 30000 }) }
+    });
+    const results = await Promise.all([
+      brain.handle({ text: '第一句', speaker: 'Alice', source: 'chat', profile: 'roleplay' }),
+      brain.handle({ text: '第二句', speaker: 'Alice', source: 'chat', profile: 'roleplay' }),
+      brain.handle({ text: '第三句', speaker: 'Alice', source: 'chat', profile: 'roleplay' })
+    ]);
+    assert.strictEqual(results.filter((row) => row.spoke === true).length, 3);
+    assert.strictEqual(calls.length, 3);
+    assert.strictEqual(replies.length, 3);
   });
 
   check('POST /say goes through the language brain even without a source tag', async () => {
