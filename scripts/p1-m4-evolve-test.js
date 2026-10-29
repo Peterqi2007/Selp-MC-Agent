@@ -172,7 +172,7 @@ function makeSandbox() {
 }
 
 function makeService(temps, options = {}) {
-  const { ctx } = makeContext(options.context || {});
+  const { ctx, calls } = makeContext(options.context || {});
   const sandbox = options.sandbox || makeSandbox();
   const service = new CodeSkillService({
     root: path.join(temps.skills, `svc-${Math.random().toString(36).slice(2, 8)}`),
@@ -183,7 +183,7 @@ function makeService(temps, options = {}) {
     retrieval: { k: 3, minScore: 0.18, embedding: { provider: 'local', dim: 512 } },
     log: silent
   });
-  return { service, sandbox, ctx };
+  return { service, sandbox, ctx, calls };
 }
 
 function fakeGeneration(script) {
@@ -259,6 +259,13 @@ function fakeGeneration(script) {
     assert.strictEqual(round2.failedCalls[0].error, 'permission-not-allowed:input_key');
     assert.match(round2.stderr || '', /stderr: ReferenceError/);
     assert.match(round2.code || '', /return nope/);
+
+    // Round 3's feedback comes from a *skill-level* refusal: the sandbox "completed" but the
+    // skill returned {ok:false,reason:"refused"}. The reason must be the skill's, not
+    // "completed", otherwise the repair prompt has nothing to act on.
+    const round3 = generation.calls[2].feedback;
+    assert.strictEqual(round3.reason, 'refused', JSON.stringify(round3.reason));
+    assert.strictEqual(round3.result && round3.result.reason, 'refused');
 
     // Version chain: 1.0.0 -> 1.0.1 -> 1.0.2, each kept, lineage recorded.
     const versions = service.store.listVersions('agent.tap').map((entry) => entry.version);
@@ -364,6 +371,23 @@ function fakeGeneration(script) {
     assert.strictEqual(input.click, 'input_click');
     assert.strictEqual(input.use_on, 'input_use_on');
     assert.strictEqual(input.key, 'input_key');
+  });
+
+  await check('a slot click without our container screen is refused (live 2026-10-29)', async () => {
+    const temps = { skills: tempRoot('m4v3-click-skills-'), sandbox: tempRoot('m4v3-click-sandbox-'), evidence: tempRoot('m4v3-click-evidence-') };
+    const closed = makeService(temps);
+    const refused = await closed.service._host().click({ slot: 10 });
+    assert.strictEqual(refused.ok, false, JSON.stringify(refused));
+    assert.strictEqual(refused.reason, 'no-screen');
+    assert.strictEqual(closed.calls.length, 0, 'no click reaches the body');
+
+    const temps2 = { skills: tempRoot('m4v3-click2-skills-'), sandbox: tempRoot('m4v3-click2-sandbox-'), evidence: tempRoot('m4v3-click2-evidence-') };
+    const opened = makeService(temps2, { context: { screen: 'ChestScreen' } });
+    const clicked = await opened.service._host().click({ slot: 0 });
+    assert.strictEqual(clicked.ok, true, JSON.stringify(clicked));
+    assert(opened.calls.some((call) => call.m === 'clickSlot' && call.slot === 0));
+    fs.rmSync(temps.skills, { recursive: true, force: true });
+    fs.rmSync(temps2.skills, { recursive: true, force: true });
   });
 
   process.stdout.write('\n4. similarity retrieval (description-as-key)\n');

@@ -762,12 +762,25 @@ class CodeSkillService {
        * verbatim error it needs to repair.
        */
       const runEvidence = trial.evidence || null;
+      const summaryRun = trial.result || null;
+      /**
+       * The sandbox can "complete" while the skill itself returned {ok:false,...} (e.g. a
+       * body primitive refused). Reporting the sandbox's "completed" as the failure reason
+       * starves the repair prompt of the only useful sentence - prefer the skill's own reason.
+       */
+      const skillResult = summaryRun && summaryRun.result && typeof summaryRun.result === 'object'
+        ? summaryRun.result
+        : (runEvidence && runEvidence.result && typeof runEvidence.result === 'object' ? runEvidence.result : null);
+      const skillReason = skillResult && skillResult.ok === false && skillResult.reason
+        ? String(skillResult.reason)
+        : null;
       const failureReason = ok
         ? null
-        : (runEvidence && runEvidence.reason)
-          || (trial.result && trial.result.reason)
-          || trial.reason
+        : skillReason
           || (verification && verification.reason)
+          || (runEvidence && runEvidence.reason)
+          || (summaryRun && summaryRun.reason)
+          || trial.reason
           || 'trial-failed';
       attempts.push({
         round,
@@ -823,6 +836,8 @@ class CodeSkillService {
         stack: stackText,
         stderr: stderrText,
         failedCalls,
+        /** The skill's own returned object (often the only place the real reason lives). */
+        result: skillResult,
         verificationFailures: verification && verification.ok === false ? verification.failures : null,
         code
       };
@@ -1481,6 +1496,15 @@ class CodeSkillService {
     const slot = Number(args.slot);
     if (!Number.isInteger(slot) || slot < 0) return { ok: false, reason: 'slot-invalid' };
     if (typeof ready.body.clickSlot !== 'function') return { ok: false, reason: 'body-cannot-click' };
+    /**
+     * A slot click only means something while OUR container screen is open. Live 2026-10-29:
+     * a generated "click slot 10 without opening the inventory" script was accepted because
+     * only `menu.open` was checked - and it really clicked. Mirror `_bodyClick`'s guard
+     * (screen-open + container screen) before touching the inventory.
+     */
+    const screen = ready.snap.screen || null;
+    if (!ready.snap.screenOpen) return { ok: false, reason: 'no-screen', screen };
+    if (!ClientModBody.isContainerScreen(screen)) return { ok: false, reason: 'operator-screen', screen };
     const button = args.button === 1 ? 1 : 0;
     const mode = typeof args.mode === 'string' && args.mode ? args.mode : 'pickup';
     const menu = typeof ready.body.menu === 'function' ? await ready.body.menu().catch(() => null) : null;

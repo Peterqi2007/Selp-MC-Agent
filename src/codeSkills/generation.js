@@ -72,6 +72,10 @@ function feedbackBlock(feedback) {
       lines.push(`- ${call.capability}(${call.argsBytes || 0}B) -> ${call.error}`);
     }
   }
+  if (feedback.result && typeof feedback.result === 'object') {
+    lines.push('the skill itself returned (verbatim, truncated):');
+    lines.push(JSON.stringify(feedback.result).slice(0, 800));
+  }
   if (feedback.verificationFailures && feedback.verificationFailures.length) {
     lines.push('verification failures (JSON):');
     lines.push(JSON.stringify(feedback.verificationFailures).slice(0, 1200));
