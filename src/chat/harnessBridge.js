@@ -37,7 +37,13 @@ class HarnessBridge {
       const res = await this.fetchImpl(`${this.url}/message`, {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ text: original, from: meta.from || null }),
+        body: JSON.stringify({
+          text: original,
+          from: meta.from || null,
+          // The plugin attaches the PNG to the same message (2026-10-29): a path alone makes
+          // the brain spend a whole round before it can look at the picture.
+          imagePath: meta.imagePath || null
+        }),
         signal: controller.signal
       });
       let payload = {};

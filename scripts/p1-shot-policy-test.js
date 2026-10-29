@@ -230,6 +230,8 @@ async function main() {
     assert.match(text, /\[截图\/plan-partial\]/);
     assert.match(text, /runtime\/screenshots-test\/shot-001\.png/);
     assert.match(text, /当前 goal: goal-live-1/);
+    assert.strictEqual(h.messages[0].meta.imagePath, h.policy.latest().path,
+      'the steer must carry the frame itself, not only a path');
     assert.match(text, /结构化状态优先/);
     assert.match(text, /不能把失败升级为成功/);
     h.policy.stop();
@@ -446,6 +448,21 @@ async function main() {
   });
 
   // -------------------------------------------------------------- wiring
+  await check('the plugin attaches the frame to the steer message', () => {
+    const fsSync = require('fs');
+    const plugin = fsSync.readFileSync(path.join(__dirname, '..', 'dsh-plugin-mc-harness', 'lib', 'index.js'), 'utf8');
+    assert.match(plugin, /imagePath = String\(parsed\.imagePath/, 'the /message endpoint does not read imagePath');
+    assert.match(plugin, /store\.saveImages\(/, 'the plugin does not publish the image through attachments');
+    assert.match(plugin, /type: 'image',/, 'the message content has no image part');
+    assert.match(plugin, /截图附件发送失败/, 'a failed attachment must keep the text steer alive');
+  });
+
+  await check('the bridge forwards imagePath on /message', () => {
+    const fsSync = require('fs');
+    const bridge = fsSync.readFileSync(path.join(__dirname, '..', 'src', 'chat', 'harnessBridge.js'), 'utf8');
+    assert.match(bridge, /imagePath: meta\.imagePath \|\| null/);
+  });
+
   await check('index wires the policy and observe exposes it as aux', () => {
     const fsSync = require('fs');
     const index = fsSync.readFileSync(path.join(__dirname, '..', 'src', 'index.js'), 'utf8');

@@ -1261,17 +1261,63 @@ export function apply(ctx, config = {}) {
       let body = '';
       for await (const chunk of req) body += chunk;
       let text = '';
+      let imagePath = '';
       try {
         const parsed = JSON.parse(body || '{}');
         text = String(parsed.text || '');
+        imagePath = String(parsed.imagePath || '');
       } catch {
         return jsonReply(res, 400, { ok: false, error: 'invalid JSON' });
       }
       if (!text.trim()) return jsonReply(res, 400, { ok: false, error: 'text is required' });
+      /**
+       * Send the frame WITH the steer, not a path to fetch in a later round.
+       *
+       * A text-only steer forces the action brain to spend a whole round before it can look
+       * at the picture (operator review, 2026-10-29). DSH attachments turn the PNG into an
+       * image content part on the same user message, so the round that receives the steer
+       * already sees the frame.
+       */
+      const content = [{ type: 'text', text }];
+      let attached = null;
+      if (imagePath) {
+        try {
+          const fsPromises = await import('node:fs/promises');
+          const store = typeof ctx.get === 'function' ? ctx.get('attachments') : null;
+          if (!store || typeof store.saveImages !== 'function') throw new Error('attachments-unavailable');
+          const data = await fsPromises.readFile(imagePath);
+          const name = `screenshot-${Date.now()}.png`;
+          const refs = await store.saveImages([{ data, mediaType: 'image/png', name }]);
+          const ref = Array.isArray(refs) ? refs[0] : null;
+          if (!ref || !ref.attachmentId) throw new Error('attachment-save-failed');
+          const width = data.length >= 24 ? data.readUInt32BE(16) : 0;
+          const height = data.length >= 24 ? data.readUInt32BE(20) : 0;
+          content.push({
+            type: 'image',
+            attachment: {
+              attachmentId: String(ref.attachmentId),
+              mediaType: 'image/png',
+              bytes: Number(ref.bytes ?? data.length),
+              width,
+              height,
+              name
+            }
+          });
+          attached = { attachmentId: String(ref.attachmentId), bytes: Number(ref.bytes ?? data.length), width, height };
+          ctx.logger?.info?.(`mc-harness: steer image attached (${attached.bytes}B ${width}x${height})`);
+        } catch (err) {
+          /**
+           * Never lose the steer because the image could not be attached: the text still
+           * carries the path, and the fallback says so.
+           */
+          content[0].text += `\n（截图附件发送失败：${err.message}；请按上面的路径自行读取）`;
+          ctx.logger?.warn?.(`mc-harness: steer image attach failed: ${err.message}`);
+        }
+      }
       const message = {
         id: `mc-message-${crypto.randomUUID()}`,
         role: 'user',
-        content: [{ type: 'text', text }],
+        content,
         source: {
           kind: 'user',
           rpcId: `mc-message-${Date.now()}`,
@@ -1287,7 +1333,8 @@ export function apply(ctx, config = {}) {
         ok: true,
         forwarded: true,
         agentId: runtime.agentId,
-        chars: text.length
+        chars: text.length,
+        image: attached
       });
     }
     if (req.method === 'GET' && url.pathname === '/agents') {
