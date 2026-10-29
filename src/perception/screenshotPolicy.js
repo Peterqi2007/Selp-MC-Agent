@@ -498,7 +498,11 @@ class ScreenshotPolicy {
       '结构化状态优先：仅当 mc_state/mc_observe 的结构化字段不足以判断时，才读取这张图；',
       '成功/失败判定仍以结构化条件为准，图片只作辅助证据，不能把失败升级为成功。'
     ].filter(Boolean).join('\n');
-    return this.bridge.forward(text, { from: 'screenshot' });
+    const delivered = await this.bridge.forward(text, { from: 'screenshot' });
+    if (delivered && delivered.ok === true) {
+      this.log.info(`screenshot steer delivered -> goal ${active.goal.id} (${record.reason})`);
+    }
+    return delivered;
   }
 
   /** Latest frame for `/observe` aux and for the panel. */
