@@ -7,6 +7,7 @@
       "port": 25565,
       "auth": "offline",
       "version": "1.20.1",
+      "username": "AgentDeepSeek",
       "proxy": null,
       "publicServerMode": false
     },

@@ -1400,6 +1400,7 @@ class Brain {
       };
     } else if (
       event.type === 'plan:completed' ||
+      event.type === 'plan:partial' ||
       event.type === 'plan:failed' ||
       event.type === 'plan:cancelled'
     ) {

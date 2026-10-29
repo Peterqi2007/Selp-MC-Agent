@@ -71,7 +71,10 @@ Full Access Ask**。
 `Full Access Ask` 是**每个 DSH 对话自己的模式预设**（每个对话独立，不是启动 DSH 的参数）。
 只有 M5 的 CU 对话需要在该对话里选择 `full-access-ask`（profile 已有：`sandbox:
 danger-full-access`、`approval: ask`），审批由用户完成；CU 仍只允许 Minecraft 窗口内动作，
-这一条不因 Full Access Ask 放开。
+这一条不因 Full Access Ask 放开（历史，2026-10-29 已被取代：M5 改进程内输入层，不再使用 CU 对话预设）。
+
+> 2026-10-29：CU 已降级为可选桌面路径，M5 改用进程内输入层（[`P1-M5.md`](P1-M5.md) §7）。
+> 上面这段是原 CU 对话的预设说明，保留不动；M5 不再需要该预设。
 
 检查：
 
@@ -268,4 +271,7 @@ executionGoalRounds`）；`proposalTtlMs` 仍是 plan question 的默认值。�
 - 等待玩家的计划在重启后恢复问题；若模型回合已结束，玩家回答后计划继续执行，但不会
   自动唤醒已结束的 harness 回合（记录为 A14/A17 的边界）。
 - Full Access Ask 是**对话级模式预设**，不是启动参数；插件自身不提升权限，`mc_step` 只调用
-  8766 命令表。H1 不使用它；M5 的 CU 对话才需要选择。
+  8766 命令表。H1 不使用它；M5 的 CU 对话才需要选择（历史，2026-10-29 已被取代：M5 改进程内输入层）。
+
+> 2026-10-29：CU 已降级为可选桌面路径，M5 改用进程内输入层（[`P1-M5.md`](P1-M5.md) §7）。
+> 本节接口与工具面定义不变，上面两条涉及 CU 的说明按"原路径"理解。

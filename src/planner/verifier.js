@@ -11,9 +11,9 @@
  *       positionNear: { position: {x,y,z}, range: 2, verticalRange? },
  *       blockAt: { position: {x,y,z}, block: 'minecraft:stone' } }
  *
- * `verifyStep(step, observation)` fails at the first stage that does not hold; a task that
- * returned ok but did not change the inventory is therefore *not* silently accepted - the
- * postcondition fails and the caller can replan.
+ * `verifyStep(step, observation)` checks the supplied condition maps. PlanRunner supplies
+ * only preconditions BEFORE execution and only postconditions AFTER execution, so consumed
+ * inputs are never mistaken for a failed result. Empty maps provide no completion evidence.
  *
  * `positionNear` uses the same measure as the walk primitive it verifies (A13 live
  * 2026-10-20): **horizontal** Euclidean distance against `range`, plus a vertical
@@ -53,6 +53,7 @@ function horizontalDistance(a, b) {
  */
 function positionReached(actual, target, range = 1, verticalRange) {
   if (!actual || !target) return false;
+  if (!['x', 'y', 'z'].every((axis) => Number.isFinite(actual[axis]) && Number.isFinite(target[axis]))) return false;
   const limit = Number(range);
   if (!Number.isFinite(limit) || limit < 0) return false;
   if (horizontalDistance(actual, target) > limit) return false;
@@ -70,12 +71,42 @@ function blockAt(observation, position) {
 
 function checkCondition(condition, observation) {
   const failures = [];
-  for (const [item, count] of Object.entries(condition.inventoryAtLeast || {})) {
-    const have = inventoryCount(observation && observation.inventory, item);
-    if (have < count) failures.push({ kind: 'inventoryAtLeast', item, need: count, have });
+  if (!condition || typeof condition !== 'object' || Array.isArray(condition)) {
+    return [{ kind: 'invalid-condition' }];
   }
-  if (condition.positionNear) {
+  for (const key of Object.keys(condition)) {
+    if (!['inventoryAtLeast', 'positionNear', 'blockAt'].includes(key)) {
+      failures.push({ kind: 'unsupported-condition', field: key });
+    }
+  }
+  if (condition.inventoryAtLeast !== undefined &&
+      (!condition.inventoryAtLeast || typeof condition.inventoryAtLeast !== 'object' || Array.isArray(condition.inventoryAtLeast))) {
+    return [...failures, { kind: 'invalid-condition', field: 'inventoryAtLeast' }];
+  }
+  for (const [item, count] of Object.entries(condition.inventoryAtLeast || {})) {
+    if (typeof count !== 'number' || !Number.isFinite(count) || count < 0) {
+      failures.push({ kind: 'invalid-condition', field: 'inventoryAtLeast', item });
+      continue;
+    }
+    if (!observation || !observation.inventory) {
+      failures.push({ kind: 'missing-observation', field: 'inventory', item });
+      continue;
+    }
+    const have = inventoryCount(observation && observation.inventory, item);
+    if (!Number.isFinite(have)) failures.push({ kind: 'missing-observation', field: 'inventory', item });
+    else if (have < count) failures.push({ kind: 'inventoryAtLeast', item, need: count, have });
+  }
+  if (condition.positionNear !== undefined) {
+    if (!condition.positionNear || typeof condition.positionNear !== 'object' || Array.isArray(condition.positionNear)) {
+      return [...failures, { kind: 'invalid-condition', field: 'positionNear' }];
+    }
     const { position, range = 1, verticalRange } = condition.positionNear;
+    if (!position || !['x', 'y', 'z'].every((axis) => Number.isFinite(position[axis])) ||
+        !Number.isFinite(range) || range < 0 ||
+        (verticalRange !== undefined && (!Number.isFinite(verticalRange) || verticalRange < 0))) {
+      failures.push({ kind: 'invalid-condition', field: 'positionNear' });
+      return failures;
+    }
     const at = observation && observation.position;
     if (!positionReached(at, position, range, verticalRange)) {
       const horizontal = horizontalDistance(at, position);
@@ -88,12 +119,28 @@ function checkCondition(condition, observation) {
       });
     }
   }
-  if (condition.blockAt) {
+  if (condition.blockAt !== undefined) {
+    if (!condition.blockAt || typeof condition.blockAt !== 'object' || Array.isArray(condition.blockAt)) {
+      return [...failures, { kind: 'invalid-condition', field: 'blockAt' }];
+    }
     const { position, block } = condition.blockAt;
+    if (!position || !['x', 'y', 'z'].every((axis) => Number.isFinite(position[axis])) ||
+        typeof block !== 'string' || !block) {
+      failures.push({ kind: 'invalid-condition', field: 'blockAt' });
+      return failures;
+    }
     const found = blockAt(observation, position);
     if (found !== block) failures.push({ kind: 'blockAt', need: block, found: found === undefined ? null : found });
   }
   return failures;
+}
+
+/** Empty/unknown condition maps are not evidence for completing a partial task. */
+function hasConditions(condition) {
+  return !!condition && (
+    Object.keys(condition.inventoryAtLeast || {}).length > 0 ||
+    !!condition.positionNear || !!condition.blockAt
+  );
 }
 
 /**
@@ -120,6 +167,7 @@ function verifyPlan(plan, observation) {
 }
 
 module.exports = {
+  hasConditions,
   verifyStep,
   verifyPlan,
   checkCondition,

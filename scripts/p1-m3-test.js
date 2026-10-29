@@ -27,6 +27,7 @@ const { loadConfig } = require('../src/util/config');
 const { Brain } = require('../src/brain');
 const { PlanStore } = require('../src/core/planStore');
 const { PlanRunner } = require('../src/core/planRunner');
+const { verifyStep } = require('../src/planner/verifier');
 const { PlanService } = require('../src/core/planService');
 const { TaskEvents } = require('../src/core/taskEvents');
 const { TurnLifecycle } = require('../src/core/turnLifecycle');
@@ -102,6 +103,7 @@ function makePlanService(options = {}) {
     sleep: options.sleep,
     postconditionRetryMs: options.postconditionRetryMs,
     postconditionRetryAttempts: options.postconditionRetryAttempts,
+    recordMethod: options.recordMethod,
     log: silent
   });
   const service = new PlanService({
@@ -400,6 +402,243 @@ function request(port, method, requestPath, body) {
       const view = await settleFixture.service.waitFor('settle', 2000);
       assert.strictEqual(view.state, 'completed');
       assert(observations >= 2, `expected a re-observation, got ${observations}`);
+    });
+  }
+
+  // --------------------------------------- completion semantics (2026-10-28)
+  process.stdout.write('\n2b. preconditions, partial evidence and recovery\n');
+  {
+    await check('missing prerequisites stop before task construction and downstream work', async () => {
+      let built = 0;
+      const f = makePlanService({
+        createTask: () => { built++; return {}; },
+        observe: async () => ({ inventory: { planks: 0 } })
+      });
+      f.service.submit({ planId: 'pre', steps: [
+        { id: 's1', type: 'mine', preconditions: { inventoryAtLeast: { planks: 2 } } },
+        { id: 's2', type: 'goto' }
+      ] });
+      await f.service.start('pre').promise;
+      const view = f.service.get('pre');
+      assert.strictEqual(built, 0);
+      assert.strictEqual(view.state, 'failed');
+      assert.strictEqual(view.steps[1].status, 'pending');
+      assert.strictEqual(view.steps[0].result.executed, false);
+      assert.strictEqual(view.steps[0].result.verification.stage, 'precondition');
+    });
+
+    await check('consumed inputs are checked before execution; produced outputs only afterwards', async () => {
+      let inventory = { planks: 2, stick: 0 };
+      const phases = [];
+      const f = makePlanService({
+        observe: async () => ({ inventory: { ...inventory } }),
+        verify: async (step, observation) => {
+          phases.push(step.preconditions ? 'before' : 'after');
+          return verifyStep(step, observation);
+        },
+        runTask: async () => { inventory = { planks: 0, stick: 4 }; return { ok: true }; }
+      });
+      f.service.submit({ planId: 'consume', steps: [{ id: 's', type: 'mine',
+        preconditions: { inventoryAtLeast: { planks: 2 } },
+        postconditions: { inventoryAtLeast: { stick: 4 } }
+      }] });
+      await f.service.start('consume').promise;
+      assert.strictEqual(f.service.get('consume').state, 'completed');
+      assert.deepStrictEqual(phases, ['before', 'after']);
+    });
+
+    await check('each next step checks its prerequisites after the preceding step', async () => {
+      let inventory = { planks: 2 };
+      const ran = [];
+      const f = makePlanService({
+        observe: () => ({ inventory }),
+        runTask: async (task) => { ran.push(task.name); inventory = { planks: 0 }; return { ok: true }; }
+      });
+      f.service.submit({ planId: 'next', steps: [
+        { id: 'consume', type: 'mine' },
+        { id: 'missing', type: 'mine', preconditions: { inventoryAtLeast: { planks: 2 } } }
+      ] });
+      await f.service.start('next').promise;
+      assert.deepStrictEqual(ran, ['consume']);
+      assert.strictEqual(f.service.get('next').state, 'failed');
+    });
+
+    await check('partial without a goal check remains partial with counters, no downstream or success learning', async () => {
+      const ran = [], methods = [];
+      const f = makePlanService({
+        runTask: async (task) => { ran.push(task.name); return { ok: true, partial: true, requested: 3, collected: 1, remaining: 2, pendingDrops: ['drop-1'] }; },
+        recordMethod: (_step, ok) => methods.push(ok)
+      });
+      f.service.submit({ planId: 'partial', steps: [
+        { id: 's1', type: 'mine', args: { count: 3 }, methodId: 'method-1' },
+        { id: 's2', type: 'goto' }
+      ] });
+      const result = await f.service.start('partial').promise;
+      const view = f.service.get('partial');
+      assert.strictEqual(result.ok, false);
+      assert.strictEqual(result.partial, true);
+      assert.strictEqual(view.state, 'partial');
+      assert.deepStrictEqual(ran, ['s1']);
+      assert.deepStrictEqual(methods, [false]);
+      assert.strictEqual(view.steps[1].status, 'pending');
+      assert.strictEqual(view.steps[0].result.taskResult.collected, 1);
+      assert.deepStrictEqual(view.steps[0].result.remaining.quantity, { requested: 3, collected: 1, remaining: 2 });
+      assert.strictEqual(view.steps[0].result.remaining.reported, 2);
+      assert.deepStrictEqual(view.steps[0].result.taskResult.pendingDrops, ['drop-1']);
+      assert.strictEqual(f.events.since(0).filter((e) => e.type === 'plan:completed').length, 0);
+      const event = f.events.since(0).find((e) => e.type === 'plan:partial');
+      assert.strictEqual(event.results[0].taskResult.collected, 1);
+      await f.service.start('partial').promise;
+      assert.deepStrictEqual(ran, ['s1'], 'start must not blindly repeat the original count');
+    });
+
+    await check('unmet postcondition keeps partial and records the inventory deficit', async () => {
+      const f = makePlanService({
+        observe: () => ({ inventory: { dirt: 1 } }),
+        runTask: async () => ({ ok: false, status: 'partial', collected: 1, requested: 3 })
+      });
+      f.service.submit({ planId: 'deficit', steps: [{ id: 's', type: 'mine', postconditions: { inventoryAtLeast: { dirt: 3 } } }] });
+      await f.service.start('deficit').promise;
+      const view = f.service.get('deficit');
+      assert.strictEqual(view.state, 'partial');
+      assert.strictEqual(view.steps[0].result.remaining.inventoryAtLeast.dirt, 2);
+    });
+
+    await check('partial completes only after a real goal observation settles; raw partial evidence survives', async () => {
+      let observations = 0;
+      const f = makePlanService({
+        observe: () => ({ inventory: { dirt: ++observations >= 2 ? 3 : 1 } }),
+        runTask: async () => ({ ok: true, status: 'partial', collected: 1, requested: 3 }),
+        postconditionRetryAttempts: 1, sleep: async () => {}
+      });
+      f.service.submit({ planId: 'partial-settle', steps: [{ id: 's', type: 'mine', postconditions: { inventoryAtLeast: { dirt: 3 } } }] });
+      await f.service.start('partial-settle').promise;
+      const view = f.service.get('partial-settle');
+      assert.strictEqual(view.state, 'completed');
+      assert.strictEqual(view.steps[0].result.taskResult.status, 'partial');
+      assert.strictEqual(view.steps[0].result.verification.ok, true);
+      assert.strictEqual(view.steps[0].result.remaining, null);
+    });
+
+    await check('empty, unsupported or malformed postconditions never prove a partial goal', async () => {
+      for (const conditions of [{}, { inventoryAtLeast: {} }, { inventoryAtLeest: { dirt: 3 } },
+        { blockAt: {} }, { inventoryAtLeast: { dirt: 'not-a-count' } }, { inventoryAtLeast: { dirt: 3 }, typo: true },
+        { inventoryAtLeast: { dirt: 3 }, blockAt: null }, { inventoryAtLeast: { dirt: 3 }, positionNear: false }]) {
+        const f = makePlanService({
+          observe: () => ({ inventory: { dirt: 3 } }),
+          runTask: async () => ({ ok: true, status: 'partial' })
+        });
+        f.service.submit({ planId: 'bad-check', steps: [{ id: 's', type: 'mine', postconditions: conditions }] });
+        await f.service.start('bad-check').promise;
+        assert.strictEqual(f.service.get('bad-check').state, 'partial', JSON.stringify(conditions));
+      }
+    });
+
+    await check('missing observations and observation errors cannot establish completion', async () => {
+      for (const observe of [async () => null, async () => { throw new Error('unavailable'); }]) {
+        const f = makePlanService({ observe, runTask: async () => ({ ok: true, status: 'partial' }) });
+        f.service.submit({ planId: 'no-state', steps: [{ id: 's', type: 'mine', postconditions: { inventoryAtLeast: { dirt: 0 } } }] });
+        await f.service.start('no-state').promise;
+        assert.strictEqual(f.service.get('no-state').state, 'partial');
+      }
+    });
+
+    await check('incomplete position observations and missing task results cannot prove completion', async () => {
+      for (const position of [{ y: 64 }, { x: NaN, y: 64, z: 0 }, { x: 0, y: 64, z: Infinity }]) {
+        const f = makePlanService({
+          observe: () => ({ position }), runTask: async () => ({ ok: true, status: 'partial' })
+        });
+        f.service.submit({ planId: 'bad-position', steps: [{ id: 's', type: 'goto',
+          postconditions: { positionNear: { position: { x: 0, y: 64, z: 0 }, range: 2 } }
+        }] });
+        await f.service.start('bad-position').promise;
+        assert.strictEqual(f.service.get('bad-position').state, 'partial');
+      }
+      const f = makePlanService({ runTask: async () => null });
+      f.service.submit({ planId: 'missing-result', steps: [{ id: 's', type: 'mine' }] });
+      await f.service.start('missing-result').promise;
+      assert.strictEqual(f.service.get('missing-result').state, 'failed');
+    });
+
+    await check('restored partial is not replayed; explicit replan preserves evidence and completes only the remainder', async () => {
+      const first = makePlanService({ runTask: async () => ({ ok: true, status: 'partial', collected: 1, requested: 3 }) });
+      first.service.submit({ planId: 'restore-partial', steps: [{ id: 's', type: 'mine', args: { count: 3 }, postconditions: { inventoryAtLeast: { dirt: 3 } } }] });
+      await first.service.start('restore-partial').promise;
+      let inventory = { dirt: 1 };
+      const ran = [];
+      const next = makePlanService({
+        observe: () => ({ inventory }),
+        createTask: (step) => ({ count: step.args.count }),
+        runTask: async (task) => { ran.push(task.count); inventory = { dirt: inventory.dirt + task.count }; return { ok: true }; }
+      });
+      next.plans.restore(JSON.parse(JSON.stringify(first.plans.toJSON())));
+      assert.strictEqual(next.service.get('restore-partial').steps[0].result.taskResult.collected, 1);
+      await next.service.start('restore-partial').promise;
+      assert.deepStrictEqual(ran, []);
+      const before = next.plans.get('restore-partial');
+      const draft = { planId: before.planId, baseVersion: before.version, steps: [{ ...before.steps[0], args: { count: 2 }, result: { forged: true } }] };
+      assert(next.service.submit(draft).ok);
+      assert.strictEqual(next.plans.get(before.planId).steps[0].result.taskResult.collected, 1);
+      await next.service.start(before.planId).promise;
+      assert.deepStrictEqual(ran, [2]);
+      assert.strictEqual(next.service.get(before.planId).state, 'completed');
+      assert.strictEqual(inventory.dirt, 3);
+    });
+
+    await check('already fulfilled partial can continue from fresh evidence without replaying acquisition', async () => {
+      let inventory = { dirt: 1 };
+      const ran = [];
+      const f = makePlanService({
+        observe: () => ({ inventory }),
+        runTask: async (task) => { ran.push(task.name); return task.name === 'collect' ? { ok: true, status: 'partial' } : { ok: true }; }
+      });
+      f.service.submit({ planId: 'late-pickup', steps: [
+        { id: 'collect', type: 'mine', postconditions: { inventoryAtLeast: { dirt: 3 } } },
+        { id: 'next', type: 'goto' }
+      ] });
+      await f.service.start('late-pickup').promise;
+      inventory = { dirt: 3 };
+      await f.service.start('late-pickup').promise;
+      assert.deepStrictEqual(ran, ['collect', 'next']);
+      assert.strictEqual(f.service.get('late-pickup').state, 'completed');
+    });
+
+    await check('partial event wakes the harness exactly once carrying the remaining quantities', async () => {
+      const f = makePlanService({ runTask: async () => ({ ok: true, status: 'partial', requested: 3, collected: 1 }) });
+      const t = makeTurnService({ planService: f.service });
+      f.service.submit({ planId: 'wake-partial', steps: [{ id: 's', type: 'mine' }] });
+      const begun = t.turnService.begin({ planId: 'wake-partial' });
+      assert(t.turnService.trackPlan(begun.turn.id, 'wake-partial').ok);
+      await f.service.start('wake-partial').promise;
+      const event = f.events.since(0).find((e) => e.type === 'plan:partial');
+      await waitForEvent(t.turnService.turnEvents, (e) => e.type === 'turn:resumable');
+      t.turnService.onPlanEvent(event);
+      const wakes = t.turnService.turnEvents.since(0).filter((e) => e.type === 'turn:resumable');
+      assert.strictEqual(wakes.length, 1);
+      assert.strictEqual(wakes[0].event.type, 'plan:partial');
+      assert.strictEqual(wakes[0].event.results[0].remaining.quantity.remaining, 2);
+      t.turnService.close();
+    });
+
+    await check('cancellation while prechecking never dispatches a task', async () => {
+      let built = 0;
+      const f = makePlanService({ createTask: () => { built++; return {}; } });
+      f.runner.observe = async () => { f.runner.cancel('stop during observation'); return { inventory: { dirt: 3 } }; };
+      f.service.submit({ planId: 'pre-cancel', steps: [{ id: 's', type: 'mine', preconditions: { inventoryAtLeast: { dirt: 3 } } }] });
+      const result = await f.service.start('pre-cancel').promise;
+      assert.strictEqual(result.cancelled, true);
+      assert.strictEqual(built, 0);
+      assert.strictEqual(f.events.since(0).filter((e) => e.type === 'plan:completed').length, 0);
+    });
+
+    await check('cancellation during delayed verification cannot write a completed step', async () => {
+      const f = makePlanService({ runTask: async () => ({ ok: true }), postconditionRetryAttempts: 1 });
+      f.runner.observe = async () => ({ inventory: { dirt: 1 } });
+      f.runner.sleep = async () => { f.runner.cancel('stop while settling'); };
+      f.service.submit({ planId: 'verify-cancel', steps: [{ id: 's', type: 'mine', postconditions: { inventoryAtLeast: { dirt: 3 } } }] });
+      await f.service.start('verify-cancel').promise;
+      assert.strictEqual(f.service.get('verify-cancel').state, 'cancelled');
+      assert.strictEqual(f.events.since(0).filter((e) => e.type === 'plan:completed').length, 0);
     });
   }
 

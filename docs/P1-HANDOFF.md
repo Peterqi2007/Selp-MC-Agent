@@ -1,7 +1,7 @@
 # P1 交接（2026-10-25 更新）
 
 > **一句话**：P1 的**离线可交付部分**已实现并通过一键复验；**M1（适用子集）/M2/M3/M4（A19 适用子集）已通过真机验收**；
-> **P1 仍未整体验收、未发布**（M5 阻塞、M6/M7 部分）。
+> **P1 仍未整体验收、未发布**（M5 口径变更（进程内输入层）、实现未开始，M6/M7 部分）。
 > **M4：编排子集曾判 PASS，2026-10-25 需求变更重开后 v2 已实现，A18–A20、A28–A30 真机 PASS**；
 > A19 残余（真实 PauseScreen/第二玩家）仅离线；方案见 [`M4-DIRECT-BODY-PLAN.md`](M4-DIRECT-BODY-PLAN.md)。
 > 2026-10-24 补 M6 受控测试（A24/C03/F02 受控 PASS、A25 四路径仅 accept 为真实 harness、
@@ -14,6 +14,10 @@
 > 套件计数更新、DialogueRouter/`mc_say` 真机链路、客户端 Mod（Veil 输入崩溃）修复；
 > 2026-10-23 增加统一语言脑门面（`p1:language:test 20/20`）。
 > **未通过阶段仍不通过**；未执行项仍保持未执行。
+>
+> **2026-10-29：M5 口径变更（见 [`P1-M5.md`](P1-M5.md) §7）**——CU 路径放弃（WGC 取不到 OpenGL
+> 窗口帧 + 策略接不进只读的打包插件），M5 改走 Minecraft 进程内输入层；F1 作废，闸门改为
+> F1'（结构性不可出界 + 键鼠台账）；A21/A22 不再标 N/A，待执行。
 
 ## 1. 一键复验
 
@@ -51,7 +55,7 @@ M4 测试在真实 Node 子进程中执行了探针技能，并用一次 DeepSee
 | M2 | 二值闸门 + `@` 通道（默认关闭）、严格 LLM 判定器、双脑工具清单、`say/silence`、`LanguageAgent`、可选语言对话通道（默认关闭）、快照 `observedAt`、`refreshPlan`、`ThreatObserver`、persona 注入、H1a/H1b | **PASS** |
 | M3 | `PlanService`/`POST /plan`、`TurnService`/`/harness/events`、DSH `mc_plan`、原子持久化、`wait_for_player`、计划问题复用提案、`ResumeBridge`、`MethodLibrary`、`AnswerMemory`、`MemoryStore`、`Budget`、`verifier`、`draftGuard`、`!state`、`!method`；另：持久 goal（`/goal/pause`/`resume`）、`mc_propose`、`mc_state`、`mc_perception` | **PASS（2026-10-21，M3.1–M3.10）** |
 | M4 | manifest 校验、生成管线、candidates/promoted 目录与指针、晋升/回退/下线、promoted-only 检索；2026-10-18 接真实生成、权限子进程试运行、证据、取消、DeepSeek Search、HTTP `/code-skills`；2026-10-25 接实时入口；需求变更后 v2 实现（离线 35/35）并完成 **A18–A20、A28–A30 真机**（A19 适用子集） | **PASS（A19 适用子集）**；方案 [`M4-DIRECT-BODY-PLAN.md`](M4-DIRECT-BODY-PLAN.md) |
-| M5 | `WindowPolicy`（默认拒绝）+ `ComputerUseGuard`（拒绝不触达执行器） | **阻塞**：F1 未验证 |
+| M5 | 进程内输入层（按键/长按/视角/容器槽位点击/帧缓冲截图）+ 键鼠台账（设计口径；CU 离线契约 `WindowPolicy`/`ComputerUseGuard` 降级为可选路径） | **未通过（口径变更后待执行）**：实现未开始，F1' 未验证 |
 | M6 | `ConversationState`（去重/过期/自回声/限速/截断）+ opt-in 守卫 + `ChatParticipation` 参与/沉默 + `ProposalChat` yes/no + **DialogueRouter + `mc_say`**；2026-10-24 受控测试 A24/C03/F02 PASS、A25 四路径（accept 真 harness） | 部分：A23 缺 40 组 ×3；A25 仅 accept 为真实提案；R2/R3 未执行 |
 | M7 | 故障演练 9/9、A01–A31 矩阵、`p1:verify`、本交接文档；TaskSlot 失败账本持久化 + UsageLedger 逐请求 usage | 部分：R1 部分，R2–R4/F3/A31 最终组合未执行 |
 
@@ -144,7 +148,7 @@ M4 测试在真实 Node 子进程中执行了探针技能，并用一次 DeepSee
 | 项 | 现状 / 下一步 |
 | --- | --- |
 | M4（已完成） | **PASS（A19 适用子集）**：v2 离线 35/35；A18 `grass_dig`/`table_click`、A19 越界/抢身体/取消/deny/无屏点击/非敌对攻击/硬杀、A20 `half_fail`、A28 长任务 15.57s、A29 硬杀恢复、A30 用量 10,352 tok 真机通过；残余：真实 PauseScreen/第二玩家仅离线 |
-| M5 F1 / A21 / A22 | F1 未验证（CU 无已授权应用），阶段 BLOCKED；需先建 Full Access Ask CU 对话并授权 java 窗口 |
+| M5 F1' / A21 / A22 | CU 路径已放弃：①WGC 取不到 OpenGL 窗口帧（两轮真机 `截图未产出` + `Declared image type does not match its bytes`）；②`WindowPolicy`/`ComputerUseGuard` 接不进只读的打包插件（`resources/app.asar`），真机“未 verify 前默认拒绝”不成立。改为 Minecraft 进程内输入层；前置是 **F1'**（F1'a 结构性不可出界 + F1'b 键鼠台账，**无 N/A 出口**）；A21/A22 待执行（命题不变、证据重记）。详见 [`P1-M5.md`](P1-M5.md) §7 |
 | M6 A23 / A25 剩余 | A24/C03/F02 受控 PASS；A23 缺真实第二名玩家 40 组 ×3 与 ≥80%/≤10% 阈值；A25 仅 accept 为真 harness，reject/不答/另派需在真实动作脑提案下重跑（单操作员/合成发送者需标注）；R2/R3 未执行 |
 | M7 A26 / R1–R4 | A26 仅 2026-10-17 分项基线；R1 部分，R2–R4 未执行 |
 | M7 F3 / A31 最终组合 | F3 真机 token 端点未验；A31 双 emitter/planVersion 未验 |
@@ -160,7 +164,8 @@ M4 测试在真实 Node 子进程中执行了探针技能，并用一次 DeepSee
 2. **M7 回归**：A26 完整回归、R1–R4、F3 真机 token、A31 最终组合；每项记录版本/账号/日志路径。
 3. **M4**：**A18 v2 真机 PASS；A19/A20/A28–A30 待验**——`grass_dig` dirt 1→2/2→3、
    `table_click` 槽 10→11/11→10；残余风险记录在案。沙箱规则见 [`P1-M4-SANDBOX.md`](P1-M4-SANDBOX.md)。
-4. **M5**：先跑 F1；F1 不通过则 A21/A22 记 N/A，不要开额外在线能力。
+4. **M5**：先做进程内输入层（mod 按键/视角/槽位点击 + 帧缓冲截图）与 `InputLedger`，过 F1'a/F1'b
+   后再跑 A21/A22；F1' 不通过则实现不合并，A21/A22 **不标 N/A**。详见 [`P1-M5.md`](P1-M5.md) §7。
 5. **M6**：按 40 组 ×3 语料跑 A23（A24 受控并发已过，随语料复跑）、按四路径跑 A25 的真实动作脑部分；单操作员时标注“非真实多人”。
 6. 完成一项就回填清单，**未测不填、代码存在不算通过**。
 
@@ -182,7 +187,7 @@ src/llm/       judge, toolSurface, languageAgent
 src/world/     freshness, refreshPlan, threatObserver, perceptionWake, observation
 src/learning/  methodLibrary, answerMemory
 src/memory/    store, chatMemory
-src/computer/  windowPolicy, guard
+src/computer/  windowPolicy, guard（CU 可选路径；M5 已改走进程内输入层）
 src/harness/   adapter, resumeBridge, turnService
 dsh-plugin-mc-harness/lib/index.js   11 个 mc_* 工具（observe/step/plan/plan_status/cancel/
                                      finish/state/perception/memory/propose/say）
@@ -211,6 +216,7 @@ docs/          P1-M0 … P1-M7, P1-GAP-AUDIT, P1-CLIENT-TESTS
 1. **M7 回归**：A26 行走/破坏/拾取/取消/双通道 + R1–R4；同窗口补 F3 token 与 A31 最终组合。
 2. **M6**：A23 固定 40 组 ×3（单操作员需标注；A24 受控并发已过，随语料复跑）+ A25 真实动作脑四路径。
 3. **M4**：已完成（PASS，A19 适用子集）；v2 离线 35/35，A18–A20、A28–A30 真机通过；残余记录在案。
-4. **M5**：F1（Full Access Ask + java 授权）→ A21/A22；F1 不过则 N/A。
+4. **M5**：进程内输入层 + 键鼠台账 → F1'（结构断言 + 台账归零）→ A21/A22；F1' 不过则实现不合并，
+   A21/A22 不标 N/A（[`P1-M5.md`](P1-M5.md) §7）。
 5. **修复遗留**：挖石 noPath、夜间入睡、A02 timeout、A10 跨维度/部分刷新、A11 天气/阶段注入。
 6. 每次改动保持 `npm run p1:verify` 全绿（当前 11/11，含 P0 回归；`--fast` 10/10）；删除断言必须同提交替换。

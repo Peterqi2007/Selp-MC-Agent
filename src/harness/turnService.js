@@ -27,10 +27,11 @@ const { ResumeBridge } = require('./resumeBridge');
 const RESUMABLE_PLAN_EVENTS = new Set([
   'plan:waiting',
   'plan:completed',
+  'plan:partial',
   'plan:failed',
   'plan:rejected'
 ]);
-const TERMINAL_PLAN_EVENTS = new Set(['plan:completed', 'plan:failed', 'plan:rejected', 'plan:cancelled']);
+const TERMINAL_PLAN_EVENTS = new Set(['plan:completed', 'plan:partial', 'plan:failed', 'plan:rejected', 'plan:cancelled']);
 
 class TurnService {
   /**

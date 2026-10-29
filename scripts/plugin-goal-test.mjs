@@ -34,6 +34,12 @@ function assert(cond, message) {
   if (!cond) throw new Error(message);
 }
 
+async function waitUntil(predicate, message) {
+  const deadline = Date.now() + 2500;
+  while (!predicate() && Date.now() < deadline) await new Promise((resolve) => setTimeout(resolve, 20));
+  assert(predicate(), message);
+}
+
 function freePort() {
   return new Promise((resolve, reject) => {
     const s = http.createServer();
@@ -49,8 +55,27 @@ function freePort() {
 function startControlStub() {
   const said = [];
   const proposals = [];
+  const plans = new Map();
+  const streams = new Set();
+  const submittedPlans = [];
   return new Promise((resolve) => {
     const server = http.createServer((req, res) => {
+      if (req.method === 'POST' && req.url === '/plan') {
+        let body = '';
+        req.on('data', (chunk) => (body += chunk));
+        req.on('end', () => {
+          const parsed = JSON.parse(body);
+          submittedPlans.push(parsed);
+          res.writeHead(202, { 'content-type': 'application/json' });
+          res.end(JSON.stringify({ ok: true, planId: parsed.planId, turnId: `turn-${parsed.planId}` }));
+        });
+        return;
+      }
+      if (req.method === 'GET' && req.url.startsWith('/plan/')) {
+        res.writeHead(200, { 'content-type': 'application/json' });
+        res.end(JSON.stringify({ ok: true, plan: plans.get(decodeURIComponent(req.url.slice(6))) }));
+        return;
+      }
       if (req.method === 'POST' && (req.url === '/observe' || req.url === '/propose')) {
         let body = '';
         req.on('data', (chunk) => (body += chunk));
@@ -88,12 +113,14 @@ function startControlStub() {
       if (String(req.url || '').startsWith('/harness/events')) {
         res.writeHead(200, { 'content-type': 'text/event-stream' });
         res.write(': connected\n\n');
+        streams.add(res);
+        res.on('close', () => streams.delete(res));
         return;
       }
       res.writeHead(404, { 'content-type': 'application/json' });
       res.end('{}');
     });
-    server.listen(0, '127.0.0.1', () => resolve({ server, port: server.address().port, said, proposals }));
+    server.listen(0, '127.0.0.1', () => resolve({ server, port: server.address().port, said, proposals, plans, streams, submittedPlans }));
   });
 }
 
@@ -250,6 +277,39 @@ async function main() {
   assert(said.ok === true && said.sent === true, 'mc_say must report the send result');
   assert(control.said.includes('收到，开始挖'), 'mc_say must reach the local /say endpoint');
 
+  // A fast partial plan must resume through reconcile even if its SSE event was missed.
+  // An SSE-first result follows the same path; either ordering must wake the brain once.
+  const planTool = world.tools.find((tool) => tool.name === 'mc_plan');
+  const partialResult = {
+    status: 'partial', taskResult: { status: 'partial', requested: 3, collected: 1, pendingDrops: 2 },
+    remaining: { quantity: { requested: 3, collected: 1, remaining: 2 } }
+  };
+  await waitUntil(() => control.streams.size > 0, 'bound agent must connect to turn SSE');
+  for (const mode of ['reconcile', 'sse']) {
+    const planId = `partial-${mode}`;
+    control.plans.set(planId, { id: planId, state: 'partial', steps: [{ id: 's1', status: 'partial', result: partialResult }] });
+    const before = world.followups.length;
+    const receipt = JSON.parse(await planTool.execute({
+      planId, goal: 'collect 3 dirt', steps: [{ id: 's1', type: 'mine', args: { block: 'dirt', count: 3 } }]
+    }));
+    assert(receipt.ok === true, 'partial fixture plan must be accepted');
+    const payload = { planId, turnId: `turn-${planId}`, event: { type: 'plan:partial', results: [{ stepId: 's1', ...partialResult }] } };
+    const sendEvent = () => {
+      for (const stream of control.streams) stream.write(`event: turn:resumable\ndata: ${JSON.stringify(payload)}\n\n`);
+    };
+    if (mode === 'sse') sendEvent();
+    await waitUntil(() => world.followups.length > before, `${mode} must resume a partial plan`);
+    const resumedText = JSON.stringify(world.followups[before]);
+    assert(resumedText.includes('plan:partial'), 'resume must preserve partial state');
+    assert(resumedText.includes('mc_plan_status') && resumedText.includes('step.result.remaining'), 'resume must direct the brain to saved evidence');
+    assert(resumedText.includes('only the unfinished work') && resumedText.includes('never replay the original quantity'), 'resume must prevent blind full replay');
+    assert(resumedText.includes('\\"remaining\\":2'), 'resume must carry the remaining quantity');
+    sendEvent();
+    await new Promise((resolve) => setTimeout(resolve, 350));
+    assert(world.followups.length === before + 1, `${mode} duplicate/reconcile must not resume twice`);
+  }
+  assert(control.submittedPlans.length === 2, 'partial followup must not auto-submit extra body work');
+
   // No goals service: goal mode must fail loudly, not silently degrade to chat.
   const noGoalWorld = makeWorld({ withGoals: false });
   const secondPort = await freePort();
@@ -330,7 +390,7 @@ async function main() {
   }
   await new Promise((resolve) => control.server.close(resolve));
   control.server.closeAllConnections?.();
-  console.log('goal mode: PASS (durable goal, GET, pause/resume, mc_say, goal-exists, replace, text fallback, loud 503, proposal prep guard)');
+  console.log('goal mode: PASS (durable goal, GET, pause/resume, mc_say, goal-exists, replace, text fallback, loud 503, proposal prep guard, partial reconcile/SSE/remaining/deduplication)');
 }
 
 main().catch((err) => {

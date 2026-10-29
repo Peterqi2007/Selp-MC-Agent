@@ -17,7 +17,7 @@
  *   - `resume()` answers a parked plan; `cancel()` stops the running step or fails the
  *     waiting step, so a player `!stop` never leaves a plan "silently running";
  *   - every transition is published on `TaskEvents` (`plan:started`, `plan:step`,
- *     `plan:waiting`, `plan:completed`, `plan:failed`, `plan:cancelled`), so SSE/panel and
+ *     `plan:waiting`, `plan:partial`, `plan:completed`, `plan:failed`, `plan:cancelled`), so SSE/panel and
  *     the harness turn layer can observe plans without polling private fields.
  *
  * It never calls a model and never touches the body directly. Running state is deliberately
@@ -152,6 +152,9 @@ class PlanService {
         ...raw,
         id,
         status,
+        // Execution evidence belongs to Node, not to a draft. Keep a partial
+        // attempt's counters across replanning until the next run settles.
+        result: existing ? existing.result || null : null,
         ...(raw.type ? { type: String(raw.type) } : {}),
         ...(args ? { args } : {})
       });
@@ -417,6 +420,7 @@ class PlanService {
       stepId: event.stepId,
       status: event.status || null,
       reason: event.reason || null,
+      result: event.result || null,
       runId,
       eventId: `plan:step|${event.planId}|${event.stepId}|${event.status}|${runId}`
     });
@@ -473,6 +477,10 @@ class PlanService {
         this._askQuestion(run.planId);
       } else if (result && result.cancelled) {
         this._publishTerminal(run, 'plan:cancelled', { reason: result.reason || 'cancelled', phase: 'settled' });
+      } else if (result && result.partial) {
+        this._publishTerminal(run, 'plan:partial', {
+          reason: 'partial-needs-replan', results: result.results || []
+        });
       } else if (result && result.ok) {
         this._publishTerminal(run, 'plan:completed', { results: result.results || [] });
       } else if (
@@ -599,6 +607,7 @@ class PlanService {
     else if (plan.steps.every((step) => step.status === 'done')) state = 'completed';
     else if (plan.steps.some((step) => step.status === 'cancelled')) state = 'cancelled';
     else if (plan.steps.some((step) => step.status === 'failed')) state = 'failed';
+    else if (plan.steps.some((step) => step.status === 'partial')) state = 'partial';
     const budget = this.budgets.get(plan.planId);
     return {
       ...plan,

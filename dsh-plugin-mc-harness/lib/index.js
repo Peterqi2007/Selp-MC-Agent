@@ -532,7 +532,8 @@ function toolDefinitions({ controlUrl, record, log, runtime }) {
                 type: 'object',
                 description:
                   'checked after the step claims success: {inventoryAtLeast, positionNear, blockAt}; ' +
-                  'a failed postcondition fails the step and stops the plan'
+                  'an unmet postcondition stops the plan; partial keeps its unfinished quantity. ' +
+                  'Partial completes only when a nonempty postcondition is verified'
               },
               wait: { type: 'boolean', description: 'same as type:"wait_for_player"' },
               methodId: { type: 'string', description: 'local method id to write the outcome back to' },
@@ -965,7 +966,7 @@ export function apply(ctx, config = {}) {
         const body = await res.json();
         const plan = body && body.plan;
         if (!plan) return;
-        if (!['waiting', 'completed', 'failed', 'rejected', 'cancelled'].includes(plan.state)) return;
+        if (!['waiting', 'completed', 'partial', 'failed', 'rejected', 'cancelled'].includes(plan.state)) return;
         const type =
           plan.state === 'waiting'
             ? 'plan:waiting'
@@ -975,7 +976,7 @@ export function apply(ctx, config = {}) {
                 ? 'plan:rejected'
                 : plan.state === 'cancelled'
                   ? 'plan:cancelled'
-                  : 'plan:failed';
+                  : plan.state === 'partial' ? 'plan:partial' : 'plan:failed';
         if (type === 'plan:cancelled') {
           runtime.onCancel({ turnId, reason: 'plan-cancelled' });
           return;
@@ -983,7 +984,10 @@ export function apply(ctx, config = {}) {
         await runtime.onResume({
           turnId,
           planId,
-          event: { type, question: plan.question || null, reason: plan.state }
+          event: {
+            type, question: plan.question || null, reason: plan.state,
+            results: (plan.steps || []).map((step) => ({ stepId: step.id, ...step.result, status: step.result?.status || step.status }))
+          }
         });
       } catch (err) {
         log(`reconcile ${turnId} failed: ${err.message}`);
@@ -1008,13 +1012,19 @@ export function apply(ctx, config = {}) {
       }
       const planEvent = payload.event || {};
       const detail = planEvent.question || planEvent.reason || '';
+      const partial = planEvent.type === 'plan:partial';
+      const partialResults = partial ? JSON.stringify((planEvent.results || [])
+        .filter((step) => step.status === 'partial')
+        .map(({ stepId, status, remaining }) => ({ stepId, status, remaining }))) : '';
       const text = [
         '[HARNESS RESUME] The multi-step plan you submitted reached a new state.',
         `planId: ${payload.planId || tracked.planId || '?'}`,
         `turnId: ${turnId}`,
         `state: ${planEvent.type || 'unknown'}`,
         detail ? `detail: ${detail}` : '',
+        partialResults ? `Partial result data (excerpt; full record in mc_plan_status): ${partialResults.slice(0, 4000)}` : '',
         'Re-read the world with mc_observe and verify the actual outcome before claiming anything.',
+        partial ? 'For partial, call mc_plan_status and inspect step.result.taskResult and step.result.remaining. Replan only the unfinished work with the same planId and current baseVersion; never replay the original quantity or claim completion without verified goal evidence.' : '',
         'If it completed, call mc_finish with achieved=true only when the world confirms it.',
         'If it failed or is waiting for the player, explain exactly what is missing; never invent success.'
       ]

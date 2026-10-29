@@ -1306,14 +1306,25 @@ if (STAGE === 'p1') {
     return '!state status|save; cannot enable persistence';
   });
 
-  check('P1: plan steps verify their postconditions', () => {
+  check('P1: plan steps verify prerequisites and completion evidence', () => {
     const runner = read('src/core/planRunner.js');
     const brain = read('src/brain.js');
-    if (!/typeof this\.verify === 'function'/.test(runner)) throw new Error('the runner never verifies');
-    if (!/postcondition:/.test(runner)) throw new Error('a failed postcondition is not reported');
-    if (!/finalStatus = 'failed'/.test(runner)) throw new Error('a failed postcondition does not stop the plan');
+    const precheck = runner.indexOf("await this._verify(step, 'precondition')");
+    const dispatch = runner.indexOf('task = this.createTask(step,');
+    if (precheck < 0 || dispatch < precheck) throw new Error('prerequisites must be checked before task creation');
+    if (!runner.includes("await this._verify(step, 'postcondition')") ||
+        !runner.includes('await this.verify(scoped, observation)')) throw new Error('the runner never verifies postconditions');
+    if (!runner.includes("phase === 'precondition' ? step.preconditions : undefined") ||
+        !runner.includes("phase === 'postcondition' ? step.postconditions : undefined")) {
+      throw new Error('verification mixes before and after conditions');
+    }
+    if (!runner.includes("finalStatus = status === 'partial' ? 'partial' : 'failed'") ||
+        !runner.includes("if (finalStatus !== 'succeeded') break")) throw new Error('an unmet goal does not stop the plan');
+    if (!runner.includes("hasConditions(step.postconditions) ? 'succeeded' : 'partial'")) {
+      throw new Error('partial can complete without explicit goal evidence');
+    }
     if (!/verify: \(step, observation\) => verifyStep/.test(brain)) throw new Error('brain does not inject the verifier');
-    return 'task ok + postcondition fail -> step failed, plan stops';
+    return 'before/after separated; unmet goal stops; partial needs positive evidence (M3 regression coverage)';
   });
 
   check('P1: the client body reports per-field freshness', () => {
