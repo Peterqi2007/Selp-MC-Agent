@@ -69,6 +69,7 @@ const HELP = [
   '!hold <action> [ms] - hold one key for at most 10s, then auto-release',
   '!shot [maxEdge] - capture the game frame to runtime/screenshots (no OS screen capture)',
   '!inputs - what keys are currently held, and since when',
+  '!tap <key> - edge press for toggle keys (inventory/drop/chat/swapoffhand/pickitem)',
   '!capabilities - channel table: capability-first order (skill -> input -> code generation)',
   '!smelt <item> [n] - smelt in a nearby furnace',
   '!fish [n] - fish for food (cast, wait for the bite, sleep at night)',
@@ -375,6 +376,20 @@ class ChatController {
         const held = status ? status.held.map((entry) => entry.action) : [];
         this.say(held.length ? `按住中: ${held.join(', ')}` : '没有按住的按键');
         return { ...status, mod: remote };
+      },
+      /**
+       * Edge press for toggle keys (M5). `!key`/`!hold` cannot open the inventory: vanilla
+       * opens it from a click counter, not from the key's down state.
+       */
+      tap: async (args) => {
+        const action = String(args[0] || '').trim();
+        if (!action) throw new Error('usage: !tap <inventory|drop|chat|swapoffhand|pickitem>');
+        if (!ctx.body || typeof ctx.body.tap !== 'function') {
+          throw new Error('this body has no edge-triggered key support');
+        }
+        const result = await ctx.body.tap(action);
+        this.say(result && result.ok ? `点击键 ${action}` : `点击键失败: ${(result && result.error) || '未知原因'}`);
+        return result;
       },
       shot: async (args) => {
         if (!ctx.body || typeof ctx.body.screenshot !== 'function') {

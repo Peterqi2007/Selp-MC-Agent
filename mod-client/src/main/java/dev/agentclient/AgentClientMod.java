@@ -60,6 +60,24 @@ public final class AgentClientMod {
                 Thread.currentThread().interrupt();
                 return;
             }
+            /**
+             * Headless driving must not be paused by focus changes.
+             *
+             * `pauseOnLostFocus` is on by default: whenever OS focus leaves the game window
+             * (i.e. every time the operator types in another app) Minecraft opens the
+             * PauseScreen and stops applying player input. Measured live 2026-10-29: the input
+             * layer reported `blockedByScreen=true` for every key while the snapshot still said
+             * `screen=null`, and the agent concluded "cannot walk". Disabling it keeps the
+             * client ticking with the window in the background.
+             */
+            net.minecraft.client.Minecraft.getInstance().execute(() -> {
+                try {
+                    net.minecraft.client.Minecraft.getInstance().options.pauseOnLostFocus = false;
+                    LOGGER.info("agent-client: pauseOnLostFocus disabled (headless input)");
+                } catch (Exception e) {
+                    LOGGER.warn("agent-client: could not disable pauseOnLostFocus: {}", e.toString());
+                }
+            });
             boolean started = http.start();
             if (started) {
                 LOGGER.info("agent-client ready - state: GET http://{}:{}/state", config.bindAddress, config.port);

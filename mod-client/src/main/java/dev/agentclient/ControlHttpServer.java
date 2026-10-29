@@ -490,6 +490,16 @@ public final class ControlHttpServer {
                 case "inputs" -> {
                     return actions.inputJson();
                 }
+                /**
+                 * Edge press for toggle keys (inventory / drop / chat / offhand / pick item).
+                 * `key`/`hold` cannot drive these: vanilla opens them from a click counter,
+                 * not from the key's down state (live 2026-10-29: `key inventory` was a
+                 * silent no-op while `screen` stayed null).
+                 */
+                case "tap" -> {
+                    String action = rest.isEmpty() ? "" : rest.trim();
+                    return actions.tapJson(action);
+                }
                 case "moveto", "goto" -> {
                     double[] xyz = numbers(rest, 3);
                     double range = numbers(rest, 4) != null ? numbers(rest, 4)[3] : 1.5D;

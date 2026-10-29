@@ -255,6 +255,19 @@ final class ClientStateSnapshot {
         out.put("hostiles", hostilesJson(level, player));
         out.put("itemDrops", itemDropsJson(level, player));
         out.put("players", playersJson(level, player));
+        /**
+         * Everything nearby that is not a block, including MOD entities.
+         *
+         * 2026-10-29 live: the player stood on a modded stool, which is an Entity and not a
+         * BlockState. Nothing in the snapshot described it, so the agent saw "air under my
+         * feet, onGround=false, keys do nothing" with no way to find out why. A short entity
+         * list is the missing half of the world model.
+         */
+        out.put("entities", entitiesJson(level, player));
+        /** The entity carrying us (boat/minecart/seat), or "null". */
+        out.put("riding", ridingJson(level, player));
+        /** The entity under our feet (chair/stool), or "null". */
+        out.put("standingOnEntity", standingOnEntityJson(level, player));
 
         return Json.obj(out);
     }
@@ -455,6 +468,74 @@ final class ClientStateSnapshot {
     }
 
     // ----------------------------------------------------------------- entities
+
+    /** Nearby non-block entities, including mod ones (stools, chairs, boats, minecarts). */
+    private static String entitiesJson(ClientLevel level, LocalPlayer player) {
+        List<String> parts = new ArrayList<>();
+        for (Entity entity : level.entitiesForRendering()) {
+            if (entity == player || !entity.isAlive()) {
+                continue;
+            }
+            double d = entity.distanceTo(player);
+            if (d > 16.0D) {
+                continue;
+            }
+            String kind;
+            if (entity instanceof Monster) {
+                kind = "hostile";
+            } else if (entity instanceof ItemEntity) {
+                kind = "item";
+            } else if (entity instanceof net.minecraft.world.entity.player.Player) {
+                kind = "player";
+            } else if (entity instanceof LivingEntity) {
+                kind = "living";
+            } else {
+                kind = "entity";
+            }
+            parts.add(entityJson(entity, d, kind));
+        }
+        return "[" + String.join(",", parts) + "]";
+    }
+
+    /** The entity whose passenger list contains us (boat / minecart / seat). */
+    private static String ridingJson(ClientLevel level, LocalPlayer player) {
+        for (Entity entity : level.entitiesForRendering()) {
+            if (entity == player) {
+                continue;
+            }
+            for (Entity passenger : entity.getPassengers()) {
+                if (passenger == player) {
+                    return entityJson(entity, entity.distanceTo(player), "vehicle");
+                }
+            }
+        }
+        return Json.str("null");
+    }
+
+    /**
+     * The entity we are standing on.
+     *
+     * A modded stool/chair is an Entity with a hitbox, so the block under the player is air
+     * while `onGround` stays false. Matching the hitbox top against our feet is what makes
+     * that visible (live 2026-10-29).
+     */
+    private static String standingOnEntityJson(ClientLevel level, LocalPlayer player) {
+        double feetY = player.getY();
+        for (Entity entity : level.entitiesForRendering()) {
+            if (entity == player || !entity.isAlive()) {
+                continue;
+            }
+            double dx = entity.getX() - player.getX();
+            double dz = entity.getZ() - player.getZ();
+            if (Math.hypot(dx, dz) > 1.2D) {
+                continue;
+            }
+            if (Math.abs(entity.getBoundingBox().maxY - feetY) <= 0.6D) {
+                return entityJson(entity, entity.distanceTo(player), "standing-on");
+            }
+        }
+        return Json.str("null");
+    }
 
     private static String hostilesJson(ClientLevel level, LocalPlayer player) {
         List<String> parts = new ArrayList<>();

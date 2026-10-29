@@ -128,7 +128,7 @@ async function main() {
     assert.deepStrictEqual(table.order, ['code-skill', 'command', 'input', 'code-generation']);
     assert.strictEqual(table.channels.length, 4);
     assert(table.channels.every((channel) => channel.when && channel.example !== undefined));
-    assert.deepStrictEqual(table.inputCommands, ['key', 'hold', 'shot', 'inputs']);
+    assert.deepStrictEqual(table.inputCommands, ['key', 'hold', 'tap', 'shot', 'inputs']);
     assert(table.skills.includes('chop'));
     assert(!table.skills.includes('key'), 'input verbs must not be listed as skills');
     assert.match(table.codeSkills.generation, /operator-only/i);

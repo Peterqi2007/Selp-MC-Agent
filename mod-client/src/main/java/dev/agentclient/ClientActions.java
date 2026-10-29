@@ -1,6 +1,7 @@
 package dev.agentclient;
 
 import com.mojang.blaze3d.platform.NativeImage;
+import net.minecraft.client.KeyMapping;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.Screenshot;
 import net.minecraft.client.multiplayer.ClientLevel;
@@ -2191,10 +2192,61 @@ public final class ClientActions {
             // so setting them here is what a player's finger does, not a forged packet.
             case "attack" -> mc.options.keyAttack.setDown(down);
             case "sneak" -> mc.options.keyShift.setDown(down);
-            case "drop" -> mc.options.keyDrop.setDown(down);
-            case "inventory" -> mc.options.keyInventory.setDown(down);
             default -> { }
         }
+    }
+
+    /**
+     * Edge-triggered keys, which `setDown` cannot drive.
+     *
+     * Vanilla opens the inventory / drops an item from `KeyMapping.consumeClick()` - a click
+     * counter - not from the key's down state. `key inventory down/up` therefore returned
+     * `ok:true` while nothing opened (live 2026-10-29: `screen` stayed null). These keys need
+     * {@link KeyMapping#click}, which is what a real key press does.
+     */
+    private static KeyMapping tapMapping(String action) {
+        Minecraft mc = Minecraft.getInstance();
+        return switch (action) {
+            case "inventory" -> mc.options.keyInventory;
+            case "drop" -> mc.options.keyDrop;
+            case "chat" -> mc.options.keyChat;
+            case "swapoffhand" -> mc.options.keySwapOffhand;
+            case "pickitem" -> mc.options.keyPickItem;
+            default -> null;
+        };
+    }
+
+    private static String normaliseTap(String action) {
+        String name = action == null ? "" : action.trim().toLowerCase(Locale.ROOT);
+        return switch (name) {
+            case "inventory", "drop", "chat", "swapoffhand", "pickitem" -> name;
+            case "dropitem" -> "drop";
+            case "offhand" -> "swapoffhand";
+            default -> null;
+        };
+    }
+
+    /** Edge press: one click of a toggle key (inventory, drop, chat, offhand, pick item). */
+    public String tapJson(String action) {
+        String name = normaliseTap(action);
+        if (name == null) {
+            return inputError("'" + action + "' is not an edge-triggered key "
+                    + "(inventory|drop|chat|swapoffhand|pickitem); use key/hold for held keys");
+        }
+        KeyMapping mapping = tapMapping(name);
+        if (mapping == null) {
+            return inputError("key '" + name + "' has no keybind on this client");
+        }
+        return onClient(() -> {
+            KeyMapping.click(mapping.getKey());
+            Map<String, String> out = new LinkedHashMap<>();
+            out.put("ok", Json.bool(true));
+            out.put("action", Json.str(name));
+            out.put("tap", Json.bool(true));
+            out.put("tick", Json.num(this.clientTick));
+            out.put("blockedByScreen", Json.bool(mc.screen != null));
+            return Json.obj(out);
+        });
     }
 
     /** Canonical key names, so a typo fails loudly instead of doing nothing quietly. */
@@ -2202,11 +2254,13 @@ public final class ClientActions {
         String name = action == null ? "" : action.trim().toLowerCase(Locale.ROOT);
         return switch (name) {
             case "forward", "back", "left", "right", "jump", "sprint", "use",
-                 "attack", "sneak", "drop", "inventory" -> name;
+                 "attack", "sneak" -> name;
             // Friendly aliases: the action brain says "mine"/"hit", the keybind is attack.
             case "mine", "hit", "dig" -> "attack";
             case "shift", "crouch" -> "sneak";
             case "eat" -> "use";
+            // Toggle keys cannot be held: they are opened by a click, not by the down state.
+            case "drop", "inventory", "chat", "swapoffhand", "pickitem" -> null;
             default -> null;
         };
     }

@@ -28,12 +28,13 @@ const MAX_HOLD_MS = 10_000;
 /**
  * Release order. Attack/use first: those are the actions that change the world, and
  * releasing movement first would let a held attack keep running while the bot walks.
+ *
+ * Toggle keys (inventory/drop/chat/...) are deliberately absent: they are edge-triggered
+ * (`tap`), cannot be held, and have nothing to release.
  */
 const RELEASE_ORDER = [
   'attack',
   'use',
-  'drop',
-  'inventory',
   'forward',
   'back',
   'left',

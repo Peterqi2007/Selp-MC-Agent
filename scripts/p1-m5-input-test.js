@@ -160,6 +160,17 @@ async function main() {
       'the echoed command does not go through redactCommand');
   });
 
+  await check('toggle keys are edge-triggered through KeyMapping.click', () => {
+    const actions = read('mod-client/src/main/java/dev/agentclient/ClientActions.java');
+    const server = read('mod-client/src/main/java/dev/agentclient/ControlHttpServer.java');
+    assert.match(actions, /public String tapJson\(String action\)/, 'no tapJson');
+    assert.match(actions, /KeyMapping\.click\(mapping\.getKey\(\)\)/, 'tap does not click the keybind');
+    assert.match(server, /case "tap" ->/, 'no tap verb');
+    // inventory/drop must NOT be holdable: setDown on them is a silent no-op.
+    assert.doesNotMatch(actions, /case "inventory" -> mc\.options\.keyInventory\.setDown/,
+      'inventory is still offered as a held key');
+  });
+
   // ------------------------------------------------------------ input ledger
   process.stdout.write('\n3. input ledger: record, release, never leak\n');
 
@@ -279,7 +290,8 @@ async function main() {
     await body.key('attack', false);
     await body.hold('use', 1200);
     await body.inputState();
-    assert.deepStrictEqual(sent, ['key forward down', 'key attack up', 'hold use 1200', 'inputs']);
+    await body.tap('inventory');
+    assert.deepStrictEqual(sent, ['key forward down', 'key attack up', 'hold use 1200', 'inputs', 'tap inventory']);
   });
 
   await check('screenshot writes a real PNG and reports its size', async () => {

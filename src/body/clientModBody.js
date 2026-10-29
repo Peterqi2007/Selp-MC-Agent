@@ -1323,6 +1323,17 @@ class ClientModBody extends Body {
   }
 
   /**
+   * Edge press for toggle keys (inventory / drop / chat / swapoffhand / pickitem).
+   *
+   * A hold cannot do these: vanilla opens the inventory from a click counter, not from the
+   * key's down state, so `key inventory` is a silent no-op (measured live 2026-10-29).
+   */
+  async tap(action) {
+    const res = await this.command(`tap ${action}`);
+    return res || { ok: false, error: 'no response' };
+  }
+
+  /**
    * Capture the client's own frame and save it as PNG (M5 perception).
    *
    * F1'a: the pixels come from the game's main render target, not from an OS screen grab,

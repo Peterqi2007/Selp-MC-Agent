@@ -21,7 +21,7 @@
  */
 
 /** Commands that are the raw input layer rather than a semantic skill. */
-const INPUT_COMMANDS = Object.freeze(['key', 'hold', 'shot', 'inputs']);
+const INPUT_COMMANDS = Object.freeze(['key', 'hold', 'tap', 'shot', 'inputs']);
 const INPUT_SET = new Set(INPUT_COMMANDS);
 
 /** Ordered channels, most deterministic first. */
