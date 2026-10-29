@@ -215,6 +215,17 @@ async function main() {
   });
 
   // ------------------------------------------------- never generate alone
+  await check('the capability table teaches channel escalation after repeated failure', () => {
+    const { describe } = require('../src/core/channelPolicy');
+    const table = describe({ chat: { handlers: {} }, codeSkills: { status: () => ({ promoted: [] }) } });
+    assert(table.escalation, 'escalation block missing');
+    assert.match(table.escalation.rule, /twice/);
+    assert.match(table.escalation.rule, /input layer/);
+    assert(table.escalation.inputVerbs.includes('key'));
+    assert(table.escalation.inputExamples.includes('hold attack 600'));
+    assert(table.escalation.inputExamples.includes('tap inventory'));
+  });
+
   process.stdout.write('\n4. code generation stays operator-only\n');
 
   await check('generation is only reachable from the operator HTTP endpoint', () => {

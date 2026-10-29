@@ -409,10 +409,15 @@ function toolDefinitions({ controlUrl, record, log, runtime }) {
     description:
       'Execute ONE Minecraft action through the local agent, e.g. "goto 70 64 32", ' +
       '"mine dirt 2", "chop 2", "fish 3", "withdraw dirt 5", "follow Target 60", "stop". ' +
-      'The same table also exposes the raw input layer ("key forward down", "hold attack 600", ' +
-      '"look 90 0", "shot 768") and promoted code skills ("code-skill <name>"). ' +
-      'Capability-first: call mc_capabilities once before choosing a channel - prefer a ' +
-      'registered skill or command, use the input layer only when no skill covers the action. ' +
+      'The same table also exposes the raw input layer: "key <action> down|up" ' +
+      '(forward/back/left/right/jump/sprint/sneak/use/attack), "hold <action> [ms]" (<=10s), ' +
+      'e.g. "key forward down" then "key forward up" (a stuck skill can be replaced by input), ' +
+      '"tap <inventory|drop|chat|swapoffhand|pickitem>", "hold attack 600", "look <yaw> <pitch>", ' +
+      '"menu" / "click <slot> [button] [mode]" / "close", "shot 768", "inputs". ' +
+      'Promoted code skills run as "code-skill <name>". ' +
+      'Call mc_capabilities once before choosing a channel. Capability-first: prefer a promoted code skill or ' +
+      'registered command on the FIRST attempt; if the same command/skill fails twice for the ' +
+      'same reason, stop retrying it and do the work with input-layer steps instead. ' +
       'Never send multiple actions in one call.',
     parameters: {
       type: 'object',
@@ -951,10 +956,18 @@ export function apply(ctx, config = {}) {
       '',
       'Tool contract:',
       '- Before a task read mc_state(fields=[...]) once; use mc_perception on a perception wake.',
-      '- Call mc_capabilities once before choosing HOW to act. Channel order is',
-      '  capability-first: promoted code skill -> registered command/deterministic skill ->',
-      '  raw input layer (key/hold/look/shot) -> propose code generation. The input layer is a',
-      '  fallback for things no skill covers (mod GUIs, keys without a verb), not the default.',
+      '- Call mc_capabilities once before choosing HOW to act. The FIRST attempt is',
+      '  capability-first: promoted code skill -> registered command/skill -> raw input layer.',
+      '- STUCK PROTOCOL (operator feedback 2026-10-29: the brain kept retrying a registered',
+      '  skill and never considered the keyboard). If a command/skill fails twice for the SAME',
+      '  reason, do NOT call it a third time. Diagnose with mc_state, then do the work YOURSELF',
+      '  through the raw input layer, one action per mc_step:',
+      '    "key forward down" / "key forward up" / "hold attack 600" / "tap inventory" /',
+      '    "look 180 0" / "menu" / "click 10 0 pickup" / "close" / "shot 768".',
+      '  Check position/screen between input steps and adjust. Retrying the same failed command',
+      '  is never a strategy; switching channels is.',
+      '- Only when no key can express the action either (mod GUI without a key binding) propose',
+      '  code generation: it is operator-gated and never automatic.',
       '- Decompose multi-step work into mc_plan with checkable postconditions; do not replay the',
       '  same steps with mc_step.',
       '- On a failed step read mc_plan_status (state/version/steps/budget), then replan with the',
@@ -1640,9 +1653,12 @@ export function apply(ctx, config = {}) {
           'Commands are the local agent command table, without the leading "!". The full, live',
           'list is in mc_capabilities - call it once instead of guessing. Common channels:',
           'semantic skills (chop, mine, craft, farm, goto, sleep, ...), the raw input layer',
-          '(key <action> down|up, hold <action> [ms], look <yaw> <pitch>, shot [maxEdge]), and',
-          'promoted code skills (code-skill <name>). Capability-first: a registered skill wins;',
-          'use the input layer only for actions no skill covers (mod GUIs, bare keys).',
+          '(key <action> down|up, hold <action> [ms], tap <toggle key>, look <yaw> <pitch>,',
+          'menu/click/close, shot [maxEdge], inputs), and promoted code skills (code-skill',
+          '<name>). Capability-first applies to the FIRST attempt. If a skill fails twice for',
+          'the same reason, stop retrying it: switch to input-layer steps (key/hold/tap/look/',
+          'menu/click/close), verify screen/position between them, and only propose code',
+          'generation when even the input layer cannot express the action.',
           'On a perception wake or before planning after a change, call mc_perception',
           '(type = all/threat/weather/phase/chat) to read the edge events.',
           'Before executing a task, call mc_state(fields=[...]) ONCE and choose the fields',

@@ -204,6 +204,25 @@ function describe(ctx) {
     channels: CHANNELS.map((channel) => ({ ...channel })),
     skills: verbs.filter((verb) => !INPUT_SET.has(verb)),
     inputCommands: [...INPUT_COMMANDS],
+    /**
+     * Behavioural rule, not a channel: a channel that failed twice must escalate instead of
+     * being retried. Live 2026-10-29: the brain retried registered skills and never tried the
+     * keyboard until the goal text spelled this out.
+     */
+    escalation: {
+      rule: 'a command/skill that fails twice for the same reason must not be retried a third time: read mc_state, then act through the input layer (key/hold/tap/look/menu/click/close); propose code generation only when no key can express the action',
+      inputVerbs: [...INPUT_COMMANDS],
+      inputExamples: [
+        'key forward down',
+        'key forward up',
+        'hold attack 600',
+        'tap inventory',
+        'look 180 0',
+        'menu',
+        'click 10 0 pickup',
+        'close'
+      ]
+    },
     codeSkills: {
       promoted: promoted.map((entry) => ({
         name: entry.name,

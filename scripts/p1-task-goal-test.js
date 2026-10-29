@@ -69,6 +69,12 @@ async function main() {
     assert.match(request.goal, /玩家下发任务：!mine dirt 2/);
     assert.match(request.goal, /不要重复/);
     assert.match(request.goal, /不要把 Node 的失败回执当成成功/);
+    // Stuck protocol (2026-10-29): repeated failure must switch to the keyboard, not retry.
+    assert.match(request.goal, /连续两次/);
+    assert.match(request.goal, /不要再重试/);
+    assert.match(request.goal, /key forward down\/up/);
+    assert.match(request.goal, /hold attack 600/);
+    assert.match(request.goal, /tap inventory/);
   });
 
   await check('the goal text tells the brain to supervise, not to redo the skill', async () => {
