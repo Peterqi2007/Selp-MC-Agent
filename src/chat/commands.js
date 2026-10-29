@@ -73,7 +73,7 @@ const HELP = [
   '!capabilities - channel table: capability-first order (skill -> input -> code generation)',
   '!smelt <item> [n] - smelt in a nearby furnace',
   '!fish [n] - fish for food (cast, wait for the bite, sleep at night)',
-  '!code-skill list | <name> [json] - list/run a promoted generated code skill (sandboxed)',
+  '!code-skill list | find <text> | history <name> | <name> [json] - list/search/run a promoted code skill',
   '!farm [radius] - harvest ripe crops, till soil, plant seeds',
   '!sleep - sleep in a nearby bed until morning',
   '!goal <text> - queue a goal in words',
@@ -466,8 +466,34 @@ class ChatController {
           );
           return { ok: true, promoted };
         }
+        /**
+         * Retrieval diagnostics (2026-10-29): `find` shows the similarity ranking the channel
+         * policy uses, `history` shows the version chain (evolution, not overwrite).
+         */
+        if (first === 'find' || first === 'search') {
+          const query = args.slice(1).join(' ').trim();
+          if (!query) throw new Error('usage: !code-skill find <text>');
+          if (typeof ctx.codeSkills.retrieveSync !== 'function') throw new Error('retrieval is not enabled');
+          const composed = typeof ctx.codeSkills.skillQuery === 'function' ? ctx.codeSkills.skillQuery(query) : query;
+          const result = ctx.codeSkills.retrieveSync(composed);
+          const hits = (result && result.hits) || [];
+          this.say(hits.length
+            ? `最相近: ${hits.map((hit) => `${hit.name}@${hit.version}(${hit.score})`).join(', ')}`
+            : '没有相似度达标的已晋升技能');
+          return { ok: true, query, composed, embedder: result && result.embedder, hits };
+        }
+        if (first === 'history') {
+          const wanted = String(args[1] || '').trim();
+          if (!wanted) throw new Error('usage: !code-skill history <name>');
+          if (typeof ctx.codeSkills.history !== 'function') throw new Error('history is not enabled');
+          const chain = ctx.codeSkills.history(wanted);
+          this.say(chain.versions.length
+            ? `${wanted}: ${chain.versions.map((entry) => `${entry.version}(${entry.status})`).join(' -> ')}`
+            : `没有 ${wanted} 的版本记录`);
+          return { ok: true, ...chain };
+        }
         const name = first === 'run' ? String(args[1] || '').trim() : first;
-        if (!name) throw new Error('usage: !code-skill list | !code-skill <name> [json params]');
+        if (!name) throw new Error('usage: !code-skill list | find <text> | history <name> | <name> [json params]');
         if (!promoted.some((skill) => skill.name === name)) {
           throw new Error(`unknown promoted code skill "${name}" (try !code-skill list)`);
         }

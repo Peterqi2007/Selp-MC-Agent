@@ -29,8 +29,16 @@ const { CodeSkillStore } = require('./store');
 const { CodeSkillDirectory } = require('./directory');
 const { CodeSkillGenerator, scanCode } = require('./generator');
 const { isDaytime } = require('../world/daytime');
-const { validateManifest, ALLOWED_PERMISSIONS } = require('./manifest');
-const { BODY_PERMISSIONS } = require('./capabilities');
+const {
+  validateManifest,
+  ALLOWED_PERMISSIONS,
+  INPUT_PERMISSIONS: INPUT_PERMISSION_NAMES,
+  permissionsForApiVersion,
+  compareVersions
+} = require('./manifest');
+const { BODY_PERMISSIONS, INPUT_PERMISSIONS } = require('./capabilities');
+const { checkCondition } = require('../planner/verifier');
+const { SkillIndex, LocalEmbedder, HttpEmbedder, buildSkillQuery } = require('./retrieval');
 const { SandboxRunner } = require('./sandboxRunner');
 const { ClientModBody } = require('../body/clientModBody');
 
@@ -58,6 +66,12 @@ function atomicWrite(file, data) {
 }
 
 function summarizeRun(result) {
+  const calls = Array.isArray(result.calls) ? result.calls : [];
+  const logs = Array.isArray(result.logs) ? result.logs : [];
+  const stderr = logs
+    .filter((entry) => entry && entry.stream === 'stderr' && entry.text)
+    .map((entry) => entry.text)
+    .join('');
   return {
     ok: result.ok === true,
     executed: result.executed === true,
@@ -68,9 +82,20 @@ function summarizeRun(result) {
     cancelled: result.cancelled === true,
     durationMs: result.durationMs || null,
     callCount: result.callCount || 0,
-    calls: result.calls || [],
-    logs: result.logs || [],
-    exit: result.exit || null
+    calls,
+    logs,
+    exit: result.exit || null,
+    /**
+     * Verbatim failure material (2026-10-29). The Voyager-style repair loop feeds exactly
+     * these strings back into the generator; dropping `stack` here was why the old one-shot
+     * path had nothing to repair with.
+     */
+    stack: result.stack ? String(result.stack).slice(0, 4000) : null,
+    stderrTail: stderr ? stderr.slice(-2000) : null,
+    failedCalls: calls
+      .filter((call) => call && call.ok === false && call.error)
+      .slice(0, 10)
+      .map((call) => ({ capability: call.capability, error: call.error, argsBytes: call.argsBytes || 0 }))
   };
 }
 
@@ -117,6 +142,21 @@ class CodeSkillService {
     this._runGeneration = new Map();
     this._active = new Map();
     this._chatAt = 0;
+    /** Voyager-style repair loop: at most this many generation attempts per request. */
+    this.maxRounds = Math.min(Math.max(Number(deps.maxRounds) || 4, 1), 4);
+    /** v1/v2 skills keep running unless the operator forbids them. */
+    this.allowLegacyBody = deps.allowLegacyBody !== false;
+    this.retrievalCfg = deps.retrieval || {};
+    this.embeddingCfg = (deps.retrieval && deps.retrieval.embedding) || deps.embedding || {};
+    this.index =
+      deps.index ||
+      new SkillIndex({
+        embedder: this._makeEmbedder(),
+        k: this.retrievalCfg.k,
+        minScore: this.retrievalCfg.minScore,
+        log: this.log
+      });
+    this._indexDirty = true;
     /**
      * A19 live 2026-10-25: a hard-killed host leaves its throwaway `run-*` sandbox behind
      * (the parent is the only cleaner). The child does die on IPC disconnect, but the
@@ -153,7 +193,18 @@ class CodeSkillService {
     return {
       root: this.root,
       candidates: this.store.list(),
-      promoted: [...this.store.promoted.entries()].map(([name, pointer]) => ({ name, ...pointer })),
+      promoted: [...this.store.promoted.entries()].map(([name, pointer]) => {
+        const record = this.store.getCandidate(name, pointer.version) || null;
+        return {
+          name,
+          ...pointer,
+          lineage: record ? record.lineage || null : null,
+          description: record && record.manifest ? record.manifest.description || '' : ''
+        };
+      }),
+      versions: this._versionSummary(),
+      retrieval: this.index && typeof this.index.status === 'function' ? this.index.status() : null,
+      repair: { maxRounds: this.maxRounds, allowLegacyBody: this.allowLegacyBody },
       sandbox: { timeoutMs: this.sandbox.timeoutMs, maxCalls: this.sandbox.maxCalls },
       active: [...this._active.keys()],
       search: this.search && typeof this.search.status === 'function' ? this.search.status() : null,
@@ -174,42 +225,248 @@ class CodeSkillService {
     return this.store.getCandidate(name, version);
   }
 
+  /** name -> [{version,status,lineage,verification}] for `status()` / `!code-skill history`. */
+  _versionSummary() {
+    const names = new Set();
+    for (const key of this.store.candidates.keys()) names.add(key.split('@')[0]);
+    for (const name of this.store.promoted.keys()) names.add(name);
+    const out = {};
+    for (const name of [...names].sort()) {
+      out[name] = this.store.listVersions(name).map((entry) => ({
+        version: entry.version,
+        status: entry.status,
+        lineage: entry.lineage || null,
+        verification: entry.verification || null
+      }));
+    }
+    return out;
+  }
+
+  /** Local hashed vectors by default; an OpenAI-compatible endpoint when configured. */
+  _makeEmbedder() {
+    const cfg = this.embeddingCfg || {};
+    const provider = String(cfg.provider || 'local').toLowerCase();
+    if (provider === 'http' && cfg.url) {
+      return new HttpEmbedder({
+        url: cfg.url,
+        model: cfg.model,
+        apiKey: cfg.apiKey || (cfg.apiKeyEnv ? process.env[cfg.apiKeyEnv] : null) || null,
+        timeoutMs: cfg.timeoutMs
+      });
+    }
+    return new LocalEmbedder({ dim: Number(cfg.dim) || undefined });
+  }
+
+  /** Next patch version for an evolving skill; never reuses an existing version. */
+  nextVersion(name, options = {}) {
+    const versions = this.store.listVersions(name).map((entry) => entry.version);
+    const pointer = this.store.getPromoted(name);
+    if (pointer) versions.push(pointer.version);
+    const latest = versions.sort(compareVersions).pop() || '0.0.0';
+    const [major, minor, patch] = latest.split('.').map((value) => Number(value) || 0);
+    if (options.bump === 'major') return `${major + 1}.0.0`;
+    if (options.bump === 'minor') return `${major}.${minor + 1}.0`;
+    return `${major}.${minor}.${patch + 1}`;
+  }
+
+  /**
+   * Observation for declarative skill conditions.
+   *
+   * `ctx.world.snapshot(true)` is the same flat view PlanRunner verifies against; the block
+   * scan stays in its `{cells}` envelope, which the verifier now understands.
+   */
+  _observationForVerification() {
+    const world = this.ctx && this.ctx.world;
+    let snapshot = null;
+    try {
+      if (world && typeof world.snapshot === 'function') snapshot = world.snapshot(true);
+      else if (this.ctx && this.ctx.body && typeof this.ctx.body.snapshot === 'function') snapshot = this.ctx.body.snapshot();
+    } catch (err) {
+      snapshot = null;
+    }
+    if (!snapshot || snapshot.ready === false) return null;
+    return {
+      ...snapshot,
+      inventory: snapshot.inventory || {},
+      position: snapshot.position || null,
+      blocks: snapshot.blocks || {},
+      target: snapshot.target || null
+    };
+  }
+
+  /** Evaluate one declarative condition map (preconditions or verification). */
+  checkSkillConditions(conditions, label = 'condition') {
+    if (!conditions || typeof conditions !== 'object' || Object.keys(conditions).length === 0) {
+      return { ok: true, failures: [], label };
+    }
+    const observation = this._observationForVerification();
+    if (!observation) {
+      return { ok: false, failures: [{ kind: 'missing-observation' }], label, reason: `${label}-unobservable` };
+    }
+    const failures = checkCondition(conditions, observation);
+    return { ok: failures.length === 0, failures, label, reason: failures.length ? `${label}-failed` : null };
+  }
+
+  /**
+   * Postcondition check for a candidate: this is what makes the fourth tuple member real.
+   * A failing verification quarantines the version (store.markVerification) so it can never
+   * be promoted, and its failures become repair feedback for the next round.
+   */
+  verifySkill(name, version) {
+    const record = this.store.getCandidate(name, version);
+    if (!record) return { ok: false, reason: 'unknown-candidate', failures: [] };
+    const outcome = this.checkSkillConditions(record.manifest.verification || {}, 'verification');
+    this.store.markVerification(name, version, { ok: outcome.ok, failures: outcome.failures });
+    this._save();
+    return {
+      ok: outcome.ok,
+      failures: outcome.failures,
+      conditions: record.manifest.verification || {},
+      reason: outcome.reason
+    };
+  }
+
+  /** Version chain for one skill (promotion, lineage, verification). */
+  history(name) {
+    const pointer = this.store.getPromoted(name);
+    return {
+      name,
+      promoted: pointer ? pointer.version : null,
+      versions: this.store.listVersions(name).map((entry) => ({
+        version: entry.version,
+        status: entry.status,
+        lineage: entry.lineage || null,
+        verification: entry.verification || null,
+        description: entry.manifest && entry.manifest.description ? entry.manifest.description : '',
+        preconditions: entry.manifest ? entry.manifest.preconditions || {} : {},
+        verificationConditions: entry.manifest ? entry.manifest.verification || {} : {}
+      }))
+    };
+  }
+
+  /** Promoted entries with manifests, for the retrieval index. */
+  _promotedEntries() {
+    const entries = [];
+    for (const [name, pointer] of this.store.promoted) {
+      const record = this.store.getCandidate(name, pointer.version);
+      if (!record || record.status !== 'promoted') continue;
+      entries.push({ name, version: pointer.version, manifest: record.manifest, status: 'promoted' });
+    }
+    return entries;
+  }
+
+  _markIndexDirty() {
+    this._indexDirty = true;
+    if (this.index) this.index.stale = true;
+  }
+
+  /** Async retrieval (HTTP embedder capable). Rebuilds the index when promotion changed it. */
+  async retrieve(query, options = {}) {
+    if (this._indexDirty || this.index.stale) {
+      await this.index.rebuild(this._promotedEntries());
+      this._indexDirty = false;
+    }
+    return this.index.search(query, options);
+  }
+
+  /** Synchronous retrieval for the capability table (local embedder only). */
+  retrieveSync(query, options = {}) {
+    if (this._indexDirty || this.index.stale) {
+      const built = this.index.buildNow(this._promotedEntries());
+      if (built.ok) this._indexDirty = false;
+    }
+    return this.index.searchSync(query, options);
+  }
+
+  /** Skill query = context + what the last round was missing (Voyager voyager.py:245-249). */
+  skillQuery(action) {
+    return buildSkillQuery(this.ctx, action);
+  }
+
   /**
    * Generate a real candidate and write it to candidates/. The model output is validated
    * and statically scanned first; it is never imported here.
    */
-  async generateCandidate({ prompt, manifest = null, source = 'generated', requestId = null } = {}) {
+  async generateCandidate(input = {}) {
+    const {
+      prompt,
+      manifest = null,
+      source = 'generated',
+      requestId = null,
+      feedback = null,
+      evolveFrom = null,
+      round = null,
+      apiVersion = 3
+    } = input;
     if (!this.generation || typeof this.generation.generate !== 'function') {
       return { ok: false, reason: 'no-generation-backend' };
     }
     if (typeof prompt !== 'string' || !prompt.trim()) return { ok: false, reason: 'empty-prompt' };
     if (prompt.length > 4000) return { ok: false, reason: 'prompt-too-long' };
-    const generated = await this.generation.generate({ prompt, manifest, requestId });
+    const generated = await this.generation.generate({ prompt, manifest, requestId, feedback });
     if (!generated.ok) return generated;
-    const validation = validateManifest(generated.manifest);
-    if (!validation.ok) return { ok: false, reason: 'invalid-manifest', errors: validation.errors };
-    const scan = scanCode(generated.code, { maxBytes: 64 * 1024 });
-    if (!scan.ok) return { ok: false, reason: 'unsafe-code', errors: scan.errors };
-    const name = generated.manifest.name;
-    const version = generated.manifest.version;
-    if (this.store.getCandidate(name, version)) {
-      return { ok: false, reason: 'duplicate-version', name, version };
+
+    const skillManifest = { ...generated.manifest };
+    /**
+     * v3 is the generation surface (2026-10-29). A model answering apiVersion 2 is repaired,
+     * not silently accepted: the whole point is input-layer scripts, not body primitives.
+     */
+    if (Number(skillManifest.apiVersion) !== Number(apiVersion)) {
+      return {
+        ok: false,
+        reason: 'manifest-api-version',
+        errors: [`apiVersion-must-be-${apiVersion}`],
+        manifest: skillManifest,
+        code: generated.code
+      };
     }
-    const written = this.directory.writeCandidate(generated.manifest, generated.code);
+    const evolveName = evolveFrom && evolveFrom.name ? String(evolveFrom.name) : null;
+    if (evolveName) skillManifest.name = evolveName;
+    /**
+     * Evolution, not replacement: an evolution request always takes the next patch version,
+     * and even a first-time name collision is bumped instead of overwritten.
+     */
+    const duplicate = skillManifest.name && skillManifest.version
+      ? this.store.getCandidate(skillManifest.name, skillManifest.version)
+      : null;
+    if (evolveName || duplicate) {
+      skillManifest.version = this.nextVersion(skillManifest.name);
+    }
+
+    const validation = validateManifest(skillManifest);
+    if (!validation.ok) {
+      return { ok: false, reason: 'invalid-manifest', errors: validation.errors, manifest: skillManifest, code: generated.code };
+    }
+    const scan = scanCode(generated.code, { maxBytes: 64 * 1024, apiVersion: skillManifest.apiVersion });
+    if (!scan.ok) {
+      return { ok: false, reason: 'unsafe-code', errors: scan.errors, manifest: skillManifest, code: generated.code };
+    }
+    const written = this.directory.writeCandidate(skillManifest, generated.code);
     if (!written.ok) return written;
-    const added = this.store.addCandidate(generated.manifest, { source });
+    const lineage = {
+      root: evolveFrom ? evolveFrom.root || evolveFrom.name || skillManifest.name : skillManifest.name,
+      parent: evolveFrom ? evolveFrom.version || null : null,
+      round: Number.isFinite(Number(round)) ? Number(round) : null,
+      trigger: evolveFrom ? input.trigger || (feedback ? 'trial-failed' : 'manual') : null
+    };
+    const added = this.store.addCandidate(skillManifest, { source, lineage });
     if (!added.ok) return added;
     this._save();
-    this.log.info(`code skill candidate written: ${name}@${version} (${scan.bytes} bytes)`);
+    this.log.info(
+      `code skill candidate written: ${skillManifest.name}@${skillManifest.version} (${scan.bytes} bytes`
+      + `${lineage.parent ? `, evolves ${lineage.parent}` : ''})`
+    );
     return {
       ok: true,
-      name,
-      version,
+      name: skillManifest.name,
+      version: skillManifest.version,
       key: added.key,
       status: 'candidate',
       bytes: scan.bytes,
       dir: written.dir,
-      manifest: generated.manifest
+      manifest: skillManifest,
+      lineage,
+      round
     };
   }
 
@@ -222,13 +479,42 @@ class CodeSkillService {
     }
     const onDisk = this.directory.readCandidate(name, version);
     if (!onDisk) return { ok: false, reason: 'candidate-code-missing' };
+    if (Number(onDisk.manifest.apiVersion) < 3 && this.allowLegacyBody !== true) {
+      return { ok: false, name, version, reason: 'legacy-skill-disabled' };
+    }
+    /**
+     * Preconditions run BEFORE the sandbox: a skill whose world assumptions do not hold is
+     * refused without spending a child process, and the failure is repair feedback.
+     */
+    const precondition = this.checkSkillConditions(onDisk.manifest.preconditions || {}, 'precondition');
+    if (!precondition.ok) {
+      const record = this.store.recordTrial(name, version, {
+        ok: false,
+        report: { ok: false, reason: precondition.reason, failures: precondition.failures }
+      });
+      this._save();
+      return {
+        ok: false,
+        name,
+        version,
+        status: record.status || 'quarantined',
+        reason: precondition.reason,
+        failures: precondition.failures
+      };
+    }
 
     /**
      * Direct-body trials must be the only body owner. A live agent task holds the slot; an
      * HTTP trial takes it for the duration and fails honestly with `body-busy` instead of
      * moving/digging behind another executor.
      */
-    const needsBody = (onDisk.manifest.permissions || []).some((permission) => BODY_PERMISSIONS.has(permission));
+    /**
+     * v3 input scripts act on the shared client too (`key/hold/tap/use_on`), so they need the
+     * same single-owner lease the body primitives do. Only pure observation may run without it.
+     */
+    const needsBody = (onDisk.manifest.permissions || []).some(
+      (permission) => BODY_PERMISSIONS.has(permission) || INPUT_PERMISSIONS.has(permission)
+    );
     let lease = null;
     if (needsBody) {
       lease = this._acquireBodyLease(`${name}@${version}`);
@@ -340,7 +626,13 @@ class CodeSkillService {
      * A direct HTTP `/code-skills/<name>/run` is outside that task, so it takes the slot
      * itself and refuses with `body-busy` when someone else owns the body.
      */
-    const needsBody = (onDisk.manifest.permissions || []).some((permission) => BODY_PERMISSIONS.has(permission));
+    /**
+     * v3 input scripts act on the shared client too (`key/hold/tap/use_on`), so they need the
+     * same single-owner lease the body primitives do. Only pure observation may run without it.
+     */
+    const needsBody = (onDisk.manifest.permissions || []).some(
+      (permission) => BODY_PERMISSIONS.has(permission) || INPUT_PERMISSIONS.has(permission)
+    );
     const slotHeld = options.slotHeld === true;
     let lease = null;
     if (needsBody && !slotHeld) {
@@ -393,11 +685,20 @@ class CodeSkillService {
     } catch (err) {
       this.log.warn(`promoted run evidence write failed: ${err.message}`);
     }
+    /**
+     * The fourth tuple member also applies to live dispatch: a run that "succeeded" but does
+     * not satisfy the declared verification is reported as failed. A promoted skill is not
+     * quarantined by this (markVerification only quarantines trialled candidates), but the
+     * caller must not see a silent success.
+     */
+    const verification = this.checkSkillConditions(onDisk.manifest.verification || {}, 'verification');
     return {
-      ok: skillSucceeded(run),
+      ok: skillSucceeded(run) && verification.ok === true,
       name,
       version: pointer.version,
+      reason: verification.ok === false ? verification.reason || 'verification-failed' : (skillSucceeded(run) ? null : run.reason || 'skill-failed'),
       result: summarizeRun(run),
+      verification,
       evidencePath
     };
   }
@@ -420,12 +721,116 @@ class CodeSkillService {
     return { ok: true, aborted: active };
   }
 
-  /** Generate + immediately trial (the HTTP convenience entry). */
+  /**
+   * Voyager-style repair loop: generate -> trial -> (verbatim failure) -> regenerate.
+   *
+   * Four attempts maximum, and every attempt is its own version (never an overwrite). The
+   * feedback carries the previous attempt's stack/stderr/refused calls/verifier failures
+   * unchanged; only truncation is applied. Success means the sandbox run *and* the manifest
+   * verification passed.
+   */
   async generateAndTrial(options = {}) {
-    const generated = await this.generateCandidate(options);
-    if (!generated.ok) return generated;
-    const trial = await this.trial(generated.name, generated.version, options);
-    return { ...generated, trial };
+    const maxRounds = Math.min(Math.max(Number(options.maxRounds) || this.maxRounds, 1), 4);
+    const attempts = [];
+    let feedback = null;
+    let evolveFrom = options.evolveFrom || null;
+    let last = null;
+
+    for (let round = 1; round <= maxRounds; round += 1) {
+      const generated = await this.generateCandidate({ ...options, feedback, evolveFrom, round });
+      if (!generated.ok) {
+        attempts.push({ round, ok: false, stage: 'generate', reason: generated.reason, version: null });
+        feedback = {
+          round,
+          maxRounds,
+          reason: `generation failed: ${generated.reason}`,
+          manifestErrors: Array.isArray(generated.errors) ? generated.errors : null,
+          scanErrors: generated.reason === 'unsafe-code' ? generated.errors : null,
+          code: generated.code || null
+        };
+        last = generated;
+        continue;
+      }
+
+      const { name, version } = generated;
+      const trial = await this.trial(name, version, options);
+      const verification = trial.ok ? this.verifySkill(name, version) : null;
+      const ok = trial.ok === true && (!verification || verification.ok === true);
+      /**
+       * The honest failure reason lives in the run evidence (`stack`/`reason`), not on the
+       * trial envelope: without this the loop fed the model "trial-failed" instead of the
+       * verbatim error it needs to repair.
+       */
+      const runEvidence = trial.evidence || null;
+      const failureReason = ok
+        ? null
+        : (runEvidence && runEvidence.reason)
+          || (trial.result && trial.result.reason)
+          || trial.reason
+          || (verification && verification.reason)
+          || 'trial-failed';
+      attempts.push({
+        round,
+        ok,
+        stage: ok ? 'verified' : trial.ok ? 'verification' : 'trial',
+        name,
+        version,
+        reason: failureReason,
+        evidencePath: trial.evidencePath || null
+      });
+      if (ok) {
+        return {
+          ok: true,
+          rounds: round,
+          attempts,
+          name,
+          version,
+          trial,
+          verification,
+          manifest: generated.manifest,
+          lineage: generated.lineage || null
+        };
+      }
+
+      const evidence = trial.evidence || trial.result || null;
+      /**
+       * `trial.result` is the summarized view (failedCalls/stderrTail/stack); `trial.evidence`
+       * is the raw run. Prefer the summary, fall back to deriving the same shape.
+       */
+      const summary = trial.result || null;
+      const failedCalls = summary && Array.isArray(summary.failedCalls) && summary.failedCalls.length
+        ? summary.failedCalls
+        : Array.isArray(evidence && evidence.calls)
+          ? evidence.calls
+            .filter((call) => call && call.ok === false && call.error)
+            .slice(0, 10)
+            .map((call) => ({ capability: call.capability, error: call.error, argsBytes: call.argsBytes || 0 }))
+          : [];
+      const stderrText = (summary && summary.stderrTail) || (evidence && evidence.stderrTail) || null;
+      const stackText = (summary && summary.stack) || (evidence && evidence.stack) || null;
+      let code = null;
+      try {
+        const onDisk = this.directory.readCandidate(name, version);
+        code = onDisk && onDisk.code ? onDisk.code : null;
+      } catch (err) {
+        code = null;
+      }
+      feedback = {
+        round,
+        maxRounds,
+        version,
+        reason: failureReason,
+        stack: stackText,
+        stderr: stderrText,
+        failedCalls,
+        verificationFailures: verification && verification.ok === false ? verification.failures : null,
+        code
+      };
+      evolveFrom = { name, version, root: generated.lineage ? generated.lineage.root : name };
+      last = { ...generated, trial, verification };
+    }
+
+    return { ok: false, reason: 'max-rounds', rounds: maxRounds, attempts, last };
   }
 
   promote(name, version) {
@@ -442,6 +847,7 @@ class CodeSkillService {
       return promoted;
     }
     this._save();
+    this._markIndexDirty();
     return { ok: true, name, version, previous: promoted.previous || null };
   }
 
@@ -449,6 +855,7 @@ class CodeSkillService {
     const directory = this.directory.rollback(name);
     const store = this.store.rollback(name);
     if (store.ok) this._save();
+    this._markIndexDirty();
     return { ok: store.ok && directory.ok, store, directory };
   }
 
@@ -456,6 +863,7 @@ class CodeSkillService {
     const directory = this.directory.retire(name, version);
     const store = this.store.retire(name, version);
     if (store.ok) this._save();
+    this._markIndexDirty();
     return { ok: store.ok && directory.ok, store, directory };
   }
 
@@ -483,7 +891,20 @@ class CodeSkillService {
       body_click: async (args, context) => this._bodyClick(args, context),
       body_look: async (args, context) => this._bodyLook(args, context),
       body_look_at: async (args, context) => this._bodyLookAt(args, context),
-      body_attack: async (args, context) => this._bodyAttack(args, context)
+      body_attack: async (args, context) => this._bodyAttack(args, context),
+      // ---- v3 input layer (keyboard/mouse scripts) ----------------------
+      key: async (args) => this._inputKey(args),
+      hold: async (args) => this._inputHold(args),
+      tap: async (args) => this._inputTap(args),
+      look: async (args) => this._inputLook(args),
+      look_at: async (args) => this._inputLookAt(args),
+      menu: async () => this._inputMenu(),
+      click: async (args) => this._inputClick(args),
+      close: async () => this._inputClose(),
+      select: async (args) => this._inputSelect(args),
+      use_on: async (args) => this._inputUseOn(args),
+      target: async () => this._inputTarget(),
+      inputs: async () => this._inputLedger()
     };
   }
 
@@ -974,6 +1395,157 @@ class CodeSkillService {
     );
     if (result.ok === false) return result;
     return { ok: result === true, name: target.name, reason: result === true ? null : 'attack-failed' };
+  }
+
+  // ------------------------------------------------- v3 input-layer helpers
+  /**
+   * Keyboard/mouse primitives for generated scripts. Each one checks the client is live and
+   * the screen state is not swallowing input; the mod itself also refuses keys while a screen
+   * is open, so a silent no-op cannot masquerade as success.
+   */
+  _inputReady() {
+    const ready = this._bodyReady();
+    if (!ready.ok) return ready;
+    return ready;
+  }
+
+  async _inputKey(args = {}) {
+    const ready = this._inputReady();
+    if (!ready.ok) return ready;
+    const action = String(args.action || '').trim();
+    if (!action) return { ok: false, reason: 'action-required' };
+    if (typeof ready.body.key !== 'function') return { ok: false, reason: 'body-cannot-key' };
+    const down = args.down !== false;
+    const result = await this._bodyCall(() => ready.body.key(action, down), {}, 4000);
+    if (result && result.ok === false && result.reason) return result;
+    return { ok: !!(result && result.ok !== false), action, down, blockedByScreen: !!(result && result.blockedByScreen), screen: ready.snap.screen || null };
+  }
+
+  async _inputHold(args = {}) {
+    const ready = this._inputReady();
+    if (!ready.ok) return ready;
+    const action = String(args.action || '').trim();
+    if (!action) return { ok: false, reason: 'action-required' };
+    if (typeof ready.body.hold !== 'function') return { ok: false, reason: 'body-cannot-hold' };
+    const ms = Math.min(Math.max(Number(args.ms) || 250, 1), 10000);
+    const result = await this._bodyCall(() => ready.body.hold(action, ms), {}, ms + 4000);
+    if (result && result.ok === false && result.reason) return result;
+    return { ok: !!(result && result.ok !== false), action, ms, blockedByScreen: !!(result && result.blockedByScreen) };
+  }
+
+  async _inputTap(args = {}) {
+    const ready = this._inputReady();
+    if (!ready.ok) return ready;
+    const action = String(args.action || '').trim();
+    if (!action) return { ok: false, reason: 'action-required' };
+    if (typeof ready.body.tap !== 'function') return { ok: false, reason: 'body-cannot-tap' };
+    const result = await this._bodyCall(() => ready.body.tap(action), {}, 4000);
+    if (result && result.ok === false && result.reason) return result;
+    return { ok: !!(result && result.ok !== false), action, screenAfter: this.ctx.body.snapshot() ? this.ctx.body.snapshot().screen || null : null };
+  }
+
+  async _inputLook(args = {}) {
+    const ready = this._inputReady();
+    if (!ready.ok) return ready;
+    const yaw = Number(args.yaw);
+    const pitch = Number(args.pitch);
+    if (!Number.isFinite(yaw) || !Number.isFinite(pitch)) return { ok: false, reason: 'yaw-pitch-required' };
+    if (typeof ready.body.look !== 'function') return { ok: false, reason: 'body-cannot-look' };
+    const result = await this._bodyCall(() => ready.body.look(yaw, pitch), {}, BODY_LIMITS.lookTimeoutMs);
+    if (result && result.ok === false && result.reason) return result;
+    return { ok: result === true || (result && result.ok === true), yaw, pitch };
+  }
+
+  async _inputLookAt(args = {}) {
+    const ready = this._inputReady();
+    if (!ready.ok) return ready;
+    const position = this._positionArg(args);
+    if (!position) return { ok: false, reason: 'position-required' };
+    if (typeof ready.body.lookAt !== 'function') return { ok: false, reason: 'body-cannot-look' };
+    const result = await this._bodyCall(() => ready.body.lookAt(position), {}, BODY_LIMITS.lookTimeoutMs);
+    if (result && result.ok === false && result.reason) return result;
+    return { ok: result === true || (result && result.ok === true), position };
+  }
+
+  async _inputMenu() {
+    const ready = this._inputReady();
+    if (!ready.ok) return ready;
+    if (typeof ready.body.menu !== 'function') return { ok: false, reason: 'body-cannot-menu' };
+    const menu = await ready.body.menu().catch((err) => ({ open: false, error: err.message }));
+    return { ok: true, screen: ready.snap.screen || null, menu };
+  }
+
+  async _inputClick(args = {}) {
+    const ready = this._inputReady();
+    if (!ready.ok) return ready;
+    const slot = Number(args.slot);
+    if (!Number.isInteger(slot) || slot < 0) return { ok: false, reason: 'slot-invalid' };
+    if (typeof ready.body.clickSlot !== 'function') return { ok: false, reason: 'body-cannot-click' };
+    const button = args.button === 1 ? 1 : 0;
+    const mode = typeof args.mode === 'string' && args.mode ? args.mode : 'pickup';
+    const menu = typeof ready.body.menu === 'function' ? await ready.body.menu().catch(() => null) : null;
+    if (!menu || menu.open !== true) return { ok: false, reason: 'no-menu' };
+    const result = await this._bodyCall(() => ready.body.clickSlot(slot, { button, mode }), {}, BODY_LIMITS.clickTimeoutMs);
+    if (result && result.ok === false && result.reason) return result;
+    return { ok: result === true || (result && result.ok === true), slot, button, mode };
+  }
+
+  async _inputClose() {
+    const ready = this._inputReady();
+    if (!ready.ok) return ready;
+    if (typeof ready.body.closeMenu !== 'function') return { ok: false, reason: 'body-cannot-close' };
+    const result = await this._bodyCall(() => ready.body.closeMenu(), {}, 4000);
+    const after = typeof ready.body.snapshot === 'function' ? ready.body.snapshot() : null;
+    return { ok: !!(result === true || (result && result.ok === true)), screenAfter: after ? after.screen || null : null };
+  }
+
+  async _inputSelect(args = {}) {
+    const ready = this._inputReady();
+    if (!ready.ok) return ready;
+    const item = String(args.item || '').trim();
+    if (!item) return { ok: false, reason: 'item-required' };
+    if (typeof ready.body.equip !== 'function') return { ok: false, reason: 'body-cannot-select' };
+    const result = await this._bodyCall(() => ready.body.equip(item), {}, 4000);
+    return { ok: !!(result === true || (result && result.ok === true)), item, held: this.ctx.body.snapshot() ? this.ctx.body.snapshot().heldItem || null : null };
+  }
+
+  async _inputUseOn(args = {}) {
+    const ready = this._inputReady();
+    if (!ready.ok) return ready;
+    const position = this._positionArg(args);
+    if (!position) return { ok: false, reason: 'position-required' };
+    const distance = this._distance(ready.snap.position, position);
+    if (Number.isFinite(distance) && distance > BODY_LIMITS.useDistance) {
+      return { ok: false, reason: 'target-too-far', distance: Math.round(distance), limit: BODY_LIMITS.useDistance };
+    }
+    if (typeof ready.body.useOn !== 'function') return { ok: false, reason: 'body-cannot-use' };
+    const face = args.face && typeof args.face === 'object' ? args.face : { x: 0, y: 1, z: 0 };
+    const item = args.item ? String(args.item) : null;
+    const result = await this._bodyCall(async () => {
+      if (item && typeof ready.body.equip === 'function') {
+        const equipped = await ready.body.equip(item);
+        if (!equipped) return { ok: false, reason: 'select-failed', item };
+      }
+      return ready.body.useOn(position, { face });
+    }, {}, BODY_LIMITS.useTimeoutMs);
+    if (result && result.ok === false && result.reason) return result;
+    return { ok: result === true || (result && result.ok === true), position, face, item };
+  }
+
+  async _inputTarget() {
+    const ready = this._inputReady();
+    if (!ready.ok) return ready;
+    if (typeof ready.body.targetBlock !== 'function') return { ok: false, reason: 'body-cannot-target' };
+    const target = await ready.body.targetBlock().catch(() => null);
+    return { ok: true, target: target || null };
+  }
+
+  async _inputLedger() {
+    const ready = this._inputReady();
+    if (!ready.ok) return ready;
+    if (typeof ready.body.inputState !== 'function') return { ok: false, reason: 'body-cannot-report-input' };
+    const ledger = await ready.body.inputState().catch(() => null);
+    return { ok: true, ledger: ledger || null };
   }
 
   async _submitTask(args = {}) {

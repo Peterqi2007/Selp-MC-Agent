@@ -58,6 +58,26 @@
 **证据**：每次原语调用记录 `{capability, args(坐标/槽位), ok, reason, ms}`；权限门拒绝写
 `body.lastRefusal`；全部进入现有 evidence JSON 与预算计数。
 
+### 2.2 输入层脚本（v3，2026-10-29；生成面只出这一种）
+
+新生成的技能是**键鼠脚本**：它可以按/松键、`tap` 开关键、转视角、开关菜单、点击槽位、选中/使用
+物品、读准心与输入台账，也可以只读观测；但**不能**调用 `body_move/body_dig/...` 或
+`submit_task/search/generate/subprocess`。
+
+| 权限 | 方法 | 硬限制 |
+| --- | --- | --- |
+| `input_key` / `input_hold` | `key(action,down)` / `hold(action,ms)` | hold ≤10s（服务端再钳一次）；屏幕打开时拒绝并回 `blockedByScreen` |
+| `input_tap` | `tap(action)` | 仅 inventory/drop/chat/swapoffhand/pickitem |
+| `input_look` | `look` / `look_at` | 单次 ≤1.5s |
+| `input_menu` / `input_click` / `input_close` | `menu()` / `click({slot})` / `close()` | 点击前**重读菜单**；`slot` 必须在菜单范围内 |
+| `input_select` / `input_use_on` | `select({item})` / `use_on({x,y,z,face,item})` | use 距离 ≤5（`target-too-far`） |
+| `input_target` / `input_ledger` | `target()` / `inputs()` | 只读 |
+| `read_state` | `read_state/block_at/find_blocks` | 有界窗口（沿用 v2 限制） |
+
+所有 `input_*` 权限都会申请 **唯一身体租约**（`TaskSlot.acquire`），与他人在跑的任务互斥，
+`body-busy` 明确拒绝；取消/超时走同一条 `body.interrupt` 路径。v1/v2 已晋升技能仍可运行
+（`codeSkills.allowLegacyBody`），但生成器不再产出它们。
+
 ## 3. 子进程的隔离参数
 
 ```text

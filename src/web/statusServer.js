@@ -765,17 +765,28 @@ function startStatusServer(ctx, options = {}) {
         const body = await readBody(req);
         if (!body || !body.prompt) return json(res, 400, { ok: false, error: 'missing "prompt"' });
         try {
+          /**
+           * Voyager-style repair loop: `trial:true` now runs up to `maxRounds` (4) attempts,
+           * each a new version, feeding the previous failure back verbatim. `evolve` names an
+           * existing skill to repair/upgrade instead of creating a fresh name.
+           */
+          const evolveFrom = body.evolve
+            ? { name: String(body.evolve), version: body.baseVersion ? String(body.baseVersion) : null, root: String(body.evolve) }
+            : null;
           const result =
             body.trial === true
               ? await ctx.codeSkills.generateAndTrial({
                   prompt: body.prompt,
                   manifest: body.manifest || null,
                   params: body.params || {},
-                  timeoutMs: body.timeoutMs
+                  timeoutMs: body.timeoutMs,
+                  maxRounds: body.maxRounds,
+                  evolveFrom
                 })
               : await ctx.codeSkills.generateCandidate({
                   prompt: body.prompt,
-                  manifest: body.manifest || null
+                  manifest: body.manifest || null,
+                  evolveFrom
                 });
           let promoted = null;
           if (body.promote === true && result.ok && result.name && result.version && result.trial && result.trial.ok) {
@@ -785,6 +796,28 @@ function startStatusServer(ctx, options = {}) {
         } catch (err) {
           return json(res, 500, { ok: false, error: err.message });
         }
+      }
+
+      /**
+       * Similarity search over promoted skills: query = context + what the last round missed.
+       * `q` is the action/context; the server appends the recent failure and chatlog itself.
+       */
+      if (req.method === 'GET' && url.pathname === '/code-skills/search') {
+        if (!ctx.codeSkills) return json(res, 503, { ok: false, error: 'code skills unavailable' });
+        const query = String(url.searchParams.get('q') || url.searchParams.get('query') || '').trim();
+        if (!query) return json(res, 400, { ok: false, error: 'missing "q"' });
+        const k = Number(url.searchParams.get('k') || 0) || undefined;
+        const composed = typeof ctx.codeSkills.skillQuery === 'function' ? ctx.codeSkills.skillQuery(query) : query;
+        const result = await ctx.codeSkills.retrieve(composed, k ? { k } : {});
+        return json(res, 200, { ...result, action: query, composedQuery: composed });
+      }
+
+      /** Version chain for one skill (evolution, not overwrite). */
+      if (req.method === 'GET' && url.pathname === '/code-skills/history') {
+        if (!ctx.codeSkills) return json(res, 503, { ok: false, error: 'code skills unavailable' });
+        const name = String(url.searchParams.get('name') || '').trim();
+        if (!name) return json(res, 400, { ok: false, error: 'missing "name"' });
+        return json(res, 200, { ok: true, ...ctx.codeSkills.history(name) });
       }
 
       if (req.method === 'POST' && url.pathname === '/code-skills/cancel') {

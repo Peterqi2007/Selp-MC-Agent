@@ -95,6 +95,8 @@ process.on('disconnect', () => exitProcess(0));
 
 const capabilities = {
   read_state: (args) => call('read_state', args || {}),
+  /** v3 alias: `await ctx.state()` (same read-only capability). */
+  state: (args) => call('read_state', args || {}),
   block_at: (args) => call('block_at', args || {}),
   find_blocks: (args) => call('find_blocks', args || {}),
   submit_task: (args) => call('submit_task', args || {}),
@@ -110,6 +112,22 @@ const capabilities = {
   body_look: (args) => call('body_look', args || {}),
   body_look_at: (args) => call('body_look_at', args || {}),
   body_attack: (args) => call('body_attack', args || {}),
+  /**
+   * v3 input layer. Positional signatures read like a script (`ctx.key('forward', true)`),
+   * while the RPC payload stays a single object so the host can validate it in one place.
+   */
+  key: (action, down) => call('key', { action, down: down !== false }),
+  hold: (action, ms) => call('hold', { action, ms }),
+  tap: (action) => call('tap', { action }),
+  look: (yaw, pitch) => call('look', { yaw, pitch }),
+  look_at: (position) => call('look_at', position && typeof position === 'object' ? position : {}),
+  menu: () => call('menu', {}),
+  click: (args) => call('click', args || {}),
+  close: () => call('close', {}),
+  select: (item) => call('select', typeof item === 'string' ? { item } : item || {}),
+  use_on: (args) => call('use_on', args || {}),
+  target: () => call('target', {}),
+  inputs: () => call('inputs', {}),
   wait: async (ms) => {
     const delay = Math.min(Math.max(Number(ms) || 0, 0), 30000);
     await new Promise((resolve) => setTimeout(resolve, delay));

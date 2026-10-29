@@ -22,6 +22,16 @@
 
 const { validateManifest } = require('./manifest');
 
+/** Newest semver first, without importing the manifest module's comparator at call sites. */
+function compareVersionsDesc(a, b) {
+  const pa = String(a).split('.').map(Number);
+  const pb = String(b).split('.').map(Number);
+  for (let i = 0; i < 3; i += 1) {
+    if (pa[i] !== pb[i]) return pb[i] - pa[i];
+  }
+  return 0;
+}
+
 class CodeSkillStore {
   constructor(options = {}) {
     this.now = options.now || (() => Date.now());
@@ -46,6 +56,15 @@ class CodeSkillStore {
       status: 'candidate',
       source: options.source || 'generated',
       tests: options.tests || null,
+      /**
+       * Evolution, not replacement (2026-10-29): every attempt is its own version and keeps
+       * the parent it repaired, so `!code-skill history` can show the chain instead of a
+       * single overwritten file.
+       */
+      lineage: options.lineage && typeof options.lineage === 'object'
+        ? { root: options.lineage.root || null, parent: options.lineage.parent || null, round: options.lineage.round || null, trigger: options.lineage.trigger || null }
+        : null,
+      verification: null,
       createdAt: new Date(this.now()).toISOString()
     };
     this.candidates.set(key, record);
@@ -61,6 +80,37 @@ class CodeSkillStore {
     record.status = report.ok === true ? 'trialled' : 'quarantined';
     this.history.push({ at: record.tests.at, action: record.status, key: `${name}@${version}` });
     return { ok: true, status: record.status };
+  }
+
+  /**
+   * Record the postcondition (verification) outcome for a candidate.
+   *
+   * A trial whose sandbox run succeeded but whose declarative verification failed is NOT
+   * trialled: the skill did not do what it promised. It becomes quarantined so it can never
+   * be promoted, and the failures travel back to the generator as repair feedback.
+   */
+  markVerification(name, version, report = {}) {
+    const record = this.candidates.get(CodeSkillStore.key(name, version));
+    if (!record) return { ok: false, reason: 'unknown-candidate' };
+    record.verification = {
+      ok: report.ok === true,
+      failures: Array.isArray(report.failures) ? report.failures.slice(0, 20) : [],
+      at: new Date(this.now()).toISOString()
+    };
+    if (report.ok !== true && record.status === 'trialled') {
+      record.status = 'quarantined';
+      this.history.push({ at: record.verification.at, action: 'verification-failed', key: `${name}@${version}` });
+    }
+    return { ok: true, status: record.status, verification: record.verification };
+  }
+
+  /** All versions of one skill, newest first (lineage + status included). */
+  listVersions(name) {
+    const prefix = `${name}@`;
+    return [...this.candidates.entries()]
+      .filter(([key]) => key.startsWith(prefix))
+      .map(([key, record]) => ({ key, version: key.slice(prefix.length), ...this.view(record) }))
+      .sort((a, b) => compareVersionsDesc(a.version, b.version));
   }
 
   /**
@@ -145,6 +195,8 @@ class CodeSkillStore {
       manifest: { ...record.manifest, permissions: [...record.manifest.permissions] },
       status: record.status,
       tests: record.tests,
+      verification: record.verification || null,
+      lineage: record.lineage ? { ...record.lineage } : null,
       source: record.source,
       createdAt: record.createdAt
     };
@@ -161,6 +213,8 @@ class CodeSkillStore {
         status: record.status,
         source: record.source,
         tests: record.tests,
+        verification: record.verification || null,
+        lineage: record.lineage || null,
         createdAt: record.createdAt
       }]),
       promoted: [...this.promoted.entries()],
@@ -183,6 +237,8 @@ class CodeSkillStore {
         status: record.status || 'candidate',
         source: record.source || 'restored',
         tests: record.tests || null,
+        verification: record.verification || null,
+        lineage: record.lineage || null,
         createdAt: record.createdAt || new Date(this.now()).toISOString()
       });
     }

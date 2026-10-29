@@ -24,8 +24,12 @@
  * that had actually arrived fail its postcondition.
  *
  * The observation is plain data (`inventory` counts, `position`, `blocks` keyed by
- * "x,y,z"); nothing here reads the world or starts a scan.
+ * "x,y,z" - or the client snapshot's `blocks.cells` envelope); nothing here reads the world
+ * or starts a scan.
  */
+
+/** Every condition key this module understands; manifest validation reuses the list. */
+const SUPPORTED_CONDITIONS = ['inventoryAtLeast', 'positionNear', 'blockAt', 'targetIs'];
 
 function inventoryCount(inventory, item) {
   if (!inventory) return 0;
@@ -65,8 +69,17 @@ function positionReached(actual, target, range = 1, verticalRange) {
 function blockAt(observation, position) {
   if (!observation || !observation.blocks || !position) return undefined;
   const key = `${position.x},${position.y},${position.z}`;
-  if (typeof observation.blocks.get === 'function') return observation.blocks.get(key);
-  return observation.blocks[key];
+  const blocks = observation.blocks;
+  if (typeof blocks.get === 'function') return blocks.get(key);
+  if (blocks[key] !== undefined) return blocks[key];
+  /**
+   * The real client snapshot keeps its scan under `blocks.cells` (clientModBody.snapshot()
+   * exposes the mod's `{cells:{}}` envelope by reference). Without this fallback every
+   * `blockAt` condition evaluated against a live snapshot was `undefined` and could never
+   * pass - code-skill verification (2026-10-29) is the first caller that needs it.
+   */
+  if (blocks.cells && typeof blocks.cells === 'object') return blocks.cells[key];
+  return undefined;
 }
 
 function checkCondition(condition, observation) {
@@ -75,7 +88,7 @@ function checkCondition(condition, observation) {
     return [{ kind: 'invalid-condition' }];
   }
   for (const key of Object.keys(condition)) {
-    if (!['inventoryAtLeast', 'positionNear', 'blockAt', 'targetIs'].includes(key)) {
+    if (!SUPPORTED_CONDITIONS.includes(key)) {
       failures.push({ kind: 'unsupported-condition', field: key });
     }
   }
@@ -224,5 +237,6 @@ module.exports = {
   checkCondition,
   inventoryCount,
   horizontalDistance,
-  positionReached
+  positionReached,
+  SUPPORTED_CONDITIONS
 };

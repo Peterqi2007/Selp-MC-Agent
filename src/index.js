@@ -624,6 +624,10 @@ async function main() {
       search: webSearch,
       ctx,
       brain,
+      /** Voyager-style repair loop and description-vector retrieval (2026-10-29). */
+      maxRounds: codeCfg.maxRounds || 4,
+      retrieval: codeCfg.retrieval || {},
+      allowLegacyBody: codeCfg.allowLegacyBody !== false,
       log: new Logger('code-skills')
     });
     log.info(

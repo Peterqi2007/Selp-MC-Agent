@@ -62,6 +62,20 @@ function manifestFor(name, permissions = ['read_state']) {
   return { name, version: '1.0.0', apiVersion: 1, entry: 'index.js', permissions };
 }
 
+/**
+ * Legacy (v1/v2) candidates are no longer *generated*: from 2026-10-29 the generator only
+ * produces v3 input scripts. The legacy runtime path is still supported, so the tests that
+ * cover it seed the candidate on disk + store directly, exactly like a previously-promoted
+ * skill would look after an upgrade.
+ */
+function seedCandidate(service, manifest, code) {
+  const written = service.directory.writeCandidate(manifest, code);
+  assert(written.ok, `writeCandidate: ${JSON.stringify(written)}`);
+  const added = service.store.addCandidate(manifest, { source: 'test' });
+  assert(added.ok, `addCandidate: ${JSON.stringify(added)}`);
+  return { ok: true, name: manifest.name, version: manifest.version };
+}
+
 function fakeSearchResponse(payload) {
   return {
     ok: true,
@@ -439,11 +453,10 @@ module.exports = {
       evidenceDir: path.join(root, 'evidence'),
       sandbox: fakeSandbox,
       ctx: {},
-      generation: { generate: async () => ({ ok: true, manifest, code: 'module.exports = { run: async () => ({ ok: true }) };' }) },
       log: silent
     });
     await check('the service cancel() aborts a running trial without quarantining it', async () => {
-      const generated = await service.generateCandidate({ prompt: 'cancel probe' });
+      const generated = seedCandidate(service, manifest, 'module.exports = { run: async () => ({ ok: true }) };');
       assert(generated.ok);
       const running = service.trial(manifest.name, manifest.version, { timeoutMs: 1000 });
       await new Promise((resolve) => setTimeout(resolve, 20));
@@ -491,13 +504,16 @@ module.exports = {
       evidenceDir,
       ctx,
       brain: { submitExternalTask: async () => ({ ok: true, accepted: true }) },
-      generation: { generate: async () => ({ ok: true, manifest, code }) },
       search: { search: async () => ({ ok: true, results: [] }) },
       log: silent
     });
 
-    await check('generate -> candidate -> real trial -> evidence -> promote -> rollback', async () => {
-      const generated = await service.generateCandidate({ prompt: 'probe' });
+    await check('legacy v1 candidate -> real trial -> evidence -> promote -> rollback', async () => {
+      /**
+       * The subprocess capability only exists on the v1/v2 runtime path, and new skills are
+       * v3 input scripts, so this lifecycle test seeds a legacy candidate directly.
+       */
+      const generated = seedCandidate(service, manifest, code);
       assert(generated.ok);
       assert(fs.existsSync(path.join(root, 'candidates', 'agent', 'live', '1.0.0', 'index.js')));
       const trial = await service.trial(manifest.name, manifest.version, { timeoutMs: 5000 });
@@ -705,7 +721,7 @@ const out = {};
       assert(good.ok, JSON.stringify(good.errors));
       const legacy = validateManifest({ ...v2Manifest(['read_state', 'body_dig']), apiVersion: 1 });
       assert.strictEqual(legacy.ok, false);
-      assert(legacy.errors.includes('permission-requires-api-2:body_dig'));
+      assert(legacy.errors.some((error) => error.startsWith('permission-requires-api:body_dig')));
       const unknown = validateManifest(v2Manifest(['read_state', 'body_fly']));
       assert.strictEqual(unknown.ok, false);
       assert(unknown.errors.some((error) => error.includes('permission-not-allowed:body_fly')));
@@ -791,16 +807,12 @@ module.exports = {
       const body = makeBody();
       const slot = makeSlot();
       slot.current = { kind: 'brain', id: 'mine', note: 'task mine' };
-      const service = makeService(body, slot, {
-        generation: {
-          generate: async () => ({
-            ok: true,
-            manifest: v2Manifest(['body_move']),
-            code: 'module.exports = { async run(ctx) { return ctx.body_move({ x: 1, y: 64, z: 0 }); } };'
-          })
-        }
-      });
-      const generated = await service.generateCandidate({ prompt: 'v2 probe' });
+      const service = makeService(body, slot);
+      const generated = seedCandidate(
+        service,
+        v2Manifest(['body_move']),
+        'module.exports = { async run(ctx) { return ctx.body_move({ x: 1, y: 64, z: 0 }); } };'
+      );
       assert(generated.ok, JSON.stringify(generated));
       const trial = await service.trial('agent.v2', '1.0.0', { timeoutMs: 3000 });
       assert.strictEqual(trial.ok, false);
@@ -812,16 +824,12 @@ module.exports = {
     await check('cancelling a direct-body trial interrupts the body and releases the slot', async () => {
       const body = makeBody({ moveTo: () => new Promise(() => {}) });
       const slot = makeSlot();
-      const service = makeService(body, slot, {
-        generation: {
-          generate: async () => ({
-            ok: true,
-            manifest: v2Manifest(['body_move']),
-            code: 'module.exports = { async run(ctx) { return ctx.body_move({ x: 1, y: 64, z: 0, timeoutMs: 3000 }); } };'
-          })
-        }
-      });
-      const generated = await service.generateCandidate({ prompt: 'v2 cancel' });
+      const service = makeService(body, slot);
+      const generated = seedCandidate(
+        service,
+        v2Manifest(['body_move']),
+        'module.exports = { async run(ctx) { return ctx.body_move({ x: 1, y: 64, z: 0, timeoutMs: 3000 }); } };'
+      );
       assert(generated.ok, JSON.stringify(generated));
       const pending = service.trial('agent.v2', '1.0.0', { timeoutMs: 5000 });
       await new Promise((resolve) => setTimeout(resolve, 250));
@@ -854,16 +862,12 @@ module.exports = {
     });
 
     await check('a skill that returns {ok:false} is a failed trial and cannot be promoted', async () => {
-      const service = makeService(makeBody(), makeSlot(), {
-        generation: {
-          generate: async () => ({
-            ok: true,
-            manifest: v2Manifest(['read_state']),
-            code: 'module.exports = { async run() { return { ok: false, reason: "refused" }; } };'
-          })
-        }
-      });
-      const generated = await service.generateCandidate({ prompt: 'skill-level failure' });
+      const service = makeService(makeBody(), makeSlot());
+      const generated = seedCandidate(
+        service,
+        v2Manifest(['read_state']),
+        'module.exports = { async run() { return { ok: false, reason: "refused" }; } };'
+      );
       assert(generated.ok, JSON.stringify(generated));
       const trial = await service.trial('agent.v2', '1.0.0', { timeoutMs: 3000 });
       assert.strictEqual(trial.ok, false);
@@ -889,17 +893,12 @@ module.exports = {
     await check('runPromoted takes the slot for HTTP, respects slotHeld, and refuses when busy', async () => {
       const body = makeBody();
       const slot = makeSlot();
-      const service = makeService(body, slot, {
-        generation: {
-          generate: async () => ({
-            ok: true,
-            manifest: v2Manifest(['body_move']),
-            code: 'module.exports = { async run(ctx) { return ctx.body_move({ x: 0, y: 64, z: 0, range: 0 }); } };'
-          })
-        }
-      });
-      const generated = await service.generateCandidate({ prompt: 'v2 run' });
-      assert(generated.ok, JSON.stringify(generated));
+      const service = makeService(body, slot);
+      seedCandidate(
+        service,
+        v2Manifest(['body_move']),
+        'module.exports = { async run(ctx) { return ctx.body_move({ x: 0, y: 64, z: 0, range: 0 }); } };'
+      );
       const trial = await service.trial('agent.v2', '1.0.0', { timeoutMs: 3000 });
       assert.strictEqual(trial.ok, true, JSON.stringify(trial));
       const promoted = service.promote('agent.v2', '1.0.0');

@@ -109,16 +109,47 @@ function resolveChannel(ctx, action) {
   const promoted = promotedSkills(ctx);
   const promotedHit = promoted.find((entry) => String(entry.name).toLowerCase() === name);
 
-  // 1. a promoted code skill that is literally named like the action
+  // 1a. a promoted code skill that is literally named like the action
   if (promotedHit) {
     return {
       action: name,
       channel: 'code-skill',
       covered: true,
       order: 1,
-      reason: `promoted code skill "${promotedHit.name}" matches`,
-      next: `code-skill ${promotedHit.name}`
+      reason: `promoted code skill "${promotedHit.name}" matches by name`,
+      next: `code-skill ${promotedHit.name}`,
+      match: { name: promotedHit.name, version: promotedHit.version || null, score: 1 }
     };
+  }
+
+  /**
+   * 1b. similarity retrieval over skill descriptions (Voyager: key = embedding(description)).
+   *
+   * The query is context + what the last round was missing, not the action word alone, so
+   * "把背包开一下" can find "用 tap 打开玩家背包并读取菜单". Ranking is cosine similarity; there
+   * is no Jaccard/string-equality shortcut here.
+   */
+  let retrieval = null;
+  try {
+    if (ctx && ctx.codeSkills && typeof ctx.codeSkills.retrieveSync === 'function') {
+      const query = typeof ctx.codeSkills.skillQuery === 'function' ? ctx.codeSkills.skillQuery(name) : name;
+      retrieval = ctx.codeSkills.retrieveSync(query);
+      const hit = retrieval && Array.isArray(retrieval.hits) ? retrieval.hits[0] : null;
+      if (hit && hit.name) {
+        return {
+          action: name,
+          channel: 'code-skill',
+          covered: true,
+          order: 1,
+          reason: `promoted code skill "${hit.name}" scored ${hit.score} by description similarity`,
+          next: `code-skill ${hit.name}`,
+          match: { ...hit },
+          retrieval: { query: retrieval.query, embedder: retrieval.embedder, k: retrieval.k, minScore: retrieval.minScore }
+        };
+      }
+    }
+  } catch (err) {
+    retrieval = { ok: false, reason: err.message };
   }
 
   // 2. the deterministic command table (skills and plain verbs live here)
@@ -174,7 +205,14 @@ function describe(ctx) {
     skills: verbs.filter((verb) => !INPUT_SET.has(verb)),
     inputCommands: [...INPUT_COMMANDS],
     codeSkills: {
-      promoted: promoted.map((entry) => ({ name: entry.name, version: entry.version || null })),
+      promoted: promoted.map((entry) => ({
+        name: entry.name,
+        version: entry.version || null,
+        description: entry.description || ''
+      })),
+      retrieval: ctx && ctx.codeSkills && typeof ctx.codeSkills.status === 'function'
+        ? (ctx.codeSkills.status().retrieval || null)
+        : null,
       generation: 'operator-only: POST /code-skills/generate {"prompt": "..."} (never automatic)'
     }
   };

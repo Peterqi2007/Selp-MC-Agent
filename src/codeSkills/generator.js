@@ -50,6 +50,20 @@ const FORBIDDEN = [
 ];
 
 /**
+ * v3 adds a second fence: a generated input script must not reach for the high-level body
+ * primitives or the orchestration capabilities. The vm context would refuse them anyway
+ * (`permission-not-allowed`), but catching it at scan time gives the model a clear error to
+ * repair in the same retry loop.
+ */
+const FORBIDDEN_V3 = [
+  { pattern: /\bbody_(?:move|dig|place|use|click|look|attack)\s*\(/, reason: 'legacy-body-primitive-not-allowed' },
+  { pattern: /\bsubmit_task\s*\(/, reason: 'orchestration-not-allowed-in-v3' },
+  { pattern: /\bsubprocess\s*\(/, reason: 'subprocess-not-allowed-in-v3' },
+  { pattern: /\bgenerate\s*\(/, reason: 'generate-not-allowed-in-v3' },
+  { pattern: /\bsearch\s*\(/, reason: 'search-not-allowed-in-v3' }
+];
+
+/**
  * @param {string} code
  * @param {object} [options] { maxBytes }
  * @returns {{ok:boolean, bytes:number, errors:Array<{reason:string, line?:number}>}}
@@ -66,6 +80,15 @@ function scanCode(code, options = {}) {
     if (match) {
       const line = source.slice(0, match.index).split('\n').length;
       errors.push({ reason, line });
+    }
+  }
+  if (Number(options.apiVersion) === 3) {
+    for (const { pattern, reason } of FORBIDDEN_V3) {
+      const match = pattern.exec(source);
+      if (match) {
+        const line = source.slice(0, match.index).split('\n').length;
+        errors.push({ reason, line });
+      }
     }
   }
   if (!/module\.exports/.test(source) || !/\brun\b/.test(source)) {
