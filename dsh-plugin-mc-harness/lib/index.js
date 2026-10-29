@@ -230,7 +230,11 @@ function toolDefinitions({ controlUrl, record, log, runtime }) {
       'Pre-task state observation skill. Call it ONCE before executing a task and choose ' +
       'the fields required by that task (e.g. position, health, food, inventory, hostiles, ' +
       'target, blocks, players, nearbyItems). Returns per-field observedAt/age/revision/' +
-      'stale metadata. Do not poll it every tick; state is not pushed automatically.',
+      'stale metadata. Do not poll it every tick; state is not pushed automatically. ' +
+      'If the payload carries `aux.screenshot` (a frame captured on a failure, an accepted ' +
+      'plan, new terrain, or the 90 s fallback), read that file ONLY when the structured ' +
+      'fields are insufficient to decide; the verdict still comes from structured conditions ' +
+      '- an image may never upgrade a failed check into a success.',
     parameters: {
       type: 'object',
       properties: {

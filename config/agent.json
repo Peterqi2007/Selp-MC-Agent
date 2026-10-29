@@ -10,6 +10,18 @@
     "timeoutMs": 5000,
     "directRange": 3
   },
+  "_comment_screenshot": "事件驱动截图：失败/卡住（plan:partial、plan:failed、task:failed、连续同因失败）、计划或提案接受（执行前状态）、新维度/首次见到的模组方块 -> 截 1 张；另每 90 秒最多 1 张兜底，仅在动作脑有活跃任务时。每任务上限 maxPerTask、全局最小间隔 minIntervalMs、感知哈希去重 dedupeDistance（汉明距离）、目录只保留 keepFiles 张。截图以 steer 消息（harnessBridge.forward）把路径插进动作脑对话，并写 .json 旁注；判定仍以结构化状态为准，图只作辅助证据。maxEdge 768 约 380KB/张。",
+  "screenshot": {
+    "enabled": true,
+    "maxEdge": 768,
+    "maxPerTask": 3,
+    "minIntervalMs": 15000,
+    "fallbackMs": 90000,
+    "keepFiles": 20,
+    "dedupeDistance": 5,
+    "steer": true,
+    "repeatedFailureCount": 3
+  },
   "_comment_miningRecovery": "LLM exception recovery for mining (docs/MINING-LLM-PLAN.md §5.8). Stays OFF until the offline matrix and the controlled live run pass; while off, the triggers are logged and the macro fails honestly instead of calling a model. Budgets here are ceilings - the parent task deadline always wins.",
   "miningRecovery": {
     "enabled": false,

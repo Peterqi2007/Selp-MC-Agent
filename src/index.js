@@ -385,6 +385,37 @@ async function main() {
   }
 
   /**
+   * Screenshot policy (2026-10-29): capture frames on failure/acceptance/novelty plus a 90 s
+   * fallback while a task is active, then steer a short path message into the action brain.
+   * It is budgeted (per task, min interval, dedupe, keep-last-K) because a frame is large and
+   * a steer costs a model turn.
+   */
+  if (cfg.agent && cfg.agent.screenshot && cfg.agent.screenshot.enabled !== false) {
+    const { ScreenshotPolicy } = require('./perception/screenshotPolicy');
+    const shotCfg = cfg.agent.screenshot;
+    ctx.screenshotPolicy = new ScreenshotPolicy({
+      body: ctx.body,
+      bridge: ctx.harnessBridge || null,
+      events: ctx.events,
+      brain,
+      cfg: {
+        enabled: true,
+        maxEdge: Number(shotCfg.maxEdge) || undefined,
+        maxPerTask: Number(shotCfg.maxPerTask) || undefined,
+        minIntervalMs: Number(shotCfg.minIntervalMs) || undefined,
+        fallbackMs: Number(shotCfg.fallbackMs) || undefined,
+        keepFiles: Number(shotCfg.keepFiles) || undefined,
+        dedupeDistance: Number.isFinite(Number(shotCfg.dedupeDistance)) ? Number(shotCfg.dedupeDistance) : undefined,
+        steer: shotCfg.steer !== false,
+        repeatedFailureCount: Number(shotCfg.repeatedFailureCount) || undefined
+      },
+      dir: shotCfg.dir || undefined,
+      log: new Logger('screenshot')
+    });
+    ctx.screenshotPolicy.start();
+  }
+
+  /**
    * Channel A0: addressed instructions (`@...`), disabled by default.
    *
    * The judge is injected (a future LLM adapter sets `ctx.judgeInstruction`); with no judge

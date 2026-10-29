@@ -126,6 +126,32 @@ function startStatusServer(ctx, options = {}) {
        * Same port, same token: the panel already owns :8766 and falls back to :8767 when it
        * is busy, so a second listener here would race that fallback (Q1).
        */
+      /**
+       * Recent task events as JSON (the SSE stream is for live tails; polling a handful is
+       * what the screenshot policy / panel diagnostics need).
+       */
+      if (req.method === 'GET' && url.pathname === '/events/recent') {
+        if (!ctx.events || typeof ctx.events.since !== 'function') {
+          return json(res, 503, { ok: false, error: 'events unavailable' });
+        }
+        const limit = Math.max(1, Math.min(200, Number(url.searchParams.get('limit') || 50)));
+        const all = ctx.events.since(0) || [];
+        return json(res, 200, {
+          ok: true,
+          count: all.length,
+          seq: all.length ? all[all.length - 1].seq : 0,
+          events: all.slice(-limit).map((event) => ({
+            seq: event.seq,
+            type: event.type,
+            at: event.at,
+            planId: event.planId || null,
+            taskId: event.taskId || null,
+            stepId: event.stepId || null,
+            status: event.status || null,
+            reason: event.reason || null
+          }))
+        });
+      }
       if (req.method === 'GET' && url.pathname === '/events') {
         const web = (ctx.cfg && ctx.cfg.agent && ctx.cfg.agent.web) || {};
         streamEvents(req, res, { events: ctx.events, token: web.eventsToken || '' });
@@ -183,7 +209,44 @@ function startStatusServer(ctx, options = {}) {
           maxAgeMs: body.maxAgeMs,
           purpose: body.purpose
         });
+        /**
+         * Auxiliary evidence, not a field: the newest policy screenshot, if any. Shaped as
+         * `aux` so it can never be mistaken for a verified state field - the brain may read
+         * the file when structured state is insufficient, and the verdict still comes from
+         * structured conditions.
+         */
+        const shotPolicy = ctx.screenshotPolicy;
+        const latestShot = shotPolicy && typeof shotPolicy.latest === 'function' ? shotPolicy.latest() : null;
+        if (latestShot) {
+          result.aux = {
+            screenshot: {
+              path: path.relative(process.cwd(), latestShot.path) || latestShot.path,
+              reason: latestShot.reason,
+              at: latestShot.at,
+              width: latestShot.width,
+              height: latestShot.height,
+              sidecar: latestShot.sidecar ? (path.relative(process.cwd(), latestShot.sidecar) || latestShot.sidecar) : null,
+              hint: '结构化状态优先：仅当字段不足以判断时读取；判定仍以结构化条件为准，图片不能升级成功'
+            }
+          };
+        }
         return json(res, 200, result);
+      }
+
+      /**
+       * Screenshot policy surface (panel + tests): what it captured, why, and its budget.
+       */
+      if (req.method === 'GET' && url.pathname === '/screenshots') {
+        if (!ctx.screenshotPolicy) return json(res, 503, { ok: false, error: 'screenshot policy disabled' });
+        return json(res, 200, { ok: true, ...ctx.screenshotPolicy.status() });
+      }
+      if (req.method === 'POST' && url.pathname === '/screenshots/capture') {
+        if (!ctx.screenshotPolicy) return json(res, 503, { ok: false, error: 'screenshot policy disabled' });
+        const payload = JSON.parse((await readRaw(req)) || '{}');
+        const captured = await ctx.screenshotPolicy.capture(String(payload.reason || 'manual'), {
+          taskKey: String(payload.taskKey || 'manual')
+        });
+        return json(res, 200, captured);
       }
 
       /**
