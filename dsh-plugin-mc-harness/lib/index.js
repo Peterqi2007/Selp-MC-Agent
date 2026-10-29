@@ -404,7 +404,12 @@ function toolDefinitions({ controlUrl, record, log, runtime }) {
     name: 'mc_step',
     description:
       'Execute ONE Minecraft action through the local agent, e.g. "goto 70 64 32", ' +
-      '"mine dirt 2", "chop 2", "fish 3", "withdraw dirt 5", "follow Target 60", "stop". Never send multiple actions in one call.',
+      '"mine dirt 2", "chop 2", "fish 3", "withdraw dirt 5", "follow Target 60", "stop". ' +
+      'The same table also exposes the raw input layer ("key forward down", "hold attack 600", ' +
+      '"look 90 0", "shot 768") and promoted code skills ("code-skill <name>"). ' +
+      'Capability-first: call mc_capabilities once before choosing a channel - prefer a ' +
+      'registered skill or command, use the input layer only when no skill covers the action. ' +
+      'Never send multiple actions in one call.',
     parameters: {
       type: 'object',
       properties: {
@@ -771,7 +776,42 @@ function toolDefinitions({ controlUrl, record, log, runtime }) {
     }
   };
 
-  return [observe, perception, state, propose, memory, say, step, lookupModContent, plan, planStatus, cancel, finish];
+  /**
+   * Channel table (capability-first policy).
+   *
+   * The prompt used to list eight hand-written commands, so the raw input layer
+   * (key/hold/shot) and the code-skill channel were undiscoverable: a real session showed
+   * "no reaction" because the model had no way to learn they existed. This reads the live
+   * table from Node instead of hardcoding it.
+   */
+  const capabilities = {
+    name: 'mc_capabilities',
+    description:
+      'Read the capability table: the channel order (capability-first: promoted code skill -> ' +
+      'registered command/skill -> raw input layer -> code generation proposal), every ' +
+      'command verb the agent currently exposes (including key/hold/shot/inputs and ' +
+      'code-skill), and the promoted code skills. Read-only; call it once before choosing ' +
+      'how to act, and again only when a channel is missing.',
+    parameters: { type: 'object', properties: {}, additionalProperties: false },
+    output: {
+      schema: { type: 'string' },
+      render: (_args, value) => [{ type: 'text', text: value }]
+    },
+    async execute() {
+      const res = await fetch(`${controlUrl}/capabilities`);
+      if (!res.ok) throw new Error(`mc_capabilities HTTP ${res.status}`);
+      const payload = await res.json();
+      record.capabilities = {
+        at: new Date().toISOString(),
+        order: payload.order || [],
+        commands: (payload.skills || []).length,
+        codeSkills: (payload.codeSkills && payload.codeSkills.promoted || []).length
+      };
+      return JSON.stringify(payload);
+    }
+  };
+
+  return [observe, perception, state, capabilities, propose, memory, say, step, lookupModContent, plan, planStatus, cancel, finish];
 }
 
 /** Minimal SSE block parser for the harness turn stream. */
@@ -807,6 +847,7 @@ export function apply(ctx, config = {}) {
     plans: [],
     proposals: [],
     says: [],
+    capabilities: null,
     finish: null
   };
   let handle = null;
@@ -858,6 +899,9 @@ export function apply(ctx, config = {}) {
       '  smelt, eat, equip, armor, attack, defend, shoot, explore, collect, home. Do not',
       '  reject a useful action merely because it is not one of the task-builder types;',
       '  farm/sleep/smelt and the other command-table actions are valid proposals.',
+      '- Proposals are command-table tasks. Raw input (key/hold) and code-skill are execution',
+      '  channels, not proposal types; if nothing in the table covers what is needed, say so in',
+      '  the reason and propose the closest useful task instead of inventing a type.',
       '- Keep the proposal small enough to verify (one command-table action; put multi-step',
       '  work in the later execution round, not here).',
       '- If nothing is worth doing, do NOT invent work: call update_goal with action "complete"',
@@ -903,6 +947,10 @@ export function apply(ctx, config = {}) {
       '',
       'Tool contract:',
       '- Before a task read mc_state(fields=[...]) once; use mc_perception on a perception wake.',
+      '- Call mc_capabilities once before choosing HOW to act. Channel order is',
+      '  capability-first: promoted code skill -> registered command/deterministic skill ->',
+      '  raw input layer (key/hold/look/shot) -> propose code generation. The input layer is a',
+      '  fallback for things no skill covers (mod GUIs, keys without a verb), not the default.',
       '- Decompose multi-step work into mc_plan with checkable postconditions; do not replay the',
       '  same steps with mc_step.',
       '- On a failed step read mc_plan_status (state/version/steps/budget), then replan with the',
@@ -1538,8 +1586,12 @@ export function apply(ctx, config = {}) {
           'For a multi-step job, you may submit the whole plan with mc_plan (one step per',
           'command-table action, or wait_for_player); the harness will resume this conversation',
           'when the plan settles. Do not also replay the same steps with mc_step.',
-          'Commands are the local agent command table, without the leading "!":',
-          'goto <x> <y> <z>, mine <block> <n>, chop <n>, fish [n], withdraw <item> <n>, follow <player> [seconds], stop, status.',
+          'Commands are the local agent command table, without the leading "!". The full, live',
+          'list is in mc_capabilities - call it once instead of guessing. Common channels:',
+          'semantic skills (chop, mine, craft, farm, goto, sleep, ...), the raw input layer',
+          '(key <action> down|up, hold <action> [ms], look <yaw> <pitch>, shot [maxEdge]), and',
+          'promoted code skills (code-skill <name>). Capability-first: a registered skill wins;',
+          'use the input layer only for actions no skill covers (mod GUIs, bare keys).',
           'On a perception wake or before planning after a change, call mc_perception',
           '(type = all/threat/weather/phase/chat) to read the edge events.',
           'Before executing a task, call mc_state(fields=[...]) ONCE and choose the fields',

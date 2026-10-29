@@ -37,6 +37,7 @@ const http = require('http');
 const fs = require('fs');
 const path = require('path');
 const { inventorySummary } = require('../world/items');
+const { describe: describeChannels } = require('../core/channelPolicy');
 const { countTrace } = require('../util/trace');
 const { PANEL_HTML, PANEL_JS } = require('./panel');
 const { Logger } = require('../util/logger');
@@ -148,6 +149,18 @@ function startStatusServer(ctx, options = {}) {
             limit: Number(url.searchParams.get('limit') || 20)
           })
         });
+      }
+
+      /**
+       * Channel table for the behavior brain's `mc_capabilities` tool.
+       *
+       * Read-only, data-only: which channel covers which action under the capability-first
+       * policy, the live command list, and the promoted code skills. It exists so the
+       * action brain can *discover* the input layer and the code-skill channel instead of
+       * learning them from a hand-written prompt that goes stale.
+       */
+      if (req.method === 'GET' && url.pathname === '/capabilities') {
+        return json(res, 200, describeChannels(ctx));
       }
 
       /**

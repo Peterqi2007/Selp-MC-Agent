@@ -33,6 +33,7 @@ const { MineBlockTask } = require('../tasks/mineBlock');
 const { MineOreTask } = require('../tasks/mineOre');
 const { FishTask } = require('../tasks/fish');
 const { CodeSkillTask } = require('../tasks/codeSkill');
+const { describe: describeChannels } = require('../core/channelPolicy');
 const { GoToTask } = require('../tasks/goto');
 const { inventorySummary } = require('../world/items');
 const { Logger } = require('../util/logger');
@@ -68,6 +69,7 @@ const HELP = [
   '!hold <action> [ms] - hold one key for at most 10s, then auto-release',
   '!shot [maxEdge] - capture the game frame to runtime/screenshots (no OS screen capture)',
   '!inputs - what keys are currently held, and since when',
+  '!capabilities - channel table: capability-first order (skill -> input -> code generation)',
   '!smelt <item> [n] - smelt in a nearby furnace',
   '!fish [n] - fish for food (cast, wait for the bite, sleep at night)',
   '!code-skill list | <name> [json] - list/run a promoted generated code skill (sandboxed)',
@@ -386,6 +388,20 @@ class ChatController {
         }
         this.say(`截图 ${shot.width}x${shot.height} → ${shot.path}`);
         return shot;
+      },
+      /**
+       * Channel table (L2, capability-first). This is the discovery surface the action brain
+       * reads through `mc_capabilities`; it is data-only so a test can assert on it.
+       */
+      capabilities: async () => {
+        // `this` is the live controller: use its own handler table instead of trusting the
+        // context to carry one (tests, panel launches and the DSH path all build ctx slightly
+        // differently). The command table is the authority for "what channels exist".
+        const table = describeChannels({ ...ctx, chat: this });
+        this.say(
+          `能力优先：技能 ${table.skills.length} 项 / 输入层 ${table.inputCommands.length} 项 / 已晋升代码技能 ${table.codeSkills.promoted.length} 个`
+        );
+        return table;
       },
       craft: (args) => {
         if (!args[0]) throw new Error('usage: !craft <item> [count]');
