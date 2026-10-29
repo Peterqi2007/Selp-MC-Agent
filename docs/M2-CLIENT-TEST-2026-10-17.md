@@ -104,7 +104,8 @@
 - 官方脚本（`DSH_AGENT_ID=<live-id>`）：H1a PASS、H1b PASS。
 - 隐藏 agent 路径仍失败（host 无 provider transport）；H1 自动化必须指向 live 对话。
 - **H1 不需要 Full Access Ask**：那是每个 DSH 对话自己的模式预设（每个对话独立，不是启动参数）；
-  只有 M5 的 CU 对话需要选择它，并由用户审批。
+  原「M5 的 CU 对话需要选择它」已随 **CU 路径放弃（ABANDONED，2026-10-29）** 失效，
+  M5 改用进程内输入层，不再需要该预设（[`CU-ABANDONED.md`](CU-ABANDONED.md)）。
 - 证据：`runtime/logs/dsh-h1-live-run-2026-10-17.log`；详见 [`DSH-HARNESS.md`](DSH-HARNESS.md)。
 
 ## 6. A03：语言脑工具面与 persona —— PASS

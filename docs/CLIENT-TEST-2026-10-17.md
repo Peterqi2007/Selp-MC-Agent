@@ -2,6 +2,8 @@
 
 > 用户批准客户端测试后的第一次真机窗口。**没有修改服务器端配置**；所有结果按实际输出记录，
 > 包括失败项。原始日志在 `runtime/logs/`（gitignored）。
+> **2026-10-30 后注：本文 §7 的 F1 / Computer Use 路径已放弃（ABANDONED）**，只作历史证据保留；
+> M5 改用进程内输入层（[`CU-ABANDONED.md`](CU-ABANDONED.md)、[`P1-M5.md`](P1-M5.md) §7）。
 > 本记录只覆盖本次实际执行的项；其余仍为「未执行」，见
 > [`P1-CLIENT-TESTS.md`](P1-CLIENT-TESTS.md)。
 
