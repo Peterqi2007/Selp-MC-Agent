@@ -101,7 +101,7 @@
     "gateTimeoutMs": 8000,
     "actionBrain": "harness",
     "harnessUrl": "http://127.0.0.1:8770",
-    "harnessAgentId": "session-8d816775-c46e-4ed7-9b08-115622a84616",
+    "harnessAgentId": "session-0eb1db46-b90d-41dd-8994-26a59e6a61d5",
     "languageAgent": false,
     "participate": false,
     "participateMaxTokens": 120,
