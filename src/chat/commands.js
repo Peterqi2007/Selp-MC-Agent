@@ -941,6 +941,28 @@ class ChatController {
         } else {
           this.say(text);
         }
+        return receipt;
+      }
+      /**
+       * The player asked for work: give the ACTION BRAIN a DSH goal, not just a queue entry.
+       *
+       * Without this the task runs as a Node-local skill and the decision brain is never
+       * told, so there is no goal round driver and no continuation (operator review
+       * 2026-10-29). Fire-and-forget: the command ack must not wait on the harness, and a
+       * failed goal creation must not fail the task.
+       */
+      try {
+        if (this.ctx.taskGoals && typeof this.ctx.taskGoals.maybeCreate === 'function') {
+          Promise.resolve(this.ctx.taskGoals.maybeCreate({
+            command: this.dispatchLine || (task && task.name) || 'task',
+            taskName: (task && (task.name || task.constructor && task.constructor.name)) || null,
+            source
+          })).catch((err) => {
+            if (this.ctx.log) this.ctx.log.debug(`task goal injection failed: ${err.message}`);
+          });
+        }
+      } catch (err) {
+        if (this.ctx.log) this.ctx.log.debug(`task goal injection failed: ${err.message}`);
       }
       return receipt;
     });
@@ -1045,7 +1067,9 @@ class ChatController {
     }
 
     const previousSource = this.dispatchSource;
+    const previousLine = this.dispatchLine;
     this.dispatchSource = options.source || 'chat';
+    this.dispatchLine = String(line).trim();
     try {
       const result = await handler(parts, username);
       entry.ok = true;
@@ -1058,6 +1082,7 @@ class ChatController {
       throw err;
     } finally {
       this.dispatchSource = previousSource;
+      this.dispatchLine = previousLine;
     }
   }
 

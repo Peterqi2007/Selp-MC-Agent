@@ -240,6 +240,13 @@ function startStatusServer(ctx, options = {}) {
         if (!ctx.screenshotPolicy) return json(res, 503, { ok: false, error: 'screenshot policy disabled' });
         return json(res, 200, { ok: true, ...ctx.screenshotPolicy.status() });
       }
+      /**
+       * Player-task -> DSH goal surface: how many goals were injected, what was skipped and why.
+       */
+      if (req.method === 'GET' && url.pathname === '/task-goals') {
+        if (!ctx.taskGoals) return json(res, 503, { ok: false, error: 'task goals disabled' });
+        return json(res, 200, { ok: true, ...ctx.taskGoals.status() });
+      }
       if (req.method === 'POST' && url.pathname === '/screenshots/capture') {
         if (!ctx.screenshotPolicy) return json(res, 503, { ok: false, error: 'screenshot policy disabled' });
         const payload = JSON.parse((await readRaw(req)) || '{}');

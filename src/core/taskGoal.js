@@ -1,0 +1,155 @@
+'use strict';
+
+/**
+ * Task goals - a player-issued task must give the ACTION BRAIN a DSH goal, not just a queue entry.
+ *
+ * Why this exists (operator review, 2026-10-29): `!chop 2`, `!mine dirt 5` and language-brain
+ * dispatches all ended at `brain.enqueue` - a Node-local task with no harness goal. Without a
+ * goal the action brain has nothing to keep working on, so there is no goal round driver, no
+ * continuation, and no place for a screenshot "steer" to land. The player asked for work and
+ * the decision brain was never told.
+ *
+ * The goal does NOT re-run the work: the deterministic skill already owns execution (that is
+ * the capability-first policy). The goal makes the action brain the supervisor/owner of the
+ * outcome: observe the result, judge it against the player's request, correct or report.
+ *
+ * Guard rails:
+ *   - one goal at a time: an active goal means "join it", never stack a second one;
+ *   - identical command text inside `dedupeMs` is not given a second goal;
+ *   - `maxGoalRounds` is capped by config (default 3) so a trivial `!mine dirt 1` cannot burn
+ *     an unbounded number of model rounds;
+ *   - nothing here throws into the command path: a failed goal creation is logged and the
+ *     task still runs.
+ */
+
+const DEFAULTS = Object.freeze({
+  enabled: true,
+  purpose: 'execute',
+  maxGoalRounds: 3,
+  dedupeMs: 10_000
+});
+
+class TaskGoalInjection {
+  /**
+   * @param {object} deps { bridge, cfg, now, log }
+   */
+  constructor(deps = {}) {
+    this.bridge = deps.bridge || null;
+    this.cfg = { ...DEFAULTS, ...(deps.cfg || {}) };
+    this.now = deps.now || (() => Date.now());
+    this.log = deps.log || { info() {}, warn() {}, debug() {} };
+    this.recent = new Map();
+    this.lastGoal = null;
+    this.lastSkip = null;
+    this.created = 0;
+    this.skipped = 0;
+  }
+
+  /** Active goal on the bound action-brain conversation, or null. */
+  async activeGoal() {
+    if (!this.bridge || typeof this.bridge.goalOf !== 'function') return null;
+    let agentId = null;
+    try {
+      agentId = typeof this.bridge.boundAgentId === 'function' ? await this.bridge.boundAgentId() : null;
+    } catch (err) {
+      return null;
+    }
+    if (!agentId) return null;
+    try {
+      const goal = await this.bridge.goalOf(agentId);
+      if (goal && goal.id && goal.phase === 'active') return { agentId, goal };
+    } catch (err) {
+      return null;
+    }
+    return null;
+  }
+
+  /**
+   * Give the action brain a goal for this player-issued task.
+   *
+   * @param {object} input { command, taskName, source }
+   * @returns {Promise<{ok:boolean, reason:string, goalId?:string}>}
+   */
+  async maybeCreate(input = {}) {
+    const command = String(input.command || '').trim();
+    if (!this.cfg.enabled) return this.skip('disabled', command);
+    if (!command) return this.skip('no-command', command);
+    if (!this.bridge || typeof this.bridge.createGoal !== 'function') {
+      return this.skip('no-bridge', command);
+    }
+    const seenAt = this.recent.get(command);
+    if (seenAt !== undefined && this.now() - seenAt < this.cfg.dedupeMs) {
+      return this.skip('duplicate-within-window', command);
+    }
+    const active = await this.activeGoal();
+    if (active) {
+      this.recent.set(command, this.now());
+      return this.skip('goal-active', command, { goalId: active.goal.id });
+    }
+    this.recent.set(command, this.now());
+    if (this.recent.size > 100) this.recent.delete(this.recent.keys().next().value);
+
+    const text = [
+      `玩家下发任务：${command}`,
+      input.source ? `来源：${input.source}` : null,
+      input.taskName ? `Node 侧已交给确定性技能执行（${input.taskName}），不要重复它的动作。` : 'Node 侧已排队执行，不要重复它的动作。',
+      '你的职责是目标驱动地监督这次任务：',
+      '1) 用 mc_state/mc_observe 看真实状态与结果（不要只看任务回执）；',
+      '2) 若失败或偏离玩家要求，判断原因，必要时用 mc_step 执行修正；',
+      '3) 结束时如实报告：做了什么、结果如何、还有什么没完成。',
+      '不要把 Node 的失败回执当成成功，也不要在没有结构化证据时宣称完成。'
+    ].filter(Boolean).join('\n');
+
+    let agentId = null;
+    try {
+      agentId = typeof this.bridge.boundAgentId === 'function' ? await this.bridge.boundAgentId() : null;
+    } catch (err) {
+      agentId = null;
+    }
+    const res = await this.bridge.createGoal({
+      agentId: agentId || undefined,
+      goal: text,
+      purpose: this.cfg.purpose,
+      maxGoalRounds: this.cfg.maxGoalRounds,
+      replace: false
+    });
+    if (!res || res.ok !== true || !res.goal || !res.goal.id) {
+      const reason = (res && (res.reason || res.error)) || 'goal-create-failed';
+      this.log.warn(`task goal not created for "${command}": ${reason}`);
+      this.lastSkip = { reason, command, at: this.now() };
+      this.skipped += 1;
+      return { ok: false, reason };
+    }
+    this.created += 1;
+    this.lastGoal = {
+      id: res.goal.id,
+      command,
+      source: input.source || null,
+      taskName: input.taskName || null,
+      at: this.now()
+    };
+    this.log.info(`task goal injected for "${command}": ${res.goal.id}`);
+    return { ok: true, reason: 'created', goalId: res.goal.id };
+  }
+
+  skip(reason, command, extra = {}) {
+    this.skipped += 1;
+    this.lastSkip = { reason, command, at: this.now(), ...extra };
+    this.log.debug(`task goal skipped for "${command}": ${reason}`);
+    return { ok: false, reason, ...extra };
+  }
+
+  status() {
+    return {
+      enabled: this.cfg.enabled,
+      purpose: this.cfg.purpose,
+      maxGoalRounds: this.cfg.maxGoalRounds,
+      created: this.created,
+      skipped: this.skipped,
+      lastGoal: this.lastGoal,
+      lastSkip: this.lastSkip
+    };
+  }
+}
+
+module.exports = { TaskGoalInjection, DEFAULTS };

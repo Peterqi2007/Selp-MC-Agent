@@ -390,6 +390,27 @@ async function main() {
    * It is budgeted (per task, min interval, dedupe, keep-last-K) because a frame is large and
    * a steer costs a model turn.
    */
+  /**
+   * Player-issued tasks must reach the action brain as a DSH goal (operator review
+   * 2026-10-29): `!chop`, `!mine`, language-brain dispatches all end at brain.enqueue, a
+   * Node-local task with no harness goal. This injects one bounded goal per accepted task;
+   * the deterministic skill keeps execution (capability-first) and the goal owns supervision.
+   */
+  if (cfg.agent && cfg.agent.taskGoal && cfg.agent.taskGoal.enabled !== false) {
+    const { TaskGoalInjection } = require('./core/taskGoal');
+    const goalCfg = cfg.agent.taskGoal;
+    ctx.taskGoals = new TaskGoalInjection({
+      bridge: ctx.harnessBridge || null,
+      cfg: {
+        enabled: true,
+        purpose: goalCfg.purpose || 'execute',
+        maxGoalRounds: Number(goalCfg.maxGoalRounds) || undefined,
+        dedupeMs: Number(goalCfg.dedupeMs) || undefined
+      },
+      log: new Logger('taskgoal')
+    });
+  }
+
   if (cfg.agent && cfg.agent.screenshot && cfg.agent.screenshot.enabled !== false) {
     const { ScreenshotPolicy } = require('./perception/screenshotPolicy');
     const shotCfg = cfg.agent.screenshot;

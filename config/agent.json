@@ -10,6 +10,13 @@
     "timeoutMs": 5000,
     "directRange": 3
   },
+  "_comment_taskGoal": "玩家下发的任务（!chop/!mine/语言脑派发）入队成功后，给动作脑创建一个 DSH goal（执行+监督，明确不重复 Node 侧动作）；同一时间只允许一个活跃 goal，同命令 10 秒内不重复创建，maxGoalRounds 限制成本。没有活跃动作脑时会跳过并记日志。",
+  "taskGoal": {
+    "enabled": true,
+    "purpose": "execute",
+    "maxGoalRounds": 3,
+    "dedupeMs": 10000
+  },
   "_comment_screenshot": "事件驱动截图：失败/卡住（plan:partial、plan:failed、task:failed、连续同因失败）、计划或提案接受（执行前状态）、新维度/首次见到的模组方块 -> 截 1 张；另每 90 秒最多 1 张兜底，仅在动作脑有活跃任务时。每任务上限 maxPerTask、全局最小间隔 minIntervalMs、感知哈希去重 dedupeDistance（汉明距离）、目录只保留 keepFiles 张。截图以 steer 消息（harnessBridge.forward）把路径插进动作脑对话，并写 .json 旁注；判定仍以结构化状态为准，图只作辅助证据。maxEdge 768 约 380KB/张。",
   "screenshot": {
     "enabled": true,
