@@ -93,7 +93,10 @@
   "_comment_codeSkills": "M4 live loop. enabled=true instantiates CodeSkillService: real generation writes candidates/, trial runs in a permissioned Node child (SandboxRunner) with capability RPC, evidence goes to runtime/code-skill-runs/. No per-action approval; the sandbox timeout/call budget/permission list stay enforced. Generated code is static-scanned and never required by the parent. search uses the DeepSeek Search API with the llm baseUrl/apiKey; results are untrusted data and cached for review.",
   "codeSkills": {
     "_comment_repair": "M4 v3：生成物是键鼠脚本（input_* 权限）；manifest 四元组 code+description+preconditions+verification；试运行失败把错误原文回灌重生成，最多 maxRounds=4 轮，每轮一个新 patch 版本（不覆盖）。allowLegacyBody=false 可禁跑 v1/v2 旧技能。",
-    "_comment_retrieval": "检索：描述即键，默认本地哈希 TF-IDF 向量 + 余弦相似度（embedding.provider=http 可接 OpenAI 兼容 /embeddings）；query=上下文+最近失败/chatlog（Voyager voyager.py:245-249）。",
+    "_comment_forge": "动作脑自主取脚本（2026-10-29 操作员决定）：!code-skill forge <需求> 后台跑 ≤4 轮生成+试运行+verification，成功即自动晋升（autoPromote）。沙箱/证据/权限不变。",
+  "forgeMaxRounds": 4,
+  "autoPromote": true,
+  "_comment_retrieval": "检索：描述即键，默认本地哈希 TF-IDF 向量 + 余弦相似度（embedding.provider=http 可接 OpenAI 兼容 /embeddings）；query=上下文+最近失败/chatlog（Voyager voyager.py:245-249）。",
     "maxRounds": 4,
     "allowLegacyBody": true,
     "retrieval": {

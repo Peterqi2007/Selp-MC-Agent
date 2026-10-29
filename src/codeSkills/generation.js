@@ -47,6 +47,8 @@ const INPUT_METHODS = [
   'use_on({x,y,z,face?,item?})           // right-click a block face',
   'target()                              // crosshair raycast result',
   'inputs()                              // input ledger: what is still held',
+  'pillar({count:1})                     // ONE tick-accurate jump+place hop (needs a block in hand);',
+  '                                      // count>1 is refused by the permission gate - loop these single hops',
   'wait(ms)',
   'chat(text)                            // speak one short line'
 ];

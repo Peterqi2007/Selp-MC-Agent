@@ -820,6 +820,17 @@ function startStatusServer(ctx, options = {}) {
         return json(res, 200, { ok: true, ...ctx.codeSkills.history(name) });
       }
 
+      /** Forge jobs: what the action brain asked for and what came out of it. */
+      if (req.method === 'GET' && url.pathname === '/code-skills/forge') {
+        if (!ctx.skillForge) return json(res, 503, { ok: false, error: 'forge unavailable' });
+        return json(res, 200, ctx.skillForge.status());
+      }
+      const forgeJob = url.pathname.match(/^\/code-skills\/forge\/([^/]+)$/);
+      if (req.method === 'GET' && forgeJob) {
+        if (!ctx.skillForge) return json(res, 503, { ok: false, error: 'forge unavailable' });
+        return json(res, 200, ctx.skillForge.status(decodeURIComponent(forgeJob[1])));
+      }
+
       if (req.method === 'POST' && url.pathname === '/code-skills/cancel') {
         if (!ctx.codeSkills) return json(res, 503, { ok: false, error: 'code skills unavailable' });
         const body = await readBody(req);

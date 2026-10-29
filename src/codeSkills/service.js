@@ -919,7 +919,8 @@ class CodeSkillService {
       select: async (args) => this._inputSelect(args),
       use_on: async (args) => this._inputUseOn(args),
       target: async () => this._inputTarget(),
-      inputs: async () => this._inputLedger()
+      inputs: async () => this._inputLedger(),
+      pillar: async (args) => this._inputPillar(args)
     };
   }
 
@@ -1562,6 +1563,37 @@ class CodeSkillService {
     if (typeof ready.body.targetBlock !== 'function') return { ok: false, reason: 'body-cannot-target' };
     const target = await ready.body.targetBlock().catch(() => null);
     return { ok: true, target: target || null };
+  }
+
+  /**
+   * Jump-and-place N blocks (the client's tick-accurate pillar).
+   *
+   * v3 scripts that need to climb a 1-wide shaft call this instead of looping key/use_on in
+   * Node: the placement window is a few ticks and HTTP round-trips cannot hit it.
+   */
+  async _inputPillar(args = {}) {
+    const ready = this._inputReady();
+    if (!ready.ok) return ready;
+    if (typeof ready.body.pillar !== 'function') return { ok: false, reason: 'body-cannot-pillar' };
+    const count = Math.min(Math.max(Math.floor(Number(args.count) || 1), 1), 16);
+    /**
+     * The permission gate refuses multi-hop pillars (only a single placement is checked), so
+     * scripts must express the climb as a loop of single hops. Fail loudly here instead of
+     * letting the gate's warning look like an unrelated refusal.
+     */
+    if (count > 1) {
+      return { ok: false, reason: 'pillar-single-hop-only', count, hint: 'loop ctx.pillar({ count: 1 }) one hop at a time' };
+    }
+    const result = await this._bodyCall(() => ready.body.pillar(count), {}, Math.min(90000, 6000 * count + 8000));
+    if (!result || result.ok === false) return { ok: false, reason: (result && result.reason) || 'pillar-failed', count };
+    const after = typeof ready.body.snapshot === 'function' ? ready.body.snapshot() : null;
+    return {
+      ok: true,
+      count,
+      steps: Number.isFinite(result.steps) ? result.steps : null,
+      position: after ? after.position || null : null,
+      placedCells: Array.isArray(result.placedCells) ? result.placedCells : []
+    };
   }
 
   async _inputLedger() {

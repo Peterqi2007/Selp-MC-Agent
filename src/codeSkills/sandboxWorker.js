@@ -128,6 +128,8 @@ const capabilities = {
   use_on: (args) => call('use_on', args || {}),
   target: () => call('target', {}),
   inputs: () => call('inputs', {}),
+  /** Jump-and-place: positional count, one hop per block, executed on the client ticks. */
+  pillar: (count) => call('pillar', { count }),
   wait: async (ms) => {
     const delay = Math.min(Math.max(Number(ms) || 0, 0), 30000);
     await new Promise((resolve) => setTimeout(resolve, delay));

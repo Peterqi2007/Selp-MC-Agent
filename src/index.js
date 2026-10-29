@@ -630,6 +630,19 @@ async function main() {
       allowLegacyBody: codeCfg.allowLegacyBody !== false,
       log: new Logger('code-skills')
     });
+    /**
+     * The forge is the action brain's way to obtain a script mid-task. Auto-promotion is a
+     * policy choice (2026-10-29 operator decision): the trial still runs the real sandbox and
+     * the declarative verification, so promotion only follows evidence.
+     */
+    const { SkillForge } = require('./codeSkills/forge');
+    ctx.skillForge = new SkillForge({
+      service: ctx.codeSkills,
+      reply: (text, meta) => ctx.reply(text, { ...meta, channel: 'chat' }),
+      maxRounds: codeCfg.forgeMaxRounds || codeCfg.maxRounds || 4,
+      autoPromote: codeCfg.autoPromote !== false,
+      log: new Logger('skill-forge')
+    });
     log.info(
       `code skills online: root=${codeCfg.root || 'runtime/code-skills'} ` +
         `(sandbox ${codeCfg.sandboxTimeoutMs || 30000}ms, search ${webSearch && webSearch.configured ? 'on' : 'off'})`

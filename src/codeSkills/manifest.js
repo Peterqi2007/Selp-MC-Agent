@@ -57,7 +57,14 @@ const INPUT_PERMISSIONS = [
   'input_select',
   'input_use_on',
   'input_target',
-  'input_ledger'
+  'input_ledger',
+  /**
+   * Tick-accurate jump-and-place. A Node-side loop of `key jump` + `use_on` is far too slow
+   * for the placement window (the client must place while the feet clear the cell), so the
+   * script channel gets the same primitive the mining skill uses internally. Still a
+   * keyboard/mouse action: the client presses jump and right-click, one hop per block.
+   */
+  'input_pillar'
 ];
 /** Observation and reporting that do not act on the world. */
 const PASSIVE_PERMISSIONS = ['read_state', 'wait', 'chat'];

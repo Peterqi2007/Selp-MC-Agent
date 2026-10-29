@@ -73,7 +73,7 @@ const HELP = [
   '!capabilities - channel table: capability-first order (skill -> input -> code generation)',
   '!smelt <item> [n] - smelt in a nearby furnace',
   '!fish [n] - fish for food (cast, wait for the bite, sleep at night)',
-  '!code-skill list | find <text> | history <name> | <name> [json] - list/search/run a promoted code skill',
+  '!code-skill list | find <text> | forge <prompt> | forge-status [id] | history <name> | <name> [json] - forge/run a promoted code skill',
   '!farm [radius] - harvest ripe crops, till soil, plant seeds',
   '!sleep - sleep in a nearby bed until morning',
   '!goal <text> - queue a goal in words',
@@ -465,6 +465,39 @@ class ChatController {
               : '还没有已晋升的代码技能'
           );
           return { ok: true, promoted };
+        }
+        /**
+         * Script channel for the action brain (2026-10-29): live testing showed it can only
+         * retry/micro-manage with mc_step, because generation was operator-HTTP-only. `forge`
+         * runs the M4 repair loop in the background and promotes on success, so a goal that
+         * needs tick-accurate timing (jump+place) can get a script instead of 27 steps.
+         */
+        if (first === 'forge') {
+          const prompt = args.slice(1).join(' ').trim();
+          if (!prompt) throw new Error('usage: !code-skill forge <一句话需求>');
+          if (!ctx.skillForge) throw new Error('skill forge is not enabled on this agent');
+          const started = ctx.skillForge.start(prompt);
+          if (!started.ok) {
+            this.say(`生成脚本没开始：${started.reason}${started.jobId ? `（${started.jobId} 在跑）` : ''}`);
+            return started;
+          }
+          this.say(`开始生成脚本（最多 ${started.maxRounds} 轮，成功后自动晋升）：${started.jobId}`);
+          return started;
+        }
+        if (first === 'forge-status') {
+          if (!ctx.skillForge) throw new Error('skill forge is not enabled on this agent');
+          const wanted = String(args[1] || '').trim();
+          const status = ctx.skillForge.status(wanted || null);
+          if (!status.ok) throw new Error(`unknown forge job: ${wanted}`);
+          if (wanted) {
+            const job = status.job;
+            this.say(`${job.id}: ${job.state}${job.result ? ` ${job.result.name}@${job.result.version}` : ''}${job.error ? ` (${job.error})` : ''}`);
+          } else {
+            const tail = status.jobs.slice(-3).map((job) => `${job.id}:${job.state}`).join(', ');
+            this.say(status.busy ? `生成中 ${status.running}` : '没有在跑的生成任务');
+            if (tail) this.say(`最近: ${tail}`);
+          }
+          return status;
         }
         /**
          * Retrieval diagnostics (2026-10-29): `find` shows the similarity ranking the channel

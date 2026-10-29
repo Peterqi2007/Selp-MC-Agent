@@ -48,6 +48,17 @@ function check(name, fn) {
   return Promise.resolve();
 }
 
+/** Poll a predicate until it returns a truthy value or the timeout expires. */
+async function waitFor(fn, timeoutMs = 3000) {
+  const deadline = Date.now() + timeoutMs;
+  for (;;) {
+    const value = fn();
+    if (value) return value;
+    if (Date.now() > deadline) throw new Error('waitFor timed out');
+    await new Promise((resolve) => setTimeout(resolve, 5));
+  }
+}
+
 function tempRoot(prefix) {
   return fs.mkdtempSync(path.join(os.tmpdir(), prefix));
 }
@@ -130,6 +141,10 @@ function makeContext(options = {}) {
     },
     targetBlock: async () => ({ name: 'minecraft:grass_block' }),
     inputState: async () => ({ held: [], count: 0 }),
+    pillar: async (count) => {
+      calls.push({ m: 'pillar', count });
+      return { ok: true, steps: 1, placedCells: [] };
+    },
     interrupt() {}
   };
   const ctx = {
@@ -371,6 +386,8 @@ function fakeGeneration(script) {
     assert.strictEqual(input.click, 'input_click');
     assert.strictEqual(input.use_on, 'input_use_on');
     assert.strictEqual(input.key, 'input_key');
+    const climb = methodsForPermissions(['input_pillar']);
+    assert.strictEqual(climb.pillar, 'input_pillar');
   });
 
   await check('a slot click without our container screen is refused (live 2026-10-29)', async () => {
@@ -475,6 +492,112 @@ function fakeGeneration(script) {
     assert(tokens.includes('打开'));
     assert(tokens.includes('开背'));
     assert(tokens.includes('背包'));
+  });
+
+  await check('v3 pillar is single-hop only, and one hop reaches the body', async () => {
+    const temps = { skills: tempRoot('m4v3-pillar-skills-'), sandbox: tempRoot('m4v3-pillar-sandbox-'), evidence: tempRoot('m4v3-pillar-evidence-') };
+    const { service, calls } = makeService(temps);
+    const refused = await service._host().pillar({ count: 4 });
+    assert.strictEqual(refused.ok, false, JSON.stringify(refused));
+    assert.strictEqual(refused.reason, 'pillar-single-hop-only');
+    assert.match(refused.hint, /count: 1/);
+    assert.strictEqual(calls.length, 0, 'no multi-hop placement reaches the body');
+    const hop = await service._host().pillar({ count: 1 });
+    assert.strictEqual(hop.ok, true, JSON.stringify(hop));
+    assert(calls.some((call) => call.m === 'pillar' && call.count === 1));
+    fs.rmSync(temps.skills, { recursive: true, force: true });
+  });
+
+  process.stdout.write('\n5. skill forge: the action brain can obtain a script mid-task\n');
+  await check('forge generates, promotes on success and reports the concrete code-skill', async () => {
+    const { SkillForge } = require('../src/codeSkills/forge');
+    const calls = [];
+    const service = {
+      async generateAndTrial(options) {
+        calls.push({ prompt: options.prompt, maxRounds: options.maxRounds });
+        return {
+          ok: true,
+          name: 'agent.surface_climb',
+          version: '1.0.1',
+          rounds: 2,
+          manifest: { description: '从 1 格宽竖井向上爬到地表（跳起后垫方块）。' }
+        };
+      },
+      promote(name, version) {
+        calls.push({ promote: `${name}@${version}` });
+        return { ok: true };
+      }
+    };
+    const replies = [];
+    const forge = new SkillForge({ service, reply: (text) => replies.push(text), log: silent });
+    const started = forge.start('  把自己从地底爬到地表  ');
+    assert.strictEqual(started.ok, true, JSON.stringify(started));
+    assert.strictEqual(started.autoPromote, true);
+    const job = await waitFor(() => {
+      const status = forge.status(started.jobId);
+      return status.job && status.job.state !== 'running' ? status.job : null;
+    });
+    assert.strictEqual(job.state, 'promoted', JSON.stringify(job));
+    assert.strictEqual(job.result.name, 'agent.surface_climb');
+    assert.strictEqual(job.result.rounds, 2);
+    assert.deepStrictEqual(job.promoted, { name: 'agent.surface_climb', version: '1.0.1' });
+    assert.strictEqual(calls[0].prompt, '把自己从地底爬到地表');
+    assert.strictEqual(calls[0].maxRounds, 4);
+    assert.strictEqual(calls[1].promote, 'agent.surface_climb@1.0.1');
+    assert(replies.some((line) => /已生成并晋升/.test(line)), JSON.stringify(replies));
+    assert(forge.busy === false);
+  });
+
+  await check('forge surfaces a failed repair loop instead of pretending success', async () => {
+    const { SkillForge } = require('../src/codeSkills/forge');
+    const service = {
+      async generateAndTrial() {
+        return {
+          ok: false,
+          reason: 'max-rounds',
+          rounds: 4,
+          attempts: [
+            { round: 1, stage: 'trial', version: '1.0.0', reason: 'pillar-failed' },
+            { round: 2, stage: 'trial', version: '1.0.1', reason: 'pillar-failed' },
+            { round: 3, stage: 'trial', version: '1.0.2', reason: 'pillar-failed' },
+            { round: 4, stage: 'trial', version: '1.0.3', reason: 'pillar-failed' }
+          ]
+        };
+      },
+      promote() {
+        throw new Error('must not promote a failed job');
+      }
+    };
+    const replies = [];
+    const forge = new SkillForge({ service, reply: (text) => replies.push(text), log: silent });
+    const started = forge.start('永远爬不上去');
+    const job = await waitFor(() => {
+      const status = forge.status(started.jobId);
+      return status.job && status.job.state !== 'running' ? status.job : null;
+    });
+    assert.strictEqual(job.state, 'failed');
+    assert.strictEqual(job.error, 'max-rounds');
+    assert.strictEqual(job.attempts.length, 4);
+    assert(replies.some((line) => /没生成成功/.test(line)), JSON.stringify(replies));
+  });
+
+  await check('forge refuses a second job while one is running', async () => {
+    const { SkillForge } = require('../src/codeSkills/forge');
+    let release = null;
+    const service = {
+      generateAndTrial: () => new Promise((resolve) => {
+        release = resolve;
+      }),
+      promote: () => ({ ok: true })
+    };
+    const forge = new SkillForge({ service, log: silent });
+    const first = forge.start('慢任务');
+    assert.strictEqual(first.ok, true);
+    const second = forge.start('第二个');
+    assert.strictEqual(second.ok, false);
+    assert.strictEqual(second.reason, 'forge-busy');
+    release({ ok: false, reason: 'cancelled', rounds: 1, attempts: [] });
+    await waitFor(() => (forge.busy ? null : true), 2000);
   });
 
   const failed = results.filter((entry) => !entry.ok);

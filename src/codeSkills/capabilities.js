@@ -45,7 +45,8 @@ const PERMISSION_METHODS = {
   input_select: ['select'],
   input_use_on: ['use_on'],
   input_target: ['target'],
-  input_ledger: ['inputs']
+  input_ledger: ['inputs'],
+  input_pillar: ['pillar']
 };
 
 const BODY_PERMISSIONS = new Set([
@@ -89,7 +90,8 @@ const INPUT_METHODS = new Set([
   'select',
   'use_on',
   'target',
-  'inputs'
+  'inputs',
+  'pillar'
 ]);
 
 const METHOD_PERMISSION = {};
