@@ -40,6 +40,9 @@ public final class AgentClientMod {
 
         ClientModConfig config = ClientModConfig.get();
         this.actions = new ClientActions();
+        // /state embeds the input ledger; a static back-reference keeps the snapshot a
+        // single call (see ClientStateSnapshot.setActions).
+        ClientStateSnapshot.setActions(this.actions);
         this.http = new ControlHttpServer(this.actions, config);
 
         MinecraftForge.EVENT_BUS.register(this);

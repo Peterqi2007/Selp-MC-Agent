@@ -361,6 +361,26 @@ public final class ControlHttpServer {
         return null;
     }
 
+    /**
+     * Hide credential arguments from the echoed command.
+     *
+     * `login <password>` and `register <password>` are the only commands whose argument is a
+     * secret; everything else is echoed verbatim so a caller can still see exactly what was
+     * dispatched.
+     */
+    private static String redactCommand(String command) {
+        String normalised = command == null ? "" : command.trim();
+        while (normalised.startsWith("/")) {
+            normalised = normalised.substring(1).trim();
+        }
+        String[] parts = normalised.split("\\s+", 2);
+        String verb = parts.length > 0 ? parts[0].toLowerCase(java.util.Locale.ROOT) : "";
+        if ((verb.equals("login") || verb.equals("register")) && parts.length > 1) {
+            return parts[0] + " ***";
+        }
+        return normalised;
+    }
+
     /** Route a command string to an action. */
     String execute(String command) {
         // Strip leading slashes BEFORE splitting the verb.
@@ -379,7 +399,14 @@ public final class ControlHttpServer {
         String rest = parts.length > 1 ? parts[1].trim() : "";
 
         Map<String, String> out = new LinkedHashMap<>();
-        out.put("command", Json.str(command));
+        /**
+         * Echo the command back, but never the credential.
+         *
+         * `login <password>` is how the agent authenticates; echoing it verbatim put the
+         * account password into the HTTP response, the agent log and any panel that shows
+         * the last command. Redact the argument and keep the verb.
+         */
+        out.put("command", Json.str(redactCommand(normalised)));
 
         // Safety gate, checked before ANY dispatch - including the `cmd` escape hatch.
         String forbidden = forbiddenCommand(normalised);
@@ -425,6 +452,43 @@ public final class ControlHttpServer {
                 case "lookat" -> {
                     double[] xyz = numbers(rest, 3);
                     out.put("ok", Json.bool(xyz != null && actions.lookAt(xyz[0], xyz[1], xyz[2])));
+                }
+                /**
+                 * Input layer (2026-10-29, M5).
+                 *
+                 * These verbs return the action layer's own JSON verbatim (early return)
+                 * because their acks carry more than a boolean: the client tick, the
+                 * release deadline and the ledger size are what F1'b is asserted on.
+                 */
+                case "key" -> {
+                    String[] tokens = rest.isEmpty() ? new String[0] : rest.split("\\s+");
+                    String action = tokens.length > 0 ? tokens[0] : null;
+                    String direction = tokens.length > 1 ? tokens[1].toLowerCase(java.util.Locale.ROOT) : "down";
+                    if (action == null || action.isEmpty()
+                            || !(direction.equals("down") || direction.equals("up"))) {
+                        out.put("ok", Json.bool(false));
+                        out.put("error", Json.str("usage: key <action> <down|up>"));
+                    } else {
+                        return actions.keyJson(action, direction.equals("down"));
+                    }
+                }
+                case "hold" -> {
+                    String[] tokens = rest.isEmpty() ? new String[0] : rest.split("\\s+");
+                    String action = tokens.length > 0 ? tokens[0] : null;
+                    Integer ms = tokens.length > 1 ? tryInt(tokens[1]) : null;
+                    if (action == null || action.isEmpty()) {
+                        out.put("ok", Json.bool(false));
+                        out.put("error", Json.str("usage: hold <action> [ms]"));
+                    } else {
+                        return actions.holdJson(action, ms == null ? 0 : ms);
+                    }
+                }
+                case "shot", "screenshot" -> {
+                    Integer edge = rest.isEmpty() ? null : tryInt(rest.trim());
+                    return actions.screenshotJson(edge == null ? 0 : edge);
+                }
+                case "inputs" -> {
+                    return actions.inputJson();
                 }
                 case "moveto", "goto" -> {
                     double[] xyz = numbers(rest, 3);

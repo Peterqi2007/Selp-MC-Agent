@@ -80,19 +80,37 @@ function spec(reason) {
 }
 
 class Holds {
-  constructor() {
+  /**
+   * @param {object} [deps]
+   * @param {(reason:string)=>void} [deps.onHold] called on every *new* hold.
+   *   Used by M5's input ledger: anything that stops the brain touching the world must
+   *   also let go of the keys (F1'b). A hold that is refreshed is not a new signal, so the
+   *   callback fires only on the first `hold(reason)`, not on repeats.
+   */
+  constructor({ onHold } = {}) {
     /** @type {Map<string,{since:number,note:string|null}>} */
     this.active = new Map();
+    this.onHold = typeof onHold === 'function' ? onHold : null;
   }
 
   /** Enter (or refresh the note of) a hold. Idempotent. */
   hold(reason, note = null) {
     const entry = spec(reason);
     const current = this.active.get(reason);
+    const isNew = !current;
     this.active.set(reason, {
       since: current ? current.since : Date.now(),
       note: note === null || note === undefined ? (current ? current.note : null) : String(note)
     });
+    if (isNew && this.onHold) {
+      try {
+        this.onHold(reason);
+      } catch (err) {
+        // A listener must never break the hold itself: stopping the brain matters more
+        // than whatever the listener wanted to do.
+        console.warn(`holds: onHold(${reason}) failed: ${err.message}`);
+      }
+    }
     return entry;
   }
 

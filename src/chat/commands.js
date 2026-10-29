@@ -64,6 +64,10 @@ const HELP = [
   '!look <yaw> <pitch> - turn the camera to absolute angles (degrees)',
   '!lookat <x> <y> <z> - look at a coordinate',
   '!target - what is under the crosshair right now',
+  '!key <action> down|up - press or release one key in the client (input layer)',
+  '!hold <action> [ms] - hold one key for at most 10s, then auto-release',
+  '!shot [maxEdge] - capture the game frame to runtime/screenshots (no OS screen capture)',
+  '!inputs - what keys are currently held, and since when',
   '!smelt <item> [n] - smelt in a nearby furnace',
   '!fish [n] - fish for food (cast, wait for the bite, sleep at night)',
   '!code-skill list | <name> [json] - list/run a promoted generated code skill (sandboxed)',
@@ -328,6 +332,60 @@ class ChatController {
             : '准心没有对着方块（或这个身体没有准心）'
         );
         return found;
+      },
+      /**
+       * Input layer (M5, 2026-10-29): explicit key press/release through the client mod.
+       *
+       * These are the same commands the DSH action brain can reach through `mc_step`
+       * (`key forward down`), so no action-brain change is needed for the new capability.
+       * Every press is recorded in the input ledger, and the ledger is what `!stop`,
+       * death, pause and disconnect release (F1'b).
+       */
+      key: async (args) => {
+        const action = String(args[0] || '').trim();
+        const direction = String(args[1] || 'down').toLowerCase();
+        if (!action || !['down', 'up'].includes(direction)) {
+          throw new Error('usage: !key <action> down|up');
+        }
+        if (!ctx.brain || !ctx.brain.inputLedger) throw new Error('input ledger is not available');
+        const result = direction === 'down'
+          ? await ctx.brain.inputLedger.press(action)
+          : await ctx.brain.inputLedger.release(action);
+        this.say(`按键 ${action} ${direction}${result && result.ok === false ? '（失败）' : ''}`);
+        return result;
+      },
+      hold: async (args) => {
+        const action = String(args[0] || '').trim();
+        if (!action) throw new Error('usage: !hold <action> [ms]');
+        if (!ctx.brain || !ctx.brain.inputLedger) throw new Error('input ledger is not available');
+        const ms = Number(args[1]);
+        const result = await ctx.brain.inputLedger.hold(action, Number.isFinite(ms) && ms > 0 ? ms : 250);
+        this.say(`按住 ${action} ${result.ms || ''}ms`.trim());
+        return result;
+      },
+      inputs: async () => {
+        const ledger = ctx.brain && ctx.brain.inputLedger ? ctx.brain.inputLedger.status() : null;
+        const remote = typeof ctx.body.inputState === 'function' ? await ctx.body.inputState() : null;
+        // Reconcile first: the mod releases on its own deadline, so a Node entry it no
+        // longer reports is already up and must not be chased later.
+        if (ledger && remote && Array.isArray(remote.held)) ctx.brain.inputLedger.sync(remote.held);
+        const status = ctx.brain && ctx.brain.inputLedger ? ctx.brain.inputLedger.status() : ledger;
+        const held = status ? status.held.map((entry) => entry.action) : [];
+        this.say(held.length ? `按住中: ${held.join(', ')}` : '没有按住的按键');
+        return { ...status, mod: remote };
+      },
+      shot: async (args) => {
+        if (!ctx.body || typeof ctx.body.screenshot !== 'function') {
+          throw new Error('this body cannot take screenshots');
+        }
+        const edge = Number(args[0]) > 0 ? Number(args[0]) : 1024;
+        const shot = await ctx.body.screenshot({ maxEdge: edge });
+        if (!shot.ok) {
+          this.say(`截图失败: ${shot.error || '未知原因'}`);
+          return shot;
+        }
+        this.say(`截图 ${shot.width}x${shot.height} → ${shot.path}`);
+        return shot;
       },
       craft: (args) => {
         if (!args[0]) throw new Error('usage: !craft <item> [count]');

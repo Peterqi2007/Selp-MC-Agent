@@ -62,6 +62,19 @@ final class ClientStateSnapshot {
     }
 
     /**
+     * The action layer, registered once at mod construction.
+     *
+     * The snapshot is static (it only reads game objects) but the input ledger lives on
+     * {@link ClientActions}; a static back-reference keeps /state a single call without
+     * threading an instance through every caller.
+     */
+    private static volatile ClientActions ACTIONS;
+
+    static void setActions(ClientActions actions) {
+        ACTIONS = actions;
+    }
+
+    /**
      * Build the snapshot.
      *
      * `playersOnly` is the lightweight follow poll: it returns the self position and the
@@ -195,6 +208,20 @@ final class ClientStateSnapshot {
                 "day", Json.num(dayTime / 24000L),
                 "isDay", Json.bool(isDay)
         ))));
+        /**
+         * Monotonic clock for the input layer.
+         *
+         * Held keys are released by a client tick counter, so "did the game advance since I
+         * pressed?" has to be answerable from the snapshot. getGameTime() is server-synced
+         * and monotonic; timeOfDay wraps every 24000 ticks and cannot serve as this clock.
+         */
+        out.put("gameTime", Json.num(level.getGameTime()));
+        /**
+         * The mod-side half of the input ledger (F1'b): which keys are held, their release
+         * deadline, and whether a screen currently swallows player input. Embedded here so
+         * one /state answers both "what is the world" and "is a key stuck".
+         */
+        out.put("input", ACTIONS == null ? Json.str("null") : ACTIONS.inputJson());
         out.put("weather", Json.obj(new LinkedHashMap<>(Map.of(
                 "raining", Json.bool(level.isRaining()),
                 "thundering", Json.bool(level.isThundering())

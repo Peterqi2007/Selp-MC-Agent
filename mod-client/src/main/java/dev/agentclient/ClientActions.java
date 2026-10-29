@@ -1,6 +1,8 @@
 package dev.agentclient;
 
+import com.mojang.blaze3d.platform.NativeImage;
 import net.minecraft.client.Minecraft;
+import net.minecraft.client.Screenshot;
 import net.minecraft.client.multiplayer.ClientLevel;
 import net.minecraft.client.player.LocalPlayer;
 import net.minecraft.core.BlockPos;
@@ -21,6 +23,7 @@ import net.minecraft.world.phys.HitResult;
 import net.minecraft.world.phys.Vec3;
 
 import java.util.ArrayList;
+import java.util.Base64;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
@@ -64,6 +67,25 @@ public final class ClientActions {
      * progress means "done/failed/reason/cell" survive until the next action starts.
      */
     private volatile String lastProgress;
+
+    /**
+     * Hard cap for one explicit hold (F1'b: a stuck key is worse than a refused one).
+     * One client tick is 50 ms, so this is also the tick budget of the ledger below.
+     */
+    private static final int MAX_HOLD_MS = 10_000;
+    /** A bare `key down` with no matching `key up` still auto-releases after this. */
+    private static final int DEFAULT_KEY_HOLD_MS = 2_000;
+
+    /**
+     * Explicit key holds, action -> client tick at which it must be released.
+     *
+     * This is the mod-side half of the input ledger: every hold is bounded here even if the
+     * Node side dies, disconnects or forgets to send the release. `tick()` drains it, and
+     * {@link #releaseAllKeys()} clears it on every stop path.
+     */
+    private final Map<String, Long> heldUntilTick = new LinkedHashMap<>();
+    /** Monotonic client tick counter; advances even when no action is running. */
+    private volatile long clientTick;
 
     // ------------------------------------------------------------------ simple
 
@@ -609,6 +631,12 @@ public final class ClientActions {
         setKeyInClient("jump", false);
         setKeyInClient("sprint", false);
         setKeyInClient("use", false);
+        // Input layer: stop()/death/disconnect must empty the ledger, not just the movement
+        // keys - a held attack with no owner is how a "stopped" agent keeps mining.
+        for (String action : new ArrayList<>(heldUntilTick.keySet())) {
+            setKeyInClient(action, false);
+        }
+        heldUntilTick.clear();
         if (mc.gameMode != null && mc.gameMode.isDestroying()) {
             mc.gameMode.stopDestroyBlock();
         }
@@ -647,6 +675,10 @@ public final class ClientActions {
 
     /** Called from the client tick; advances whatever continuous action is running. */
     public void tick() {
+        this.clientTick += 1;
+        // Bounded holds must expire even when no continuous action owns the tick pump:
+        // a key left down because Node crashed is exactly the failure F1'b exists for.
+        expireHolds();
         Continuous action = this.continuous;
         if (action == null) {
             return;
@@ -2155,8 +2187,200 @@ public final class ClientActions {
             case "jump" -> mc.options.keyJump.setDown(down);
             case "sprint" -> mc.options.keySprint.setDown(down);
             case "use" -> mc.options.keyUse.setDown(down);
+            // Input-layer keys (2026-10-29): the vanilla keybinds read these same mappings,
+            // so setting them here is what a player's finger does, not a forged packet.
+            case "attack" -> mc.options.keyAttack.setDown(down);
+            case "sneak" -> mc.options.keyShift.setDown(down);
+            case "drop" -> mc.options.keyDrop.setDown(down);
+            case "inventory" -> mc.options.keyInventory.setDown(down);
             default -> { }
         }
+    }
+
+    /** Canonical key names, so a typo fails loudly instead of doing nothing quietly. */
+    private static String normaliseKey(String action) {
+        String name = action == null ? "" : action.trim().toLowerCase(Locale.ROOT);
+        return switch (name) {
+            case "forward", "back", "left", "right", "jump", "sprint", "use",
+                 "attack", "sneak", "drop", "inventory" -> name;
+            // Friendly aliases: the action brain says "mine"/"hit", the keybind is attack.
+            case "mine", "hit", "dig" -> "attack";
+            case "shift", "crouch" -> "sneak";
+            case "eat" -> "use";
+            default -> null;
+        };
+    }
+
+    private static long ticksFromMs(int ms) {
+        return Math.max(1L, Math.round(ms / 50.0D));
+    }
+
+    /** Release every hold whose deadline has passed. Runs once per client tick. */
+    private void expireHolds() {
+        if (heldUntilTick.isEmpty()) {
+            return;
+        }
+        List<String> due = new ArrayList<>();
+        long now = this.clientTick;
+        for (Map.Entry<String, Long> entry : heldUntilTick.entrySet()) {
+            if (now >= entry.getValue()) {
+                due.add(entry.getKey());
+            }
+        }
+        for (String action : due) {
+            setKeyInClient(action, false);
+            heldUntilTick.remove(action);
+            AgentClientMod.LOGGER.debug("input: auto-released '{}' at tick {}", action, now);
+        }
+    }
+
+    /**
+     * The input ledger, as JSON.
+     *
+     * Read-only and cheap: /state embeds it so the agent can prove "nothing is held" at any
+     * moment without a second round trip (F1'b).
+     */
+    public String inputJson() {
+        StringBuilder held = new StringBuilder("[");
+        boolean first = true;
+        for (Map.Entry<String, Long> entry : heldUntilTick.entrySet()) {
+            if (!first) {
+                held.append(',');
+            }
+            first = false;
+            held.append(Json.obj(new LinkedHashMap<>(Map.of(
+                    "action", Json.str(entry.getKey()),
+                    "untilTick", Json.num(entry.getValue())
+            ))));
+        }
+        held.append(']');
+        Map<String, String> out = new LinkedHashMap<>();
+        out.put("tick", Json.num(this.clientTick));
+        out.put("held", held.toString());
+        out.put("count", Json.num(heldUntilTick.size()));
+        out.put("mouseGrabbed", Json.bool(mc.mouseHandler.isMouseGrabbed()));
+        out.put("screenOpen", Json.bool(mc.screen != null));
+        return Json.obj(out);
+    }
+
+    private static String inputError(String message) {
+        Map<String, String> out = new LinkedHashMap<>();
+        out.put("ok", Json.bool(false));
+        out.put("error", Json.str(message));
+        return Json.obj(out);
+    }
+
+    /** `key <action> <down|up>`: one explicit press or release. */
+    public String keyJson(String action, boolean down) {
+        String name = normaliseKey(action);
+        if (name == null) {
+            return inputError("unknown key '" + action + "' (forward|back|left|right|jump|sprint|use|attack|sneak|drop|inventory)");
+        }
+        return onClient(() -> {
+            // Any screen open means the game ignores movement/attack input; say so instead
+            // of pretending the press landed (this is the GUI-vs-body boundary in one line).
+            boolean blockedByScreen = mc.screen != null;
+            setKeyInClient(name, down);
+            if (down) {
+                heldUntilTick.put(name, this.clientTick + ticksFromMs(DEFAULT_KEY_HOLD_MS));
+            } else {
+                heldUntilTick.remove(name);
+            }
+            Map<String, String> out = new LinkedHashMap<>();
+            out.put("ok", Json.bool(true));
+            out.put("action", Json.str(name));
+            out.put("down", Json.bool(down));
+            out.put("tick", Json.num(this.clientTick));
+            out.put("blockedByScreen", Json.bool(blockedByScreen));
+            out.put("held", Json.num(heldUntilTick.size()));
+            return Json.obj(out);
+        });
+    }
+
+    /** `hold <action> [ms]`: press, let the tick pump release it, never longer than the cap. */
+    public String holdJson(String action, int ms) {
+        String name = normaliseKey(action);
+        if (name == null) {
+            return inputError("unknown key '" + action + "'");
+        }
+        int requested = ms <= 0 ? 250 : ms;
+        int clamped = Math.min(requested, MAX_HOLD_MS);
+        return onClient(() -> {
+            setKeyInClient(name, true);
+            long until = this.clientTick + ticksFromMs(clamped);
+            heldUntilTick.put(name, until);
+            Map<String, String> out = new LinkedHashMap<>();
+            out.put("ok", Json.bool(true));
+            out.put("action", Json.str(name));
+            out.put("down", Json.bool(true));
+            out.put("ms", Json.num(clamped));
+            out.put("clamped", Json.bool(clamped != requested));
+            out.put("tick", Json.num(this.clientTick));
+            out.put("untilTick", Json.num(until));
+            out.put("blockedByScreen", Json.bool(mc.screen != null));
+            return Json.obj(out);
+        });
+    }
+
+    /**
+     * `screenshot [maxEdge]`: capture the current frame as PNG, base64 for the agent.
+     *
+     * Reads the game's own main render target through {@code Screenshot.takeScreenshot}, so
+     * no OS-level screen capture is involved (F1'a). The frame is downscaled by nearest
+     * neighbour when it is larger than `maxEdge`, because a 1920-wide PNG is mostly noise
+     * for an LLM and costs context.
+     */
+    public String screenshotJson(int maxEdge) {
+        int edge = maxEdge <= 0 ? 1024 : Math.min(maxEdge, 1920);
+        return onClient(() -> {
+            NativeImage shot = null;
+            NativeImage scaled = null;
+            try {
+                shot = Screenshot.takeScreenshot(mc.getMainRenderTarget());
+                if (shot == null) {
+                    return inputError("no-frame (the render target was not readable)");
+                }
+                int width = shot.getWidth();
+                int height = shot.getHeight();
+                NativeImage outImage = shot;
+                if (Math.max(width, height) > edge) {
+                    double scale = (double) edge / Math.max(width, height);
+                    int newWidth = Math.max(1, (int) Math.round(width * scale));
+                    int newHeight = Math.max(1, (int) Math.round(height * scale));
+                    scaled = new NativeImage(newWidth, newHeight, false);
+                    for (int y = 0; y < newHeight; y += 1) {
+                        int sourceY = Math.min(height - 1, y * height / newHeight);
+                        for (int x = 0; x < newWidth; x += 1) {
+                            int sourceX = Math.min(width - 1, x * width / newWidth);
+                            scaled.setPixelRGBA(x, y, shot.getPixelRGBA(sourceX, sourceY));
+                        }
+                    }
+                    outImage = scaled;
+                }
+                byte[] png = outImage.asByteArray();
+                Map<String, String> out = new LinkedHashMap<>();
+                out.put("ok", Json.bool(true));
+                out.put("format", Json.str("png"));
+                out.put("width", Json.num(outImage.getWidth()));
+                out.put("height", Json.num(outImage.getHeight()));
+                out.put("sourceWidth", Json.num(width));
+                out.put("sourceHeight", Json.num(height));
+                out.put("bytes", Json.num(png.length));
+                out.put("tick", Json.num(this.clientTick));
+                out.put("pngBase64", Json.str(Base64.getEncoder().encodeToString(png)));
+                return Json.obj(out);
+            } catch (Exception e) {
+                AgentClientMod.LOGGER.warn("screenshot failed: {}", e.toString());
+                return inputError("screenshot failed: " + e.getMessage());
+            } finally {
+                if (scaled != null) {
+                    scaled.close();
+                }
+                if (shot != null) {
+                    shot.close();
+                }
+            }
+        }, DEFAULT_TIMEOUT_MS * 2);
     }
 
     private void setKey(String key, boolean down) {

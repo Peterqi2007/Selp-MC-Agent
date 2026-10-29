@@ -31,6 +31,7 @@ const { FollowTask } = require('./tasks/follow');
 const { Logger } = require('./util/logger');
 const { sleep } = require('./core/movement');
 const { Holds } = require('./core/holds');
+const { InputLedger } = require('./core/inputLedger');
 const { needsRescue, escapeToGround, hideUnderground, isDaytime } = require('./core/recovery');
 const { evaluate } = require('./planner/evaluator');
 const { TaskSlot } = require('./core/taskSlot');
@@ -248,14 +249,31 @@ class Brain {
      */
     this._memoryUnsubscribe = this.events.subscribe((event) => this.rememberEvent(event));
     /**
+     * Input ledger (M5, F1'b): every key the agent presses is recorded here, and every
+     * "stop touching the world" signal releases it. The mod keeps its own cap, so a dead
+     * Node cannot leave a key down either (two independent limits on purpose).
+     */
+    this.inputLedger = new InputLedger({
+      log: this.log,
+      write: (action, down) => (this.ctx.body && typeof this.ctx.body.key === 'function'
+        ? this.ctx.body.key(action, down)
+        : Promise.resolve(null)),
+      writeHold: (action, ms) => (this.ctx.body && typeof this.ctx.body.hold === 'function'
+        ? this.ctx.body.hold(action, ms)
+        : Promise.resolve(null))
+    });
+    /**
      * Holds: the single table of "why is the brain not working" (src/core/holds.js).
      *
      * `paused` / `stopped` / `autoPlanDisabled` are accessors over it, kept because the
      * panel, the CLI, the doctor and the tests have read them since P0. The table is the
      * one place that says what each reason blocks and what clears it, so the flags cannot
      * drift apart again (the post-death stop once resumed itself on respawn).
+     *
+     * `onHold` connects the two tables: any new hold (dead/paused/owner-stop/task) also
+     * releases the input ledger, so "stopped" means no key is still pressed.
      */
-    this.holds = new Holds();
+    this.holds = new Holds({ onHold: (reason) => this.releaseInput(reason) });
     Object.defineProperty(this, 'paused', {
       configurable: true,
       get: () => this.holds.has('paused') || this.holds.has('dead'),
@@ -1757,6 +1775,21 @@ class Brain {
     const wasActive = this.holds.release(reason);
     if (wasActive) this.log.info(`brain hold released: ${reason}`);
     return this.status();
+  }
+
+  /**
+   * Let go of every key the agent is holding (M5, F1'b).
+   *
+   * Called by the Holds listener on dead/paused/owner-stop/task, and available directly
+   * for shutdown and disconnect paths. Never throws: a stop path that throws is a stop
+   * path that leaves keys down.
+   */
+  releaseInput(reason = 'stop') {
+    if (!this.inputLedger) return Promise.resolve({ ok: true, released: [], reason });
+    return this.inputLedger.releaseAll(reason).catch((err) => {
+      this.log.warn(`input release failed (${reason}): ${err.message}`);
+      return { ok: false, released: [], reason, error: err.message };
+    });
   }
 }
 

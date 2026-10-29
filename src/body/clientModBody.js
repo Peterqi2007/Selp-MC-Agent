@@ -22,6 +22,8 @@
  * mod-client/ for why it is not a WebSocket.
  */
 
+const fs = require('fs/promises');
+const path = require('path');
 const { Body, BodyUnavailableError } = require('./body');
 const { stampSnapshot, staleFields } = require('../world/freshness');
 const { DEFAULT_BUDGET } = require('../world/refreshPlan');
@@ -82,6 +84,8 @@ const OBSERVED_FIELDS = [
   'windowFocused',
   'target',
   'time',
+  'gameTime',
+  'input',
   'weather',
   'inventory',
   'foods',
@@ -1291,6 +1295,64 @@ class ClientModBody extends Body {
     const res = await this.command('menu');
     if (!res || !res.ok || !res.menu || res.menu.open === false) return res && res.menu ? res.menu : null;
     return res.menu;
+  }
+
+  // --------------------------------------------------------- input layer (M5)
+
+  /**
+   * Press or release one key through the mod's in-process input layer.
+   *
+   * This is not a forged packet: the mod sets the game's own `KeyMapping` state, which is
+   * what a player's finger does. F1'a: nothing here can reach a window outside Minecraft.
+   */
+  async key(action, down) {
+    const res = await this.command(`key ${action} ${down ? 'down' : 'up'}`);
+    return res || { ok: false, error: 'no response' };
+  }
+
+  /** Bounded hold: the mod clamps to its own cap and releases on the client tick. */
+  async hold(action, ms = 250) {
+    const res = await this.command(`hold ${action} ${Math.max(1, Math.round(Number(ms) || 250))}`);
+    return res || { ok: false, error: 'no response' };
+  }
+
+  /** The mod-side input ledger: held keys, release deadlines, screen state. */
+  async inputState() {
+    const res = await this.command('inputs');
+    return res && typeof res === 'object' ? res : null;
+  }
+
+  /**
+   * Capture the client's own frame and save it as PNG (M5 perception).
+   *
+   * F1'a: the pixels come from the game's main render target, not from an OS screen grab,
+   * so this cannot see any window that is not Minecraft.
+   *
+   * @param {object} [options] { maxEdge, dir, name }
+   * @returns {Promise<{ok:boolean,path?:string,width?:number,height?:number,bytes?:number,error?:string}>}
+   */
+  async screenshot(options = {}) {
+    const edge = Number(options.maxEdge) > 0 ? Math.round(Number(options.maxEdge)) : 1024;
+    const res = await this.command(`shot ${edge}`);
+    if (!res || !res.ok || !res.pngBase64) {
+      return { ok: false, error: (res && res.error) || 'no frame' };
+    }
+    const dir = options.dir || path.join(process.cwd(), 'runtime', 'screenshots');
+    await fs.mkdir(dir, { recursive: true });
+    const name = options.name
+      || `shot-${new Date().toISOString().replace(/[:.]/g, '-')}.png`;
+    const file = path.join(dir, name);
+    await fs.writeFile(file, Buffer.from(res.pngBase64, 'base64'));
+    return {
+      ok: true,
+      path: file,
+      width: res.width,
+      height: res.height,
+      bytes: res.bytes,
+      sourceWidth: res.sourceWidth,
+      sourceHeight: res.sourceHeight,
+      tick: res.tick
+    };
   }
 
   /**
