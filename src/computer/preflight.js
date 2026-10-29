@@ -1,6 +1,12 @@
 'use strict';
 
 /**
+ * ABANDONED (2026-10-29): the OS-level computer_use path was abandoned in favour of the
+ * in-process Minecraft input layer (see docs/CU-ABANDONED.md). This module is kept only as
+ * historical evidence and is not a delivery path; do not wire it into the action brain.
+ */
+
+/**
  * CuPreflight - the gate the real computer_use bridge is supposed to call (P1 M5 / F1).
  *
  * Why this file exists: the packed DSH plugin talks to the helper directly, and `WindowPolicy`

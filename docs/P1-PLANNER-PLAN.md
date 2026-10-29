@@ -337,7 +337,7 @@ persona 还需同步清理以下冲突：
 
 **受影响验收**：F1 作废；**A21/A22 不再标 N/A**，命题不变、证据重记（A21 故障注入改为游戏内暂停界面、GUI 被外部关闭、库存变化、长按（挖掘/攻击各 1 次），“限游戏窗口”由 F1'a 结构性保证；A22 量化为 `InputLedger` 归零 + 复用前后 token/调用数差值，不预设节省比例）。M5.3（GUI 场景复核 A07/A08/A12）不变。
 
-**CU 保留为可选路径**：`src/computer/*` 与契约测试（contract 第 38/42 组）不删，降级为“将来需要游戏外桌面自动化（启动器/登录/其他程序）时的可选路径”，前提仍是 F1。完整口径见 [`P1-M5.md`](P1-M5.md) §7 与 [`P1-CLIENT-VERIFICATION.md`](P1-CLIENT-VERIFICATION.md) §7。
+**CU 路径已放弃（ABANDONED）**：`src/computer/*` 与契约测试（contract 第 38/42 组）不删，仅作历史证据保留，不再是交付路径。完整口径见 [`P1-M5.md`](P1-M5.md) §7 与 [`P1-CLIENT-VERIFICATION.md`](P1-CLIENT-VERIFICATION.md) §7。
 
 ### 1.9 第 6 点：coding harness 与自研动作脑的比较、接入和选型
 
@@ -713,12 +713,13 @@ body 原语直接读世界状态并移动/挖掘/点击（不是只提交任务�
 
 **交付与出口**：A21、A22 通过（**不标 N/A**），补齐 A07、A08、A12 的 GUI 场景并回归既有后端。至少 2 类真实 GUI，异常不残留按键（`InputLedger` 归零），结果独立验证，保留复用前后的 token/调用数差值，不预设节省比例。
 
-> **口径变更（2026-10-29）**：M5 执行底座由 OS 级 computer_use 改为 Minecraft 进程内输入层
-> （§1.8.3 已重写）。状态：**口径已定、实现未开始**；判定 = **未通过（口径变更后待执行）**。
-> 完整口径见 [`P1-M5.md`](P1-M5.md) §7。
+> **口径变更（2026-10-29，2026-10-30 复核）**：M5 执行底座由 OS 级 computer_use 改为 Minecraft 进程内输入层
+> （§1.8.3 已重写）；**CU 路径已放弃（ABANDONED，[`CU-ABANDONED.md`](CU-ABANDONED.md)）**。
+> 状态：**实现已落地并真机验证输入/截图/GUI 链路**，但 F1' 部分、A21 部分、A22/M5.3 未执行；
+> 判定 = **未通过**。完整口径见 [`P1-M5.md`](P1-M5.md) §7/§8。
 
-> **实施进展（2026-10-17，M5 窗口策略离线契约）**——CU 路径，2026-10-29 已被 §1.8.3 新口径取代，
-> 代码保留为可选路径。`WindowPolicy` 默认**拒绝**所有 CU 动作
+> **实施进展（2026-10-17，M5 窗口策略离线契约）**——CU 路径，2026-10-29 已被 §1.8.3 新口径取代并
+> **标记放弃（ABANDONED）**，代码只作历史证据保留。`WindowPolicy` 默认**拒绝**所有 CU 动作
 > （`cu-unproven`），只有显式 `verify()` 后才允许配置窗口内的点击/按键/截图，越窗/越界拒绝，
 > 证据随状态保留；`ComputerUseGuard` 保证拒绝的动作**不触达执行器**；**未执行任何 GUI 自动化**。
 > `p1:contract:test` **146/146**、`plan:audit --stage p1` **91/91**，详见
@@ -773,4 +774,4 @@ body 原语直接读世界状态并移动/挖掘/点击（不是只提交任务�
 
 **2026-10-17 变更（reply.md 裁决 Q0–Q8）**：新增降级判定四条（§1.9.2）、`taskEvents`/SSE/`planVersion`（§1.4.4）、用量政策（§1.9.6）、规划器退役（§1.10 + [`PLANNER-RETIREMENT.md`](PLANNER-RETIREMENT.md)）；改写 A30（不再要求发请求前预算闸门）、A03（语言脑工具面）、A09（空闲判定口径）、A21/A22（CU 限窗与放弃出口），新增 A31（事件汇聚与重放）；受影响阶段：M0/M1/M2/M3/M5/M7。（本条中 A21/A22 的“放弃出口”与 F1 限窗口径已于 2026-10-29 被下一条取代。）
 
-**2026-10-29 变更（M5 口径：CU → 进程内输入层）**：M5 执行底座从“OS 级 computer_use（复用 `dsh-computer-use` 插件）”改为**Minecraft 进程内输入层**——mod 在游戏进程内合成按键/视角/容器槽位点击 + 帧缓冲截图，经既有 HTTP 通道交给 Node；Node 仍持有唯一身体执行权、键鼠台账与结果验证。理由：①F1 两轮真机试跑均因 WGC 取不到 OpenGL 窗口帧失败（`截图未产出` + `Declared image type does not match its bytes`）；②`WindowPolicy`/`ComputerUseGuard` 接不进打包的 DSH 插件（`resources/app.asar` 只读），真机“未 verify 前默认拒绝”不成立。两者都不可控，CU 在 P1 内不可收敛。受影响验收 ID：**F1 作废**，改由 **F1'a（结构性不可出界）/F1'b（键鼠台账）** 取代且无 N/A 出口；**A21/A22 不再标 N/A**（命题不变、证据重记）；M5 状态由“阻塞”改为“未通过（口径变更后待执行）、实现未开始”。受影响阶段：**M5**、**M0 的 F1 项**。CU 离线契约（`src/computer/*`、contract 第 38/42 组）保留为“将来需要游戏外桌面自动化时的可选路径”。完整口径见 [`P1-M5.md`](P1-M5.md) §7。
+**2026-10-29 变更（M5 口径：CU → 进程内输入层）**：M5 执行底座从“OS 级 computer_use（复用 `dsh-computer-use` 插件）”改为**Minecraft 进程内输入层**——mod 在游戏进程内合成按键/视角/容器槽位点击 + 帧缓冲截图，经既有 HTTP 通道交给 Node；Node 仍持有唯一身体执行权、键鼠台账与结果验证。理由：①F1 两轮真机试跑均因 WGC 取不到 OpenGL 窗口帧失败（`截图未产出` + `Declared image type does not match its bytes`）；②`WindowPolicy`/`ComputerUseGuard` 接不进打包的 DSH 插件（`resources/app.asar` 只读），真机“未 verify 前默认拒绝”不成立。两者都不可控，CU 在 P1 内不可收敛。受影响验收 ID：**F1 作废**，改由 **F1'a（结构性不可出界）/F1'b（键鼠台账）** 取代且无 N/A 出口；**A21/A22 不再标 N/A**（命题不变、证据重记）；M5 状态为“未通过（实现已落地并真机验证输入/截图/GUI 链路，但 F1'/A21/A22 未收口）”。受影响阶段：**M5**、**M0 的 F1 项**。CU 离线契约（`src/computer/*`、contract 第 38/42 组）已标为 ABANDONED，只作历史证据保留。完整口径见 [`P1-M5.md`](P1-M5.md) §7。

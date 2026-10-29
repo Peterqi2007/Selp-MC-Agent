@@ -87,11 +87,13 @@ class DialogueRouter {
       if (record && record.handoff === true) {
         const forwarded = await this._forward(original, meta);
         if (!forwarded.ok) await this._sayUnavailable(forwarded.reason);
+        const goal = forwarded.ok ? await this._maybeGoal(original, meta) : null;
         return this._record({
           ok: forwarded.ok,
           mode: 'planner-first',
           handoff: true,
           forwarded,
+          goal,
           reason: forwarded.ok ? null : forwarded.reason
         });
       }
@@ -101,12 +103,41 @@ class DialogueRouter {
     // harness: the action brain owns the line. A failure must not fall back to the planner.
     const forwarded = await this._forward(original, meta);
     if (!forwarded.ok) await this._sayUnavailable(forwarded.reason);
+    /**
+     * A forwarded message is one turn; without a goal the action brain has no continuation
+     * and a screenshot steer has nowhere to land (2026-10-29 operator review). The goal is
+     * best-effort: the original text has already been delivered verbatim (A02).
+     */
+    const goal = forwarded.ok ? await this._maybeGoal(original, meta) : null;
     return this._record({
       ok: forwarded.ok,
       mode: 'harness',
       forwarded,
+      goal,
       reason: forwarded.ok ? null : forwarded.reason
     });
+  }
+
+  /**
+   * Ask the task-goal injection for a durable goal for this dialogue request.
+   * Kept lazy because `ctx.taskGoals` is wired AFTER the router (see index.js), and a
+   * missing/disabled injection must never fail the request.
+   */
+  async _maybeGoal(text, meta) {
+    const goals = this.ctx && this.ctx.taskGoals;
+    if (!goals || typeof goals.maybeCreateDialogue !== 'function') return null;
+    try {
+      const result = await goals.maybeCreateDialogue({
+        text,
+        speaker: meta.speaker,
+        source: meta.source || 'dialogue'
+      });
+      if (result && result.ok) this.log.info(`dialogue goal injected: ${result.goalId}`);
+      return result || null;
+    } catch (err) {
+      this.log.warn(`dialogue goal injection failed: ${err.message}`);
+      return null;
+    }
   }
 
   /**
@@ -166,6 +197,14 @@ class DialogueRouter {
         : null
     };
     if (this.ctx) this.ctx.lastDialogueRoute = { ...row };
+    if (payload.goal) {
+      row.goal = {
+        ok: payload.goal.ok === true,
+        reason: payload.goal.reason || null,
+        goalId: payload.goal.goalId || null
+      };
+      this.ctx.lastDialogueRoute = { ...row };
+    }
     if (row.ok) this.log.info(`dialogue -> ${row.mode}${row.handoff ? ' (handoff)' : ''}`);
     else this.log.warn(`dialogue -> ${row.mode} failed: ${row.reason || 'unknown'}`);
     if (payload.record !== undefined) row.record = payload.record;

@@ -1357,6 +1357,35 @@ class Brain {
          */
         normalized.commandType = true;
       }
+      /**
+       * Automatic curriculum (Voyager-style, 2026-10-29): the proposal must not fall below
+       * the band the completed-task ledger has earned. A refusal is a tool result the model
+       * can react to (it sees `reason`/`required`) and the coordinator allows two retries
+       * before relaxing, so the round cannot deadlock.
+       */
+      const curriculum = this.ctx && this.ctx.curriculum;
+      if (curriculum && typeof curriculum.validate === 'function') {
+        const verdict = curriculum.validate({ type, name, args: normalized.args });
+        if (!verdict.ok) {
+          return {
+            ok: false,
+            reason: verdict.reason,
+            required: verdict.required,
+            actual: verdict.actual,
+            level: verdict.level,
+            detail:
+              `curriculum: this proposal is difficulty ${verdict.actual}, but the current band is ` +
+              `${verdict.required} (level ${verdict.level}). Propose a harder-but-reachable single action ` +
+              `(see the AUTOMATIC CURRICULUM block in this goal).`
+          };
+        }
+        normalized.difficulty = verdict.actual;
+        normalized.curriculum = {
+          level: verdict.level,
+          required: verdict.required,
+          relaxed: verdict.reason === 'curriculum-relaxed'
+        };
+      }
     }
     const outcome = this.proposals.propose(normalized);
     if (!outcome.ok || !outcome.autoAccepted) return outcome;

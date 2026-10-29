@@ -1,11 +1,13 @@
-# P1 交接（2026-10-25 更新）
+# P1 交接（2026-10-30 更新）
 
 > **一句话**：P1 的**离线可交付部分**已实现并通过一键复验；**M1（适用子集）/M2/M3/M4（A19 适用子集）已通过真机验收**；
-> **P1 仍未整体验收、未发布**（M5 口径变更（进程内输入层）、实现未开始，M6/M7 部分）。
+> **P1 仍未整体验收、未发布**（M5 输入层已实现并真机验证链路，但 F1'/A21/A22 未收口；CU 路径**已放弃**；M6/M7 部分）。
 > **M4：编排子集曾判 PASS，2026-10-25 需求变更重开后 v2 已实现，A18–A20、A28–A30 真机 PASS**；
 > A19 残余（真实 PauseScreen/第二玩家）仅离线；方案见 [`M4-DIRECT-BODY-PLAN.md`](M4-DIRECT-BODY-PLAN.md)。
 > 2026-10-24 补 M6 受控测试（A24/C03/F02 受控 PASS、A25 四路径仅 accept 为真实 harness、
 > A23 仍缺 40 组 ×3），**M6 仍 PARTIAL**。
+> 2026-10-30 补：CU 标为 ABANDONED（[`CU-ABANDONED.md`](CU-ABANDONED.md)）、载具感知、`@` 请求 → goal、
+> 截图 steer 主动提交、Voyager 式自动课程（[`P1-WORK-2026-10-30.md`](P1-WORK-2026-10-30.md)）。
 > 本文是交接入口；**阶段判定**以 [`P1-CLIENT-VERIFICATION.md`](P1-CLIENT-VERIFICATION.md) 为准，
 > 逐项证据见 [`P1-M7.md`](P1-M7.md) 的 A01–A31 矩阵与 [`P1-M3.md`](P1-M3.md) §3。
 >
@@ -27,24 +29,32 @@ npm run p1:verify -- --fast  # 跳过 P0 回归
 npm run p1:baseline -- --suites  # 记录提交/配置指纹/套件结果到 runtime/p1-baseline.json
 ```
 
-最近一次实测（离线，2026-10-25）：
+最近一次实测（离线，2026-10-30）：
 
 | 套件 | 结果 |
 | --- | --- |
 | P0 regression（8 suites，含 `selftest 183/183`） | **8/8** |
 | `planner:test` | **35/35** |
-| `p1:contract:test` | **206/206** |
-| `p1:m3:test` | **44/44** |
-| `p1:m6:test` | **24/24** |
+| `p1:contract:test` | **209/209** |
+| `p1:m3:test` | **58/58** |
+| `p1:m6:test` | **25/25** |
 | `p1:proposal-autonomy:test` | **16/16** |
-| `p1:language:test` | **20/20** |
+| `p1:language:test` | **22/22** |
 | `p1:m7:test` | **11/11** |
 | `p1:m4:test` | **35/35** |
+| `p1:m4:evolve:test` | **17/17** |
+| `p1:m5:test` | **32/32** |
+| `p1:channel:test` | **18/18** |
+| `p1:shot:test` | **20/20** |
+| `p1:steer:test` | **8/8** |
+| `p1:taskgoal:test` | **12/12** |
+| `p1:curriculum:test` | **8/8** |
 | `p1:fault:test` | **9/9** |
 | `plan:audit --stage p1` | **105/105** |
 
-`p1:verify --fast` 为 **10/10 套件**（跳过 P0 回归）。没有启动 Minecraft、没有 GUI 自动化、没有调用生成模型；
-M4 测试在真实 Node 子进程中执行了探针技能，并用一次 DeepSeek Search 请求验证了搜索端点。
+`p1:verify --fast` 为 **17/17 套件**，完整含 P0 为 **18/18**（跳过 P0 回归）。
+没有启动 Minecraft、没有 GUI 自动化、没有调用生成模型；M4 测试在真实 Node 子进程中执行了探针技能，
+并用一次 DeepSeek Search 请求验证了搜索端点。
 
 ## 2. 已交付（按里程碑）
 
@@ -55,7 +65,7 @@ M4 测试在真实 Node 子进程中执行了探针技能，并用一次 DeepSee
 | M2 | 二值闸门 + `@` 通道（默认关闭）、严格 LLM 判定器、双脑工具清单、`say/silence`、`LanguageAgent`、可选语言对话通道（默认关闭）、快照 `observedAt`、`refreshPlan`、`ThreatObserver`、persona 注入、H1a/H1b | **PASS** |
 | M3 | `PlanService`/`POST /plan`、`TurnService`/`/harness/events`、DSH `mc_plan`、原子持久化、`wait_for_player`、计划问题复用提案、`ResumeBridge`、`MethodLibrary`、`AnswerMemory`、`MemoryStore`、`Budget`、`verifier`、`draftGuard`、`!state`、`!method`；另：持久 goal（`/goal/pause`/`resume`）、`mc_propose`、`mc_state`、`mc_perception` | **PASS（2026-10-21，M3.1–M3.10）** |
 | M4 | manifest 校验、生成管线、candidates/promoted 目录与指针、晋升/回退/下线、promoted-only 检索；2026-10-18 接真实生成、权限子进程试运行、证据、取消、DeepSeek Search、HTTP `/code-skills`；2026-10-25 接实时入口；需求变更后 v2 实现（离线 35/35）并完成 **A18–A20、A28–A30 真机**（A19 适用子集） | **PASS（A19 适用子集）**；方案 [`M4-DIRECT-BODY-PLAN.md`](M4-DIRECT-BODY-PLAN.md) |
-| M5 | 进程内输入层（按键/长按/视角/容器槽位点击/帧缓冲截图）+ 键鼠台账（设计口径；CU 离线契约 `WindowPolicy`/`ComputerUseGuard` 降级为可选路径） | **未通过（口径变更后待执行）**：实现未开始，F1' 未验证 |
+| M5 | 进程内输入层（按键/长按/视角/容器槽位点击/帧缓冲截图）+ 键鼠台账；**CU 路径已放弃（ABANDONED）** | **未通过**：输入/截图/GUI 链路已真机验证（`m5-gui-live 93/93`），但 F1' 四类注入未跑完、A21 部分（探针直连）、A22/M5.3 未执行 |
 | M6 | `ConversationState`（去重/过期/自回声/限速/截断）+ opt-in 守卫 + `ChatParticipation` 参与/沉默 + `ProposalChat` yes/no + **DialogueRouter + `mc_say`**；2026-10-24 受控测试 A24/C03/F02 PASS、A25 四路径（accept 真 harness） | 部分：A23 缺 40 组 ×3；A25 仅 accept 为真实提案；R2/R3 未执行 |
 | M7 | 故障演练 9/9、A01–A31 矩阵、`p1:verify`、本交接文档；TaskSlot 失败账本持久化 + UsageLedger 逐请求 usage | 部分：R1 部分，R2–R4/F3/A31 最终组合未执行 |
 
@@ -187,7 +197,7 @@ src/llm/       judge, toolSurface, languageAgent
 src/world/     freshness, refreshPlan, threatObserver, perceptionWake, observation
 src/learning/  methodLibrary, answerMemory
 src/memory/    store, chatMemory
-src/computer/  windowPolicy, guard（CU 可选路径；M5 已改走进程内输入层）
+src/computer/  windowPolicy, guard（CU 已放弃（ABANDONED）；M5 已改走进程内输入层）
 src/harness/   adapter, resumeBridge, turnService
 dsh-plugin-mc-harness/lib/index.js   11 个 mc_* 工具（observe/step/plan/plan_status/cancel/
                                      finish/state/perception/memory/propose/say）

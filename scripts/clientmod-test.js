@@ -187,6 +187,55 @@ async function main() {
     return `${Object.keys(snap.inventory).length} item kind(s)`;
   });
 
+  await scenario('a ridden vehicle surfaces mounted, its inventory and integrity', async () => {
+    mod.state = {
+      ...mod.state,
+      riding: {
+        id: 77,
+        type: 'entity.immersive_aircraft.biplane',
+        name: 'immersive_aircraft:biplane',
+        kind: 'vehicle',
+        position: { x: 12.5, y: 64, z: -3.25 },
+        distance: 0,
+        passengers: [{ id: 1, name: 'AgentDeepSeek', isPlayer: true }],
+        integrity: { known: true, current: 0.62, max: 1.0, unit: 'ratio', source: 'getHealth', inferredMax: true },
+        inventory: {
+          known: true,
+          source: 'container',
+          size: 18,
+          occupied: 1,
+          items: [{ slot: 2, item: 'minecraft:coal', count: 5 }]
+        }
+      },
+      mounted: true,
+      entities: [{ id: 77, type: 'entity.immersive_aircraft.biplane', name: 'immersive_aircraft:biplane', kind: 'entity', distance: 0 }],
+      target: {
+        type: 'entity',
+        name: 'minecraft:zombie',
+        entityType: 'entity.minecraft.zombie',
+        id: 9,
+        kind: 'hostile',
+        health: 12,
+        position: { x: 14, y: 64, z: -3 },
+        distance: 2.5
+      }
+    };
+    const snap = await body.refresh(true);
+    expect(snap.mounted === true, 'the mounted flag did not survive the mapping');
+    expect(snap.riding && snap.riding.id === 77, 'riding did not survive the mapping');
+    expect(snap.riding.inventory && snap.riding.inventory.items[0].item === 'minecraft:coal',
+      `vehicle inventory was dropped: ${JSON.stringify(snap.riding && snap.riding.inventory)}`);
+    expect(snap.riding.integrity && snap.riding.integrity.current === 0.62,
+      `vehicle integrity was dropped: ${JSON.stringify(snap.riding && snap.riding.integrity)}`);
+    expect(snap.entities.length === 1, `entities were dropped: ${JSON.stringify(snap.entities)}`);
+    expect(snap.target && snap.target.type === 'entity' && snap.target.entityType === 'entity.minecraft.zombie',
+      `entity target identity was dropped: ${JSON.stringify(snap.target)}`);
+    expect(snap.target.health === 12, 'entity target health was dropped');
+    mod.state = { ...mod.state, riding: null, mounted: false, entities: [], target: null };
+    await body.refresh(true);
+    return 'mounted + vehicle inventory + integrity + entity target';
+  });
+
   await scenario('a dead client is reported as dead', async () => {
     mod.state = { ...mod.state, dead: true, health: 0 };
     const snap = await body.refresh(true);

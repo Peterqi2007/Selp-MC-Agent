@@ -6,9 +6,12 @@ import net.minecraft.client.player.LocalPlayer;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.resources.ResourceLocation;
+import net.minecraft.world.Container;
 import net.minecraft.world.entity.Entity;
 import net.minecraft.world.entity.LivingEntity;
 import net.minecraft.world.entity.MobType;
+import net.minecraft.world.entity.Saddleable;
+import net.minecraft.world.entity.animal.horse.AbstractChestedHorse;
 import net.minecraft.world.entity.item.ItemEntity;
 import net.minecraft.world.entity.monster.Monster;
 import net.minecraft.world.entity.player.Player;
@@ -20,6 +23,9 @@ import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.phys.BlockHitResult;
 import net.minecraft.world.phys.EntityHitResult;
 import net.minecraft.world.phys.HitResult;
+import net.minecraftforge.common.capabilities.ForgeCapabilities;
+import net.minecraftforge.common.util.LazyOptional;
+import net.minecraftforge.items.IItemHandler;
 
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
@@ -259,6 +265,8 @@ final class ClientStateSnapshot {
         out.put("entities", entitiesJson(level, player));
         /** The entity carrying us (boat/minecart/seat), or "null". */
         out.put("riding", ridingJson(level, player));
+        /** Explicit mount flag; the vehicle object carries inventory + integrity. */
+        out.put("mounted", Json.bool(player.getVehicle() != null));
         /** The entity under our feet (chair/stool), or "null". */
         out.put("standingOnEntity", standingOnEntityJson(level, player));
 
@@ -554,11 +562,201 @@ final class ClientStateSnapshot {
             }
             for (Entity passenger : entity.getPassengers()) {
                 if (passenger == player) {
-                    return entityJson(entity, entity.distanceTo(player), "vehicle");
+                    return vehicleJson(entity, player);
                 }
             }
         }
         return Json.str("null");
+    }
+
+    /**
+     * The vehicle we are riding, with the two things a control loop actually needs beyond
+     * its identity: what it carries, and how damaged it is.
+     *
+     * Inventory probing is vendor-neutral and ordered by reliability:
+     *   1. vanilla `Container` - chest boats, minecart chests/hoppers, and mod vehicles that
+     *      implement the vanilla container interface (Immersive Aircraft's
+     *      `InventoryVehicleEntity` does);
+     *   2. Forge `IItemHandler` - horses (Forge wraps the horse inventory), chested horses,
+     *      and mod vehicles that attach an item handler instead of `Container`.
+     * Everything else honestly reports `known:false`; the agent must not guess what a
+     * vehicle carries.
+     *
+     * Integrity: living vehicles report health/maxHealth. Non-living mod vehicles are probed
+     * by their public `getHealth()/getMaxHealth()` (Immersive Aircraft exposes health as a
+     * 0..1 ratio and has no max method - that case is labelled `unit:"ratio"` with
+     * `inferredMax:true` so the reader can tell an inference from a reported value).
+     *
+     * MUST run on the client thread (same rule as the rest of this class).
+     */
+    private static String vehicleJson(Entity entity, LocalPlayer player) {
+        Map<String, String> out = new LinkedHashMap<>();
+        out.put("id", Json.num(entity.getId()));
+        out.put("type", Json.str(entity.getType().toString()));
+        out.put("name", Json.str(entityName(entity)));
+        out.put("kind", Json.str("vehicle"));
+        out.put("position", Json.point(entity.getX(), entity.getY(), entity.getZ()));
+        out.put("distance", Json.num(entity.distanceTo(player)));
+        List<String> passengers = new ArrayList<>();
+        for (Entity passenger : entity.getPassengers()) {
+            Map<String, String> entry = new LinkedHashMap<>();
+            entry.put("id", Json.num(passenger.getId()));
+            entry.put("type", Json.str(passenger.getType().toString()));
+            entry.put("name", Json.str(passenger instanceof Player p
+                    ? p.getGameProfile().getName()
+                    : entityName(passenger)));
+            entry.put("isPlayer", Json.bool(passenger instanceof Player));
+            passengers.add(Json.obj(entry));
+        }
+        out.put("passengers", Json.arr(passengers));
+        if (entity instanceof Saddleable saddleable) {
+            out.put("saddled", Json.bool(saddleable.isSaddled()));
+        }
+        if (entity instanceof AbstractChestedHorse chested) {
+            out.put("chested", Json.bool(chested.hasChest()));
+        }
+        out.put("integrity", vehicleIntegrityJson(entity));
+        out.put("inventory", vehicleInventoryJson(entity));
+        return Json.obj(out);
+    }
+
+    /** How many slots we are willing to enumerate on a vehicle (a chest boat is 27). */
+    private static final int MAX_VEHICLE_SLOTS = 64;
+
+    /** What the vehicle carries; vendor-neutral, `known:false` when it cannot be read. */
+    private static String vehicleInventoryJson(Entity entity) {
+        List<ItemStack> stacks = new ArrayList<>();
+        String source = "none";
+        /**
+         * Vanilla `Container` first: chest boats and minecart containers implement it, and
+         * mod vehicles that proxy a container (Immersive Aircraft) do too. The Forge
+         * capability is checked second because some mods expose both.
+         */
+        if (entity instanceof Container container) {
+            int size = 0;
+            try {
+                size = container.getContainerSize();
+            } catch (Throwable ignored) {
+                size = 0;
+            }
+            int scanned = Math.min(size, MAX_VEHICLE_SLOTS);
+            for (int i = 0; i < scanned; i++) {
+                try {
+                    stacks.add(container.getItem(i));
+                } catch (Throwable ignored) {
+                    stacks.add(ItemStack.EMPTY);
+                }
+            }
+            source = "container";
+        } else {
+            try {
+                LazyOptional<IItemHandler> optional = entity.getCapability(ForgeCapabilities.ITEM_HANDLER, null);
+                IItemHandler handler = optional.orElse(null);
+                if (handler != null) {
+                    int slots = Math.min(handler.getSlots(), MAX_VEHICLE_SLOTS);
+                    for (int i = 0; i < slots; i++) {
+                        ItemStack stack = handler.getStackInSlot(i);
+                        stacks.add(stack == null ? ItemStack.EMPTY : stack);
+                    }
+                    source = "item_handler";
+                }
+            } catch (Throwable ignored) {
+                // A mod capability that throws must not take the whole snapshot down.
+            }
+        }
+        List<String> items = new ArrayList<>();
+        int occupied = 0;
+        for (int i = 0; i < stacks.size(); i++) {
+            ItemStack stack = stacks.get(i);
+            if (stack == null || stack.isEmpty()) {
+                continue;
+            }
+            occupied++;
+            Map<String, String> item = new LinkedHashMap<>();
+            item.put("slot", Json.num(i));
+            item.put("item", Json.str(itemName(stack)));
+            item.put("count", Json.num(stack.getCount()));
+            if (stack.isDamageableItem()) {
+                item.put("damage", Json.num(stack.getDamageValue()));
+                item.put("maxDamage", Json.num(stack.getMaxDamage()));
+            }
+            items.add(Json.obj(item));
+        }
+        Map<String, String> out = new LinkedHashMap<>();
+        out.put("known", Json.bool(!"none".equals(source)));
+        out.put("source", Json.str(source));
+        out.put("size", Json.num(stacks.size()));
+        out.put("occupied", Json.num(occupied));
+        out.put("items", Json.arr(items));
+        return Json.obj(out);
+    }
+
+    /** Vehicle integrity: health for living vehicles, health/damage probes for mod ones. */
+    private static String vehicleIntegrityJson(Entity entity) {
+        Map<String, String> out = new LinkedHashMap<>();
+        if (entity instanceof LivingEntity living) {
+            out.put("known", Json.bool(true));
+            out.put("current", Json.num(living.getHealth()));
+            out.put("max", Json.num(living.getMaxHealth()));
+            out.put("unit", Json.str("points"));
+            out.put("source", Json.str("living"));
+            return Json.obj(out);
+        }
+        Double health = callNumber(entity, "getHealth");
+        if (health != null) {
+            Double max = callNumber(entity, "getMaxHealth");
+            out.put("known", Json.bool(true));
+            out.put("current", Json.num(health));
+            if (max != null) {
+                out.put("max", Json.num(max));
+                out.put("unit", Json.str("points"));
+            } else if (health <= 1.0D) {
+                // Immersive Aircraft: health is a 0..1 ratio and there is no max method.
+                out.put("max", Json.num(1.0D));
+                out.put("unit", Json.str("ratio"));
+                out.put("inferredMax", Json.bool(true));
+            } else {
+                out.put("unit", Json.str("unknown"));
+            }
+            out.put("source", Json.str("getHealth"));
+            return Json.obj(out);
+        }
+        Double damage = callNumber(entity, "getDamage");
+        Double maxDamage = callNumber(entity, "getMaxDamage");
+        if (damage != null && maxDamage != null) {
+            out.put("known", Json.bool(true));
+            out.put("current", Json.num(damage));
+            out.put("max", Json.num(maxDamage));
+            out.put("unit", Json.str("points"));
+            out.put("source", Json.str("getDamage"));
+            return Json.obj(out);
+        }
+        out.put("known", Json.bool(false));
+        out.put("source", Json.str("none"));
+        return Json.obj(out);
+    }
+
+    /**
+     * Best-effort numeric probe for third-party vehicles.
+     *
+     * The mod cannot compile against arbitrary vehicle mods, so the only generic path is a
+     * public no-arg accessor. It is wrapped so a hostile/broken mod cannot break `/state`;
+     * a missing or non-numeric method simply yields `null`.
+     */
+    private static Double callNumber(Object target, String name) {
+        try {
+            java.lang.reflect.Method method = target.getClass().getMethod(name);
+            if (method.getParameterCount() != 0) {
+                return null;
+            }
+            Object value = method.invoke(target);
+            if (value instanceof Number number) {
+                return number.doubleValue();
+            }
+        } catch (Throwable ignored) {
+            // Not every vehicle is a LivingEntity or exposes health; absence is a valid answer.
+        }
+        return null;
     }
 
     /**

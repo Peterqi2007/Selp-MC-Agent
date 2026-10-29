@@ -1,6 +1,12 @@
 'use strict';
 
 /**
+ * ABANDONED (2026-10-29): the OS-level computer_use path was abandoned in favour of the
+ * in-process Minecraft input layer (see docs/CU-ABANDONED.md). This module is kept only as
+ * historical evidence and is not a delivery path; do not wire it into the action brain.
+ */
+
+/**
  * ComputerUseGuard - the only path from policy to a GUI executor (P1 M5).
  *
  * `WindowPolicy` answers "may this action run?"; this wrapper makes sure a rejected action

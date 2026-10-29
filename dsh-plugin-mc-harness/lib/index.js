@@ -39,7 +39,11 @@ const FULL_OBSERVATION_FIELDS = [
   'dead',
   'onGround',
   'standingOn',
+  'riding',
+  'mounted',
+  'standingOnEntity',
   'hostiles',
+  'entities',
   'inventory',
   'emptySlots',
   'heldItem',
@@ -229,7 +233,8 @@ function toolDefinitions({ controlUrl, record, log, runtime }) {
     description:
       'Pre-task state observation skill. Call it ONCE before executing a task and choose ' +
       'the fields required by that task (e.g. position, health, food, inventory, hostiles, ' +
-      'target, blocks, players, nearbyItems). Returns per-field observedAt/age/revision/' +
+      'target, blocks, players, nearbyItems, riding/mounted with the vehicle inventory and ' +
+      'integrity). Returns per-field observedAt/age/revision/' +
       'stale metadata. Do not poll it every tick; state is not pushed automatically. ' +
       'If the payload carries `aux.screenshot` (a frame captured on a failure, an accepted ' +
       'plan, new terrain, or the 90 s fallback), read that file ONLY when the structured ' +
@@ -1275,10 +1280,17 @@ export function apply(ctx, config = {}) {
       for await (const chunk of req) body += chunk;
       let text = '';
       let imagePath = '';
+      let mode = 'followup';
       try {
         const parsed = JSON.parse(body || '{}');
         text = String(parsed.text || '');
         imagePath = String(parsed.imagePath || '');
+        /**
+         * `steer` = DSH's next-step inbox; the running turn sees the message at its next
+         * step. `followup` = wait for the current turn to finish (the old behaviour).
+         * Screenshots from a failed step must steer, not wait a whole round (2026-10-29).
+         */
+        mode = parsed.mode === 'steer' ? 'steer' : 'followup';
       } catch {
         return jsonReply(res, 400, { ok: false, error: 'invalid JSON' });
       }
@@ -1337,17 +1349,30 @@ export function apply(ctx, config = {}) {
           clientTimeZone: 'UTC'
         }
       };
+      /**
+       * Deliver with the method the caller asked for. `steer` inserts into the running
+       * turn's next step; if the runtime does not expose it (older DSH), fall back to
+       * followup and SAY SO in the reply instead of pretending the steer was immediate.
+       */
+      const steerable = mode === 'steer' && typeof runtime.agent.steer === 'function';
       try {
-        await runtime.agent.followup(message);
+        if (steerable) await runtime.agent.steer(message);
+        else await runtime.agent.followup(message);
       } catch (error) {
         return jsonReply(res, 500, { ok: false, error: error.message });
+      }
+      if (mode === 'steer' && !steerable) {
+        log('steer requested but this DSH runtime has no agent.steer(); delivered as followup');
       }
       return jsonReply(res, 200, {
         ok: true,
         forwarded: true,
         agentId: runtime.agentId,
         chars: text.length,
-        image: attached
+        image: attached,
+        /** What actually happened, not what was requested. */
+        delivery: steerable ? 'steer' : 'followup',
+        requestedMode: mode
       });
     }
     if (req.method === 'GET' && url.pathname === '/agents') {

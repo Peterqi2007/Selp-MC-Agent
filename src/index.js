@@ -344,7 +344,28 @@ async function main() {
       log: new Logger('harness-bridge')
     });
     ctx.harnessBridge = harnessBridge;
-    ctx.forwardToActionBrain = (text, meta) => harnessBridge.forward(text, meta);
+    /**
+     * One forward entry for the language brain and the addressed channel. Native `@`
+     * dialogue goes through DialogueRouter below, but unified language-brain mode and the
+     * addressed channel call this function directly - so the goal injection must live here
+     * too, not only in the router (2026-10-30).
+     */
+    ctx.forwardToActionBrain = async (text, meta = {}) => {
+      const result = await harnessBridge.forward(text, meta);
+      if (result && result.ok === true && ctx.taskGoals && typeof ctx.taskGoals.maybeCreateDialogue === 'function') {
+        try {
+          const goal = await ctx.taskGoals.maybeCreateDialogue({
+            text,
+            speaker: meta.speaker,
+            source: meta.source || meta.originalSource || 'dialogue'
+          });
+          if (goal && goal.ok) log.info(`dialogue goal injected: ${goal.goalId}`);
+        } catch (err) {
+          log.debug(`dialogue goal injection failed: ${err.message}`);
+        }
+      }
+      return result;
+    };
 
     const { DialogueRouter } = require('./chat/dialogueRouter');
     ctx.dialogueRouter = new DialogueRouter({
@@ -908,11 +929,26 @@ async function main() {
   if (harnessBridge && actionBrainMode !== 'planner') {
     const plannerCfg = (cfg.agent && cfg.agent.planner) || {};
     const autonomyCfg = plannerCfg.autonomousProposals || {};
+    /**
+     * Automatic curriculum (Voyager-style, 2026-10-29): completed/failed task ledger and a
+     * difficulty band that grows with completions. It feeds the proposal-prep goal and
+     * validates below-band proposals. Config lives under autonomousProposals.curriculum.
+     */
+    const { Curriculum } = require('./planner/curriculum');
+    const curriculumCfg = autonomyCfg.curriculum || {};
+    ctx.curriculum = new Curriculum({
+      cfg: {
+        ...curriculumCfg,
+        file: curriculumCfg.file || path.join('runtime', 'curriculum.json')
+      },
+      log: new Logger('curriculum')
+    });
     const { AutonomousProposalCoordinator } = require('./planner/autonomousProposals');
     ctx.proposalCoordinator = new AutonomousProposalCoordinator({
       brain,
       bridge: harnessBridge,
       languageBrain: ctx.languageBrain || null,
+      curriculum: ctx.curriculum,
       ctx,
       cfg: autonomyCfg,
       log: new Logger('proposal-autonomy')
@@ -921,7 +957,8 @@ async function main() {
     ctx.proposalCoordinator.start();
     log.info(
       `autonomous proposals: ${autonomyCfg.enabled === false ? 'disabled' : 'enabled'} ` +
-        `(idle ${Number(autonomyCfg.idleMs) || 300000}ms, response ${Number(autonomyCfg.responseMs) || 30000}ms)`
+        `(idle ${Number(autonomyCfg.idleMs) || 300000}ms, response ${Number(autonomyCfg.responseMs) || 30000}ms, ` +
+        `curriculum level ${ctx.curriculum.level()}/${ctx.curriculum.cfg.maxLevel})`
     );
   }
 

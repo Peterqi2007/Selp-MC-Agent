@@ -2499,6 +2499,53 @@ function makeBrain() {
     });
   }
 
+  // -------------------------------------------------- mount / vehicle fields
+  process.stdout.write('\n35d. mount (vehicle) perception fields\n');
+  {
+    const { ObservationCache, resolveFields } = require('../src/world/observation');
+    const riding = {
+      id: 77,
+      name: 'minecraft:chest_boat',
+      kind: 'vehicle',
+      position: { x: 1, y: 64, z: 1 },
+      integrity: { known: true, current: 1, max: 1, unit: 'points', source: 'living' },
+      inventory: { known: true, source: 'container', size: 27, occupied: 1, items: [{ slot: 0, item: 'minecraft:oak_log', count: 3 }] }
+    };
+    const snapshot = {
+      ready: true,
+      body: 'mock',
+      dimension: 'minecraft:overworld',
+      position: { x: 1, y: 64, z: 1 },
+      riding,
+      mounted: true,
+      standingOnEntity: null,
+      entities: [{ id: 77, name: 'minecraft:chest_boat', kind: 'entity', position: { x: 1, y: 64, z: 1 } }]
+    };
+    const body = {
+      kind: 'mock',
+      connected: true,
+      snapshot: () => snapshot,
+      refresh: async () => {}
+    };
+    const cache = new ObservationCache({ body, now: () => 1000 });
+    const mount = await cache.observe({ fields: ['mount'], purpose: 'answer' });
+    await check('the mount group exposes riding, mounted and standingOnEntity', () => {
+      assert.strictEqual(mount.fields.riding.value.id, 77);
+      assert.strictEqual(mount.fields.riding.value.inventory.items[0].item, 'minecraft:oak_log');
+      assert.strictEqual(mount.fields.mounted.value, true);
+      assert.strictEqual(mount.fields.standingOnEntity.value, null);
+    });
+    const alias = await cache.observe({ fields: ['vehicle'], purpose: 'answer' });
+    await check('the vehicle alias resolves to riding (aliases are applied, not decorative)', () => {
+      assert.strictEqual(alias.fields.riding.value.id, 77);
+      assert.strictEqual(alias.unknownFields.includes('vehicle'), false);
+    });
+    await check('resolveFields keeps the literal entities field (no hostile-only alias)', () => {
+      assert.deepStrictEqual(resolveFields(['entities']), ['entities']);
+      assert.deepStrictEqual(resolveFields(['threat']), ['hostiles']);
+    });
+  }
+
   {
     const { ObservationCache } = require('../src/world/observation');
     let refreshes = 0;

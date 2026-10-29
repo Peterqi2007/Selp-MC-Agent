@@ -42,7 +42,13 @@ class HarnessBridge {
           from: meta.from || null,
           // The plugin attaches the PNG to the same message (2026-10-29): a path alone makes
           // the brain spend a whole round before it can look at the picture.
-          imagePath: meta.imagePath || null
+          imagePath: meta.imagePath || null,
+          /**
+           * `steer` asks the plugin to use DSH's next-step inbox (`agent.steer`) instead of
+           * `agent.followup` (which waits for the current turn to finish). Screenshot steers
+           * from a failed step are only useful inside that turn, so they pass steer.
+           */
+          mode: meta.mode === 'steer' ? 'steer' : 'followup'
         }),
         signal: controller.signal
       });
@@ -66,6 +72,8 @@ class HarnessBridge {
         chars: original.length,
         /** Present when the plugin attached a frame to this message (image steer). */
         image: payload.image || null,
+        /** `steer` = delivered into the running turn; `followup` = queued for the next turn. */
+        delivery: payload.delivery || payload.mode || (meta.mode === 'steer' ? 'steer' : 'followup'),
         sha256: crypto.createHash('sha256').update(original).digest('hex'),
         /**
          * The exact envelope handed to the action brain. Exposed on the local panel response

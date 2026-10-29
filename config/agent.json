@@ -81,7 +81,16 @@
       "responseMs": 30000,
       "prepTimeoutMs": 90000,
       "maxGoalRounds": 3,
-      "executionGoalRounds": 6
+      "executionGoalRounds": 6,
+      "_comment_curriculum": "Voyager-style automatic curriculum (src/planner/curriculum.js): the prep goal carries completed/failed tasks and a difficulty band (level grows every bandStep completed tasks, cap maxLevel); below-band proposals are refused up to maxRejections times, then relaxed. The ledger persists to file.",
+      "curriculum": {
+        "enabled": true,
+        "file": "runtime/curriculum.json",
+        "bandStep": 2,
+        "maxLevel": 4,
+        "maxRejections": 2,
+        "historyLimit": 12
+      }
     }
   },
   "_comment_state": "P1 M3/A17/A29 live entry. enabled=true turns on atomic session persistence so the M3 restart items can be tested: plans, proposals (pending question), event ring, budgets, methods/answers/memory are written to path (temp+rename); a corrupt file is renamed to .corrupt-<ts> and ignored. In-flight tasks/turns are never restored, and restore never starts a plan. Offline Brain suites run with P1_STATE=off so they cannot read or write this file.",

@@ -56,17 +56,19 @@
 | [`docs/P1-M4.md`](docs/P1-M4.md) | **P1 M4 记录（PASS，A19 适用子集）**：manifest 校验、生成管线、candidates/promoted 目录与指针、晋升/回退/下线、promoted-only 检索；2026-10-18 接真实生成、权限子进程试运行、证据、取消、DeepSeek Search、HTTP `/code-skills`；2026-10-25 接实时入口；需求变更后 **v2 已实现（35/35）且 A18–A20、A28–A30 真机 PASS**。沙箱规则见 [`P1-M4-SANDBOX.md`](docs/P1-M4-SANDBOX.md) |
 | [`docs/M4-DIRECT-BODY-PLAN.md`](docs/M4-DIRECT-BODY-PLAN.md) | **M4 直接身体原语（v2，2026-10-25）**：生成代码直接读 `/state` 并 `body_move/body_dig/body_place/body_use/body_click/body_look/body_attack`；唯一执行权/slot 租约、权限门、容器屏幕限制、取消中断、有界 blocks；**已实现（35/35），A18–A20、A28–A30 真机 PASS** |
 | [`docs/M4-CLIENT-TESTS.md`](docs/M4-CLIENT-TESTS.md) | **M4 代码技能证据（2026-10-25）**：§1–§7 编排子集；§9 v2 离线（35/35）；**§10 A18 v2 真机 PASS**；**§11 A19/A20/A28–A30 真机 PASS（A19 适用子集）** |
-| [`docs/P1-M5.md`](docs/P1-M5.md) | **P1 M5 记录（2026-10-29 口径变更：进程内输入层）**：执行底座由 OS 级 `computer_use` 改为 mod 在游戏进程内注入按键/视角/槽位点击 + 帧缓冲截图经 HTTP 交 Node（Node 持唯一身体执行权与键鼠台账）；闸门 **F1 作废 → F1'a（结构性不可出界）/F1'b（键鼠台账）**；CU 离线契约（`WindowPolicy`/`ComputerUseGuard`）降级为可选桌面路径。**M5 未通过（口径变更后待执行），实现未开始**；A21/A22 **不再标 N/A**、按新路径待执行 |
+| [`docs/P1-M5.md`](docs/P1-M5.md) | **P1 M5 记录（2026-10-29 口径变更：进程内输入层）**：执行底座由 OS 级 `computer_use` 改为 mod 在游戏进程内注入按键/视角/槽位点击 + 帧缓冲截图经 HTTP 交 Node（Node 持唯一身体执行权与键鼠台账）；闸门 **F1 作废 → F1'a（结构性不可出界）/F1'b（键鼠台账）**；**CU 路径已放弃（abandoned）**。**输入层已实现并真机验证输入/截图/GUI 链路（`p1:m5:test 32/32`、`m5-gui-live 93/93`），但 F1' 故障注入未跑完、A22/M5.3 未执行，M5 仍未通过**；A21/A22 **不标 N/A** |
+| [`docs/CU-ABANDONED.md`](docs/CU-ABANDONED.md) | **CU 路径已放弃（2026-10-29）**：为什么换、还留了什么（只作历史证据）、现在 M5 看什么；`src/computer/*` 已标 ABANDONED |
+| [`docs/P1-WORK-2026-10-30.md`](docs/P1-WORK-2026-10-30.md) | **2026-10-30 本轮交付**：CU 标记放弃、载具感知（骑乘/载具背包/完整度，原版+Immersive Aircraft+其它模组）、`@` 请求 → DSH goal、截图 steer 主动提交、Voyager 式自动课程；含跳过项清单 |
 | [`docs/P1-M6.md`](docs/P1-M6.md) | **P1 M6 记录（聊天并发 + 按需接线）**：未读去重、过时回复拒绝、自回声拒绝、限速/重复/截断、随会话持久化；普通聊天 15 行窗口（含自己的回复、随 `p1-state.json` 保存）；**所有非 `!` 玩家消息写入 ChatMemory**；LLM 回复可 opt-in 守卫（默认关闭）；DialogueRouter + `mc_say` 已真机（2026-10-22）；A24/C03/F02 受控 PASS（2026-10-24）；**A23 的 40 组 ×3 与 A25 三条真实提案未完成** |
 | [`docs/LANGUAGE-BRAIN-REPAIR.md`](docs/LANGUAGE-BRAIN-REPAIR.md) | **语言脑统一门面**：`src/llm/languageBrain.js` 的 roleplay/expert/approval、统一语言工具、原文审批、15 行短期窗口 + ChatMemory/任务记忆 grep；**默认 `agent.language.brain=unified`（2026-10-23 真机验证）**，`legacy` 可回退；`p1:language:test 20/20` |
-| [`docs/P1-M7.md`](docs/P1-M7.md) | **P1 M7 记录（离线准备）**：`p1:verify` 一键离线验收（`--fast` 10/10）、`p1:fault:test` 9/9、A01–A31 验收矩阵 + F1' 闸门（2026-10-25 回填，2026-10-29 更新 M5 口径）、发布清单与残余风险。**P1 未发布**；M1/M2/M3 真机通过，M4–M7 剩余项见清单 |
+| [`docs/P1-M7.md`](docs/P1-M7.md) | **P1 M7 记录（离线准备）**：`p1:verify` 一键离线验收（2026-10-29 实测 `--fast` **15/15**、完整 **16/16** 套件）、`p1:fault:test` 9/9、A01–A31 验收矩阵 + F1' 闸门（2026-10-25 回填，2026-10-29 更新 M5 口径）、发布清单与残余风险。**P1 未发布**；M1/M2/M3/M4 真机通过，M5–M7 剩余项见清单 |
 | [`docs/P1-GAP-AUDIT.md`](docs/P1-GAP-AUDIT.md) | **P1 全文差距审计**：§1.4–§1.9 逐节“已落地/部分/仅契约/未开始”，离线待办优先级与需批准项（2026-10-22/10-25 增补现状表；2026-10-29 M5 口径变更） |
 | [`docs/P1-HANDOFF.md`](docs/P1-HANDOFF.md) | **P1 交接（2026-10-25）**：一键复验、已交付清单、客户端窗口实测、默认配置、剩余未交付、窗口顺序、代码地图与风险 |
 | [`docs/CLIENT-TEST-2026-10-17.md`](docs/CLIENT-TEST-2026-10-17.md) | **客户端窗口实测记录**：协议 23/23、登录+寻路 7/7、采集 9/10（挖石 noPath 失败）、Agent 自动登录修复、`/state` 空闲成本、F1 未授权（历史，2026-10-29 起 F1 已作废、改 F1'） |
 | [`docs/M1-CLIENT-TEST-2026-10-17.md`](docs/M1-CLIENT-TEST-2026-10-17.md) | **M1 客户端两轮记录**：零矿 FAIL→修复后 failed；任务 ID/终态 FAIL→修复后唯一；stop 816ms；SSE token/重放通过；**M1 适用子集 PASS**，残余 A05/A07/A08/A31 子项留 M2/M3/M7 |
 | [`docs/M2-CLIENT-TEST-2026-10-17.md`](docs/M2-CLIENT-TEST-2026-10-17.md) | **M2 客户端记录**：A01/A02/A03/A09/A10/A11/A12/H1 均 PASS；A12 GUI 修复后 219ms 自动关工作台并击杀；TACZ reload live PASS；时间判定改为 server dayTime 优先 |
-| [`docs/DSH-HARNESS.md`](docs/DSH-HARNESS.md) | **DSH harness 接入**：`dsh-plugin-mc-harness` 插件与安装脚本；11 个 `mc_*` 工具（observe/step/plan/plan_status/cancel/finish/state/perception/memory/propose/say）；持久 goal、`/goal/pause`/`resume`、DialogueRouter + `mc_say` 真机结果。Full Access Ask 仅原 M5 CU 对话的对话级预设（CU 已降级为可选桌面路径，M5 改走进程内输入层） |
-| [`docs/P1-CLIENT-VERIFICATION.md`](docs/P1-CLIENT-VERIFICATION.md) | **P1 客户端阶段验证计划（M1–M7）**：阶段闸门、可证伪主张、正/反证据、有效性边界；**当前 4/7 通过（M1 适用子集、M2、M3、M4）**；M5 未通过（2026-10-29 口径变更后待执行）、M6/M7 部分 |
+| [`docs/DSH-HARNESS.md`](docs/DSH-HARNESS.md) | **DSH harness 接入**：`dsh-plugin-mc-harness` 插件与安装脚本；**12 个 `mc_*` 工具**（observe/step/plan/plan_status/cancel/finish/state/capabilities/perception/memory/propose/say）；持久 goal、`/goal/pause`/`resume`、DialogueRouter + `mc_say` 真机结果。**CU 路径已放弃**；原 M5 的 Full Access Ask 对话级预设不再使用（M5 走进程内输入层） |
+| [`docs/P1-CLIENT-VERIFICATION.md`](docs/P1-CLIENT-VERIFICATION.md) | **P1 客户端阶段验证计划（M1–M7）**：阶段闸门、可证伪主张、正/反证据、有效性边界；**当前 4/7 通过（M1 适用子集、M2、M3、M4）**；M5 未通过（输入层已实现并真机验证链路，但 F1'/A21/A22 未收口；CU 已放弃）、M6/M7 部分 |
 | [`docs/PLANNER-RETIREMENT.md`](docs/PLANNER-RETIREMENT.md) | **自主规划器退役**：`slowLoop` 拆为 GoalEvaluator + 提案 + TaskSlot。**S0–S4 已全部离线交付**（`planner:test` 35/35、`plan:audit --stage p1` 105/105），真机判据仍登记在客户端清单 |
 | [`docs/P1-CLIENT-TESTS.md`](docs/P1-CLIENT-TESTS.md) | **客户端/真机测试清单**：P1 与退役判据里所有需要真实客户端/服务器的项，**状态已按 2026-10-21/22/24 实际执行回填**；未执行项仍为未执行 |
 | [`docs/PLANNER-AB-EXPERIMENT.md`](docs/PLANNER-AB-EXPERIMENT.md) | **选型 A/B 实验设计**（**条件触发**：仅当 P1 §1.9.2 降级判定成立才执行）：24 次计分运行的场景与门槛；成本审计按时间 / token / 模块复用三项（§6–§7），§10 是决策闸门，**不做经济性评估**（§8.4） |
@@ -176,7 +178,13 @@ LLM 层（`src/llm/`，生产配置已开启 `toolCalling`）：8 个工具 —�
 
 ---
 
-## 3. 项目进展（批次表截至 2026-10-16；当前状态含 2026-10-22 复验）
+## 3. 项目进展（批次表截至 2026-10-16；当前状态按 2026-10-29 实测复核）
+
+> **CU 路径已放弃（ABANDONED，2026-10-29）**：OS 级 `computer_use` 不再作为 P1 交付路径——WGC 对
+> OpenGL 窗口取不到帧，且 `WindowPolicy`/`ComputerUseGuard` 无法接进只读的打包 DSH 插件，两项都不在
+> 本项目可控范围。M5 改为 **Minecraft 进程内输入层**（mod 在游戏进程内注入按键/视角/槽位点击 + 帧缓冲
+> 截图），闸门由 **F1** 换成 **F1'a 结构性不可出界 + F1'b 键鼠台账**。`src/computer/*` 与契约测试
+> 只作历史证据保留；详见 [`docs/P1-M5.md`](docs/P1-M5.md) §7 与 [`docs/CU-ABANDONED.md`](docs/CU-ABANDONED.md)。
 
 > **P0 已验收收官（2026-10-16）**：离线 `npm run p0:verify` **8/8 套件通过**、P0 计划书 §11 的
 > 「做/不做」清单 `npm run plan:audit` **29/29 全过**；真机自 2026-10-08 首轮起多轮通过。
@@ -209,34 +217,56 @@ LLM 层（`src/llm/`，生产配置已开启 `toolCalling`）：8 个工具 —�
 | 10-15 | LLM 完工播报去重 | 同一件事被播报两次（模型措辞 + 632ms 后模板兜底，格式还不一样）：`config` 为 `taskDone` 声明的 `cooldownMs: 30000` **从未被消费**——现在 `announceFinished` 按「任务名\|描述\|成功与否」记时间戳并压制窗口内重复（不同完工、成功后再失败照常播）；模板去掉 `(moved N blocks in M ms)` 遥测 | ✅ 离线（`llm:dry` 工具 39→**43/43** 四条断言；真机故障见 §6 第 15 条） |
 | 10-16 | **P0 收官** | 8/8 套件、`plan:audit` 29/29 复核通过；P0 计划书与验收档案**转为历史文档**；REFS 新增 Voyager 参考项目并明确 `refs/` 忽略范围 | ✅ 离线（`p0:verify` 8/8，2026-10-16 实跑） |
 
-当前状态（P0 计数实测于 2026-10-16；P1 计数与客户端阶段状态更新于 2026-10-22）：
+当前状态（2026-10-30 实测复核；历史计数保留在对应日期的记录里）：
 
 * **P0 已收官**：`p0:verify 8/8`（`path:test` · `tasks:test` · `llm:dry` · `control:test` · `verify:roleplay` ·
   `clientmod:test` · `selftest` · `plan:audit`），P0 两份文档已转历史。
-* 离线全绿（2026-10-16 实跑）：`selftest 176/176`、`skills:test 57/57`、`client:test 73/73`、`control:test 37/37`、
-  `mining:entry:test 25/25`、`mining:collection:test 24/24`、`mining:recovery:test 18/18`、`tasks:test 52/52`、
-  `path:test 35/35`、`clientmod:test 11/11`、`verify:roleplay 35/35`、`llm:dry` 路由 67/67 + 工具 43/43（明细见 §8）。
-* P1 离线（2026-10-25 实跑）：`p1:verify`（P0 8/8 + `planner:test 35/35` + `p1:contract:test 206/206` +
-  `p1:m3:test 44/44` + `p1:m6:test 24/24` + `p1:proposal-autonomy:test 16/16` + `p1:language:test 20/20` +
-  `p1:m7:test 11/11` + `p1:m4:test 35/35` + `p1:fault:test 9/9` + `plan:audit --stage p1 105/105`；
-  `--fast` 为 10/10 套件，完整 11/11）。
-* P1 客户端阶段（2026-10-20/21/22/24/25）：**M1 适用子集 PASS、M2 PASS、M3 PASS、M4 PASS（A19 适用子集）**
+* 离线全绿（2026-10-29 实跑）：`selftest`、`skills:test`、`client:test`、`control:test`、`tasks:test`、
+  `path:test`、`clientmod:test`、`verify:roleplay`、`llm:dry` 均通过（历史计数见 §8；P0 套件由 `p0:verify` 统一跑）。
+* P1 离线（2026-10-30 实跑）：`p1:verify` **18/18 套件**（P0 8 套件 + `planner:test 35/35` +
+  `p1:contract:test 209/209` + `p1:m3:test 58/58` + `p1:m6:test 25/25` +
+  `p1:proposal-autonomy:test 16/16` + `p1:language:test 22/22` + `p1:m7:test 11/11` +
+  `p1:m4:test 35/35` + `p1:m4:evolve:test 17/17` + `p1:m5:test 32/32` + `p1:channel:test 18/18` +
+  `p1:shot:test 20/20` + `p1:steer:test 8/8` + `p1:taskgoal:test 12/12` + `p1:curriculum:test 8/8` +
+  `p1:fault:test 9/9` + `plan:audit --stage p1 105/105`；`--fast` 为 **17/17**，完整 **18/18**）。
+* P1 客户端阶段（2026-10-20/21/22/24/25 + 2026-10-29）：**M1 适用子集 PASS、M2 PASS、M3 PASS、M4 PASS（A19 适用子集）**
   （A13–A17、A27 只读/异步、A28–A30、F2；均在 `planner.mode=off` 下由 DSH 动作脑/真机注入完成）；
   M4 代码管线、`p1:m4:test 35/35`、`!code-skill`/`code_skill` 实时入口与 v2 直接原语真机已完成：
   **A18–A20、A28–A30 真机 PASS**（move+dig、容器 click、越界/抢身体/取消/deny、半途失败、长任务
   15.57s、硬杀恢复、10,352 tok 用量；A19 残余仅离线），见
   [`docs/M4-DIRECT-BODY-PLAN.md`](docs/M4-DIRECT-BODY-PLAN.md)；
-  M5 **未通过（2026-10-29 口径变更后待执行：改进程内输入层，实现未开始；F1 作废、改 F1'，A21/A22 不再标 N/A）**；
+  **M5 未通过，但已从"未实现"变为"已实现并真机验证链路"**：进程内输入层 + 键鼠台账 + 帧缓冲截图已落地
+  （`p1:m5:test 32/32`；真机 `m5-live-probe 21/21`、`m5-agent-probe 11/11`、`m5-gui-live 93/93`、
+  `m5-target-live 8/8`、`m5-channel-live 8/8`）；**A21 部分通过（2 类 GUI ×3，探针直连未走技能层）、
+  A22/M5.3 未执行、F1'b 的死亡/断连/退出注入未跑**；CU 路径**已放弃**；
   M6 对话入口真机通过，2026-10-24 受控测试 **A24/C03/F02 PASS、A25 四路径（accept 真 harness）、
   A23 仅 6 条真实沉默（缺 40×3）**；M7 仅 A26/R1 部分基线，**R2–R4、F3 真机端点、A31 最终组合
   未执行**；**P1 未发布**。详见
   `docs/P1-CLIENT-VERIFICATION.md`、`docs/P1-M3.md`、`docs/P1-M7.md`、`docs/P1-HANDOFF.md`。
-* 控制 Mod：`mod-client/dist/agent-client-1.0.0.jar` **78534 字节**（2026-10-22 21:08 构建，含 WalkTo 严格到达
-  y 容差、战斗 v3、TACZ 枪械与 server `dayTime` 昼夜判断、**TACZ `HoldToAim` 右键瞄准修复**——反编译
-  `AimKey` 后改为持有真实 `AIM_KEY` 映射，见 `docs/COMBAT-PLAN.md` §六；**`/state?players=1` 轻量玩家轮询**——
-  follow 每 150ms 只读玩家/自身位置，A* 规划前才拉完整方块扫描；以及 **Veil ImGui 按键崩溃防护 Mixin**）；
+* 控制 Mod：`mod-client/dist/agent-client-1.0.0.jar` **88769 字节**（2026-10-30 构建，**31 个 HTTP 动词**），
+  含 WalkTo 严格到达 y 容差、战斗 v3、TACZ 枪械与 server `dayTime` 昼夜判断、**TACZ `HoldToAim` 右键瞄准修复**、
+  **`/state?players=1` 轻量玩家轮询**、**Veil ImGui 按键崩溃防护 Mixin**，以及 2026-10-29/30 的
+  **进程内输入层**（`key/hold/tap/look/shot`、`InputLedger` 对账、`gameTime`、`entities/riding/standingOnEntity`）
+  与 **载具感知**（`mounted`、载具 `inventory`（原版 Container / Forge IItemHandler）与 `integrity`
+  （LivingEntity health / mod `getHealth` 反射，Immersive Aircraft 0..1 比例））；
   已 `client:install` 覆盖 PCL 版本目录。改 Mod 后必须重装（`npm run client:install`）并重启客户端。
-  本次瞄准修复与轻量轮询未做真机验证（按操作员要求）；Veil 防护已用真机 ESC/E/T/W 按键验证。
+  本次输入层/实体/载具感知真机项见 [`docs/P1-M5.md`](docs/P1-M5.md) §8/§10 与
+  [`docs/P1-WORK-2026-10-30.md`](docs/P1-WORK-2026-10-30.md)。
+* **2026-10-30 本轮（离线）**：
+  - **CU 正式标为放弃**，文档/代码头统一，唯一口径 [`docs/CU-ABANDONED.md`](docs/CU-ABANDONED.md)；
+  - **载具感知**：`/state` 新增 `mounted`，`riding` 带 `inventory`/`integrity`；覆盖原版容器、
+    马/箱船/矿车、Immersive Aircraft（Container + ratio health）与其它模组的 IItemHandler/反射回退；
+    Node `mount` 组与 `vehicle` 别名、`target` 保留实体身份；
+  - **`@` 请求 → goal**：`TaskGoalInjection.maybeCreateDialogue` + DialogueRouter（legacy 路径）与
+    `ctx.forwardToActionBrain`（unified 语言脑 / addressed 路径）在逐字转发后建 goal，
+    不再只有一条消息、没有续轮；
+  - **截图 steer 主动提交**：插件 `/message` 支持 `mode:"steer"` → DSH `agent.steer()`（next-step），
+    不再等整轮结束；无 `steer()` 的运行时诚实回退 `followup`；
+  - **Voyager 式自动课程**：`src/planner/curriculum.js` 维护 completed/failed 账本与难度带，
+    prep goal 携带上下文，低于 band 的提案被拒（有限次后放宽），执行 goal 终态回写账本。
+  离线新增 `p1:steer:test 8/8`、`p1:curriculum:test 8/8`；需 DSH 重启/真机的四项按口径跳过，
+  见 [`docs/P1-WORK-2026-10-30.md`](docs/P1-WORK-2026-10-30.md) §7。
+
 * **客户端按任意键退出修复（2026-10-22）**：服务器新增 **Aeronautics → Sable → Veil 1.0.0.296** 后，
   Veil 的 GLFW 键回调在 ImGui context 未就绪时仍调用 `ImGui.getIO()`，任意按键都会触发
   `Dear ImGui Assertion Failed: GImGui != NULL` 并退出客户端（日志栈顶
@@ -396,9 +426,10 @@ Invoke-RestMethod -Uri http://127.0.0.1:8766/ui/state
 | `npm run client:check` | 探测 8899：Mod 在不在、是否已进入世界 |
 | `npm run client:verify` | 真机协议验收（需要客户端在跑） |
 
-原语清单（`ControlHttpServer.execute`，25 个 verb）：`chat/login/say`、`cmd/command`、`look/lookat/resync/stop`、
+原语清单（`ControlHttpServer.execute`，**31 个 verb**）：`chat/login/say`、`cmd/command`、`look/lookat/resync/stop`、
 `moveto/goto`、`dig/mine`、`tunnel`、`pillar/pillarup/tower`、`place/useon/interact`、`menu/slots/click/close`、
-`use/useitem/select/drop`、`attack`、`shoot`、`retreat`、`target`；
+`use/useitem/select/drop`、`attack`、`shoot`、`retreat`、`target`，以及 2026-10-29 进程内输入层
+**`key/hold/tap/shot/inputs`**；
 感知 `GET /state /progress /chatlog /health`。`/register` 在四道闸门上被永久拒绝（会重置角色数据）。
 
 ---
@@ -506,7 +537,7 @@ Invoke-RestMethod -Uri http://127.0.0.1:8766/ui/state
 | `npm run client:check` | 检查 Mod 与"是否在世界里" | 主线 |
 | `npm run client:build` / `client:install` | 构建 / 安装控制 Mod | 主线 |
 | `npm run client:test` | 假 Mod 协议测试（含 pillar 回执/隧道保护/空闲刷新/shoot/retreat） | 75/75 |
-| `npm run clientmod:test` | clientmod 躯体角色扮演路径 | 11/11 |
+| `npm run clientmod:test` | clientmod 躯体角色扮演路径（含骑乘/载具感知映射） | 12/12 |
 | `npm run skills:test` | 技能库（含采矿/垫柱/护甲/武器/进食/枪械选枪与反卡死、战斗租约、collect 新鲜扫描、deposit 精确搬运、withdraw 读箱/跨箱精确取物、follow 高频重规划） | 74/74 |
 | `npm run mining:entry:test` | 统一挖矿入口 A 系列（含 A10 规划器停牌键、A11 全矿种深板岩矩阵） | 25/25 |
 | `npm run mining:collection:test` | 掉落物收集 C 系列 | 24/24 |
@@ -514,11 +545,18 @@ Invoke-RestMethod -Uri http://127.0.0.1:8766/ui/state
 | `npm run selftest` | 全量离线自检 | 183/183 |
 | `npm run p0:verify` | P0 全量验收（一次跑 8 个套件） | 8/8 |
 | `npm run path:test` | 寻路场景（含跨网格子目标接力、河流与桥、陡坎不乱走、游泳过湖） | 35/35 |
-| `npm run tasks:test` | 三原语（走 / 挖 / 捡）+ FishTask 适配器 | 57/57 |
+| `npm run tasks:test` | 三原语（走 / 挖 / 捡）+ FishTask 适配器 | 58/58 |
 | `npm run llm:dry` | 意图路由 / Schema / 工具白名单 / 完工播报去重 | 路由 67/67 · 工具 43/43 |
 | `npm run control:test` | 双通道 + 面板 + 死亡处理 + 反射路由 + 战斗反射 | 43/43 |
 | `npm run plan:audit` | 计划书 §11 符合性 | 35/35（`--stage p1` 105/105） |
-| `npm run p1:verify` | P1 离线门禁（P0 + 全部 P1 套件；`--fast` 跳过 P0） | **11/11**（`--fast` 10/10） |
+| `npm run p1:verify` | P1 离线门禁（P0 + 全部 P1 套件；`--fast` 跳过 P0） | **18/18**（`--fast` 17/17） |
+| `npm run p1:m5:test` | 进程内输入层 / 键鼠台账 / 帧缓冲截图 / 感知字段契约 | 32/32 |
+| `npm run p1:channel:test` | 通道策略（code-skill → command → input → code-generation） | 18/18 |
+| `npm run p1:shot:test` | 截图触发/预算/去重/steer 策略 | 20/20 |
+| `npm run p1:steer:test` | 主动 steer 投递（插件 `/message` steer/followup/回退 + 桥接 + 策略） | 8/8 |
+| `npm run p1:taskgoal:test` | 玩家任务 / `@` 请求 → DSH goal | 12/12 |
+| `npm run p1:curriculum:test` | Voyager 式自动课程（难度带/账本/校验/接线） | 8/8 |
+| `npm run p1:m4:evolve:test` | M4 v3 键鼠脚本 / 错误回灌 / 版本链 / 检索 | 17/17 |
 | `npm run p1:language:test` | 统一语言脑门面（profile/工具/原文审批/记忆 grep/短窗口） | **20/20** |
 | `npm run corpus:learn` | 从 `chat-corpus.csv` 标注学习 20+20 条沉默/参与示例，写 `config/chat-silence-profile.json` | 40 examples |
 | `npm run inspect:server` / `mods:report` | 连服前体检 / Mod 知识报告 | 辅助 |
@@ -585,7 +623,7 @@ P0 已于 2026-10-16 收官（`p0:verify` 8/8、`plan:audit` 29/29）；[`docs/P
 
 ```powershell
 npm run p0:verify      # 离线全量（约 1 分钟，8 个套件）
-npm run selftest       # 181/181：模块图 / 插件 / 寻路 / 三原语 / 意图 Schema / 工具白名单 / 死亡处理
+npm run selftest       # 183/183：模块图 / 插件 / 寻路 / 三原语 / 意图 Schema / 工具白名单 / 死亡处理
 npm run mining:entry:test      # 25/25：统一挖矿入口（含全矿种深板岩矩阵）
 npm run mining:collection:test # 24/24：共享收集
 npm run mining:recovery:test   # 18/18：LLM 接管（脚本化模型）

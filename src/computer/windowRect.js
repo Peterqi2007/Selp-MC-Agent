@@ -1,6 +1,12 @@
 'use strict';
 
 /**
+ * ABANDONED (2026-10-29): the OS-level computer_use path was abandoned in favour of the
+ * in-process Minecraft input layer (see docs/CU-ABANDONED.md). This module is kept only as
+ * historical evidence and is not a delivery path; do not wire it into the action brain.
+ */
+
+/**
  * Read-only window geometry for computer use (P1 M5 / F1).
  *
  * F1 needs `bounds` before `WindowPolicy.verify()` may pass, and those bounds must be a real

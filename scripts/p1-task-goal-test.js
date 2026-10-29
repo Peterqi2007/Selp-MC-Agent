@@ -142,6 +142,42 @@ async function main() {
     assert.strictEqual(status.lastSkip.reason, 'goal-active');
   });
 
+  // -------------------------------------------------- @ dialogue goals (2026-10-29)
+  await check('an @ request gets a goal that keeps the original text and tells the brain to act', async () => {
+    const h = makeHarness();
+    const original = '去砍两棵树然后回来';
+    const res = await h.injected.maybeCreateDialogue({ text: original, speaker: 'Alice', source: 'dialogue' });
+    assert.strictEqual(res.ok, true, JSON.stringify(res));
+    assert.strictEqual(h.calls.length, 1);
+    const request = h.calls[0];
+    assert.strictEqual(request.purpose, 'execute');
+    assert.match(request.goal, /@ 自然语言/);
+    assert(request.goal.includes(JSON.stringify(original)), 'the original text is not carried verbatim');
+    assert.match(request.goal, /Alice/);
+    assert.match(request.goal, /跨轮/);
+    assert.match(request.goal, /连续两次/);
+    assert.match(request.goal, /update_goal complete/);
+  });
+
+  await check('an @ request does not stack onto an active goal', async () => {
+    const h = makeHarness({ activeGoal: 'goal-running' });
+    const res = await h.injected.maybeCreateDialogue({ text: '去砍树' });
+    assert.strictEqual(res.ok, false);
+    assert.strictEqual(res.reason, 'goal-active');
+    assert.strictEqual(h.calls.length, 0);
+  });
+
+  await check('the dialogue router wires @ requests to the goal injection', () => {
+    const router = fs.readFileSync(path.join(__dirname, '..', 'src', 'chat', 'dialogueRouter.js'), 'utf8');
+    assert.match(router, /maybeCreateDialogue\(/);
+    assert.match(router, /this\._maybeGoal\(original, meta\)/);
+    const index = fs.readFileSync(path.join(__dirname, '..', 'src', 'index.js'), 'utf8');
+    assert.match(index, /new TaskGoalInjection\(/);
+    // Unified language-brain / addressed channels call forwardToActionBrain, not the router.
+    assert.match(index, /ctx\.forwardToActionBrain = async/);
+    assert.match(index, /ctx\.taskGoals\.maybeCreateDialogue\(/);
+  });
+
   // ---------------------------------------------------------------- wiring
   await check('enqueue injects the goal and the command line is carried through', () => {
     const commands = fs.readFileSync(path.join(__dirname, '..', 'src', 'chat', 'commands.js'), 'utf8');

@@ -31,6 +31,7 @@ class AutonomousProposalCoordinator {
     this.brain = deps.brain;
     this.bridge = deps.bridge || null;
     this.languageBrain = deps.languageBrain || (deps.ctx && deps.ctx.languageBrain) || null;
+    this.curriculum = deps.curriculum || (deps.ctx && deps.ctx.curriculum) || null;
     this.ctx = deps.ctx || (deps.brain && deps.brain.ctx) || {};
     this.log = deps.log || { info() {}, warn() {}, debug() {} };
     this.cfg = deps.cfg || {};
@@ -100,6 +101,8 @@ class AutonomousProposalCoordinator {
     this._ticking = true;
     const at = this.now();
     try {
+      /** Close the loop on an accepted proposal: the execution goal's end feeds the curriculum. */
+      if (this.executionGoal) await this._tickExecution();
       if (this.prepInFlight) {
         return await this._tickPrep(at);
       }
@@ -164,6 +167,57 @@ class AutonomousProposalCoordinator {
       return { ok: true, reason: 'prep-ended-without-proposal' };
     }
     return { ok: true, reason: 'awaiting-proposal' };
+  }
+
+  /**
+   * Poll the execution goal created for an accepted proposal and write its outcome into the
+   * curriculum. This is the only place the autonomous path learns whether the task worked:
+   * the action brain executes via mc_step (no Node TaskHub event), so the durable goal's
+   * phase is the evidence.
+   */
+  async _tickExecution() {
+    const tracked = this.executionGoal;
+    if (!tracked || !tracked.agentId) return null;
+    let goal = null;
+    try {
+      goal = await this.bridge.goalOf(tracked.agentId);
+    } catch (err) {
+      this.log.debug(`execution goal poll failed: ${err.message}`);
+      return null;
+    }
+    if (!goal) {
+      /** Goal was cleared by a restart/operator: stop tracking, no invented outcome. */
+      this.executionGoal = null;
+      return { ok: true, reason: 'goal-gone' };
+    }
+    const phase = String(goal.phase || '').toLowerCase();
+    if (phase !== 'complete' && phase !== 'blocked') return { ok: true, reason: `phase:${phase}` };
+    const candidate = tracked.candidate || {};
+    if (this.curriculum) {
+      if (phase === 'complete') {
+        this.curriculum.recordCompleted({
+          name: candidate.name || candidate.type,
+          type: candidate.type,
+          difficulty: candidate.difficulty,
+          source: 'autonomous'
+        });
+        this.stats.completed = (this.stats.completed || 0) + 1;
+      } else {
+        this.curriculum.recordFailed({
+          name: candidate.name || candidate.type,
+          type: candidate.type,
+          difficulty: candidate.difficulty,
+          reason: goal.blockedReason || 'blocked',
+          source: 'autonomous'
+        });
+      }
+    }
+    this.log.info(
+      `autonomous execution ${tracked.id} ${phase}: ${candidate.name || candidate.type}`
+        + (this.curriculum ? ` (curriculum level ${this.curriculum.level()})` : '')
+    );
+    this.executionGoal = null;
+    return { ok: true, reason: `execution-${phase}` };
   }
 
   /**
@@ -234,9 +288,15 @@ class AutonomousProposalCoordinator {
     this.prepStartedAt = at;
     this.prepGoal = null;
     this.stats.prepStarted += 1;
-    const goalText =
+    if (this.curriculum && typeof this.curriculum.resetRejections === 'function') {
+      this.curriculum.resetRejections();
+    }
+    const baseGoal =
       'Autonomous task proposal request: read the full client state and propose one useful next task. ' +
       'Do not execute anything; the player must approve first.';
+    const curriculumContext =
+      this.curriculum && typeof this.curriculum.describe === 'function' ? this.curriculum.describe() : '';
+    const goalText = curriculumContext ? `${baseGoal}\n\n${curriculumContext}` : baseGoal;
     const res = await this.bridge.createGoal({
       agentId,
       goal: goalText,
@@ -324,7 +384,19 @@ class AutonomousProposalCoordinator {
       id: created.goal.id,
       revision: Number.isFinite(Number(created.goal.revision)) ? Number(created.goal.revision) : 1,
       agentId: created.agentId || agentId,
-      proposalId: pending.id
+      proposalId: pending.id,
+      /** The curriculum needs the same candidate when the goal settles. */
+      candidate: {
+        type: candidate.type,
+        name: candidate.name || candidate.type,
+        args: candidate.args || {},
+        difficulty:
+          Number.isFinite(Number(candidate.difficulty))
+            ? Number(candidate.difficulty)
+            : this.curriculum
+              ? this.curriculum.difficultyOf(candidate)
+              : null
+      }
     };
     this.stats.accepted += 1;
     this._clearPrep();

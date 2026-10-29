@@ -21,18 +21,19 @@
 > （A18 move+dig/容器+click；A19 越界/抢身体/取消/deny/无屏点击/非敌对攻击/硬杀；A20 半途失败；
 > A28 长步骤 15.57s 单次结算；A29 硬杀恢复 pending；A30 用量 10,352 tok）。A19 残余见 M4 证据 §11。
 > 实时调用入口（`!code-skill` / `code_skill`）保留。
-> **2026-10-29 M5 口径变更（第一版已实现）**：M5 的执行底座从 OS 级 `computer_use` 改为
+> **2026-10-29 M5 口径变更（第一版已实现 + CU 放弃）**：M5 的执行底座从 OS 级 `computer_use` 改为
 > **Minecraft 进程内输入层**——CU 因 WGC 取不到 OpenGL 窗口帧（`截图未产出` +
 > `Declared image type does not match its bytes`）且 `WindowPolicy`/`ComputerUseGuard` 接不进只读
-> 打包插件（`resources/app.asar`）而放弃；闸门 **F1 作废**，由 **F1'a 结构性不可出界 +
-> F1'b 键鼠台账**取代（不通过则实现不得合并，无 N/A 出口）；**A21/A22 不再标 N/A**，按新路径
-> 重跑，但仍**未执行**。口径见 [`P1-M5.md`](P1-M5.md) §7 与
-> [`P1-CLIENT-VERIFICATION.md`](P1-CLIENT-VERIFICATION.md) §7。
-> **2026-10-29 同日实现**：键鼠注入（`key`/`hold`）、帧缓冲截图（`shot`）、键鼠台账与停手联动已落地，
-> 离线 `p1:m5:test` 26/26、`p1:verify --fast` 11/11；真实服务器上 `m5-live-probe` 21/21、
-> `m5-agent-probe` 11/11、`client:verify` 23/23。**F1' 仅部分证据**（缺暂停/死亡/断连/退出注入），
-> **A21/A22 未执行**，证据见 [`P1-M5.md`](P1-M5.md) §8。
-> **未执行项仍保持「未执行」**（A21–A22、A23 的 40 组 ×3、A25 的真实动作脑 reject/不答/另派、
+> 打包插件（`resources/app.asar`）而**彻底放弃（ABANDONED）**；闸门 **F1 作废**，由
+> **F1'a 结构性不可出界 + F1'b 键鼠台账**取代（不通过则实现不得合并，无 N/A 出口）；
+> **A21/A22 不再标 N/A**，按新路径重跑。口径见 [`P1-M5.md`](P1-M5.md) §7、
+> [`CU-ABANDONED.md`](CU-ABANDONED.md) 与 [`P1-CLIENT-VERIFICATION.md`](P1-CLIENT-VERIFICATION.md) §7。
+> **同日实现并真机验证**：键鼠注入（`key`/`hold`/`tap`）、帧缓冲截图（`shot`）、键鼠台账与停手联动
+> 已落地；离线 `p1:m5:test` **32/32**、`p1:verify --fast` **17/17**；真实服务器上
+> `m5-live-probe 21/21`、`m5-agent-probe 11/11`、`m5-gui-live 93/93`、`m5-target-live 8/8`、
+> `m5-channel-live 8/8`、`client:verify 23/23`。**F1' 仅部分证据**（缺暂停/死亡/断连/退出注入），
+> **A21 部分通过（探针直连 mod、未走 agent 技能层）、A22/M5.3 未执行**，证据见 [`P1-M5.md`](P1-M5.md) §8。
+> **未执行项仍保持「未执行」**（A22、A23 的 40 组 ×3、A25 的真实动作脑 reject/不答/另派、
 > A31 最终组合、R2–R4、F3 真机端点、M0-C1 剩余负载等），不得因为其它项
 > 通过而推断通过。
 >
@@ -69,7 +70,7 @@
 | A20 | 坏技能隔离/回退（真机） | 客户端 + 真实试运行 | 失败候选 + 晋升 + 回退 + 下线；**新增**：直接原语候选“动作到一半失败” | 失败隔离不冒名；回退精确；下线移除 | **PASS（2026-10-25 v2 半途失败）**：`agent.half_fail`（move 后 throw）trial `quarantined`、promote `not-trialled`、run `not-promoted`；旧编排候选的 rollback 1.1.0→1.0.0、retire 证据仍有效 |
 | A27 | 后端/模型兼容（代码子项） | 客户端 + 真实模型 | 真实模型生成→解析→沙箱→证据 | 有真实回执/解析/权限边界；不是仅配置/help | **PASS（2026-10-25，代码子项）**：9 次 `code-generation` 真实调用（2 次 token 截断失败；修复预算后 7 次成功），`llm-usage` 可归属；只读/异步子项沿用 2026-10-20 |
 | A21 | GUI 实时反馈（真 GUI，进程内输入层） | 客户端 + `agent-client` mod（进程内输入层） | ≥2 类真 GUI、每类 ≥3 次；注入游戏内暂停界面 / GUI 被外部关闭 / 库存变化 / 长按（挖掘、攻击各 1 次） | 每步新鲜观察并验结果；不点旧坐标；产出可验证；**结构性不可出界（F1'a）** | **部分通过（2026-10-29，真实服务器）**：2 类 GUI ×3 —— 玩家背包（`tap inventory` → InventoryMenu）与工作台（`useon` → CraftingMenu），每轮"点击前重读槽位 + 点击后新快照验证 + 移回复原"，注入**外部关闭**、**库存变化**、**长按 attack**；93/93（[`P1-M5.md`](P1-M5.md) §8.5，证据 `runtime/evidence/m5-gui-live-2026-10-29T11-30-46-516Z.json`）。**未走 agent 技能层**（探针直连 mod）；**暂停界面**注入改为关闭 `pauseOnLostFocus`（否则失焦即暂停，输入层所有按键都被 `blockedByScreen` 挡住，§8.6） |
-| A22 | GUI 中断与复用（进程内输入层） | 客户端 + 真实 GUI | GUI 中反射/急停；稳定流程提炼后同条件复用 | **`InputLedger` 归零**（中断后按下集合为空、执行权释放）+ 复用前后模型调用/截图 token 差值可算且效果一致（不预设节省比例） | 未执行（口径变更后待执行） |
+| A22 | GUI 中断与复用（进程内输入层） | 客户端 + 真实 GUI | GUI 中反射/急停；稳定流程提炼后同条件复用 | **`InputLedger` 归零**（中断后按下集合为空、执行权释放）+ 复用前后模型调用/截图 token 差值可算且效果一致（不预设节省比例） | **未执行**（2026-10-29：只验了"按住 attack → `!stop` → 台账归零"这一条停手路径；复用前后 token/调用差值未测） |
 | A23 | 插话/沉默（多人聊天） | 客户端 + 多玩家 | 固定 40 组聊天 ×3 次 | 参与组 ≥80%；沉默组误插话 ≤10% | **PARTIAL（2026-10-24）**：真实玩家 `Eggxxh`/`Stark_the_wolf`/`Logos_Fyan` 6 条未点名普通聊天全部沉默（`handled=7/silent=7/said=0`）；**40 组 ×3 与 ≥80%/≤10% 阈值未执行**；转写语料已导出 1401 行（玩家 382 / Agent 1019，待标注）。证据 [`M6-LANGUAGE-TESTS.md`](M6-LANGUAGE-TESTS.md) |
 | A24 | 聊天并发（真机） | 客户端 + 多玩家 | 连续消息、上下文更新、回声、silence | 同批不重复、不自我对话、过时重判 | **PASS（受控，2026-10-24）**：4 条并发普通聊天 → 4 user / 1 assistant，无重复回复、无自我对话，silence 生效，ChatMemory 更新；**发送者为 `/chat/inject` 合成，不是真实多人**；真实多人语料复跑并入 A23 窗口。证据 [`M6-LANGUAGE-TESTS.md`](M6-LANGUAGE-TESTS.md) |
 | A25 | 自主提案（接受/拒绝/不答/另派） | 客户端 + 玩家 | 四条路径各若干次 | **`planner.mode=off`；自主 proposal 只能由 DSH harness `mc_propose` 提出，本地 planner 不生成**；未接受不执行；拒绝后按 `proposalCooldownMs` 不重复，动作脑自主提案批准/拒绝/30s 过期后重新等 5 分钟；不答非同意；离线 `p1:proposal-autonomy:test 16/16` + `plugin-goal-test` 覆盖 prep/execution goal、30s、prep guard；真机四路径见右列（accept 为真实提案，其余受控植入） | **PARTIAL（2026-10-24）**：accept p14 为真实动作脑 `mc_propose`（玩家 `!proposal accept` 后才注入 execution goal）；reject p15 冷却 3 分钟、不答 p16 `expired`、另派 p17 `superseded`，但 p15–p17 由 `P1_TEST_HOOKS` 的 `/test/proposal-plant` 植入，生命周期/语言脑提问/执行阻断为真。真实动作脑逐条自主提案仅 1/4。证据 [`M6-A25-CLIENT-TESTS.md`](M6-A25-CLIENT-TESTS.md) |
@@ -92,7 +93,7 @@
 | --- | --- | --- | --- |
 | M0-C1 | `/state` 耗时、扫描次数、缓存年龄（空闲/移动/挖矿/反射/GUI） | 先测再定阈值；未测不填，500ms 只是配置值 | **部分执行（2026-10-17）**：仅空闲 30 次，p50 43.8ms/p95 64.9ms、1.79MB、63,257 cells；其余负载未测 |
 | M0-C2 | 真机基线复测（`client:verify` + chop/mine/goto） | 与 P0 同型任务一致；失败如实记录 | **部分通过（2026-10-17，分次）**：协议 23/23、登录+寻路 7/7、砍树 PASS、独立 mine 一次 2/2；另一次厚土柱点位 0/2（无石层），`--dig stone` 仍失败 |
-| F1 / M0-C3 | `dsh-computer-use` 能否把操作/截图限制到游戏窗口 | 窗口外不可操作、不可截图；越界被拒并留痕 | **作废（2026-10-29）**，由 **F1'a 结构性不可出界 + F1'b 键鼠台账**取代。**部分通过（2026-10-29）**：F1'a 结构性断言 26/26 + 真实服务器取到游戏帧（768×432）；F1'b 契约（记账/上限/过期/对账/失败释放）+ 真机 `stop` 与长按到期后台账归零。**未执行**：暂停界面/死亡/断连/退出注入。原失败记录保留：**未执行（2026-10-17 尝试）**：helper 运行中但无已授权应用，读取 java 窗口被拒；未绕过授权。见 [`P1-M5.md`](P1-M5.md) §5/§8 |
+| F1 / M0-C3 | `dsh-computer-use` 能否把操作/截图限制到游戏窗口 | 窗口外不可操作、不可截图；越界被拒并留痕 | **CU 路径已放弃（ABANDONED，2026-10-29）**，由 **F1'a 结构性不可出界 + F1'b 键鼠台账**取代。**F1' 部分通过（2026-10-29）**：F1'a 结构性断言 `p1:m5:test` 31/31 + 真实服务器取到游戏帧（768×432）；F1'b 契约（记账/上限/过期/对账/失败释放）+ 真机 `stop` 与长按到期后台账归零。**未执行**：暂停界面/死亡/断连/退出注入。原 CU 失败记录保留：**未执行（2026-10-17 尝试）**：helper 运行中但无已授权应用，读取 java 窗口被拒；未绕过授权。见 [`P1-M5.md`](P1-M5.md) §5/§8 与 [`CU-ABANDONED.md`](CU-ABANDONED.md) |
 | F2 | harness 续轮/取消（真机） | 异步任务完成后能续轮；取消 ≤3 秒生效 | 未执行 |
 | F3 | 同端口 SSE + token 鉴权（真机环境） | 浏览器/宿主按 `Last-Event-ID` 重连不丢不重 | 未执行（离线 helper 已覆盖重放/401，真机端点未验证） |
 

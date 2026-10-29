@@ -190,6 +190,20 @@ function startStatusServer(ctx, options = {}) {
       }
 
       /**
+       * Automatic curriculum snapshot (read-only). The action brain does not need to call
+       * it - the prep goal already carries the context - but the panel/operator can see why
+       * a proposal was refused as below-band.
+       */
+      if (req.method === 'GET' && url.pathname === '/curriculum') {
+        if (!ctx.curriculum) return json(res, 503, { ok: false, error: 'curriculum unavailable' });
+        return json(res, 200, {
+          ok: true,
+          ...ctx.curriculum.status(),
+          context: typeof ctx.curriculum.describe === 'function' ? ctx.curriculum.describe() : null
+        });
+      }
+
+      /**
        * Explicit state observation for the behavior brain's pre-task state skill.
        * No push: the action brain asks once with the fields it needs.
        */
@@ -1410,6 +1424,13 @@ function uiState(ctx) {
     /** Action-brain autonomous proposal clock/prep/execution state (read-only). */
     proposalAutonomy: ctx.proposalCoordinator && typeof ctx.proposalCoordinator.snapshot === 'function'
       ? ctx.proposalCoordinator.snapshot()
+      : null,
+    /** Automatic curriculum: band, completed/failed ledger, last validation (read-only). */
+    curriculum: ctx.curriculum && typeof ctx.curriculum.status === 'function'
+      ? {
+          ...ctx.curriculum.status(),
+          context: typeof ctx.curriculum.describe === 'function' ? ctx.curriculum.describe() : null
+        }
       : null,
     /** Language-brain window/tool usage: proves which memory tool a turn actually used. */
     language: ctx.languageBrain && typeof ctx.languageBrain.status === 'function'

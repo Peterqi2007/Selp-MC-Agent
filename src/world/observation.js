@@ -35,8 +35,10 @@ const FIELD_GROUPS = {
   self: ['position', 'dimension', 'yaw', 'pitch', 'time', 'weather'],
   /** Inventory/hotbar/durability. */
   inventory: ['inventory', 'emptySlots', 'heldItem', 'heldDurability'],
+  /** Mounted state: the vehicle carrying us, its contents and condition (2026-10-29). */
+  mount: ['riding', 'mounted', 'standingOnEntity'],
   /** On-demand task entities (adult animals, combat targets, drops, other players). */
-  taskEntities: ['players', 'nearbyItems', 'target'],
+  taskEntities: ['players', 'nearbyItems', 'target', 'entities'],
   /** Workspace/special blocks currently exposed as a block scan and crosshair target. */
   workspace: ['target', 'standingOn', 'blocks', 'crops', 'fishing'],
   /** Terrain/environment fields that the body currently exposes. */
@@ -67,7 +69,14 @@ const ALIASES = {
   hunger: 'food',
   hotbar: 'heldItem',
   itemDrops: 'nearbyItems',
-  entities: 'hostiles'
+  /**
+   * `entities` used to alias `hostiles` (there was no general entity field). The body now
+   * reports real nearby entities including mod vehicles/passengers (2026-10-29), so the
+   * alias would silently answer a different question; it is removed. Use `threat` for the
+   * old hostile-only shortcut.
+   */
+  vehicle: 'riding',
+  ridingOn: 'riding'
 };
 
 const DEFAULT_FIELDS = ['position', 'health', 'food', 'dimension', 'time', 'weather'];
@@ -79,6 +88,8 @@ const DEFAULT_FIELD_TTL = {
   health: 500,
   dead: 500,
   onGround: 500,
+  mounted: 500,
+  riding: 500,
   target: 250,
   heldItem: 500,
   hostiles: 750,
@@ -86,6 +97,8 @@ const DEFAULT_FIELD_TTL = {
   nearbyItems: 1000,
   heldDurability: 1000,
   standingOn: 1000,
+  standingOnEntity: 1000,
+  entities: 1000,
   fishing: 1000,
   inventory: 2000,
   emptySlots: 2000,
@@ -118,7 +131,12 @@ function resolveFields(fields) {
   for (const raw of input) {
     const name = String(raw || '').trim();
     if (!name) continue;
-    const expanded = FIELD_GROUPS[name] || [name];
+    /**
+     * Aliases were declared but never applied, so `vehicle`/`hp`/`pos` silently became an
+     * unknown field and reported `known:false`. They are resolved here (2026-10-29).
+     */
+    const canonical = ALIASES[name] || name;
+    const expanded = FIELD_GROUPS[canonical] || [canonical];
     for (const field of expanded) if (!out.includes(field)) out.push(field);
   }
   return out.length ? out : DEFAULT_FIELDS.slice();

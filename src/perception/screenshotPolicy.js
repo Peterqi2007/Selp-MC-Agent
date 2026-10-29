@@ -500,7 +500,17 @@ class ScreenshotPolicy {
     ].filter(Boolean).join('\n');
     // Send the frame itself with the steer: the plugin turns imagePath into an image content
     // part on the same message, so the receiving round already sees it.
-    const delivered = await this.bridge.forward(text, { from: 'screenshot', imagePath: record.path });
+    /**
+     * `mode:'steer'` matters (2026-10-29): the plugin used `agent.followup()`, which queues
+     * the frame until the CURRENT turn ends. A failure screenshot is only useful inside the
+     * turn that just failed, so it must go to DSH's next-step inbox (`agent.steer()`) and be
+     * seen by the running turn instead of waiting a whole round.
+     */
+    const delivered = await this.bridge.forward(text, {
+      from: 'screenshot',
+      imagePath: record.path,
+      mode: 'steer'
+    });
     if (delivered && delivered.ok === true) {
       const image = delivered.image && typeof delivered.image === 'object' ? delivered.image : null;
       this.log.info(

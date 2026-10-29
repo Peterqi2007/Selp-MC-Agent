@@ -1,6 +1,12 @@
 'use strict';
 
 /**
+ * ABANDONED (2026-10-29): the OS-level computer_use path was abandoned in favour of the
+ * in-process Minecraft input layer (see docs/CU-ABANDONED.md). This module is kept only as
+ * historical evidence and is not a delivery path; do not wire it into the action brain.
+ */
+
+/**
  * Window policy for computer use (P1 M5, A19/F1).
  *
  * The default state is **deny**: until F1 ("can dsh-computer-use be restricted to the game

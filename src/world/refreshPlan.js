@@ -17,6 +17,8 @@ const DEFAULT_BUDGET = {
   position: 500,
   health: 500,
   hostiles: 750,
+  mounted: 500,
+  riding: 500,
   inventory: 2000,
   players: 2000,
   nearbyItems: 1000,

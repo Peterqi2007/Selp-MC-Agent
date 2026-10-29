@@ -144,6 +144,21 @@ async function main() {
     assert.match(snapshot, /out\.put\("input",/);
   });
 
+  await check('the mod reports mounted state, vehicle inventory and vehicle integrity', () => {
+    const snapshot = read('mod-client/src/main/java/dev/agentclient/ClientStateSnapshot.java');
+    assert.match(snapshot, /out\.put\("mounted"/, 'no explicit mounted flag');
+    assert.match(snapshot, /return vehicleJson\(entity, player\)/, 'riding does not go through vehicleJson');
+    assert.match(snapshot, /private static String vehicleJson/, 'no vehicleJson');
+    assert.match(snapshot, /private static String vehicleInventoryJson/, 'no vehicle inventory');
+    assert.match(snapshot, /private static String vehicleIntegrityJson/, 'no vehicle integrity');
+    // Vendor-neutral probing: vanilla Container + Forge item handler + mod health reflection.
+    assert.match(snapshot, /entity instanceof Container container/, 'vanilla Container path missing');
+    assert.match(snapshot, /ForgeCapabilities\.ITEM_HANDLER/, 'Forge item handler path missing');
+    assert.match(snapshot, /entity instanceof LivingEntity living/, 'living health path missing');
+    assert.match(snapshot, /callNumber\(entity, "getHealth"\)/, 'mod vehicle getHealth probe missing');
+    assert.match(snapshot, /"ratio"/, 'mod vehicle ratio health is not labelled');
+  });
+
   await check('the HTTP layer exposes key/hold/shot/inputs', () => {
     const server = read('mod-client/src/main/java/dev/agentclient/ControlHttpServer.java');
     for (const verb of ['"key"', '"hold"', '"shot"', '"inputs"']) {

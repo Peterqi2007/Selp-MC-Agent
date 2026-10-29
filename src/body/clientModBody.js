@@ -96,6 +96,9 @@ const OBSERVED_FIELDS = [
   'blockLight',
   'hostiles',
   'entities',
+  'riding',
+  'mounted',
+  'standingOnEntity',
   'guns',
   'nearbyItems',
   'crops',
@@ -427,7 +430,18 @@ class ClientModBody extends Body {
       target:
         state.target && state.target.name
           ? {
+              /**
+               * `type`/`kind`/`entityType`/`id`/`health` are only present when the crosshair
+               * is on an ENTITY (2026-10-29). Dropping them here made the action brain see a
+               * nameless block-shaped target even when aiming at a mob; the mod reports them,
+               * so the body must not strip them again (same class of bug as `dead`).
+               */
+              type: state.target.type || (state.target.entityType ? 'entity' : 'block'),
               name: state.target.name,
+              entityType: state.target.entityType || null,
+              id: state.target.id,
+              kind: state.target.kind || null,
+              health: state.target.health,
               position: state.target.position,
               face: state.target.face,
               distance: state.target.distance
@@ -455,6 +469,30 @@ class ClientModBody extends Body {
       /** Torch-side light (block light); null on older mods that do not report it. */
       blockLight: Number.isFinite(state.blockLight) ? state.blockLight : null,
       hostiles: state.hostiles || [],
+      /**
+       * Vehicle/mount perception (2026-10-29).
+       *
+       * `riding` is the entity carrying the player, enriched by the mod with
+       * `inventory` (vanilla `Container` or Forge `IItemHandler`; `known:false` when the
+       * mod cannot read it) and `integrity` (living health, or a `getHealth()` probe for
+       * mod vehicles such as Immersive Aircraft, where it is a 0..1 ratio).
+       * `mounted` is explicit so a caller does not have to infer "riding" from `null`.
+       */
+      entities: Array.isArray(state.entities)
+        ? state.entities.map((entity) => ({
+            id: entity.id,
+            type: entity.type,
+            name: entity.name,
+            kind: entity.kind,
+            position: entity.position,
+            distance: entity.distance,
+            health: entity.health,
+            mobType: entity.mobType || null
+          }))
+        : [],
+      riding: state.riding && state.riding.id ? state.riding : null,
+      mounted: state.mounted === true || !!(state.riding && state.riding.id),
+      standingOnEntity: state.standingOnEntity && state.standingOnEntity.id ? state.standingOnEntity : null,
       /** TACZ guns carried, for the gun picker (see the shoot skill). */
       guns: Array.isArray(state.guns) ? state.guns : [],
       nearbyItems: state.itemDrops || [],

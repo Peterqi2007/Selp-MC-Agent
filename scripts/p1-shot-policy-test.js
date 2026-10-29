@@ -232,6 +232,8 @@ async function main() {
     assert.match(text, /当前 goal: goal-live-1/);
     assert.strictEqual(h.messages[0].meta.imagePath, h.policy.latest().path,
       'the steer must carry the frame itself, not only a path');
+    assert.strictEqual(h.messages[0].meta.mode, 'steer',
+      'the frame must be steered into the running turn, not queued as a followup');
     assert.match(text, /结构化状态优先/);
     assert.match(text, /不能把失败升级为成功/);
     h.policy.stop();

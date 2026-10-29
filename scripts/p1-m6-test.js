@@ -398,6 +398,34 @@ function makeParticipation(options = {}) {
     }
 
     {
+      /**
+       * 2026-10-29 operator review: an @ request used to be only a message - no goal, so no
+       * continuation and no place for a screenshot steer. The router now asks the task-goal
+       * injection for a durable goal AFTER the verbatim forward (A02 stays intact).
+       */
+      const { ctx } = makeCtx();
+      const calls = [];
+      ctx.taskGoals = {
+        async maybeCreateDialogue(input) {
+          calls.push(input);
+          return { ok: true, reason: 'created', goalId: 'goal-d1' };
+        }
+      };
+      const bridge = makeBridge([]);
+      const router = new DialogueRouter({ ctx, mode: 'harness', bridge, log: silent });
+      const routed = await router.route('去砍两棵树', { source: 'chat', speaker: 'Alice' });
+      await check('an @ request also gets a durable goal (after the verbatim forward)', () => {
+        assert.strictEqual(routed.ok, true);
+        assert.strictEqual(bridge.forwards.length, 1, 'the original text must still be forwarded');
+        assert.strictEqual(calls.length, 1, 'no goal was injected for the @ request');
+        assert.strictEqual(calls[0].text, '去砍两棵树');
+        assert.strictEqual(calls[0].speaker, 'Alice');
+        assert.strictEqual(routed.goal.goalId, 'goal-d1');
+        assert.strictEqual(ctx.lastDialogueRoute.goal.goalId, 'goal-d1');
+      });
+    }
+
+    {
       const { ctx } = makeCtx();
       ctx.llm.handle = async () => {
         throw new Error('the local planner must not run in harness mode');
