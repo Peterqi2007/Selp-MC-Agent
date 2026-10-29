@@ -187,6 +187,26 @@ function ttlFor(field, purpose, maxAgeMs, fieldTtls, purposeTtls) {
   return fieldTtls[field] === undefined ? DEFAULT_TTL : fieldTtls[field];
 }
 
+/** Turning the camera this much makes the cached crosshair target meaningless. */
+const FACING_EPSILON_DEG = 2.0;
+
+/** {yaw, pitch} from a snapshot, or null when the body does not report a facing. */
+function facingFrom(snapshot) {
+  if (!snapshot) return null;
+  const yaw = Number(snapshot.yaw);
+  const pitch = Number(snapshot.pitch);
+  if (!Number.isFinite(yaw) || !Number.isFinite(pitch)) return null;
+  return { yaw, pitch };
+}
+
+/** True when the camera moved by more than `epsilon` degrees on either axis. */
+function facingChanged(before, after, epsilon = FACING_EPSILON_DEG) {
+  if (!before || !after) return false;
+  const deltaYaw = Math.abs(((after.yaw - before.yaw + 540) % 360) - 180);
+  const deltaPitch = Math.abs(after.pitch - before.pitch);
+  return deltaYaw > epsilon || deltaPitch > epsilon;
+}
+
 class ObservationCache {
   /**
    * @param {object} deps
@@ -230,11 +250,21 @@ class ObservationCache {
     const area = normalizeArea(request.area);
     const purpose = request.purpose ? String(request.purpose) : null;
     const requestedAt = this.now();
+    const currentFacing = facingFrom(this._currentSnapshot());
     const staleFields = fields.filter((field) => {
       const entry = this.cache.get(field);
       if (!entry) return true;
       const ttl = ttlFor(field, purpose, request.maxAgeMs, this.fieldTtls, this.purposeTtls);
-      return requestedAt - entry.observedAt > ttl;
+      if (requestedAt - entry.observedAt > ttl) return true;
+      /**
+       * The crosshair target is a *pose* observation: it is valid only for the camera that
+       * captured it. TTL alone let `target` stay "fresh" for 250 ms after a 90-degree turn,
+       * so a look-then-click sequence could act on what the player was aiming at before.
+       */
+      if (field === 'target' && entry.facing && currentFacing && facingChanged(entry.facing, currentFacing)) {
+        return true;
+      }
+      return false;
     });
 
     let refreshResult = null;
@@ -264,6 +294,8 @@ class ObservationCache {
             observedAt,
             revision: this.revision,
             dimension: snapshot.dimension || null,
+            // The target is only valid for the camera that captured it; remember the pose.
+            facing: field === 'target' ? facingFrom(snapshot) : undefined,
             source: this.body && this.body.kind ? this.body.kind : 'body'
           });
         } else {
@@ -310,7 +342,9 @@ class ObservationCache {
         continue;
       }
       const ageMs = Math.max(0, requestedAt - entry.observedAt);
-      const stale = ageMs > ttl || failed;
+      const facingStale = field === 'target' && entry.facing && currentFacing
+        && facingChanged(entry.facing, currentFacing);
+      const stale = ageMs > ttl || failed || facingStale;
       if (stale) staleAfter.push(field);
       values[field] = {
         value: filterByArea(entry.value, area),
@@ -318,6 +352,7 @@ class ObservationCache {
         unavailable: false,
         stale,
         valid: !stale,
+        staleBecause: facingStale ? 'facing-changed' : (ageMs > ttl ? 'age' : (failed ? 'refresh-failed' : null)),
         observedAt: entry.observedAt,
         ageMs,
         revision: entry.revision,
@@ -351,6 +386,25 @@ class ObservationCache {
     this._lastSnapshot = null;
     this.log.debug(`observation cache invalidated: ${reason}`);
     return { revision: this.revision, reason, at: this._invalidatedAt };
+  }
+
+  /**
+   * The newest snapshot the body can give us.
+   *
+   * The body polls /state in the background, so its snapshot can be newer than the one this
+   * cache last refreshed from - and the camera can have moved since. Prefer it for the facing
+   * comparison; fall back to the refresh copy when the body cannot answer.
+   */
+  _currentSnapshot() {
+    try {
+      if (this.body && typeof this.body.snapshot === 'function') {
+        const snap = this.body.snapshot();
+        if (snap) return snap;
+      }
+    } catch (err) {
+      // A body that cannot answer must not break an observation.
+    }
+    return this._lastSnapshot;
   }
 
   status() {
@@ -427,6 +481,9 @@ module.exports = {
   DEFAULT_FIELD_TTL,
   PURPOSE_TTL,
   MAX_ENVIRONMENT_TTL,
+  FACING_EPSILON_DEG,
+  facingFrom,
+  facingChanged,
   resolveFields,
   normalizeArea,
   filterByArea,

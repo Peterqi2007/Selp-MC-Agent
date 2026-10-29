@@ -392,6 +392,100 @@ async function main() {
     await assert.rejects(() => chat.handle('shot'), /cannot take screenshots/);
   });
 
+  // ------------------------------------------------- facing / targetIs
+  process.stdout.write('\n7. perception: what the crosshair points at\n');
+
+  await check('the mod answers `target` from one entity-aware helper', () => {
+    const snapshot = read('mod-client/src/main/java/dev/agentclient/ClientStateSnapshot.java');
+    const actions = read('mod-client/src/main/java/dev/agentclient/ClientActions.java');
+    assert.match(snapshot, /static String targetJson\(LocalPlayer player\)/);
+    assert.match(snapshot, /hit instanceof EntityHitResult/, 'entity hits are not handled');
+    assert.match(snapshot, /out\.put\("entityType"/);
+    assert.match(snapshot, /out\.put\("health"/);
+    assert.match(actions, /ClientStateSnapshot\.targetJson\(mc\.player\)/, 'the target verb does not share the helper');
+  });
+
+  await check('the plugin exposes yaw/pitch/target to the action brain', () => {
+    const plugin = read('dsh-plugin-mc-harness/lib/index.js');
+    const block = /const FULL_OBSERVATION_FIELDS = \[([\s\S]*?)\];/.exec(plugin);
+    assert(block, 'FULL_OBSERVATION_FIELDS not found');
+    for (const field of ['yaw', 'pitch', 'target']) {
+      assert.match(block[1], new RegExp(`'${field}'`), `missing ${field}`);
+    }
+  });
+
+  await check('targetIs verifies the crosshair against the observation', () => {
+    const { verifyStep, hasConditions } = require('../src/planner/verifier');
+    const observation = {
+      target: { type: 'block', name: 'minecraft:crafting_table', position: { x: 1, y: 64, z: 2 } }
+    };
+    const ok = verifyStep({ postconditions: { targetIs: { name: 'minecraft:crafting_table' } } }, observation);
+    assert.strictEqual(ok.ok, true, JSON.stringify(ok.failures));
+    const byPosition = verifyStep({ postconditions: { targetIs: { position: { x: 1, y: 64, z: 2 } } } }, observation);
+    assert.strictEqual(byPosition.ok, true);
+    const wrongName = verifyStep({ postconditions: { targetIs: { name: 'minecraft:stone' } } }, observation);
+    assert.strictEqual(wrongName.ok, false);
+    assert.strictEqual(wrongName.failures[0].kind, 'targetIs');
+    assert.strictEqual(wrongName.failures[0].field, 'name');
+    const wrongPos = verifyStep({ postconditions: { targetIs: { position: { x: 9, y: 64, z: 9 } } } }, observation);
+    assert.strictEqual(wrongPos.ok, false);
+    const noTarget = verifyStep({ postconditions: { targetIs: { name: 'x' } } }, {});
+    assert.strictEqual(noTarget.failures[0].reason, 'no-target');
+    const junk = verifyStep({ postconditions: { targetIs: {} } }, observation);
+    assert.strictEqual(junk.failures[0].kind, 'invalid-condition');
+    assert.strictEqual(hasConditions({ targetIs: { name: 'minecraft:stone' } }), true,
+      'targetIs must count as evidence for a partial settlement');
+  });
+
+  await check('turning the camera invalidates the cached crosshair target', async () => {
+    const { ObservationCache } = require('../src/world/observation');
+    let now = 1_000;
+    let yaw = 0;
+    let fail = false;
+    let refreshes = 0;
+    const body = {
+      kind: 'fake',
+      snapshot: () => ({
+        yaw,
+        pitch: 0,
+        dimension: 'minecraft:overworld',
+        target: yaw < 10 ? { name: 'minecraft:stone' } : { name: 'minecraft:dirt' }
+      })
+    };
+    const refresh = async () => {
+      refreshes += 1;
+      return fail ? { ok: false, error: 'boom' } : { ok: true };
+    };
+    const cache = new ObservationCache({ body, refresh, now: () => now, log: silent });
+
+    let first = await cache.observe({ fields: ['target'], purpose: 'task' });
+    assert.strictEqual(first.fields.target.value.name, 'minecraft:stone');
+    assert.strictEqual(first.fields.target.stale, false);
+    assert.strictEqual(refreshes, 1);
+
+    // Same camera inside the TTL: no refresh, still valid.
+    now += 50;
+    const same = await cache.observe({ fields: ['target'], purpose: 'task' });
+    assert.strictEqual(refreshes, 1, 'a still camera must not force a refresh');
+    assert.strictEqual(same.fields.target.stale, false);
+
+    // Turn 40 degrees inside the TTL: the cached target must not survive.
+    yaw = 40;
+    now += 10;
+    const turned = await cache.observe({ fields: ['target'], purpose: 'task' });
+    assert.strictEqual(refreshes, 2, 'a turn must force a refresh');
+    assert.strictEqual(turned.fields.target.value.name, 'minecraft:dirt');
+
+    // Turn again, but this time the refresh fails: report the old value as stale, with a
+    // reason the caller can act on.
+    fail = true;
+    yaw = 120;
+    now += 10;
+    const degraded = await cache.observe({ fields: ['target'], purpose: 'task' });
+    assert.strictEqual(degraded.fields.target.stale, true);
+    assert.strictEqual(degraded.fields.target.staleBecause, 'facing-changed');
+  });
+
   // -------------------------------------------------------------- summary
   const failed = results.filter((entry) => !entry.ok);
   for (const entry of results) {

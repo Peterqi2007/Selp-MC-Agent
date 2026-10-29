@@ -221,22 +221,9 @@ public final class ClientActions {
      * @return a JSON object, or the literal {@code null}
      */
     public String targetJson() {
-        return onClient(() -> {
-            if (mc.player == null || mc.level == null) {
-                return "null";
-            }
-            HitResult hit = mc.player.pick(4.5D, 1.0F, false);
-            if (!(hit instanceof BlockHitResult blockHit)) {
-                return "null";
-            }
-            BlockPos pos = blockHit.getBlockPos();
-            Map<String, String> out = new LinkedHashMap<>();
-            out.put("name", Json.str(blockNameAt(pos)));
-            out.put("position", Json.point(pos.getX(), pos.getY(), pos.getZ()));
-            out.put("face", Json.str(blockHit.getDirection().getName()));
-            out.put("distance", Json.num(mc.player.getEyePosition().distanceTo(blockHit.getLocation())));
-            return Json.obj(out);
-        });
+        // One implementation for `/state.target` and the `target` verb, and it is entity-aware:
+        // aiming at a mob used to come back as `null` because only BlockHitResult was handled.
+        return onClient(() -> ClientStateSnapshot.targetJson(mc.player));
     }
 
     private String blockNameAt(BlockPos pos) {

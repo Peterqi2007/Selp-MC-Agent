@@ -17,6 +17,9 @@ import net.minecraft.world.food.FoodProperties;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.level.LightLayer;
 import net.minecraft.world.level.block.state.BlockState;
+import net.minecraft.world.phys.BlockHitResult;
+import net.minecraft.world.phys.EntityHitResult;
+import net.minecraft.world.phys.HitResult;
 
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
@@ -175,22 +178,12 @@ final class ClientStateSnapshot {
         /**
          * What the crosshair points at ("aimed vision").
          *
-         * `mc.hitResult` is the same raycast the game draws the block outline from, so this
-         * is exactly what a player sees under the crosshair. The agent uses it to mine what
-         * is already in front of it instead of pathfinding to a scanned coordinate.
+         * `mc.hitResult` is the same raycast the game draws the block outline from, and in
+         * 1.20 it is entity-aware: aiming at a mob yields an EntityHitResult. Reporting both
+         * is what makes "what am I aiming at" answerable; blocks alone meant a player aiming
+         * at a zombie produced `target: null` (live 2026-10-29).
          */
-        var hit = Minecraft.getInstance().hitResult;
-        if (hit instanceof net.minecraft.world.phys.BlockHitResult blockHit) {
-            BlockPos targetPos = blockHit.getBlockPos();
-            Map<String, String> target = new LinkedHashMap<>();
-            target.put("name", Json.str(blockName(level.getBlockState(targetPos))));
-            target.put("position", Json.point(targetPos.getX(), targetPos.getY(), targetPos.getZ()));
-            target.put("face", Json.str(blockHit.getDirection().getName()));
-            target.put("distance", Json.num(player.getEyePosition().distanceTo(blockHit.getLocation())));
-            out.put("target", Json.obj(target));
-        } else {
-            out.put("target", "null");
-        }
+        out.put("target", targetJson(player));
 
         // ---- time / weather ------------------------------------------------
         /**
@@ -468,6 +461,62 @@ final class ClientStateSnapshot {
     }
 
     // ----------------------------------------------------------------- entities
+
+    /**
+     * The crosshair target as JSON: a block, an entity, or "null".
+     *
+     * Shared by `/state` and the `target` verb so both answer the same question the same way.
+     * The game's own `hitResult` is preferred (it is what the outline is drawn from and is
+     * entity-aware); a fresh 4.5-block pick is the fallback when the frame has no hit yet.
+     */
+    static String targetJson(LocalPlayer player) {
+        if (player == null || Minecraft.getInstance().level == null) {
+            return "null";
+        }
+        HitResult hit = Minecraft.getInstance().hitResult;
+        if (hit == null || hit.getType() == HitResult.Type.MISS) {
+            hit = player.pick(4.5D, 1.0F, false);
+        }
+        /**
+         * A miss must stay a miss. Falling through to the block branch reported the position
+         * of the miss as a block target, so aiming at the sky came back as
+         * `{"type":"block","name":"minecraft:air"}` (live 2026-10-29) - a target that looks
+         * real and points at nothing.
+         */
+        if (hit == null || hit.getType() == HitResult.Type.MISS) {
+            return "null";
+        }
+        if (hit instanceof EntityHitResult entityHit) {
+            Entity entity = entityHit.getEntity();
+            if (entity == null) {
+                return "null";
+            }
+            Map<String, String> out = new LinkedHashMap<>();
+            out.put("type", Json.str("entity"));
+            out.put("name", Json.str(entityName(entity)));
+            out.put("entityType", Json.str(entity.getType().toString()));
+            out.put("id", Json.num(entity.getId()));
+            out.put("kind", Json.str(entity instanceof Monster ? "hostile"
+                    : (entity instanceof LivingEntity ? "living" : "entity")));
+            out.put("position", Json.point(entity.getX(), entity.getY(), entity.getZ()));
+            out.put("distance", Json.num(player.getEyePosition().distanceTo(entityHit.getLocation())));
+            if (entity instanceof LivingEntity living) {
+                out.put("health", Json.num(living.getHealth()));
+            }
+            return Json.obj(out);
+        }
+        if (hit instanceof BlockHitResult blockHit) {
+            BlockPos pos = blockHit.getBlockPos();
+            Map<String, String> out = new LinkedHashMap<>();
+            out.put("type", Json.str("block"));
+            out.put("name", Json.str(blockName(Minecraft.getInstance().level.getBlockState(pos))));
+            out.put("position", Json.point(pos.getX(), pos.getY(), pos.getZ()));
+            out.put("face", Json.str(blockHit.getDirection().getName()));
+            out.put("distance", Json.num(player.getEyePosition().distanceTo(blockHit.getLocation())));
+            return Json.obj(out);
+        }
+        return "null";
+    }
 
     /** Nearby non-block entities, including mod ones (stools, chairs, boats, minecarts). */
     private static String entitiesJson(ClientLevel level, LocalPlayer player) {

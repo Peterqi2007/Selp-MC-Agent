@@ -75,7 +75,7 @@ function checkCondition(condition, observation) {
     return [{ kind: 'invalid-condition' }];
   }
   for (const key of Object.keys(condition)) {
-    if (!['inventoryAtLeast', 'positionNear', 'blockAt'].includes(key)) {
+    if (!['inventoryAtLeast', 'positionNear', 'blockAt', 'targetIs'].includes(key)) {
       failures.push({ kind: 'unsupported-condition', field: key });
     }
   }
@@ -132,6 +132,57 @@ function checkCondition(condition, observation) {
     const found = blockAt(observation, position);
     if (found !== block) failures.push({ kind: 'blockAt', need: block, found: found === undefined ? null : found });
   }
+  if (condition.targetIs !== undefined) {
+    failures.push(...checkTargetIs(condition.targetIs, observation));
+  }
+  return failures;
+}
+
+/**
+ * `targetIs`: the crosshair points at the expected block or entity.
+ *
+ * Before this existed, `lookat` had no postcondition at all - a step could claim "looked at
+ * the crafting table" while the view was elsewhere. The observation carries the mod's
+ * `target` ({type,name,position,...}) from the same raycast the game uses for the outline.
+ *
+ * Spec: { name?: string, position?: {x,y,z}, type?: 'block'|'entity' } - all optional, and at
+ * least one must be present; `position` matches within 0.5 of the block/entity centre.
+ */
+function checkTargetIs(spec, observation) {
+  if (!spec || typeof spec !== 'object' || Array.isArray(spec)) {
+    return [{ kind: 'invalid-condition', field: 'targetIs' }];
+  }
+  const hasName = typeof spec.name === 'string' && spec.name.length > 0;
+  const hasPosition = spec.position && ['x', 'y', 'z'].every((axis) => Number.isFinite(spec.position[axis]));
+  const hasType = spec.type === 'block' || spec.type === 'entity';
+  if (!hasName && !hasPosition && !hasType) {
+    return [{ kind: 'invalid-condition', field: 'targetIs' }];
+  }
+  const seen = observation && observation.target;
+  if (!seen || typeof seen !== 'object') {
+    return [{ kind: 'targetIs', reason: 'no-target', need: spec, found: null }];
+  }
+  const failures = [];
+  if (hasType && seen.type !== spec.type) {
+    failures.push({ kind: 'targetIs', field: 'type', need: spec.type, found: seen.type === undefined ? null : seen.type });
+  }
+  if (hasName && String(seen.name || '') !== spec.name) {
+    failures.push({ kind: 'targetIs', field: 'name', need: spec.name, found: seen.name === undefined ? null : seen.name });
+  }
+  if (hasPosition) {
+    const at = seen.position || {};
+    const close = ['x', 'y', 'z'].every((axis) => Number.isFinite(at[axis]) && Math.abs(at[axis] - spec.position[axis]) <= 0.5);
+    if (!close) {
+      failures.push({
+        kind: 'targetIs',
+        field: 'position',
+        need: spec.position,
+        found: ['x', 'y', 'z'].every((axis) => Number.isFinite(at[axis]))
+          ? { x: at.x, y: at.y, z: at.z }
+          : null
+      });
+    }
+  }
   return failures;
 }
 
@@ -139,7 +190,7 @@ function checkCondition(condition, observation) {
 function hasConditions(condition) {
   return !!condition && (
     Object.keys(condition.inventoryAtLeast || {}).length > 0 ||
-    !!condition.positionNear || !!condition.blockAt
+    !!condition.positionNear || !!condition.blockAt || !!condition.targetIs
   );
 }
 
