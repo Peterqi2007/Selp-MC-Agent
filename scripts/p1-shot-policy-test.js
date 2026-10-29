@@ -457,6 +457,11 @@ async function main() {
     assert.match(plugin, /截图附件发送失败/, 'a failed attachment must keep the text steer alive');
   });
 
+  await check('the bridge returns the attachment metadata it was given', () => {
+    const bridgeSource = require('fs').readFileSync(path.join(__dirname, '..', 'src', 'chat', 'harnessBridge.js'), 'utf8');
+    assert.match(bridgeSource, /image: payload\.image \|\| null/);
+  });
+
   await check('the bridge forwards imagePath on /message', () => {
     const fsSync = require('fs');
     const bridge = fsSync.readFileSync(path.join(__dirname, '..', 'src', 'chat', 'harnessBridge.js'), 'utf8');

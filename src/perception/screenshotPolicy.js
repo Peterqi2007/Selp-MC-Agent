@@ -502,7 +502,11 @@ class ScreenshotPolicy {
     // part on the same message, so the receiving round already sees it.
     const delivered = await this.bridge.forward(text, { from: 'screenshot', imagePath: record.path });
     if (delivered && delivered.ok === true) {
-      this.log.info(`screenshot steer delivered -> goal ${active.goal.id} (${record.reason})`);
+      const image = delivered.image && typeof delivered.image === 'object' ? delivered.image : null;
+      this.log.info(
+        `screenshot steer delivered -> goal ${active.goal.id} (${record.reason})`
+        + (image ? ` [image ${image.bytes}B ${image.width}x${image.height}]` : ' [text-only]')
+      );
     }
     return delivered;
   }

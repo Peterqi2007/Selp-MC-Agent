@@ -64,6 +64,8 @@ class HarnessBridge {
         forwarded: true,
         agentId: payload.agentId || null,
         chars: original.length,
+        /** Present when the plugin attached a frame to this message (image steer). */
+        image: payload.image || null,
         sha256: crypto.createHash('sha256').update(original).digest('hex'),
         /**
          * The exact envelope handed to the action brain. Exposed on the local panel response
