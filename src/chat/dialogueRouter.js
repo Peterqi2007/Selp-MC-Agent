@@ -1,6 +1,6 @@
 'use strict';
 
-const { selfDefenseLine } = require('../world/selfDefense');
+const { selfDefenseLine, selfDefenseStatus } = require('../world/selfDefense');
 
 /**
  * DialogueRouter - the one place that decides where a natural-language player line goes.
@@ -151,7 +151,11 @@ class DialogueRouter {
     if (!this.bridge || typeof this.bridge.forward !== 'function') {
       return { ok: false, reason: 'no-harness-bridge' };
     }
-    const envelope = this._envelope(text, meta);
+    const envelope = this._envelope(text, {
+      ...meta,
+      /** Same live reflex posture as the unified path; this router is still used in legacy mode. */
+      selfDefense: selfDefenseStatus(this.ctx.cfg, this.ctx.brain)
+    });
     let result = await this.bridge.forward(envelope, { from: meta.source || 'chat' });
     if (
       !result.ok &&
