@@ -50,6 +50,7 @@ function makeHarness(options = {}) {
     bridge: options.noBridge ? { boundAgentId: bridge.boundAgentId, goalOf: bridge.goalOf } : bridge,
     cfg: options.cfg || {},
     now: () => now,
+    selfDefense: options.selfDefense,
     log: { info() {}, warn() {}, debug() {} }
   });
   return { injected, calls, advance: (ms) => { now += ms; } };
@@ -85,6 +86,20 @@ async function main() {
     assert.match(text, /mc_state\/mc_observe/);
     assert.match(text, /来源：llm/);
     assert.match(text, /ChopWoodTask/);
+  });
+
+  await check('the goal tells the action brain when the self-defense reflex may preempt it', async () => {
+    const on = makeHarness({
+      selfDefense: () => ({ enabled: true, engageRadiusXZ: 15, engageRadiusY: 4, engageHealthThreshold: 16 })
+    });
+    await on.injected.maybeCreate({ command: '!mine dirt 2', taskName: 'MineBlockTask', source: 'chat' });
+    assert.match(on.calls[0].goal, /自卫反射已开启/);
+    assert.match(on.calls[0].goal, /不是你的指令/);
+    assert.match(on.calls[0].goal, /XZ 15/);
+
+    const off = makeHarness({ selfDefense: () => ({ enabled: false }) });
+    await off.injected.maybeCreate({ command: '!mine dirt 2', taskName: 'MineBlockTask', source: 'chat' });
+    assert.doesNotMatch(off.calls[0].goal, /自卫反射已开启/);
   });
 
   await check('an already active goal is joined, not duplicated', async () => {

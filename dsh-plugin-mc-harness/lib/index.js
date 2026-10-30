@@ -43,6 +43,7 @@ const FULL_OBSERVATION_FIELDS = [
   'mounted',
   'standingOnEntity',
   'hostiles',
+  'selfDefense',
   'entities',
   'inventory',
   'emptySlots',
@@ -128,7 +129,8 @@ function toolDefinitions({ controlUrl, record, log, runtime }) {
   const observe = {
     name: 'mc_observe',
     description:
-      'Read the live Minecraft agent state (position, health, time, current task). ' +
+      'Read the live Minecraft agent state (position, health, time, current task, ' +
+      'and selfDefense reflex posture). ' +
       'Pass full:true to read the complete client state (inventory, hostiles, blocks, ' +
       'players, crops, screen...) in one call; use full only for an autonomous-proposal ' +
       'decision, not for polling. Call this before planning and after a failed step.',
@@ -167,7 +169,13 @@ function toolDefinitions({ controlUrl, record, log, runtime }) {
         food: state.world && state.world.food,
         time: state.world && state.world.time,
         current: state.brain && state.brain.current,
-        queue: state.brain && state.brain.queueLength
+        queue: state.brain && state.brain.queueLength,
+        /**
+         * Reflex posture: when enabled, Node's fast loop may attack hostiles and preempt the
+         * current task on its own. Without this the action brain mistakes reflex attacks for
+         * its own command or for a spontaneous task failure (operator finding 2026-10-31).
+         */
+        selfDefense: state.selfDefense || null
       };
       record.observations.push(out);
       /**
@@ -234,8 +242,11 @@ function toolDefinitions({ controlUrl, record, log, runtime }) {
       'Pre-task state observation skill. Call it ONCE before executing a task and choose ' +
       'the fields required by that task (e.g. position, health, food, inventory, hostiles, ' +
       'target, blocks, players, nearbyItems, riding/mounted with the vehicle inventory and ' +
-      'integrity). Returns per-field observedAt/age/revision/' +
+      'integrity, or selfDefense for the fast self-defense reflex posture). Returns per-field ' +
+      'observedAt/age/revision/' +
       'stale metadata. Do not poll it every tick; state is not pushed automatically. ' +
+      'If selfDefense.enabled is true, the Node fast loop may attack hostiles and preempt your ' +
+      'task on its own - those are reflex actions, not your commands. ' +
       'If the payload carries `aux.screenshot` (a frame captured on a failure, an accepted ' +
       'plan, new terrain, or the 90 s fallback), read that file ONLY when the structured ' +
       'fields are insufficient to decide; the verdict still comes from structured conditions ' +

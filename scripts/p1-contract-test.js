@@ -2549,7 +2549,65 @@ function makeBrain() {
     });
     await check('resolveFields keeps the literal entities field (no hostile-only alias)', () => {
       assert.deepStrictEqual(resolveFields(['entities']), ['entities']);
-      assert.deepStrictEqual(resolveFields(['threat']), ['hostiles']);
+      assert.deepStrictEqual(resolveFields(['threat']), ['hostiles', 'selfDefense']);
+      assert.deepStrictEqual(resolveFields(['combat']), ['hostiles', 'selfDefense', 'health']);
+    });
+  }
+
+  // ---------------------------------------------- self-defense reflex status
+  process.stdout.write('\n35e. self-defense reflex perception\n');
+  {
+    const { ObservationCache, resolveFields } = require('../src/world/observation');
+    const { selfDefenseStatus, selfDefenseLine } = require('../src/world/selfDefense');
+    const { buildRequestEnvelope } = require('../src/chat/dialogueRouter');
+
+    await check('the self-defense field is local (no body refresh) and says enabled/off', async () => {
+      const body = {
+        kind: 'mock',
+        connected: true,
+        snapshot: () => null,
+        refresh: async () => {
+          throw new Error('selfDefense must not refresh the body');
+        }
+      };
+      const cache = new ObservationCache({
+        body,
+        now: () => 1000,
+        staticFields: () => ({ selfDefense: selfDefenseStatus({ agent: { behaviour: { autoFight: true } } }) })
+      });
+      const on = await cache.observe({ fields: ['selfDefense'], purpose: 'task' });
+      assert.strictEqual(on.ok, true);
+      assert.strictEqual(on.fields.selfDefense.known, true);
+      assert.strictEqual(on.fields.selfDefense.stale, false);
+      assert.strictEqual(on.fields.selfDefense.source, 'runtime');
+      assert.strictEqual(on.fields.selfDefense.value.enabled, true);
+      assert.strictEqual(on.fields.selfDefense.value.engageRadiusXZ, 15);
+      assert.match(on.fields.selfDefense.value.note, /preempt|reflex/i);
+
+      const off = selfDefenseStatus({ agent: { behaviour: { autoFight: false } } });
+      assert.strictEqual(off.enabled, false);
+      assert.match(off.note, /^OFF/);
+      assert.strictEqual(selfDefenseLine(off), null);
+    });
+
+    await check('the request envelope carries the reflex state only when enabled', () => {
+      const on = buildRequestEnvelope('砍树', {
+        selfDefense: selfDefenseStatus({ agent: { behaviour: { autoFight: true, engageRadiusXZ: 15 } } })
+      });
+      assert.match(on, /selfDefense: ON/);
+      assert.match(on, /not your command/);
+      assert.match(on, /text: "砍树"/);
+      const off = buildRequestEnvelope('砍树', {
+        selfDefense: selfDefenseStatus({ agent: { behaviour: { autoFight: false } } })
+      });
+      assert.doesNotMatch(off, /selfDefense: ON/);
+      assert.match(off, /text: "砍树"/);
+    });
+
+    await check('resolveFields makes selfDefense reachable by name and by threat/combat', () => {
+      assert.deepStrictEqual(resolveFields(['selfDefense']), ['selfDefense']);
+      assert(resolveFields(['threat']).includes('selfDefense'));
+      assert(resolveFields(['combat']).includes('selfDefense'));
     });
   }
 

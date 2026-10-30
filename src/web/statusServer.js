@@ -43,6 +43,7 @@ const { PANEL_HTML, PANEL_JS } = require('./panel');
 const { Logger } = require('../util/logger');
 const { resolveTrigger, personaForConfig } = require('../llm/persona');
 const { streamEvents } = require('./eventStream');
+const { selfDefenseStatus } = require('../world/selfDefense');
 const { HarnessInjector } = require('../harness/inject');
 const { recordPlayerMessage } = require('../chat/playerChatLog');
 
@@ -1379,6 +1380,8 @@ function uiState(ctx) {
       screen: world.screen || null,
       mouseGrabbed: world.mouseGrabbed !== false
     },
+    /** Fast-reflex posture, from the same config the Brain reads (not a second truth). */
+    selfDefense: selfDefenseStatus(ctx.cfg, ctx.brain),
     brain: {
       running: brain.running,
       paused: brain.paused,

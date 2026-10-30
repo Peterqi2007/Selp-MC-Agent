@@ -30,7 +30,9 @@ const FIELD_GROUPS = {
   /** Survival/reflex essentials; already collected by the fast reflex loop. */
   survival: ['health', 'food', 'dead', 'onGround', 'standingOn'],
   /** Minimal threat observation; no full entity tracking. */
-  threat: ['hostiles'],
+  threat: ['hostiles', 'selfDefense'],
+  /** Combat posture: what is hostile plus whether the reflex may engage it on its own. */
+  combat: ['hostiles', 'selfDefense', 'health'],
   /** Cheap self state and environment summary. */
   self: ['position', 'dimension', 'yaw', 'pitch', 'time', 'weather'],
   /** Inventory/hotbar/durability. */
@@ -238,6 +240,12 @@ class ObservationCache {
   constructor(deps = {}) {
     this.body = deps.body || null;
     this.refresh = deps.refresh || null;
+    /**
+     * Node-derived status fields that are not part of the Mod `/state` payload (for example
+     * the self-defense reflex, which is a Node config/runtime fact). A function is used so the
+     * value follows live config/Brain state instead of being frozen at construction.
+     */
+    this.staticFields = typeof deps.staticFields === 'function' ? deps.staticFields : null;
     this.now = deps.now || (() => Date.now());
     this.fieldTtls = { ...DEFAULT_FIELD_TTL, ...(deps.fieldTtls || {}) };
     this.purposeTtls = { ...PURPOSE_TTL, ...(deps.purposeTtls || {}) };
@@ -269,7 +277,13 @@ class ObservationCache {
     const purpose = request.purpose ? String(request.purpose) : null;
     const requestedAt = this.now();
     const currentFacing = facingFrom(this._currentSnapshot());
-    const staleFields = fields.filter((field) => {
+    /**
+     * Node-derived fields do not need a `/state` refresh and must not be marked stale when
+     * the body is unreachable: their source is the local config/Brain, not the Mod.
+     */
+    const staticValues = this._staticValues();
+    const dynamicFields = fields.filter((field) => !(field in staticValues));
+    const staleFields = dynamicFields.filter((field) => {
       const entry = this.cache.get(field);
       if (!entry) return true;
       const ttl = ttlFor(field, purpose, request.maxAgeMs, this.fieldTtls, this.purposeTtls);
@@ -286,12 +300,12 @@ class ObservationCache {
     });
 
     let refreshResult = null;
-    if (staleFields.length > 0 || !this._lastSnapshot) {
+    if (dynamicFields.length > 0 && (staleFields.length > 0 || !this._lastSnapshot)) {
       refreshResult = await this._refresh();
     }
 
     const snapshot = this._lastSnapshot;
-    const failed = !snapshot || (refreshResult && refreshResult.ok === false);
+    const failed = dynamicFields.length > 0 && (!snapshot || (refreshResult && refreshResult.ok === false));
     const values = {};
     const unknownFields = [];
     const unavailableFields = [];
@@ -304,7 +318,7 @@ class ObservationCache {
     if (!failed && refreshResult && refreshResult.ok === true) {
       const observedAt = this.lastSuccessAt || requestedAt;
       for (const field of fields) {
-        if (UNAVAILABLE_FIELDS.has(field)) continue;
+        if (UNAVAILABLE_FIELDS.has(field) || field in staticValues) continue;
         const raw = snapshot[field];
         if (raw !== undefined) {
           this.cache.set(field, {
@@ -325,6 +339,23 @@ class ObservationCache {
     for (const field of fields) {
       const ttl = ttlFor(field, purpose, request.maxAgeMs, this.fieldTtls, this.purposeTtls);
       const entry = this.cache.get(field);
+      if (field in staticValues) {
+        values[field] = {
+          value: staticValues[field],
+          known: true,
+          unavailable: false,
+          stale: false,
+          valid: true,
+          staleBecause: null,
+          observedAt: requestedAt,
+          ageMs: 0,
+          revision: this.revision,
+          dimension: snapshot ? snapshot.dimension || null : this._dimension || null,
+          area,
+          source: 'runtime'
+        };
+        continue;
+      }
       if (UNAVAILABLE_FIELDS.has(field)) {
         unavailableFields.push(field);
         values[field] = {
@@ -404,6 +435,18 @@ class ObservationCache {
     this._lastSnapshot = null;
     this.log.debug(`observation cache invalidated: ${reason}`);
     return { revision: this.revision, reason, at: this._invalidatedAt };
+  }
+
+  /** Local status fields, computed on demand; a broken provider must not break observation. */
+  _staticValues() {
+    if (!this.staticFields) return {};
+    try {
+      const values = this.staticFields();
+      return values && typeof values === 'object' && !Array.isArray(values) ? values : {};
+    } catch (err) {
+      this.log.debug(`static observation fields failed: ${err.message}`);
+      return {};
+    }
   }
 
   /**

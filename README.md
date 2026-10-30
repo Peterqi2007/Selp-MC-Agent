@@ -224,10 +224,10 @@ LLM 层（`src/llm/`，生产配置已开启 `toolCalling`）：8 个工具 —�
 * 离线全绿（2026-10-29 实跑）：`selftest`、`skills:test`、`client:test`、`control:test`、`tasks:test`、
   `path:test`、`clientmod:test`、`verify:roleplay`、`llm:dry` 均通过（历史计数见 §8；P0 套件由 `p0:verify` 统一跑）。
 * P1 离线（2026-10-30 实跑）：`p1:verify` **18/18 套件**（P0 8 套件 + `planner:test 35/35` +
-  `p1:contract:test 210/210` + `p1:m3:test 58/58` + `p1:m6:test 25/25` +
+  `p1:contract:test 213/213` + `p1:m3:test 58/58` + `p1:m6:test 25/25` +
   `p1:proposal-autonomy:test 16/16` + `p1:language:test 22/22` + `p1:m7:test 11/11` +
   `p1:m4:test 35/35` + `p1:m4:evolve:test 17/17` + `p1:m5:test 32/32` + `p1:channel:test 18/18` +
-  `p1:shot:test 20/20` + `p1:steer:test 9/9` + `p1:taskgoal:test 12/12` + `p1:curriculum:test 8/8` +
+  `p1:shot:test 20/20` + `p1:steer:test 9/9` + `p1:taskgoal:test 13/13` + `p1:curriculum:test 8/8` +
   `p1:fault:test 9/9` + `plan:audit --stage p1 105/105`；`--fast` 为 **17/17**，完整 **18/18**）。
 * P1 客户端阶段（2026-10-20/21/22/24/25 + 2026-10-29）：**M1 适用子集 PASS、M2 PASS、M3 PASS、M4 PASS（A19 适用子集）**
   （A13–A17、A27 只读/异步、A28–A30、F2；均在 `planner.mode=off` 下由 DSH 动作脑/真机注入完成）；
@@ -263,7 +263,10 @@ LLM 层（`src/llm/`，生产配置已开启 `toolCalling`）：8 个工具 —�
   - **截图 steer 主动提交**：插件 `/message` 支持 `mode:"steer"` → DSH `agent.steer()`（next-step），
     不再等整轮结束；无 `steer()` 的运行时诚实回退 `followup`；
   - **Voyager 式自动课程**：`src/planner/curriculum.js` 维护 completed/failed 账本与难度带，
-    prep goal 携带上下文，低于 band 的提案被拒（有限次后放宽），执行 goal 终态回写账本。
+    prep goal 携带上下文，低于 band 的提案被拒（有限次后放宽），执行 goal 终态回写账本；
+  - **自卫反射状态可见**：`selfDefense` 由 `behaviour.autoFight` 单一推导，进入
+    `/ui/state`、`mc_observe`、`mc_state`（`threat`/`combat` 组）与动作脑请求/目标文本；
+    enabled 时明确告诉动作脑“Node 可能自行攻击并抢占任务，这些不是你的指令”。
   离线新增 `p1:steer:test 9/9`、`p1:curriculum:test 8/8`；**当天白天拉起真实客户端完成了四项真机**：
   `@大肥鱼` 段落创建 goal（`/task-goals created`）、biplane 骑乘 `mounted:true` + inventory 24 格 2 件
   + integrity 1/1 ratio、截图 steer 落在 **turn 70 step 2**（当轮中间步骤）并带 768×432 图片、
@@ -558,7 +561,7 @@ Invoke-RestMethod -Uri http://127.0.0.1:8766/ui/state
 | `npm run p1:channel:test` | 通道策略（code-skill → command → input → code-generation） | 18/18 |
 | `npm run p1:shot:test` | 截图触发/预算/去重/steer 策略 | 20/20 |
 | `npm run p1:steer:test` | 主动 steer 投递（插件 `/message` steer/followup/回退 + 桥接 + 策略） | 8/8 |
-| `npm run p1:taskgoal:test` | 玩家任务 / `@` 请求 → DSH goal | 12/12 |
+| `npm run p1:taskgoal:test` | 玩家任务 / `@` 请求 → DSH goal（含自卫反射提示） | 13/13 |
 | `npm run p1:curriculum:test` | Voyager 式自动课程（难度带/账本/校验/接线） | 8/8 |
 | `npm run p1:m4:evolve:test` | M4 v3 键鼠脚本 / 错误回灌 / 版本链 / 检索 | 17/17 |
 | `npm run p1:language:test` | 统一语言脑门面（profile/工具/原文审批/记忆 grep/短窗口） | **20/20** |

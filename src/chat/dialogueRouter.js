@@ -1,5 +1,7 @@
 'use strict';
 
+const { selfDefenseLine } = require('../world/selfDefense');
+
 /**
  * DialogueRouter - the one place that decides where a natural-language player line goes.
  *
@@ -228,6 +230,8 @@ function buildRequestEnvelope(text, meta = {}) {
       lines.push(`agentPosition: ${Number(x)},${Number(y)},${Number(z)}`);
     }
   }
+  const defense = selfDefenseLine(meta.selfDefense);
+  if (defense) lines.push(defense);
   lines.push(`text: ${JSON.stringify(text)}`);
   lines.push(
     'instruction: Use the mc_* tools to act. When the player should hear a short result, ' +

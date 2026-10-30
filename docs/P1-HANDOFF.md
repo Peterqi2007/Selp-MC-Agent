@@ -11,6 +11,8 @@
 > biplane `mounted/inventory/integrity`、steer 落在 turn 70 step 2（带图）、curriculum prep level 1/4→2/4（两次完成）
 > 同时修掉 judge 预算/解析、unified 语言脑绕过 goal、旧插件 delivery 误报三个缺陷
 > （[`P1-WORK-2026-10-30.md`](P1-WORK-2026-10-30.md) §8）。
+> 2026-10-31 补：自卫反射状态 `selfDefense` 进入 `/ui/state`、`mc_observe`、`mc_state`、
+> 请求 envelope 与 goal 文本；动作脑现在知道反射可能自行攻击/抢占任务（§9）。
 > 本文是交接入口；**阶段判定**以 [`P1-CLIENT-VERIFICATION.md`](P1-CLIENT-VERIFICATION.md) 为准，
 > 逐项证据见 [`P1-M7.md`](P1-M7.md) 的 A01–A31 矩阵与 [`P1-M3.md`](P1-M3.md) §3。
 >
@@ -38,7 +40,7 @@ npm run p1:baseline -- --suites  # 记录提交/配置指纹/套件结果到 run
 | --- | --- |
 | P0 regression（8 suites，含 `selftest 183/183`） | **8/8** |
 | `planner:test` | **35/35** |
-| `p1:contract:test` | **210/210** |
+| `p1:contract:test` | **213/213** |
 | `p1:m3:test` | **58/58** |
 | `p1:m6:test` | **25/25** |
 | `p1:proposal-autonomy:test` | **16/16** |
@@ -50,7 +52,7 @@ npm run p1:baseline -- --suites  # 记录提交/配置指纹/套件结果到 run
 | `p1:channel:test` | **18/18** |
 | `p1:shot:test` | **20/20** |
 | `p1:steer:test` | **9/9** |
-| `p1:taskgoal:test` | **12/12** |
+| `p1:taskgoal:test` | **13/13** |
 | `p1:curriculum:test` | **8/8** |
 | `p1:fault:test` | **9/9** |
 | `plan:audit --stage p1` | **105/105** |

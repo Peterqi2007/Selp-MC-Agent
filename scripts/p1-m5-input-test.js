@@ -424,9 +424,12 @@ async function main() {
     const plugin = read('dsh-plugin-mc-harness/lib/index.js');
     const block = /const FULL_OBSERVATION_FIELDS = \[([\s\S]*?)\];/.exec(plugin);
     assert(block, 'FULL_OBSERVATION_FIELDS not found');
-    for (const field of ['yaw', 'pitch', 'target']) {
+    for (const field of ['yaw', 'pitch', 'target', 'selfDefense']) {
       assert.match(block[1], new RegExp(`'${field}'`), `missing ${field}`);
     }
+    assert.match(plugin, /selfDefense: state\.selfDefense/);
+    assert.match(plugin, /selfDefense\.enabled is true/);
+    assert.match(plugin, /reflex actions, not your commands/);
   });
 
   await check('targetIs verifies the crosshair against the observation', () => {

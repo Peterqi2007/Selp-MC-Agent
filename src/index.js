@@ -239,7 +239,16 @@ async function main() {
     world = ctx.world;
   }
   const { ObservationCache } = require('./world/observation');
-  ctx.observation = new ObservationCache({ body: ctx.body, log: new Logger('observation') });
+  const { selfDefenseStatus } = require('./world/selfDefense');
+  ctx.observation = new ObservationCache({
+    body: ctx.body,
+    /**
+     * Node-derived status fields. `selfDefense` is the one the action brain needs before it
+     * can explain a task being preempted by the fast reflex (2026-10-31 operator finding).
+     */
+    staticFields: () => ({ selfDefense: selfDefenseStatus(ctx.cfg, ctx.brain) }),
+    log: new Logger('observation')
+  });
   ctx.craft = (options) => new CraftTask(ctx, options).execute();
   /**
    * `ctx.mine` - the internal direct-executor contract ("the caller already owns the
@@ -360,7 +369,12 @@ async function main() {
       const envelope = buildRequestEnvelope(text, {
         source: meta.originalSource || meta.source || 'chat',
         speaker: meta.speaker || '玩家',
-        agentPosition: meta.agentPosition || (snap ? snap.position : null)
+        agentPosition: meta.agentPosition || (snap ? snap.position : null),
+        /**
+         * Live status, not a prompt rule: when the self-defense reflex is enabled the action
+         * brain may see the agent attack (or a task be preempted) without having asked for it.
+         */
+        selfDefense: selfDefenseStatus(ctx.cfg, ctx.brain)
       });
       const result = await harnessBridge.forward(envelope, {
         from: meta.source || 'chat',
@@ -443,6 +457,7 @@ async function main() {
         maxGoalRounds: Number(goalCfg.maxGoalRounds) || undefined,
         dedupeMs: Number(goalCfg.dedupeMs) || undefined
       },
+      selfDefense: () => selfDefenseStatus(ctx.cfg, ctx.brain),
       log: new Logger('taskgoal')
     });
   }

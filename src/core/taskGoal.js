@@ -38,6 +38,8 @@ class TaskGoalInjection {
     this.cfg = { ...DEFAULTS, ...(deps.cfg || {}) };
     this.now = deps.now || (() => Date.now());
     this.log = deps.log || { info() {}, warn() {}, debug() {} };
+    /** Live self-defense status provider; the goal text must explain reflex preemption. */
+    this.selfDefense = typeof deps.selfDefense === 'function' ? deps.selfDefense : null;
     this.recent = new Map();
     this.lastGoal = null;
     this.lastSkip = null;
@@ -107,6 +109,13 @@ class TaskGoalInjection {
           '不要把 Node 的失败回执当成成功，也不要在没有结构化证据时宣称完成。'
         ].filter(Boolean).join('\n');
 
+    /**
+     * The reflex is a Node fast-loop action, not the model's. Say so in every goal so a task
+     * that is preempted by combat is not misread as the action brain's own doing (operator
+     * finding 2026-10-31). State still carries the full structured status.
+     */
+    const objectiveText = [text, this._selfDefenseLine()].filter(Boolean).join('\n');
+
     let agentId = null;
     try {
       agentId = typeof this.bridge.boundAgentId === 'function' ? await this.bridge.boundAgentId() : null;
@@ -115,7 +124,7 @@ class TaskGoalInjection {
     }
     const res = await this.bridge.createGoal({
       agentId: agentId || undefined,
-      goal: text,
+      goal: objectiveText,
       purpose: this.cfg.purpose,
       maxGoalRounds: this.cfg.maxGoalRounds,
       replace: false
@@ -177,6 +186,23 @@ class TaskGoalInjection {
     this.lastSkip = { reason, command, at: this.now(), ...extra };
     this.log.debug(`task goal skipped for "${command}": ${reason}`);
     return { ok: false, reason, ...extra };
+  }
+
+  /** One short reflex note appended to the goal objective; empty when the provider is absent off. */
+  _selfDefenseLine() {
+    if (!this.selfDefense) return null;
+    try {
+      const status = this.selfDefense();
+      if (!status || status.enabled !== true) return null;
+      return (
+        `注意：自卫反射已开启（autoFight），附近敌意生物出现或受伤时 Node 会自行先手攻击，` +
+        `并可能抢占当前任务；这些攻击是反射，不是你的指令。范围 XZ ${status.engageRadiusXZ} / ` +
+        `Y ±${status.engageRadiusY}，受伤阈值 ${status.engageHealthThreshold}。`
+      );
+    } catch (err) {
+      this.log.debug(`self-defense note failed: ${err.message}`);
+      return null;
+    }
   }
 
   status() {
