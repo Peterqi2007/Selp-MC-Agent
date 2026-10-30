@@ -222,6 +222,19 @@ test('sync failure receipts carry the envelope; acks stay untouched; success cle
   assert.strictEqual(esc.status().signatures, 0, 'a sync success clears the signature');
 });
 
+test('a command wrapper with a nested failed result is not mistaken for success', () => {
+  const esc = new FailureEscalation({ log: silent });
+  const wrapped = esc.foldReceipt('place minecraft:barrier 1000 100 1000 up', {
+    ok: true,
+    command: 'place',
+    result: { ok: false, failure: 'unverified', reason: 'no world effect', code: 'place-unverified' }
+  });
+  assert.strictEqual(wrapped.ok, false);
+  assert.strictEqual(wrapped.class, 'unverified');
+  assert.strictEqual(esc.status().signatures, 1);
+  assert.strictEqual(esc.status().lastSettled.ok, false);
+});
+
 test('recordTaskSettle enriches failures and feeds lastSettled', () => {
   const esc = new FailureEscalation({ log: silent });
   const settled = esc.recordTaskSettle({ name: 'goto', ok: false, reason: 'noPath', description: 'walk to 31,63,59' });

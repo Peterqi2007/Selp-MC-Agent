@@ -5,6 +5,7 @@ import com.mojang.blaze3d.platform.NativeImage;
 import net.minecraft.client.KeyMapping;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.Screenshot;
+import net.minecraft.client.gui.screens.inventory.AbstractContainerScreen;
 import net.minecraft.client.multiplayer.ClientLevel;
 import net.minecraft.client.player.LocalPlayer;
 import net.minecraft.core.BlockPos;
@@ -831,6 +832,20 @@ public final class ClientActions {
     public boolean closeMenu() {
         return onClient(() -> {
             if (mc.player == null) {
+                return false;
+            }
+            /**
+             * Closing only the container menu is not enough for the player's own
+             * InventoryScreen: the screen is a client-side GUI and stayed open (live v3
+             * script trial, 2026-10-31: close returned true but `screen` remained
+             * InventoryScreen). Use the screen's own onClose for container/inventory
+             * screens; never dismiss pause/chat/operator screens.
+             */
+            if (mc.screen != null) {
+                if (mc.screen instanceof AbstractContainerScreen<?> containerScreen) {
+                    containerScreen.onClose();
+                    return mc.screen == null;
+                }
                 return false;
             }
             mc.player.closeContainer();

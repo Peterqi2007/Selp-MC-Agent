@@ -1,6 +1,6 @@
 # mc_step / mc_plan 失败回执与升级阶梯
 
-> 状态（2026-10-31）：**离线实现完成、测试全绿；真机验收未执行**。
+> 状态（2026-10-31）：**离线测试全绿；真机失败阶梯与键鼠脚本子集已通过**。
 > 动作脑影响面：DSH `mc_step` / `mc_plan`；面板与游戏内 `!` 命令仍是操作员通道，不受闸门限制。
 > 本文件是设计与验收簿记；实现位置和测试命令在文末。
 
@@ -159,7 +159,7 @@ nothing changed
 
 | 套件 | 结果 |
 | --- | --- |
-| `p1:failure-escalation:test` | **25/25**（信封/签名/闸门/lookup/ask/降级/回执/证据/计划/提示词） |
+| `p1:failure-escalation:test` | **26/26**（信封/签名/闸门/lookup/ask/降级/回执/证据/计划/提示词） |
 | `client:test` | **79/79**（假 mod 协议含 place/useon 证据三分支） |
 | `p1:contract:test` | **224/224**（/command 闸门、/ask_player、lastSettled、plan gate） |
 | `p1:m4:test` | **38/38**（生成提示词实时闭环） |
@@ -168,8 +168,64 @@ nothing changed
 | `p1:taskgoal:test` | **14/14**（goal 文本 + 新 goal 清账本） |
 | `p1:verify` | **19/19 套件** |
 
-未执行/未填：真机 place 证据、升级链路、ask 停车、粒度回归、载具脚本优先。
-按仓库规则，代码存在不等于真机通过；A32 在 P1-CLIENT-TESTS 中登记为未执行。
+### 9.1 真机验证（2026-10-31，客户端 + Node agent）
+
+环境：真实 Forge 客户端 `agent-client`，玩家 `AgentDeepSeek`，坐标 `15.33,65,71.47`；
+Node 通过 `/command` 的 `via:"mc_step"` 走真实闸门。
+
+**失败阶梯上升（`place` 无效回执）**：
+
+```text
+place minecraft:barrier 1000 100 1000 up  -> ok:false class=unverified attempt=1/2
+place minecraft:barrier 1010 100 1000 up  -> ok:false class=unverified attempt=2/2
+place minecraft:barrier 1020 100 1000 up  -> ok:false error=lookup-required gated=true
+```
+
+- 三条命令的真实 mod 证据都是 `blocksChanged:0, itemCount 0→0, entities 0→0`；
+- 第三条没有派发到客户端，证明换坐标不能绕过签名闸门；
+- `lookup_mod_content("minecraft barrier block how to place 使用方法")` 返回 3 条真实结果，
+  Node 记录为 informed；
+- `place minecraft:barrier 1030 ...` 允许一次有依据重试，仍为 `unverified attempt=3`；
+- 下一条 `place ... 1040 ...` 返回 `ask-required`，带具体 `askQuestion`；
+- `POST /ask_player` 返回 `{parked:true, planId:ask-...}`；等待期间
+  `place ... 1050 ...` 返回 `waiting-for-player-answer`；
+- `!answer "test-answer: no visible barrier; thanks"` 成功恢复，`/ui/state.failureEscalation`
+  清空（`signatures:0, recentFailures:0`）。
+
+**键鼠脚本编写与执行**：
+
+- 真实模型生成 v3 脚本 `agent.inventory_cycle_live3@1.0.0`，manifest 权限
+  `read_state/wait/input_tap/input_close`，描述“打开背包→等待→确认 screen→关闭”；
+- 代码实际使用 `ctx.tap("inventory")`、`ctx.wait(300)`、`ctx.state()`、`ctx.close()`，
+  没有点击槽位、没有移动；
+- 第一次生成的同类脚本暴露了真实缺陷：`close` 只关容器菜单，`InventoryScreen` 仍停留；
+  同时脚本的 `state()` 读到旧缓存，误判 close 失败。修复：
+  - `ClientActions.closeMenu` 对 `AbstractContainerScreen` 调用 `onClose()`，不关闭 pause/chat；
+  - v3 `ctx.state()` 默认刷新 live `/state`，`tap/close` 后也刷新快照；
+- 修复后 trial **通过**，脚本晋升并 `/code-skills/.../run` 真机执行成功：
+
+```text
+screenOpened: InventoryScreen
+screenClosed: null
+slotsClicked: 0
+movementKeysUsed: 0
+calls: read_state, tap(inventory), read_state, close, read_state
+```
+
+证据：
+
+- trial：`runtime/code-skill-runs/agent.inventory_cycle_live3@1.0.0-run-1793358980418-0x0nwv.json`
+- promoted run：`runtime/code-skill-runs/agent.inventory_cycle_live3@1.0.0-run-1793359030214-ksyxw4-run.json`
+- 代码：`runtime/code-skills/promoted/agent/inventory_cycle_live3/1.0.0/index.js`
+
+**真机未覆盖**：
+
+- 真实 mod 物品（如 biplane）成功放置后的实体匹配（本次故意用无效果的 barrier 验证失败链）；
+- `mc_ask_player` 插件工具本身（本次经 Node `/ask_player`，插件代理未重启加载）；
+- 成功结算后同签名清零的独立成功动作（本次由回答/新 goal 路径清空）；
+- 载具 ms 级脚本优先（真实载具 trial 未执行）。
+
+按仓库规则，以上未覆盖项不填 PASS；A32 在 P1-CLIENT-TESTS 中登记为真机子集通过。
 
 ## 10. 配置与部署
 

@@ -95,8 +95,8 @@ process.on('disconnect', () => exitProcess(0));
 
 const capabilities = {
   read_state: (args) => call('read_state', args || {}),
-  /** v3 alias: `await ctx.state()` (same read-only capability). */
-  state: (args) => call('read_state', args || {}),
+  /** v3 alias: `await ctx.state()`; scripts need a live snapshot, not a stale cache. */
+  state: (args) => call('read_state', { fresh: true, ...(args || {}) }),
   block_at: (args) => call('block_at', args || {}),
   find_blocks: (args) => call('find_blocks', args || {}),
   submit_task: (args) => call('submit_task', args || {}),

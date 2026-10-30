@@ -168,13 +168,22 @@ class FailureEscalation {
    */
   foldReceipt(command, result) {
     if (!result || typeof result !== 'object') return result;
+    /**
+     * The command table wraps a handler as `{ok:true, command:'place', result:{ok:false,...}}`.
+     * Judging only the outer ack was a live bug: every failed place looked like a success to
+     * the ledger, so the third-attempt gate never fired. The effective outcome is the nested
+     * `result` when it carries an `ok` boolean; the outer envelope still carries `command`.
+     */
+    const nested = result.result && typeof result.result === 'object' ? result.result : null;
+    const effective = nested && typeof nested.ok === 'boolean' ? nested : result;
     const { verb, target, itemKey } = this.parseCommand(command);
     const signature = this.signatureOf(verb, target, itemKey);
-    if (result.ok === false) {
-      const info = fromResult(result);
+    if (result.accepted === true && effective.ok !== false) return result; // background ack
+    if (effective.ok === false) {
+      const info = fromResult(effective);
       this.recordFailure({ verb, target, itemKey, className: classOf(info.failure), failure: info.failure });
       const entry = this.entries.get(signature);
-      const folded = envelope(result, {
+      const folded = envelope(effective, {
         verb, target, signature,
         attempt: entry ? { count: entry.failures, budget: this._budgetFor(entry.lastClass) } : null,
         lookupQuery: this._needsLookup(info.failure) ? this._lookupQuery(itemKey) : null,
@@ -192,10 +201,9 @@ class FailureEscalation {
         lookupQuery: folded.lookupQuery || null,
         attempt: folded.attempt || null
       };
-      return folded;
+      return { ...result, ...folded, ok: false, result: nested || result };
     }
-    if (result.accepted === true) return result; // ack: the settle event records the outcome
-    if (result.ok !== false) this.recordSuccess({ verb, target, itemKey });
+    if (effective.ok !== false) this.recordSuccess({ verb, target, itemKey });
     return result;
   }
 

@@ -887,6 +887,7 @@ class CodeSkillService {
   _host() {
     return {
       read_state: async (args) => {
+        if (args && args.fresh === true) await this._refreshSnapshot();
         if (args && args.includeMenu === true) await this._refreshBody();
         const state = this._readState(args);
         if (args && args.includeMenu === true && state.ok === true) state.menu = await this._menuSummary();
@@ -975,6 +976,18 @@ class CodeSkillService {
       if (body && typeof body.interrupt === 'function') body.interrupt(reason);
     } catch {
       /* best-effort */
+    }
+  }
+
+  /** A v3 script's state() must not judge a close/click from an old cached snapshot. */
+  async _refreshSnapshot() {
+    const body = this.ctx && this.ctx.body;
+    if (!body || typeof body.refresh !== 'function') return null;
+    try {
+      return await body.refresh(true);
+    } catch (err) {
+      this.log.debug(`script state refresh failed: ${err.message}`);
+      return null;
     }
   }
 
@@ -1474,6 +1487,7 @@ class CodeSkillService {
     if (typeof ready.body.tap !== 'function') return { ok: false, reason: 'body-cannot-tap' };
     const result = await this._bodyCall(() => ready.body.tap(action), {}, 4000);
     if (result && result.ok === false && result.reason) return result;
+    await this._refreshSnapshot();
     return { ok: !!(result && result.ok !== false), action, screenAfter: this.ctx.body.snapshot() ? this.ctx.body.snapshot().screen || null : null };
   }
 
@@ -1537,8 +1551,12 @@ class CodeSkillService {
     if (!ready.ok) return ready;
     if (typeof ready.body.closeMenu !== 'function') return { ok: false, reason: 'body-cannot-close' };
     const result = await this._bodyCall(() => ready.body.closeMenu(), {}, 4000);
+    await this._refreshSnapshot();
     const after = typeof ready.body.snapshot === 'function' ? ready.body.snapshot() : null;
-    return { ok: !!(result === true || (result && result.ok === true)), screenAfter: after ? after.screen || null : null };
+    const ok = !!(result === true || (result && result.ok === true));
+    const screenAfter = after ? after.screen || null : null;
+    /** A close that leaves InventoryScreen open is not success, even if the call returned true. */
+    return { ok: ok && (after ? screenAfter === null : true), screenAfter };
   }
 
   async _inputSelect(args = {}) {

@@ -21,8 +21,9 @@
 > **2026-10-31 补 failure escalation**：`mc_step`/`mc_plan` 回执统一带
 > `failure/class/requires/attempt`；Node 硬闸门按动作签名限制盲试；`knowledge/unverified`
 > 走 `lookup_mod_content` → `mc_ask_player` 停车；`place/useon` 改由 mod 采集世界证据、
-> Node 判定（元素消耗但无可见效果不再算成功）。离线 `p1:failure-escalation:test 25/25`、
-> `p1:verify 19/19`；真机 A32 未执行，见 [`FAILURE-ESCALATION.md`](FAILURE-ESCALATION.md)。
+> Node 判定（元素消耗但无可见效果不再算成功）。离线 `p1:failure-escalation:test 26/26`、
+> `p1:verify 19/19`；真机 A32 子集通过（barrier 失败阶梯 + 生成键鼠脚本 trial/run），
+> 未覆盖项见 [`FAILURE-ESCALATION.md`](FAILURE-ESCALATION.md) §9.1。
 > 本文是交接入口；**阶段判定**以 [`P1-CLIENT-VERIFICATION.md`](P1-CLIENT-VERIFICATION.md) 为准，
 > 逐项证据见 [`P1-M7.md`](P1-M7.md) 的 A01–A32 矩阵与 [`P1-M3.md`](P1-M3.md) §3。
 >
@@ -51,7 +52,7 @@ npm run p1:baseline -- --suites  # 记录提交/配置指纹/套件结果到 run
 | P0 regression（8 suites，含 `selftest 183/183`） | **8/8** |
 | `planner:test` | **35/35** |
 | `p1:contract:test` | **224/224** |
-| `p1:failure-escalation:test` | **25/25** |
+| `p1:failure-escalation:test` | **26/26** |
 | `p1:m3:test` | **58/58** |
 | `p1:m6:test` | **25/25** |
 | `p1:proposal-autonomy:test` | **16/16** |
@@ -83,7 +84,7 @@ npm run p1:baseline -- --suites  # 记录提交/配置指纹/套件结果到 run
 | M4 | manifest 校验、生成管线、candidates/promoted 目录与指针、晋升/回退/下线、promoted-only 检索；2026-10-18 接真实生成、权限子进程试运行、证据、取消、DeepSeek Search、HTTP `/code-skills`；2026-10-25 接实时入口；需求变更后 v2 实现（离线 35/35）并完成 **A18–A20、A28–A30 真机**（A19 适用子集） | **PASS（A19 适用子集）**；方案 [`M4-DIRECT-BODY-PLAN.md`](M4-DIRECT-BODY-PLAN.md) |
 | M5 | 进程内输入层（按键/长按/视角/容器槽位点击/帧缓冲截图）+ 键鼠台账；**CU 路径已放弃（ABANDONED）** | **未通过**：输入/截图/GUI 链路已真机验证（`m5-gui-live 93/93`），但 F1' 四类注入未跑完、A21 部分（探针直连）、A22/M5.3 未执行 |
 | M6 | `ConversationState`（去重/过期/自回声/限速/截断）+ opt-in 守卫 + `ChatParticipation` 参与/沉默 + `ProposalChat` yes/no + **DialogueRouter + `mc_say`**；2026-10-24 受控测试 A24/C03/F02 PASS、A25 四路径（accept 真 harness） | 部分：A23 缺 40 组 ×3；A25 仅 accept 为真实提案；R2/R3 未执行 |
-| M7 | 故障演练 9/9、A01–A32 矩阵、`p1:verify`、本交接文档；TaskSlot 失败账本持久化 + UsageLedger 逐请求 usage；**failure escalation 回执/闸门/证据链**（离线 25/25） | 部分：R1 部分，R2–R4/F3/A31 最终组合、A32 真机未执行 |
+| M7 | 故障演练 9/9、A01–A32 矩阵、`p1:verify`、本交接文档；TaskSlot 失败账本持久化 + UsageLedger 逐请求 usage；**failure escalation 回执/闸门/证据链**（离线 26/26；真机 A32 子集通过） | 部分：R1 部分，R2–R4/F3/A31 最终组合；A32 未覆盖项见失败文档 §9.1 |
 
 ## 3. 客户端窗口实测
 
