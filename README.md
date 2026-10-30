@@ -267,7 +267,7 @@ LLM 层（`src/llm/`，生产配置已开启 `toolCalling`）：8 个工具 —�
   离线新增 `p1:steer:test 9/9`、`p1:curriculum:test 8/8`；**当天白天拉起真实客户端完成了四项真机**：
   `@大肥鱼` 段落创建 goal（`/task-goals created`）、biplane 骑乘 `mounted:true` + inventory 24 格 2 件
   + integrity 1/1 ratio、截图 steer 落在 **turn 70 step 2**（当轮中间步骤）并带 768×432 图片、
-  curriculum prep goal 带 `level 1/4` 且提案 p29 校验 `required=1 actual=1`。
+  curriculum 先 `level 1/4`（提案 p29 校验 `required=1 actual=1`），两次完成后再 prep 变 `level 2/4`。
   真机还修掉三个缺陷：judge 200-token 截断导致 `malformed-verdict`、unified 语言脑绕过 goal、
   旧插件 delivery 误报。证据见 [`docs/P1-WORK-2026-10-30.md`](docs/P1-WORK-2026-10-30.md) §8。
 

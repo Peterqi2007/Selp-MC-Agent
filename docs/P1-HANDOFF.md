@@ -8,7 +8,7 @@
 > A23 仍缺 40 组 ×3），**M6 仍 PARTIAL**。
 > 2026-10-30 补：CU 标为 ABANDONED（[`CU-ABANDONED.md`](CU-ABANDONED.md)）、载具感知、`@` 请求 → goal、
 > 截图 steer 主动提交、Voyager 式自动课程；**当天白天已拉起真实客户端补真机**：`@` goal、
-> biplane `mounted/inventory/integrity`、steer 落在 turn 70 step 2（带图）、curriculum prep level 1/4；
+> biplane `mounted/inventory/integrity`、steer 落在 turn 70 step 2（带图）、curriculum prep level 1/4→2/4（两次完成）
 > 同时修掉 judge 预算/解析、unified 语言脑绕过 goal、旧插件 delivery 误报三个缺陷
 > （[`P1-WORK-2026-10-30.md`](P1-WORK-2026-10-30.md) §8）。
 > 本文是交接入口；**阶段判定**以 [`P1-CLIENT-VERIFICATION.md`](P1-CLIENT-VERIFICATION.md) 为准，
