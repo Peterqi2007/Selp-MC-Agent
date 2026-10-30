@@ -314,10 +314,44 @@ class TaskSlot {
   publish(event, payload) {
     const brain = this.brain || (this.ctx && this.ctx.brain);
     if (!brain) return;
+    /**
+     * Failure escalation (mc_step channel): the settle is the one place every task outcome
+     * passes, so the ledger records it here and failed events carry the envelope. The gate
+     * itself lives at the /command surface; recording every source keeps the signature
+     * honest no matter who issued the attempt.
+     */
+    const escalation = brain.failureEscalation || (brain.ctx && brain.ctx.failureEscalation) || null;
+    let enriched = payload;
+    if (escalation && typeof escalation.recordTaskSettle === 'function' && (event === 'task:failed' || event === 'task:done')) {
+      try {
+        const settled = escalation.recordTaskSettle({
+          name: payload && payload.name,
+          ok: event === 'task:done',
+          reason: payload && payload.reason,
+          description: payload && payload.description,
+          result: payload && payload.result
+        });
+        if (settled && event === 'task:failed') {
+          enriched = {
+            ...payload,
+            failure: settled.failure,
+            class: settled.class,
+            retryable: settled.retryable,
+            requires: settled.requires,
+            next: settled.next,
+            hint: settled.hint,
+            lookupQuery: settled.lookupQuery || null,
+            attempt: settled.attempt || null
+          };
+        }
+      } catch (err) {
+        brain.log && brain.log.debug && brain.log.debug(`escalation settle failed: ${err.message}`);
+      }
+    }
     if (brain.events && typeof brain.events.publish === 'function') {
       const task = this.brainTask;
       brain.events.publish({
-        ...payload,
+        ...enriched,
         type: event,
         taskId: (payload && payload.taskId) || (task ? task.taskId || task.name : null),
         requestId: (payload && payload.requestId) || (task ? task.requestId || null : null),

@@ -584,15 +584,29 @@ public final class ControlHttpServer {
                     // "place x y z [face] [item]" - tokens 3 and 4, not 4 and 5.
                     String face = nth(rest, 3);
                     String item = nth(rest, 4);
-                    out.put("ok", Json.bool(xyz != null && actions.place(xyz[0], xyz[1], xyz[2], face, item)));
+                    /**
+                     * Effect evidence (failure escalation): the receipt carries the
+                     * before/after world snapshots; Node decides whether the placement
+                     * actually happened. Early return like the input-layer verbs.
+                     */
+                    if (xyz == null) {
+                        out.put("ok", Json.bool(false));
+                        out.put("error", Json.str("usage: place x y z [face] [item]"));
+                    } else {
+                        return actions.placeJson(xyz[0], xyz[1], xyz[2], face, item);
+                    }
                 }
                 case "useon", "interact" -> {
                     // Right-click a block face with whatever is held: hoes, buckets, bonemeal,
                     // buttons, and "open this chest / crafting table / furnace".
                     int[] xyz = ints(rest, 3);
                     String face = nth(rest, 3);
-                    out.put("ok", Json.bool(xyz != null && actions.place(xyz[0], xyz[1], xyz[2], face, "")));
-                    out.put("note", Json.str("continuous - poll /progress or /state"));
+                    if (xyz == null) {
+                        out.put("ok", Json.bool(false));
+                        out.put("error", Json.str("usage: useon x y z [face]"));
+                    } else {
+                        return actions.placeJson(xyz[0], xyz[1], xyz[2], face, "");
+                    }
                 }
                 case "target" -> {
                     // What the crosshair points at right now: aim, then mine what you see.
@@ -638,7 +652,10 @@ public final class ControlHttpServer {
                     // with a duration the key is held, which is what eating and bow-drawing
                     // need (food is only consumed after ~1.6 s of holding).
                     Integer holdMs = tryInt(rest.split("\\s+")[0]);
-                    out.put("ok", Json.bool(holdMs == null ? actions.useItem() : actions.holdUse(holdMs)));
+                    if (holdMs == null) {
+                        return actions.useJson();
+                    }
+                    out.put("ok", Json.bool(actions.holdUse(holdMs)));
                 }
                 case "select" -> out.put("ok", Json.bool(actions.selectItem(rest)));
                 case "drop" -> out.put("ok", Json.bool(actions.dropHeld(!"1".equals(rest))));

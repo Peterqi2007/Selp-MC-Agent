@@ -226,7 +226,10 @@ async function main() {
     const { describe } = require('../src/core/channelPolicy');
     const table = describe({ chat: { handlers: {} }, codeSkills: { status: () => ({ promoted: [] }) } });
     assert(table.escalation, 'escalation block missing');
-    assert.match(table.escalation.rule, /twice/);
+    assert.match(table.escalation.rule, /classified/);
+    assert.match(table.escalation.rule, /third blind same-signature/);
+    assert.match(table.escalation.rule, /lookup_mod_content/);
+    assert.match(table.escalation.rule, /mc_ask_player/);
     assert.match(table.escalation.rule, /input layer/);
     assert(table.escalation.inputVerbs.includes('key'));
     assert(table.escalation.inputExamples.includes('hold attack 600'));

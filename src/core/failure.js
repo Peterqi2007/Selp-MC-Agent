@@ -29,6 +29,10 @@ const FAILURE = Object.freeze({
   TARGET_LOST: 'target_lost',
   REFUSED: 'refused',
   UNSUPPORTED: 'unsupported',
+  /** The mod mechanic is unknown (how to place/use this mod item); knowledge, not luck. */
+  KNOWLEDGE: 'knowledge',
+  /** The receipt claimed success but the world shows no effect (place/useon evidence). */
+  UNVERIFIED: 'unverified',
   INTERRUPTED: 'interrupted',
   TIMEOUT: 'timeout',
   INTERNAL: 'internal',
@@ -57,6 +61,8 @@ const HINTS = Object.freeze({
   [FAILURE.TARGET_LOST]: 'scan again - the target moved, despawned, or was already taken',
   [FAILURE.REFUSED]: 'the request was refused or a screen belongs to the operator: wait or ask',
   [FAILURE.UNSUPPORTED]: 'this body cannot do that: pick one of the available alternatives',
+  [FAILURE.KNOWLEDGE]: 'the mod mechanic is unknown: lookup_mod_content first, then ask the player',
+  [FAILURE.UNVERIFIED]: 'the world shows no effect: do not retry the same spot; lookup or ask first',
   [FAILURE.INTERRUPTED]: 'stopped by stop/death/pause: only continue if the operator asks',
   [FAILURE.TIMEOUT]: 'retry with a smaller job or a longer budget',
   [FAILURE.INTERNAL]: 'an agent bug: report it instead of retrying blindly',
@@ -160,6 +166,8 @@ function fromResult(result) {
   const detail = record.reason || record.error || record.detail || null;
   let type = record.failure && Object.values(FAILURE).includes(record.failure) ? record.failure : null;
   if (!type && record.stopped && STOPPED_TYPES[record.stopped]) type = STOPPED_TYPES[record.stopped];
+  /** Settle reasons often carry the stopped code verbatim ("no-tree"); honor that mapping too. */
+  if (!type && detail && STOPPED_TYPES[String(detail).trim()]) type = STOPPED_TYPES[String(detail).trim()];
   if (!type && record.lastMove && record.lastMove.reason) type = classifyMove(record.lastMove.reason);
   if (!type) type = classify(detail);
   return {
@@ -181,4 +189,159 @@ function fold(result) {
   return { ...result, failure: info.failure, hint: info.hint };
 }
 
-module.exports = { FAILURE, HINTS, MOVE_TYPES, STOPPED_TYPES, classify, classifyMove, fromResult, fold };
+/**
+ * Failure classes - the escalation ladder branches on the class, not on the reason text.
+ *
+ *   transient     server lag / a stand-off: re-observe, then one backoff retry;
+ *   precondition  missing item/tool/route: fix the prerequisite first (a different action);
+ *   knowledge     the mod mechanic is unknown: lookup_mod_content -> ask the player;
+ *   unverified    ok receipt but no world effect: same ladder as knowledge, no blind retry;
+ *   capability    no verb/key covers it: input layer, else propose code generation;
+ *   permission    refused / operator stop / hazard: stop or ask, never auto-retry;
+ *   unknown       unclassified: retryable=false; observe or ask, never blind-retry.
+ */
+const CLASSES = Object.freeze({
+  TRANSIENT: 'transient',
+  PRECONDITION: 'precondition',
+  KNOWLEDGE: 'knowledge',
+  UNVERIFIED: 'unverified',
+  CAPABILITY: 'capability',
+  PERMISSION: 'permission',
+  UNKNOWN: 'unknown'
+});
+
+/** One class per failure type; the single mapping every surface (gate, envelope, docs) reads. */
+const FAILURE_CLASS = Object.freeze({
+  [FAILURE.TIMEOUT]: CLASSES.TRANSIENT,
+  [FAILURE.STALLED]: CLASSES.TRANSIENT,
+  [FAILURE.IGNORED]: CLASSES.TRANSIENT,
+  [FAILURE.SHOOT_FAILED]: CLASSES.TRANSIENT,
+  [FAILURE.BAD_ARGUMENT]: CLASSES.PRECONDITION,
+  [FAILURE.NO_MATERIAL]: CLASSES.PRECONDITION,
+  [FAILURE.WRONG_TOOL]: CLASSES.PRECONDITION,
+  [FAILURE.NO_PATH]: CLASSES.PRECONDITION,
+  [FAILURE.OCCLUDED]: CLASSES.PRECONDITION,
+  [FAILURE.TARGET_LOST]: CLASSES.PRECONDITION,
+  [FAILURE.OUT_OF_REACH]: CLASSES.PRECONDITION,
+  [FAILURE.OUT_OF_RANGE]: CLASSES.PRECONDITION,
+  [FAILURE.BLOCKED]: CLASSES.PRECONDITION,
+  [FAILURE.NO_AMMO]: CLASSES.PRECONDITION,
+  [FAILURE.NO_GUN]: CLASSES.PRECONDITION,
+  [FAILURE.NOT_A_GUN]: CLASSES.PRECONDITION,
+  [FAILURE.KNOWLEDGE]: CLASSES.KNOWLEDGE,
+  [FAILURE.UNVERIFIED]: CLASSES.UNVERIFIED,
+  [FAILURE.UNSUPPORTED]: CLASSES.CAPABILITY,
+  [FAILURE.TACZ_UNAVAILABLE]: CLASSES.CAPABILITY,
+  [FAILURE.REFUSED]: CLASSES.PERMISSION,
+  [FAILURE.INTERRUPTED]: CLASSES.PERMISSION,
+  [FAILURE.HAZARD]: CLASSES.PERMISSION,
+  [FAILURE.INTERNAL]: CLASSES.UNKNOWN,
+  [FAILURE.UNKNOWN]: CLASSES.UNKNOWN
+});
+
+/**
+ * What each class demands next. `blindBudget` is how many same-signature attempts the gate
+ * tolerates before refusing; `requires`/`next` are the machine-readable instruction the
+ * action brain follows (the goal text says the same thing in prose).
+ */
+const CLASS_POLICY = Object.freeze({
+  [CLASSES.TRANSIENT]: {
+    retryable: true, blindBudget: 2,
+    requires: ['re-observe'], next: 'reobserve-then-retry-once'
+  },
+  [CLASSES.PRECONDITION]: {
+    retryable: true, blindBudget: 2,
+    requires: ['fix-precondition'], next: 'fix-precondition-then-retry'
+  },
+  [CLASSES.KNOWLEDGE]: {
+    retryable: false, blindBudget: 2,
+    requires: ['lookup_mod_content'], next: 'lookup-then-ask-then-input'
+  },
+  [CLASSES.UNVERIFIED]: {
+    retryable: false, blindBudget: 2,
+    requires: ['lookup_mod_content'], next: 'lookup-then-ask-then-input'
+  },
+  [CLASSES.CAPABILITY]: {
+    retryable: false, blindBudget: 1,
+    requires: ['input-layer'], next: 'input-layer-or-propose-codegen'
+  },
+  [CLASSES.PERMISSION]: {
+    retryable: false, blindBudget: 0,
+    requires: ['ask-or-stop'], next: 'stop-or-ask'
+  },
+  [CLASSES.UNKNOWN]: {
+    retryable: false, blindBudget: 1,
+    requires: ['re-observe'], next: 'observe-or-ask'
+  }
+});
+
+/** The class of one failure type; unknown types are CLASSES.UNKNOWN (never blind-retried). */
+function classOf(type) {
+  return FAILURE_CLASS[type] || CLASSES.UNKNOWN;
+}
+
+/**
+ * The full failure envelope (failure + hint + class policy + escalation context).
+ *
+ * `fold()` stays the minimal two-field shape its existing callers (tool registry,
+ * actuators, mining dispatch) rely on; `envelope()` is the harness-facing shape carried by
+ * mc_step receipts, task:failed events and plan step settlements. `context` is what the
+ * escalation ledger knows: { verb, target, attempt:{count,budget}, lookupQuery, askQuestion }.
+ */
+function envelope(result, context = {}) {
+  if (!result || typeof result !== 'object' || result.ok !== false) return result;
+  const info = result.failure && result.hint ? { failure: result.failure, hint: result.hint, detail: result.reason || result.error || result.detail || null } : fromResult(result);
+  const className = result.class || classOf(info.failure);
+  const policy = CLASS_POLICY[className] || CLASS_POLICY[CLASSES.UNKNOWN];
+  const out = {
+    ...result,
+    ok: false,
+    failure: info.failure,
+    hint: info.hint,
+    class: className,
+    retryable: policy.retryable,
+    retryBudget: policy.blindBudget,
+    requires: [...policy.requires],
+    next: policy.next
+  };
+  if (context.signature) out.signature = context.signature;
+  if (context.verb) out.verb = context.verb;
+  if (context.target !== undefined) out.target = context.target;
+  if (context.attempt) out.attempt = context.attempt;
+  if (context.lookupQuery) out.lookupQuery = context.lookupQuery;
+  if (context.askQuestion) out.askQuestion = context.askQuestion;
+  if (context.evidence) out.evidence = context.evidence;
+  return out;
+}
+
+/**
+ * One-line class directory for mc_capabilities (generated from the same tables, so the
+ * prompt text, the gate and the receipts cannot drift).
+ */
+function describePolicy() {
+  const lines = {};
+  for (const className of Object.values(CLASSES)) {
+    const policy = CLASS_POLICY[className];
+    lines[className] = `${policy.next} (retryable=${policy.retryable}, blindBudget=${policy.blindBudget}, requires=${policy.requires.join('|')})`;
+  }
+  return {
+    classes: Object.values(CLASSES),
+    policy: lines,
+    realtimeControl:
+      'ms-level continuous control (piloting a vehicle, mounted=true, moving steering, aim ' +
+      'tracking): do NOT drive it with atomic mc_step key/hold calls - each call is one ' +
+      'conversation round (seconds), the input arrives stale, and a first failure can be ' +
+      'unrecoverable. Use a promoted code skill or propose generation; the script runs the ' +
+      'loop inside Node with ctx.state() + ctx.key/ctx.hold/ctx.tap + ctx.wait(ms).',
+    granularity:
+      'escalation is per action signature, never a task-level mode: only the failed action ' +
+      'moves to the input layer; movement/observation stay on the command channel (goto for ' +
+      'walking to the next plot). A success, TTL expiry or goal end clears the record, so ' +
+      'the next same-kind action starts capability-first again.'
+  };
+}
+
+module.exports = {
+  FAILURE, HINTS, MOVE_TYPES, STOPPED_TYPES, CLASSES, FAILURE_CLASS, CLASS_POLICY,
+  classify, classifyMove, classOf, fromResult, fold, envelope, describePolicy
+};

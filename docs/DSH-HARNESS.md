@@ -8,7 +8,7 @@
 
 | 文件 | 作用 |
 | --- | --- |
-| `dsh-plugin-mc-harness/` | DSH 插件包（ESM）；注册 **14 个工具**：`mc_observe`、`mc_step`、`mc_state`、`mc_capabilities`、`mc_keybinds`、`mc_plan`、`mc_plan_status`、`mc_cancel`、`mc_finish`、`mc_perception`、`mc_propose`、`mc_memory`、`mc_say`、`lookup_mod_content` |
+| `dsh-plugin-mc-harness/` | DSH 插件包（ESM）；注册 **15 个工具**：`mc_observe`、`mc_step`、`mc_state`、`mc_capabilities`、`mc_keybinds`、`mc_ask_player`、`mc_plan`、`mc_plan_status`、`mc_cancel`、`mc_finish`、`mc_perception`、`mc_propose`、`mc_memory`、`mc_say`、`lookup_mod_content` |
 | `scripts/install-dsh-plugin.js` | 复制插件到 desktop profile，追加 `cordis.patch.yml`（自动备份） |
 | `scripts/dsh-h1-test.js` | 通过 `POST /goal` 驱动 DSH，打印 H1a/H1b 结果 |
 | `npm run dsh:install` / `npm run dsh:h1` | 安装 / H1 测试入口 |
@@ -40,6 +40,11 @@ H1 test (Node)
 - `mc_step`：一次只发一条面板命令（`goto`/`mine`/`chop`/`stop`…），不带 `!`。
   原版 held 键 `key <name> down|up`，原版 edge 键 click；模组键先 `mc_keybinds`，用稳定
   `modid:path` ID：`tap <id>` 一次性、`hold <id> ms` / `key <id> down|up` 按住；raw R/键码拒绝。
+- `mc_step`/`mc_plan` 的失败回执统一带 `failure/class/requires/attempt`；Node 硬闸门按动作
+  签名拒绝第三次盲试、未搜索的 knowledge 重试和等待回答期间的身体动作。具体策略见
+  [`FAILURE-ESCALATION.md`](FAILURE-ESCALATION.md)。
+- `mc_ask_player`：带证据提一个具体问题，复用 `wait_for_player` 停车；玩家 `!answer` 后恢复。
+  等待期间只放行 stop/inputs/read-only。
 - `mc_plan`：提交多步计划；有 live 对话绑定时用 `turn:true`，计划结算后同一对话续轮；
   没有绑定时计划仍执行，可用 `mc_plan_status` 轮询。
 - `mc_plan_status`：只读 `GET /plan/:id`（状态/步骤/预算）。

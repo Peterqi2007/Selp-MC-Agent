@@ -50,6 +50,13 @@ class PlanRunner {
     this.recordMethod = deps.recordMethod || null;
     /** Called after every step settlement; PlanService turns it into a `plan:step` event. */
     this.onStep = deps.onStep || null;
+    /**
+     * Failure escalation ledger (mc_plan gate): each executable step is checked before
+     * dispatch, and failed settlements carry the envelope so mc_plan_status shows the
+     * class/requires instead of a bare reason. Absent in older fixtures: plans then run
+     * ungated, exactly like before.
+     */
+    this.escalation = deps.escalation || null;
     this.log = deps.log || { info() {}, warn() {}, debug() {} };
     if (!this.plans || typeof this.plans.applyDraft !== 'function') {
       throw new Error('PlanRunner needs a PlanStore');
@@ -136,6 +143,36 @@ class PlanRunner {
           this._writeStep(planId, step.id, 'partial', settlement);
           this._noteStep(planId, step.id, 'partial', settlement.reason, settlement);
           break;
+        }
+
+        /**
+         * Hard gate (failure escalation): a step that repeats a refused blind retry is
+         * failed *as a step* with the gate's envelope - the plan then stops honestly and
+         * the action brain reads class/requires from mc_plan_status instead of burning
+         * another dispatch. `wait_for_player` steps never reach here (parked above).
+         */
+        if (this.escalation && typeof this.escalation.gateStep === 'function') {
+          let gate = { ok: true };
+          try {
+            gate = this.escalation.gateStep(step);
+          } catch (err) {
+            this.log.debug(`escalation gate failed for step ${step.id}: ${err.message}`);
+          }
+          if (gate && gate.ok === false) {
+            const settlement = {
+              status: 'failed', executed: false, gated: true,
+              reason: gate.reason || gate.error || 'escalation-required',
+              escalation: {
+                error: gate.error, class: gate.class || null,
+                requires: gate.requires || [], next: gate.next || null,
+                lookupQuery: gate.lookupQuery || null, askQuestion: gate.askQuestion || null
+              }
+            };
+            results.push({ stepId: step.id, ...settlement });
+            this._writeStep(planId, step.id, 'failed', settlement);
+            this._noteStep(planId, step.id, 'failed', settlement.reason, settlement);
+            break;
+          }
         }
 
         // Validate prerequisites against the BEFORE observation, before even creating
@@ -231,6 +268,28 @@ class PlanRunner {
           status: finalStatus, reason, taskResult, verification,
           remaining: finalStatus === 'succeeded' ? null : this._remaining(taskResult, verification)
         };
+        /**
+         * Failure envelope + ledger settle: failed steps carry the class/requires shape
+         * (the signature records the outcome; successes clear it). The envelope rides the
+         * step result, so mc_plan_status exposes it without a new endpoint.
+         */
+        if (this.escalation && typeof this.escalation.recordTaskSettle === 'function') {
+          try {
+            const command = typeof this.escalation.commandOfStep === 'function'
+              ? this.escalation.commandOfStep(step)
+              : String(step.type || '');
+            if (finalStatus === 'failed') {
+              const settled = this.escalation.recordTaskSettle({
+                name: step.type, ok: false, reason, description: command, result: taskResult
+              });
+              if (settled) settlement.envelope = settled;
+            } else if (finalStatus === 'succeeded') {
+              this.escalation.recordTaskSettle({ name: step.type, ok: true, description: command });
+            }
+          } catch (err) {
+            this.log.debug(`escalation settle failed for step ${step.id}: ${err.message}`);
+          }
+        }
         results.push({ stepId: step.id, ...settlement });
         this._writeStep(
           planId,

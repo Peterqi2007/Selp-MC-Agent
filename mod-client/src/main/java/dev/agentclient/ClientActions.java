@@ -89,6 +89,41 @@ public final class ClientActions {
     /** Monotonic client tick counter; advances even when no action is running. */
     private volatile long clientTick;
 
+    /** Radius for the effect-evidence entity scan around the interaction point. */
+    private static final double EVIDENCE_ENTITY_RADIUS = 8.0D;
+    private static final int EVIDENCE_MAX_ENTITIES = 32;
+    /** After-snapshots: +2 ticks (client prediction) and +12 ticks (~600ms server sync). */
+    private static final long EVIDENCE_AFTER1_TICKS = 2L;
+    private static final long EVIDENCE_AFTER2_TICKS = 12L;
+
+    /**
+     * Pending place/use effect evidence. The dispatch (HTTP thread via onClient) captures
+     * the BEFORE snapshot and registers this; the tick pump completes the AFTER snapshots;
+     * the HTTP thread awaits them with a hard bound. The mod only collects - judging what
+     * counts as an effect is the Node side's job ("thin hand").
+     */
+    private volatile PendingEvidence pendingEvidence;
+
+    private static final class PendingEvidence {
+        final BlockPos target;
+        final Direction face;
+        final String itemName;
+        final String beforeJson;
+        final long after1Tick;
+        final long after2Tick;
+        final CompletableFuture<String> after1 = new CompletableFuture<>();
+        final CompletableFuture<String> after2 = new CompletableFuture<>();
+
+        PendingEvidence(BlockPos target, Direction face, String itemName, String beforeJson, long nowTick) {
+            this.target = target;
+            this.face = face;
+            this.itemName = itemName;
+            this.beforeJson = beforeJson;
+            this.after1Tick = nowTick + EVIDENCE_AFTER1_TICKS;
+            this.after2Tick = nowTick + EVIDENCE_AFTER2_TICKS;
+        }
+    }
+
     // ------------------------------------------------------------------ simple
 
     /** Send a chat message (no leading slash needed). */
@@ -459,6 +494,215 @@ public final class ClientActions {
         });
     }
 
+    // ----------------------------------------------------- effect evidence
+
+    /**
+     * `place x y z [face] [item]` with world-effect evidence: capture the blocks around
+     * the target, the used item's count and the nearby entities BEFORE the interaction,
+     * run useItemOn, then let the tick pump capture the same snapshot at +2 and +12 ticks.
+     * The response is the raw evidence plus the dispatch facts; deciding whether the world
+     * actually changed (ok vs place-unverified) happens in Node, not here.
+     */
+    public String placeJson(int x, int y, int z, String face, String itemName) {
+        Map<String, Object> dispatch = onClient(() -> {
+            Map<String, Object> result = new LinkedHashMap<>();
+            if (mc.player == null || mc.level == null || mc.gameMode == null) {
+                result.put("ok", false);
+                result.put("error", "not-in-world");
+                return result;
+            }
+            String item = itemName == null ? "" : itemName.trim();
+            if (!item.isEmpty()) {
+                selectItemInClient(item);
+            }
+            String countedItem = item.isEmpty() ? heldItemId() : item;
+            BlockPos pos = new BlockPos(x, y, z);
+            Direction direction = parseDirection(face);
+            String before = evidenceSnapshotJson(pos, direction, countedItem);
+            Vec3 hit = Vec3.atCenterOf(pos).add(
+                    direction.getStepX() * 0.5D, direction.getStepY() * 0.5D, direction.getStepZ() * 0.5D);
+            lookAtOnClient(hit.x, hit.y, hit.z);
+            BlockHitResult hitResult = new BlockHitResult(hit, direction, pos, false);
+            var actionResult = mc.gameMode.useItemOn(mc.player, InteractionHand.MAIN_HAND, hitResult);
+            boolean consumes = actionResult.consumesAction();
+            if (consumes) {
+                mc.player.swing(InteractionHand.MAIN_HAND);
+            }
+            PendingEvidence pending = new PendingEvidence(pos, direction, countedItem, before, this.clientTick);
+            this.pendingEvidence = pending;
+            result.put("ok", true);
+            result.put("consumes", consumes);
+            result.put("pending", pending);
+            result.put("item", countedItem);
+            return result;
+        });
+        return finishEvidence(dispatch);
+    }
+
+    /**
+     * `use` (eat / throw / place-in-air) with the same evidence contract; the "target" is
+     * the player's own cell and the counted item is whatever is in the main hand.
+     */
+    public String useJson() {
+        Map<String, Object> dispatch = onClient(() -> {
+            Map<String, Object> result = new LinkedHashMap<>();
+            if (mc.player == null || mc.level == null || mc.gameMode == null) {
+                result.put("ok", false);
+                result.put("error", "not-in-world");
+                return result;
+            }
+            String countedItem = heldItemId();
+            BlockPos pos = mc.player.blockPosition();
+            String before = evidenceSnapshotJson(pos, Direction.UP, countedItem);
+            var actionResult = mc.gameMode.useItem(mc.player, InteractionHand.MAIN_HAND);
+            boolean consumes = actionResult.consumesAction();
+            if (consumes) {
+                mc.player.swing(InteractionHand.MAIN_HAND);
+            }
+            PendingEvidence pending = new PendingEvidence(pos, Direction.UP, countedItem, before, this.clientTick);
+            this.pendingEvidence = pending;
+            result.put("ok", true);
+            result.put("consumes", consumes);
+            result.put("pending", pending);
+            result.put("item", countedItem);
+            return result;
+        });
+        return finishEvidence(dispatch);
+    }
+
+    /** Await the two after-snapshots with hard bounds and build the evidence receipt. */
+    private String finishEvidence(Map<String, Object> dispatch) {
+        Map<String, String> out = new LinkedHashMap<>();
+        if (dispatch == null || !Boolean.TRUE.equals(dispatch.get("ok"))) {
+            out.put("ok", Json.bool(false));
+            out.put("error", Json.str(dispatch == null ? "client-thread-timeout" : String.valueOf(dispatch.get("error"))));
+            return Json.obj(out);
+        }
+        PendingEvidence pending = (PendingEvidence) dispatch.get("pending");
+        String after1 = awaitJson(pending.after1, 1500);
+        String after2 = awaitJson(pending.after2, 2500);
+        boolean incomplete = after1 == null || after2 == null;
+        Map<String, String> evidence = new LinkedHashMap<>();
+        evidence.put("item", Json.str(String.valueOf(dispatch.get("item"))));
+        evidence.put("before", pending.beforeJson);
+        evidence.put("after2", after1 == null ? "null" : after1);
+        evidence.put("after12", after2 == null ? "null" : after2);
+        evidence.put("incomplete", Json.bool(incomplete));
+        out.put("ok", Json.bool(true));
+        out.put("dispatched", Json.bool(true));
+        out.put("consumesAction", Json.bool(Boolean.TRUE.equals(dispatch.get("consumes"))));
+        out.put("evidence", Json.obj(evidence));
+        return Json.obj(out);
+    }
+
+    private static String awaitJson(CompletableFuture<String> future, long timeoutMs) {
+        try {
+            return future.get(timeoutMs, TimeUnit.MILLISECONDS);
+        } catch (Exception e) {
+            return null;
+        }
+    }
+
+    /** Complete pending evidence snapshots from the tick pump (client thread). */
+    private void drainEvidence() {
+        PendingEvidence pending = this.pendingEvidence;
+        if (pending == null || mc.player == null || mc.level == null) {
+            return;
+        }
+        if (!pending.after1.isDone() && this.clientTick >= pending.after1Tick) {
+            pending.after1.complete(evidenceSnapshotJson(pending.target, pending.face, pending.itemName));
+        }
+        if (!pending.after2.isDone() && this.clientTick >= pending.after2Tick) {
+            pending.after2.complete(evidenceSnapshotJson(pending.target, pending.face, pending.itemName));
+            this.pendingEvidence = null;
+        }
+    }
+
+    /**
+     * One evidence snapshot (client thread only): block names at the target, the
+     * face-adjacent cell and the target's six neighbours (doors/beds/multi-block shapes
+     * change a neighbour, not the target); the count of the used item across the whole
+     * inventory; entities within the scan radius (id/type/rounded position, capped).
+     */
+    private String evidenceSnapshotJson(BlockPos target, Direction face, String itemName) {
+        Map<String, String> out = new LinkedHashMap<>();
+        List<String> blocks = new ArrayList<>();
+        java.util.Set<BlockPos> cells = new java.util.LinkedHashSet<>();
+        cells.add(target);
+        cells.add(target.relative(face));
+        for (Direction direction : Direction.values()) {
+            cells.add(target.relative(direction));
+        }
+        for (BlockPos cell : cells) {
+            String name = net.minecraft.core.registries.BuiltInRegistries.BLOCK
+                    .getKey(mc.level.getBlockState(cell).getBlock()).toString();
+            blocks.add(Json.str(cell.getX() + "," + cell.getY() + "," + cell.getZ()) + ":" + Json.str(name));
+        }
+        out.put("blocks", "{" + String.join(",", blocks) + "}");
+        out.put("itemCount", Json.num(countItem(itemName)));
+        /**
+         * Menu-opening interactions (crafting table, chest, furnace) ARE an effect: the
+         * screen goes from closed to open. Without this field those reads judged as
+         * "no world change" and came back as false place-unverified failures.
+         */
+        out.put("screen", mc.screen == null ? "null" : Json.str(mc.screen.getClass().getSimpleName()));
+        List<String> entities = new ArrayList<>();
+        Vec3 center = Vec3.atCenterOf(target);
+        int kept = 0;
+        for (Entity entity : mc.level.entitiesForRendering()) {
+            if (entity == mc.player || !entity.isAlive()) {
+                continue;
+            }
+            if (entity.distanceToSqr(center) > EVIDENCE_ENTITY_RADIUS * EVIDENCE_ENTITY_RADIUS) {
+                continue;
+            }
+            if (++kept > EVIDENCE_MAX_ENTITIES) {
+                break;
+            }
+            Map<String, String> entry = new LinkedHashMap<>();
+            entry.put("id", Json.num(entity.getId()));
+            entry.put("type", Json.str(net.minecraft.core.registries.BuiltInRegistries.ENTITY_TYPE
+                    .getKey(entity.getType()).toString()));
+            entry.put("x", Json.num(Math.round(entity.getX() * 10.0D) / 10.0D));
+            entry.put("y", Json.num(Math.round(entity.getY() * 10.0D) / 10.0D));
+            entry.put("z", Json.num(Math.round(entity.getZ() * 10.0D) / 10.0D));
+            entities.add(Json.obj(entry));
+        }
+        out.put("entities", Json.arr(entities));
+        return Json.obj(out);
+    }
+
+    /** Total count of one registry id across the whole inventory (main + armor + offhand). */
+    private int countItem(String itemName) {
+        if (itemName == null || itemName.isEmpty() || mc.player == null) {
+            return -1;
+        }
+        int count = 0;
+        for (int i = 0; i < mc.player.getInventory().getContainerSize(); i++) {
+            ItemStack stack = mc.player.getInventory().getItem(i);
+            if (stack.isEmpty()) {
+                continue;
+            }
+            var id = net.minecraft.core.registries.BuiltInRegistries.ITEM.getKey(stack.getItem());
+            if (id != null && id.toString().equals(itemName)) {
+                count += stack.getCount();
+            }
+        }
+        return count;
+    }
+
+    private String heldItemId() {
+        if (mc.player == null) {
+            return "";
+        }
+        ItemStack held = mc.player.getMainHandItem();
+        if (held.isEmpty()) {
+            return "";
+        }
+        var id = net.minecraft.core.registries.BuiltInRegistries.ITEM.getKey(held.getItem());
+        return id == null ? "" : id.toString();
+    }
+
     /** Use the held item (eat, throw, place in air). */
     public boolean useItem() {
         return onClient(() -> {
@@ -668,6 +912,7 @@ public final class ClientActions {
         // Bounded holds must expire even when no continuous action owns the tick pump:
         // a key left down because Node crashed is exactly the failure F1'b exists for.
         expireHolds();
+        drainEvidence();
         Continuous action = this.continuous;
         if (action == null) {
             return;

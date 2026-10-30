@@ -52,6 +52,7 @@
     "p0:verify": "node scripts/p0-verify.js",
     "p1:baseline": "node scripts/p1-baseline.js",
     "p1:contract:test": "node scripts/p1-contract-test.js",
+    "p1:failure-escalation:test": "node scripts/p1-failure-escalation-test.js",
     "p1:fault:test": "node scripts/p1-fault-test.js",
     "p1:m3:test": "node scripts/p1-m3-test.js",
     "p1:m6:test": "node scripts/p1-m6-test.js",

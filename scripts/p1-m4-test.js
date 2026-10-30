@@ -168,6 +168,22 @@ function fakeSearchResponse(payload) {
     assert.strictEqual((await bad.generate({ prompt: 'x' })).reason, 'malformed-envelope');
   });
 
+  await check('the generation prompt teaches the realtime control loop pattern', async () => {
+    let seenPrompt = '';
+    const manifest = manifestFor('agent.gen');
+    const generation = new CodeSkillGeneration({
+      complete: async (options) => {
+        seenPrompt = String((options && options.system) || '');
+        return JSON.stringify({ manifest, code: 'module.exports = { run: async () => ({ ok: true }) };' });
+      },
+      log: silent
+    });
+    const good = await generation.generate({ prompt: 'fly the biplane' });
+    assert(good.ok);
+    assert(seenPrompt.includes('Real-time control loops'), 'prompt mentions realtime loops');
+    assert(seenPrompt.includes('ctx.wait(ms)'), 'prompt teaches ctx.wait pacing');
+  });
+
   await check('DeepSeek Search posts the documented schema and caches the result', async () => {
     const root = tempRoot('p1-m4-search-');
     const calls = [];

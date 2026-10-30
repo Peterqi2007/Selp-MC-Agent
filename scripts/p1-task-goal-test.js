@@ -51,6 +51,7 @@ function makeHarness(options = {}) {
     cfg: options.cfg || {},
     now: () => now,
     selfDefense: options.selfDefense,
+    onNewGoal: options.onNewGoal,
     log: { info() {}, warn() {}, debug() {} }
   });
   return { injected, calls, advance: (ms) => { now += ms; } };
@@ -70,12 +71,22 @@ async function main() {
     assert.match(request.goal, /玩家下发任务：!mine dirt 2/);
     assert.match(request.goal, /不要重复/);
     assert.match(request.goal, /不要把 Node 的失败回执当成成功/);
-    // Stuck protocol (2026-10-29): repeated failure must switch to the keyboard, not retry.
-    assert.match(request.goal, /连续两次/);
-    assert.match(request.goal, /不要再重试/);
+    // Failure ladder (2026-10-31): the old "second failure" prose is now class-based.
+    assert.match(request.goal, /失败按类别/);
+    assert.match(request.goal, /同一签名第三次盲试/);
+    assert.match(request.goal, /lookup_mod_content/);
+    assert.match(request.goal, /mc_ask_player/);
     assert.match(request.goal, /key forward down\/up/);
     assert.match(request.goal, /hold attack 600/);
     assert.match(request.goal, /tap inventory/);
+  });
+
+  await check('a fresh goal clears the previous failure-escalation ledger', async () => {
+    let resets = 0;
+    const h = makeHarness({ onNewGoal: () => { resets += 1; } });
+    const res = await h.injected.maybeCreate({ command: '!mine dirt 1', source: 'chat' });
+    assert.strictEqual(res.ok, true);
+    assert.strictEqual(resets, 1, 'new goal is the ledger boundary when DSH has no goal-end callback');
   });
 
   await check('the goal text tells the brain to supervise, not to redo the skill', async () => {
@@ -170,7 +181,7 @@ async function main() {
     assert(request.goal.includes(JSON.stringify(original)), 'the original text is not carried verbatim');
     assert.match(request.goal, /Alice/);
     assert.match(request.goal, /跨轮/);
-    assert.match(request.goal, /连续两次/);
+    assert.match(request.goal, /同一签名第三次盲试/);
     assert.match(request.goal, /update_goal complete/);
   });
 

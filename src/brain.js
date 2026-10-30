@@ -41,6 +41,7 @@ const { PerceptionWake } = require('./world/perceptionWake');
 const { PlanStore } = require('./core/planStore');
 const { PlanRunner } = require('./core/planRunner');
 const { PlanService } = require('./core/planService');
+const { FailureEscalation } = require('./core/failureEscalation');
 const { PlanQuestionBridge } = require('./planner/planQuestions');
 const { verifyStep } = require('./planner/verifier');
 const { TurnLifecycle } = require('./core/turnLifecycle');
@@ -121,6 +122,15 @@ class Brain {
     this.plans = new PlanStore();
     ctx.plans = this.plans;
     /**
+     * Failure escalation ledger + hard gates (mc_step/mc_plan). One instance, created before
+     * the PlanRunner so plan steps and the /command surface share the same signatures.
+     */
+    this.failureEscalation = new FailureEscalation({
+      log: this.log,
+      config: this.cfg.failureEscalation || {}
+    });
+    ctx.failureEscalation = this.failureEscalation;
+    /**
      * M1c: steps of a parent plan run through the same executor (never a second TaskHub
      * submit), and each LLM turn has one lifecycle (wait -> one matching event -> resume).
      */
@@ -136,6 +146,7 @@ class Brain {
       postconditionRetryAttempts: 2,
       recordMethod: (step, ok) => this.methods.recordOutcome(step.methodId, ok),
       onStep: (event) => this.planService && this.planService.onStep(event),
+      escalation: this.failureEscalation,
       log: this.log
     });
     ctx.planRunner = this.planRunner;

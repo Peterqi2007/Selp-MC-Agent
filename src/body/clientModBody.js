@@ -25,6 +25,7 @@
 const fs = require('fs/promises');
 const path = require('path');
 const { Body, BodyUnavailableError } = require('./body');
+const { judgeEffect } = require('./placeEvidence');
 const { stampSnapshot, staleFields } = require('../world/freshness');
 const { DEFAULT_BUDGET } = require('../world/refreshPlan');
 const { isDaytime } = require('../world/daytime');
@@ -1279,19 +1280,43 @@ class ClientModBody extends Body {
   }
 
   async place(itemName, referenceBlock, faceVector) {
+    /**
+     * Every caller of the boolean primitive goes through the evidence path now. Mining
+     * scaffolds, torch placement and code-skill body_place used to bypass the verified
+     * `placeDetailed` path, which is exactly how a weak receipt could still leak into a
+     * task. Keep the boolean contract for compatibility; expose the detail on lastPlace.
+     */
+    const detail = await this.placeDetailed(itemName, referenceBlock, faceVector);
+    this.lastPlace = detail || null;
+    return !!(detail && detail.ok);
+  }
+
+  /**
+   * Effect-verified place (failure escalation): the mod returns before/after world
+   * evidence (blocks around the target, item count, nearby entities) and Node judges
+   * it - an interaction only counts when the world changed. Returns the judged detail
+   * object; a legacy mod without the evidence field falls back to the receipt boolean
+   * (the weak receipt the evidence path exists to replace).
+   *
+   * @returns {Promise<{ok:boolean, ...}>}
+   */
+  async placeDetailed(itemName, referenceBlock, faceVector) {
     const reference = referenceBlock && referenceBlock.position ? referenceBlock.position : referenceBlock;
-    if (!reference) return false;
+    if (!reference) return { ok: false, reason: 'no-reference-block' };
     const stale = this.staleActionReason();
     if (stale) {
       this.lastError = stale;
-      this.log.warn(`place refused: ${stale}`);
-      return false;
+      return { ok: false, reason: stale };
     }
     const face = faceName(faceVector);
+    const item = fullItemName(itemName);
     const res = await this.command(
-      `place ${Math.floor(reference.x)} ${Math.floor(reference.y)} ${Math.floor(reference.z)} ${face} ${fullItemName(itemName)}`
+      `place ${Math.floor(reference.x)} ${Math.floor(reference.y)} ${Math.floor(reference.z)} ${face} ${item}`
     );
-    return !!(res && res.ok);
+    if (!res) return { ok: false, reason: this.lastError ? String(this.lastError.message || this.lastError) : 'no-mod-response' };
+    const judged = judgeEffect(res, { item, target: { x: Math.floor(reference.x), y: Math.floor(reference.y), z: Math.floor(reference.z) } });
+    if (judged) return judged;
+    return res.ok ? { ok: true, receiptOnly: true } : { ok: false, reason: (res && (res.error || res.reason)) || `could not place ${item}` };
   }
 
   /**
@@ -1304,21 +1329,41 @@ class ClientModBody extends Body {
    * @param {object} [options] { face: {x,y,z}, waitMs }
    */
   async useOn(position, options = {}) {
-    if (!position) return false;
+    /**
+     * Same rule as place(): the boolean primitive must not skip the evidence judge. The
+     * detailed path still performs the 350ms menu settle unless the caller opted out.
+     */
+    const detail = await this.useOnDetailed(position, options);
+    this.lastUseOn = detail || null;
+    return !!(detail && detail.ok);
+  }
+
+  /**
+   * Effect-verified useon (see placeDetailed). `options.skipWait` skips the menu settle
+   * beat for callers that only want the world-effect verdict.
+   *
+   * @returns {Promise<{ok:boolean, ...}>}
+   */
+  async useOnDetailed(position, options = {}) {
+    if (!position) return { ok: false, reason: 'no-position' };
     const stale = this.staleActionReason();
     if (stale) {
       this.lastError = stale;
-      this.log.warn(`useOn refused: ${stale}`);
-      return false;
+      return { ok: false, reason: stale };
     }
     const face = faceName(options.face || { x: 0, y: 1, z: 0 });
     const res = await this.command(
       `useon ${Math.floor(position.x)} ${Math.floor(position.y)} ${Math.floor(position.z)} ${face}`
     );
-    if (!res || !res.ok) return false;
-    // The menu opens on the next server round trip; callers that need it wait a beat.
-    await sleep(options.waitMs === undefined ? 350 : options.waitMs);
-    return true;
+    if (!res) return { ok: false, reason: this.lastError ? String(this.lastError.message || this.lastError) : 'no-mod-response' };
+    const judged = judgeEffect(res, {
+      item: (res.evidence && res.evidence.item) || null,
+      target: { x: Math.floor(position.x), y: Math.floor(position.y), z: Math.floor(position.z) }
+    });
+    if (judged) return judged;
+    if (!res.ok) return { ok: false, reason: (res && (res.error || res.reason)) || 'the interaction failed' };
+    if (!options.skipWait) await sleep(options.waitMs === undefined ? 350 : options.waitMs);
+    return { ok: true, receiptOnly: true };
   }
 
   /**

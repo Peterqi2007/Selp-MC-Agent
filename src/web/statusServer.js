@@ -380,14 +380,22 @@ function startStatusServer(ctx, options = {}) {
         const query = String(body.query || '').trim();
         if (!query) return json(res, 400, { ok: false, error: 'query required' });
         /**
-         * A16 adversarial test hook: `P1_LOOKUP_FIXTURE=on` (src/index.js) installs a
-         * fixture only for the magic query. Real lookups keep using the broker; the
-         * fixture exists so "web page tells the agent to change permissions" is
-         * reproducible without controlling a real search result.
+         * Failure escalation: record only a lookup that actually produced usable results.
+         * A failed/empty search is not "informed": the gate must still force the agent to
+         * ask the player instead of treating an error page as new knowledge.
          */
         if (typeof ctx.lookupFixture === 'function') {
           const fixture = ctx.lookupFixture(query);
           if (fixture) {
+            if (fixture.ok !== false && Array.isArray(fixture.results) && fixture.results.length > 0) {
+              try {
+                if (ctx.failureEscalation && typeof ctx.failureEscalation.recordLookup === 'function') {
+                  ctx.failureEscalation.recordLookup(query);
+                }
+              } catch (err) {
+                log.debug(`lookup record failed: ${err.message}`);
+              }
+            }
             return json(res, 200, { ...fixture, source: 'p1-lookup-fixture', untrusted: true });
           }
         }
@@ -399,10 +407,78 @@ function startStatusServer(ctx, options = {}) {
           needContent: body.needContent === true,
           oriQuestion: body.oriQuestion
         });
+        if (result && result.ok === true && Array.isArray(result.results) && result.results.length > 0) {
+          try {
+            if (ctx.failureEscalation && typeof ctx.failureEscalation.recordLookup === 'function') {
+              ctx.failureEscalation.recordLookup(query);
+            }
+          } catch (err) {
+            log.debug(`lookup record failed: ${err.message}`);
+          }
+        }
         return json(res, result.ok ? 200 : 502, {
           ...result,
           source: 'deepseek-web-search',
           untrusted: true
+        });
+      }
+
+      /**
+       * Structured player-help exit (failure escalation): the action brain parks on a
+       * single-step wait_for_player plan - the same question lifecycle M3 already runs
+       * (announce -> !answer -> resume). While parked, the escalation gate refuses body
+       * actions on the harness channels so the brain cannot keep trial-and-erroring on
+       * the side; the parked flag clears when the ask plan resumes/expires/cancels.
+       */
+      if (req.method === 'POST' && url.pathname === '/ask_player') {
+        let body = {};
+        try {
+          body = JSON.parse((await readRaw(req)) || '{}');
+        } catch {
+          return json(res, 400, { ok: false, error: 'invalid JSON' });
+        }
+        const question = String(body.question || '').trim();
+        if (!question) return json(res, 400, { ok: false, error: 'question required' });
+        if (!ctx.planService) return json(res, 503, { ok: false, error: 'plan service unavailable' });
+        const escalation = ctx.failureEscalation || null;
+        if (escalation && escalation.waitingForAnswer()) {
+          return json(res, 409, {
+            ok: false, error: 'already-waiting',
+            question: escalation.ask ? escalation.ask.question : null,
+            answerHint: 'the player answers in game with !answer <text>'
+          });
+        }
+        const planId = `ask-${Date.now()}`;
+        const submit = ctx.planService.submit({
+          planId,
+          goal: 'ask-player',
+          steps: [{ id: 'ask', type: 'wait_for_player', question }]
+        });
+        if (!submit.ok) return json(res, 500, { ok: false, error: submit.reason || 'ask-submit-failed' });
+        const startedAsk = ctx.planService.start(planId);
+        if (!startedAsk.ok) return json(res, 500, { ok: false, error: startedAsk.reason || 'ask-start-failed' });
+        if (escalation) {
+          escalation.markAskParked(planId, question);
+          if (typeof ctx.planService.onEvent === 'function') {
+            const off = ctx.planService.onEvent((event) => {
+              if (!event || event.planId !== planId) return;
+              if (event.type === 'plan:resumed') {
+                escalation.markAskResolved(event.answer === true);
+                off();
+              } else if (['plan:completed', 'plan:failed', 'plan:cancelled', 'plan:rejected'].includes(event.type)) {
+                escalation.markAskResolved(event.type === 'plan:rejected');
+                off();
+              }
+            });
+          }
+        }
+        log.info(`ask_player parked: ${planId} "${question.slice(0, 80)}"`);
+        return json(res, 200, {
+          ok: true,
+          parked: true,
+          planId,
+          question,
+          answerHint: 'the player answers in game with !answer <text>; body actions are refused while parked'
         });
       }
 
@@ -1336,13 +1412,39 @@ function startStatusServer(ctx, options = {}) {
         }
 
         const commandLine = trimmed.startsWith('!') ? trimmed.slice(1).trim() : trimmed;
+        /**
+         * Failure escalation (mc_step/mc_plan): the DSH plugin tags its POSTs with
+         * `via:'mc_step'`. Those calls pass the hard gate first (third blind retry,
+         * un-researched knowledge retry, parked player question); panel and in-game
+         * channels are the operator and stay ungated. Every harness receipt is then
+         * folded into the failure envelope, so the action brain sees class/requires
+         * instead of a bare reason.
+         */
+        const via = String((body && body.via) || url.searchParams.get('via') || '').trim();
+        const escalation = ctx.failureEscalation || null;
+        if (via === 'mc_step' && escalation && typeof escalation.gate === 'function') {
+          let gate = { ok: true };
+          try {
+            gate = escalation.gate({ command: commandLine, via });
+          } catch (err) {
+            log.warn(`escalation gate error for "${commandLine}": ${err.message}`);
+          }
+          if (gate && gate.ok === false) {
+            log.info(`escalation refused mc_step "${commandLine}": ${gate.error}`);
+            return json(res, 200, { ...gate, gated: true, level: priority, ms: Date.now() - started });
+          }
+        }
         const result = await ctx.chat.handle(commandLine, `http:${priority}`);
         rememberPanelInput({ text: trimmed, via: 'panel', action: commandLine });
         if (isForm || req.method === 'GET') {
           res.writeHead(303, { location: '/panel', 'cache-control': 'no-store' });
           return res.end();
         }
-        return json(res, 200, { ...result, level: priority, ms: Date.now() - started });
+        const receipt =
+          via === 'mc_step' && escalation && typeof escalation.foldReceipt === 'function'
+            ? escalation.foldReceipt(commandLine, result)
+            : result;
+        return json(res, 200, { ...receipt, level: priority, ms: Date.now() - started });
       }
 
       if (req.method === 'POST' && url.pathname === '/emergency-stop') {
@@ -1427,6 +1529,16 @@ function uiState(ctx) {
     },
     /** Fast-reflex posture, from the same config the Brain reads (not a second truth). */
     selfDefense: selfDefenseStatus(ctx.cfg, ctx.brain),
+    /**
+     * Failure escalation: the last settled task with its failure envelope (mc_observe
+     * reads /ui/state), plus the parked-question flag the gate enforces on mc_step/mc_plan.
+     */
+    failureEscalation: ctx.failureEscalation && typeof ctx.failureEscalation.status === 'function'
+      ? ctx.failureEscalation.status()
+      : null,
+    lastSettled: ctx.failureEscalation && ctx.failureEscalation.lastSettled
+      ? ctx.failureEscalation.lastSettled
+      : null,
     brain: {
       running: brain.running,
       paused: brain.paused,

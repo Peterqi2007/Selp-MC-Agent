@@ -458,15 +458,35 @@ const server = http.createServer((req, res) => {
         }
         const [ux, uy, uz] = xyz;
         const target = world.blocks.cells[`${ux},${uy},${uz}`];
+        /**
+         * Effect evidence (failure escalation contract): the same shape the real mod's
+         * placeJson returns - before/after snapshots of blocks/itemCount/screen/entities.
+         * Menu-opening interactions show the screen transition; block/item/entity changes
+         * show up in the after snapshot.
+         */
+        const evidenceFor = (afterScreen, mutate) => {
+          const key = `${ux},${uy},${uz}`;
+          const beforeBlocks = { [key]: target || 'minecraft:air' };
+          const before = { blocks: beforeBlocks, itemCount: 1, screen: null, entities: [] };
+          const afterBlocks = { ...beforeBlocks };
+          if (mutate && mutate.block) afterBlocks[key] = mutate.block;
+          const after = {
+            blocks: afterBlocks,
+            itemCount: mutate && mutate.consumed ? 0 : 1,
+            screen: afterScreen,
+            entities: (mutate && mutate.entities) || []
+          };
+          return { item: null, before, after2: after, after12: after, incomplete: false };
+        };
         if (target && /crafting_table/.test(target)) {
           world.craftOpen = true;
           world.menu = null;
-          return send({ command, ok: true });
+          return send({ command, ok: true, dispatched: true, consumesAction: true, evidence: evidenceFor('CraftingScreen') });
         }
         if (target && /furnace/.test(target)) {
           world.furnaceOpen = true;
           world.menu = null;
-          return send({ command, ok: true });
+          return send({ command, ok: true, dispatched: true, consumesAction: true, evidence: evidenceFor('FurnaceScreen') });
         }
         // Opening a container: the mod reports the menu through the next /command menu call.
         world.menu = {
@@ -482,7 +502,37 @@ const server = http.createServer((req, res) => {
   ]
 };
 
-        return send({ command, ok: true });
+        return send({ command, ok: true, dispatched: true, consumesAction: true, evidence: evidenceFor('ChestScreen') });
+      }
+      if (verb === 'place') {
+        /**
+         * `place x y z [face] [item]` with evidence: `place ... <item>` against a cell
+         * actually sets the block (after snapshot shows it); the magic "noeffect" item
+         * changes nothing, which is what the place-unverified path is tested against.
+         */
+        const xyz = numbers(tokens, 3);
+        if (!xyz) {
+          return send({ command, ok: false, error: 'usage: place <x> <y> <z> [face] [item]' });
+        }
+        const [px, py, pz] = xyz;
+        const tokensAll = args.split(/\s+/);
+        const item = tokensAll[4] || null;
+        const key = `${px},${py},${pz}`;
+        const before = { blocks: { [key]: world.blocks.cells[key] || 'minecraft:air' }, itemCount: 1, screen: null, entities: [] };
+        let after;
+        if (item && !/noeffect/.test(item)) {
+          world.blocks.cells[key] = item;
+          after = { blocks: { [key]: item }, itemCount: 0, screen: null, entities: [] };
+        } else {
+          after = { blocks: { [key]: world.blocks.cells[key] || 'minecraft:air' }, itemCount: 1, screen: null, entities: [] };
+        }
+        return send({
+          command,
+          ok: true,
+          dispatched: true,
+          consumesAction: true,
+          evidence: { item, before, after2: after, after12: after, incomplete: false }
+        });
       }
       if (verb === 'menu') {
         const menu = buildMenu();
@@ -1071,6 +1121,32 @@ function check(name, ok, detail) {
     // ---- menus and slot clicks (the crafting / container groundwork) -----
     const usedOn = await body.useOn({ x: 4, y: 64, z: 0 }, { face: { x: 0, y: 1, z: 0 }, waitMs: 0 });
     check('useOn() reaches the mod', usedOn === true);
+    // ---- effect evidence (failure escalation): world proof, not a receipt ----------
+    {
+      const judgedMenu = await body.useOnDetailed({ x: 4, y: 64, z: 0 }, { face: { x: 0, y: 1, z: 0 }, skipWait: true });
+      check(
+        'useOnDetailed() judges a menu open as an effect',
+        !!judgedMenu && judgedMenu.ok === true && judgedMenu.effect === 'screen',
+        judgedMenu ? `effect=${judgedMenu.effect}` : 'null'
+      );
+      const placedBlock = await body.placeDetailed('minecraft:cobblestone', { x: 9, y: 64, z: 0 }, { x: 0, y: 1, z: 0 });
+      check(
+        'placeDetailed() judges a real block change as placed',
+        !!placedBlock && placedBlock.ok === true && placedBlock.effect === 'blocks',
+        placedBlock ? `effect=${placedBlock.effect}` : 'null'
+      );
+      check(
+        'the placed block landed in the fake world',
+        world.blocks.cells['9,64,0'] === 'minecraft:cobblestone',
+        world.blocks.cells['9,64,0']
+      );
+      const noEffect = await body.placeDetailed('minecraft:noeffect', { x: 10, y: 64, z: 0 }, { x: 0, y: 1, z: 0 });
+      check(
+        'a no-effect interaction is place-unverified, never a silent success',
+        !!noEffect && noEffect.ok === false && noEffect.code === 'place-unverified' && noEffect.failure === 'unverified',
+        noEffect ? `code=${noEffect.code}` : 'null'
+      );
+    }
     const menu = await body.menu();
     check(
       'menu() returns the open container',

@@ -1,6 +1,7 @@
 'use strict';
 
 const { HELD_KEYS, EDGE_KEYS, MOD_KEY_NOTE } = require('./keyActions');
+const { describePolicy } = require('./failure');
 
 /**
  * Channel policy - "capability first" (2026-10-29, L2 decision A).
@@ -209,7 +210,8 @@ function describe(ctx) {
     /**
      * The controlled key vocabulary. `key <name> down|up` resolves these through the client
      * mod's vanilla KeyMapping table; edge keys click once, held keys setDown until released.
-     * This is deliberately not "any key": mod keybindings are outside Options and are absent.
+     * Mod keybindings are discovered live through mc_keybinds and used by their stable
+     * `modid:path` id; raw key names/codes stay outside this table.
      */
     keyActions: {
       held: [...HELD_KEYS],
@@ -224,7 +226,22 @@ function describe(ctx) {
      * keyboard until the goal text spelled this out.
      */
     escalation: {
-      rule: 'a command/skill that fails twice for the same reason must not be retried a third time: read mc_state, then act through the input layer (key/hold/tap/look/menu/click/close); for a mod key call mc_keybinds first and use its stable id (tap for one-shot, hold/key down for held); if no mapping exists, state the limitation instead of asking the player to guess; propose code generation only when no key can express the action',
+      rule:
+        'for non-minecraft: items/mechanics, call lookup_mod_content before the first trial; ' +
+        'failures are classified (see failurePolicy.classes): transient -> re-observe and retry once; ' +
+        'precondition -> fix the prerequisite, not the retry count; knowledge/unverified -> do NOT repeat ' +
+        'the same coordinates, call lookup_mod_content first, then mc_ask_player if the material does not ' +
+        'solve it, then retry via the command channel with the new information, input layer only when no ' +
+        'command can express it; capability -> input layer, else propose code generation; permission -> ' +
+        'stop or ask, never retry. The third blind same-signature attempt is REFUSED by Node. Escalation ' +
+        'is per action signature, never a task-level mode: only the failed action moves channels; ' +
+        'movement/observation stay capability-first (goto to the next plot). A success, TTL or goal end ' +
+        'clears the record. For a mod key call mc_keybinds first and use its stable id (tap for one-shot, ' +
+        'hold/key down for held); if no mapping exists, state the limitation instead of asking the player ' +
+        'to guess. ms-level continuous control (piloting a vehicle while mounted, moving steering, aim ' +
+        'tracking) must NOT use atomic mc_step key/hold calls - each arrives one conversation round late ' +
+        'and a first failure can be unrecoverable: use a promoted code skill or propose generation; the ' +
+        'script runs the loop inside Node (ctx.state + ctx.key/ctx.hold/ctx.tap + ctx.wait).',
       inputVerbs: [...INPUT_COMMANDS],
       inputExamples: [
         'key forward down',
@@ -239,6 +256,17 @@ function describe(ctx) {
         'click 10 0 pickup',
         'close'
       ]
+    },
+    /**
+     * The failure ladder, generated from src/core/failure.js so this table, the receipts
+     * and the gate cannot drift apart. Live ledger state comes from the escalation service.
+     */
+    failurePolicy: {
+      ...describePolicy(),
+      gate: 'mc_step/mc_plan dispatches are refused with escalation-required / lookup-required / ask-required / waiting-for-player-answer when the rule above is violated; panel and in-game ! commands are the operator and are never gated',
+      state: ctx && ctx.failureEscalation && typeof ctx.failureEscalation.status === 'function'
+        ? ctx.failureEscalation.status()
+        : null
     },
     codeSkills: {
       promoted: promoted.map((entry) => ({

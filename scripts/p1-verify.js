@@ -28,6 +28,7 @@ const suites = [
   ...(fast ? [] : [{ name: 'P0 regression', script: 'scripts/p0-verify.js' }]),
   { name: 'planner:test', script: 'scripts/planner-retirement-test.js' },
   { name: 'p1:contract:test', script: 'scripts/p1-contract-test.js' },
+  { name: 'p1:failure-escalation:test', script: 'scripts/p1-failure-escalation-test.js' },
   { name: 'p1:m3:test', script: 'scripts/p1-m3-test.js' },
   { name: 'p1:m6:test', script: 'scripts/p1-m6-test.js' },
   { name: 'p1:proposal-autonomy:test', script: 'scripts/p1-proposal-autonomy-test.js' },

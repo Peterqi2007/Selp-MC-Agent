@@ -460,6 +460,11 @@ async function main() {
         dedupeMs: Number(goalCfg.dedupeMs) || undefined
       },
       selfDefense: () => selfDefenseStatus(ctx.cfg, ctx.brain),
+      onNewGoal: () => {
+        if (ctx.failureEscalation && typeof ctx.failureEscalation.clearGoal === 'function') {
+          ctx.failureEscalation.clearGoal();
+        }
+      },
       log: new Logger('taskgoal')
     });
   }

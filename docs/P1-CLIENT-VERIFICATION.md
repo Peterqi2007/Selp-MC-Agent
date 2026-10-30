@@ -48,7 +48,7 @@ M5–M7 的未执行项不能因为代码接线或离线套件而关闭：
 | M4 代码技能 | **PASS（A19 适用子集）** | v2 `body_*`/有界 read_state/租约/中断已实现（`p1:m4:test 35/35`）；**A18–A20、A28–A30 真机 PASS**：A18 move+dig（dirt 1→2/2→3）与容器 click（槽 10→11/11→10）；A19 越界/抢身体/取消/deny/无屏点击/非敌对攻击/硬杀；A20 半途失败 quarantine；A28 长步骤 15.57s 单次结算；A29 硬杀恢复 pending；A30 用量 10,352 tok。A19 残余（真实 PauseScreen/第二玩家攻击）仅离线 |
 | M5 输入层（原 computer_use，2026-10-29 口径变更，**CU 已放弃**） | **未通过（输入层已实现并真机验证链路；F1'/A21/A22 未收口）** | CU 路径**已放弃（ABANDONED）**：WGC 对 OpenGL 窗口取不到帧（`截图未产出` + `Declared image type does not match its bytes`），且 `WindowPolicy`/`ComputerUseGuard` 接不进只读打包插件（`resources/app.asar`），真机「未 verify 前默认拒绝」不成立；两者均不可控 → 改用 Minecraft 进程内输入层。F1 作废、由 F1'a 结构性不可出界 + F1'b 键鼠台账取代；A21/A22 不再标 N/A。**2026-10-29 已实现并真机验证输入/截图/GUI 链路**（`p1:m5:test 31/31`、`m5-live-probe 21/21`、`m5-agent-probe 11/11`、`m5-gui-live 93/93`、`m5-target-live 8/8`、`m5-channel-live 8/8`）；**A21 部分通过（探针直连 mod、未走 agent 技能层）、A22/M5.3 未执行、F1'b 四类故障注入未跑完**，见 [`P1-M5.md`](P1-M5.md) §8 与 [`CU-ABANDONED.md`](CU-ABANDONED.md) |
 | M6 聊天/持久化/提案 | **未通过（PARTIAL）** | 普通聊天/并发/ChatMemory/单一发言者已受控验证；A23 仅真实玩家 6 条全沉默、缺 40×3 与阈值；A25 仅 accept 为真 harness，reject/不答/另派为测试钩子植入；R2/R3 未执行 |
-| M7 集成/回归/发布 | **未通过（部分）** | R3 失败账本与 A30 usage 账本已接线；A26/R1 部分；R2–R4、F3 真机端点、A31 最终组合未执行 |
+| M7 集成/回归/发布 | **未通过（部分）** | R3 失败账本与 A30 usage 账本已接线；A32 失败回执/升级阶梯离线 25/25、真机未执行；A26/R1 部分；R2–R4、F3 真机端点、A31 最终组合未执行 |
 
 “部分”**不等于**通过；只要阶段必需项还有未执行、无效证据或失败，阶段就不能批准。
 

@@ -18,8 +18,13 @@
 > 稳定 `modid:path` ID；`tap`/`hold`/`key <id>` 可用，R 等模组键可发现；脚本
 > `ctx.key(id)` + `read_state({includeKeybinds:true})`；真机 220 条（184 mod），
 > `immersive_aircraft:dismount = R`。证据见 [`P1-WORK-2026-10-30.md`](P1-WORK-2026-10-30.md) §10–§11。
+> **2026-10-31 补 failure escalation**：`mc_step`/`mc_plan` 回执统一带
+> `failure/class/requires/attempt`；Node 硬闸门按动作签名限制盲试；`knowledge/unverified`
+> 走 `lookup_mod_content` → `mc_ask_player` 停车；`place/useon` 改由 mod 采集世界证据、
+> Node 判定（元素消耗但无可见效果不再算成功）。离线 `p1:failure-escalation:test 25/25`、
+> `p1:verify 19/19`；真机 A32 未执行，见 [`FAILURE-ESCALATION.md`](FAILURE-ESCALATION.md)。
 > 本文是交接入口；**阶段判定**以 [`P1-CLIENT-VERIFICATION.md`](P1-CLIENT-VERIFICATION.md) 为准，
-> 逐项证据见 [`P1-M7.md`](P1-M7.md) 的 A01–A31 矩阵与 [`P1-M3.md`](P1-M3.md) §3。
+> 逐项证据见 [`P1-M7.md`](P1-M7.md) 的 A01–A32 矩阵与 [`P1-M3.md`](P1-M3.md) §3。
 >
 > **2026-10-22 文档同步**：本文件此前停留在 2026-10-18 的“M3 仅接线、真机未执行”状态，
 > 与 2026-10-20/21/22 的实测不符。本次回填：M3 真机通过、`p1:verify --fast` **9/9 套件**（当时；2026-10-25 为 10/10）、
@@ -39,30 +44,31 @@ npm run p1:verify -- --fast  # 跳过 P0 回归
 npm run p1:baseline -- --suites  # 记录提交/配置指纹/套件结果到 runtime/p1-baseline.json
 ```
 
-最近一次实测（离线，2026-10-30）：
+最近一次实测（离线，2026-10-31）：
 
 | 套件 | 结果 |
 | --- | --- |
 | P0 regression（8 suites，含 `selftest 183/183`） | **8/8** |
 | `planner:test` | **35/35** |
-| `p1:contract:test` | **215/215** |
+| `p1:contract:test` | **224/224** |
+| `p1:failure-escalation:test` | **25/25** |
 | `p1:m3:test` | **58/58** |
 | `p1:m6:test` | **25/25** |
 | `p1:proposal-autonomy:test` | **16/16** |
 | `p1:language:test` | **22/22** |
 | `p1:m7:test` | **11/11** |
-| `p1:m4:test` | **37/37** |
+| `p1:m4:test` | **38/38** |
 | `p1:m4:evolve:test` | **17/17** |
 | `p1:m5:test` | **35/35** |
 | `p1:channel:test` | **18/18** |
 | `p1:shot:test` | **20/20** |
 | `p1:steer:test` | **9/9** |
-| `p1:taskgoal:test` | **13/13** |
+| `p1:taskgoal:test` | **14/14** |
 | `p1:curriculum:test` | **8/8** |
 | `p1:fault:test` | **9/9** |
 | `plan:audit --stage p1` | **105/105** |
 
-`p1:verify --fast` 为 **17/17 套件**，完整含 P0 为 **18/18**（跳过 P0 回归）。
+`p1:verify --fast` 为 **18/18 套件**，完整含 P0 为 **19/19**（跳过 P0 回归）。
 没有启动 Minecraft、没有 GUI 自动化、没有调用生成模型；M4 测试在真实 Node 子进程中执行了探针技能，
 并用一次 DeepSeek Search 请求验证了搜索端点。
 
@@ -77,7 +83,7 @@ npm run p1:baseline -- --suites  # 记录提交/配置指纹/套件结果到 run
 | M4 | manifest 校验、生成管线、candidates/promoted 目录与指针、晋升/回退/下线、promoted-only 检索；2026-10-18 接真实生成、权限子进程试运行、证据、取消、DeepSeek Search、HTTP `/code-skills`；2026-10-25 接实时入口；需求变更后 v2 实现（离线 35/35）并完成 **A18–A20、A28–A30 真机**（A19 适用子集） | **PASS（A19 适用子集）**；方案 [`M4-DIRECT-BODY-PLAN.md`](M4-DIRECT-BODY-PLAN.md) |
 | M5 | 进程内输入层（按键/长按/视角/容器槽位点击/帧缓冲截图）+ 键鼠台账；**CU 路径已放弃（ABANDONED）** | **未通过**：输入/截图/GUI 链路已真机验证（`m5-gui-live 93/93`），但 F1' 四类注入未跑完、A21 部分（探针直连）、A22/M5.3 未执行 |
 | M6 | `ConversationState`（去重/过期/自回声/限速/截断）+ opt-in 守卫 + `ChatParticipation` 参与/沉默 + `ProposalChat` yes/no + **DialogueRouter + `mc_say`**；2026-10-24 受控测试 A24/C03/F02 PASS、A25 四路径（accept 真 harness） | 部分：A23 缺 40 组 ×3；A25 仅 accept 为真实提案；R2/R3 未执行 |
-| M7 | 故障演练 9/9、A01–A31 矩阵、`p1:verify`、本交接文档；TaskSlot 失败账本持久化 + UsageLedger 逐请求 usage | 部分：R1 部分，R2–R4/F3/A31 最终组合未执行 |
+| M7 | 故障演练 9/9、A01–A32 矩阵、`p1:verify`、本交接文档；TaskSlot 失败账本持久化 + UsageLedger 逐请求 usage；**failure escalation 回执/闸门/证据链**（离线 25/25） | 部分：R1 部分，R2–R4/F3/A31 最终组合、A32 真机未执行 |
 
 ## 3. 客户端窗口实测
 

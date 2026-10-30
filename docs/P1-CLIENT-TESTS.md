@@ -29,12 +29,12 @@
 > **A21/A22 不再标 N/A**，按新路径重跑。口径见 [`P1-M5.md`](P1-M5.md) §7、
 > [`CU-ABANDONED.md`](CU-ABANDONED.md) 与 [`P1-CLIENT-VERIFICATION.md`](P1-CLIENT-VERIFICATION.md) §7。
 > **同日实现并真机验证**：键鼠注入（`key`/`hold`/`tap`）、帧缓冲截图（`shot`）、键鼠台账与停手联动
-> 已落地；离线 `p1:m5:test` **35/35**、`p1:verify --fast` **17/17**；真实服务器上
+> 已落地；离线 `p1:m5:test` **35/35**、`p1:verify --fast` **18/18**；真实服务器上
 > `m5-live-probe 21/21`、`m5-agent-probe 11/11`、`m5-gui-live 93/93`、`m5-target-live 8/8`、
 > `m5-channel-live 8/8`、`client:verify 23/23`。**F1' 仅部分证据**（缺暂停/死亡/断连/退出注入），
 > **A21 部分通过（探针直连 mod、未走 agent 技能层）、A22/M5.3 未执行**，证据见 [`P1-M5.md`](P1-M5.md) §8。
 > **未执行项仍保持「未执行」**（A22、A23 的 40 组 ×3、A25 的真实动作脑 reject/不答/另派、
-> A31 最终组合、R2–R4、F3 真机端点、M0-C1 剩余负载等），不得因为其它项
+> A31 最终组合、A32 failure escalation、R2–R4、F3 真机端点、M0-C1 剩余负载等），不得因为其它项
 > 通过而推断通过。
 >
 > 规则：
@@ -77,6 +77,7 @@
 | A26 | 回归/降级（真机） | 客户端 | 行走、破坏、拾取、取消、双通道；关模型/搜索/CU | 不退化；无 LLM 时 `!` 与反射仍工作 | **部分通过（2026-10-17）**：协议 23/23、登录+寻路 7/7、砍树 PASS、独立 mine 2/2 PASS；`--dig stone` 前置点位失败；取消/反射/双通道未测 |
 | A28 | 事件唤醒与单规划者（真机） | 客户端 + 事件注入 | 步骤 >11 秒、等待 60 秒、重复/乱序/取消后事件 | 无事件不调模型；事件只推进所属任务一次 | **PASS（2026-10-20 真机注入）**：mine 4 dirt 步骤 ~25s 仅结算时 1 次 resume；停靠 60s+ 无推进；同 turn 重复 completed → `turn-running`、乱序 step → `ignored`；取消后 late completed → `no-turn-for-plan`；问题到期 → `expired`+plan failed；**编码回合（2026-10-25）**：`agent.slow_wait` 长步骤 15.1s 单次结算（turn 1→0）、取消后 14s 无迟到 `done` |
 | A29 | 会话丢失与恢复（真机） | 客户端 + 宿主重启 | 部分完成/等回答时关闭宿主 | 恢复目标/版本/步骤/问题；不重放动作 | **PASS（2026-10-21）**：`a29-old`/`turn-1` running（mine 8 dirt）硬杀重启 → plan **pending v1/s1 pending**、turns=0、budget 3/2/2、world dirt 32/pos 不变（无重放）；注入旧 `plan:completed` → `no-turn-for-plan`；注入旧 `turn:resumable`（已发布 eventId）→ plugin turns=[]、DSH 会话 mtime 不变、plan/世界不变（旧 session 输出失效）；A17 另证 waiting/question 恢复与 `!answer` 继续；**编码回合（2026-10-25）**：slow_wait 计划运行中硬杀 → 恢复 pending v1/s1 pending、无重放、启动清扫残留目录 |
+| A32 | 失败回执与升级闸门（真机） | 客户端 + DSH 动作脑 | place/useon 无效回执、重复盲试、lookup 后重试、`mc_ask_player` 停车/`!answer`、成功降级 | 假成功不再出现；第三次同签名盲试被 Node 拒；lookup 前不放行；等待期拒绝身体动作；成功后签名清零 | **未执行（离线已过：`p1:failure-escalation:test 25/25`、`client:test 79/79`、`p1:contract 224/224`）**；按规则不填真机 PASS |
 
 ## 2. 需要客户端 / 服务器的 RETIREMENT 判据
 

@@ -3413,6 +3413,77 @@ function makeBrain() {
     });
   }
 
+  // ------------------------------------------------------------ 35g. failure escalation wiring
+  process.stdout.write('\n35g. failure escalation wiring\n');
+
+  {
+    const srcWeb = fs.readFileSync(require('path').join(__dirname, '..', 'src', 'web', 'statusServer.js'), 'utf8');
+    check('/command gates via=mc_step and folds harness receipts into the envelope', () => {
+      assert.match(srcWeb, /via === 'mc_step'/);
+      assert.match(srcWeb, /escalation\.gate\(\{ command: commandLine, via \}\)/);
+      assert.match(srcWeb, /escalation\.foldReceipt\(commandLine, result\)/);
+      assert.match(srcWeb, /gated: true/);
+    });
+    check('POST /ask_player parks a wait_for_player plan and wires the settle cleanup', () => {
+      assert.match(srcWeb, /url\.pathname === '\/ask_player'/);
+      assert.match(srcWeb, /type: 'wait_for_player'/);
+      assert.match(srcWeb, /markAskParked\(planId, question\)/);
+      assert.match(srcWeb, /markAskResolved\(/);
+      assert.match(srcWeb, /already-waiting/);
+    });
+    check('every lookup_mod_content call is recorded for the informed-retry check', () => {
+      assert.match(srcWeb, /recordLookup\(query\)/);
+    });
+    check('/ui/state exposes the escalation status and lastSettled for mc_observe', () => {
+      assert.match(srcWeb, /failureEscalation: ctx\.failureEscalation/);
+      assert.match(srcWeb, /lastSettled: ctx\.failureEscalation/);
+    });
+  }
+
+  {
+    const srcSlot = fs.readFileSync(require('path').join(__dirname, '..', 'src', 'core', 'taskSlot.js'), 'utf8');
+    check('task settlements are recorded at the single event exit and failures carry the envelope', () => {
+      assert.match(srcSlot, /recordTaskSettle\(/);
+      assert.match(srcSlot, /event === 'task:failed' \|\| event === 'task:done'/);
+      assert.match(srcSlot, /enriched/);
+    });
+    const srcRunner = fs.readFileSync(require('path').join(__dirname, '..', 'src', 'core', 'planRunner.js'), 'utf8');
+    check('plan steps pass the gate before dispatch and failed settlements carry the envelope', () => {
+      assert.match(srcRunner, /this\.escalation\.gateStep\(step\)/);
+      assert.match(srcRunner, /gated: true/);
+      assert.match(srcRunner, /settlement\.envelope = settled/);
+    });
+    const srcBrain = fs.readFileSync(require('path').join(__dirname, '..', 'src', 'brain.js'), 'utf8');
+    check('one escalation instance is shared by the plan runner and the /command surface', () => {
+      assert.match(srcBrain, /new FailureEscalation\(/);
+      assert.match(srcBrain, /ctx\.failureEscalation = this\.failureEscalation/);
+      assert.match(srcBrain, /escalation: this\.failureEscalation/);
+    });
+  }
+
+  {
+    const { FailureEscalation } = require('../src/core/failureEscalation');
+    const silentEsc = { info() {}, warn() {}, debug() {} };
+    const esc = new FailureEscalation({ log: silentEsc });
+    check('the gate refuses only harness channels; unknown signatures pass', () => {
+      const fresh = esc.gate({ command: 'goto 1 64 1', via: 'mc_step' });
+      assert.strictEqual(fresh.ok, true);
+      esc.recordFailure({ verb: 'goto', target: '1 64 1', itemKey: null, className: 'precondition' });
+      esc.recordFailure({ verb: 'goto', target: '1 64 1', itemKey: null, className: 'precondition' });
+      const refused = esc.gate({ command: 'goto 1 64 1', via: 'mc_step' });
+      assert.strictEqual(refused.ok, false);
+      assert.strictEqual(refused.error, 'escalation-required');
+      assert.strictEqual(refused.retryable, false);
+    });
+    check('lastSettled reflects the enriched settle for /ui/state consumers', () => {
+      const fresh = new FailureEscalation({ log: silentEsc });
+      fresh.recordTaskSettle({ name: 'chop', ok: false, reason: 'no-tree', description: 'chop 2' });
+      assert.strictEqual(fresh.lastSettled.ok, false);
+      assert.strictEqual(fresh.lastSettled.class, 'precondition');
+      assert.ok(Array.isArray(fresh.lastSettled.requires));
+    });
+  }
+
   // summary
   const failed = results.filter((result) => !result.ok);
   process.stdout.write(`\nP1 contract test: ${results.length - failed.length}/${results.length} checks passed\n`);

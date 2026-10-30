@@ -40,6 +40,11 @@ class TaskGoalInjection {
     this.log = deps.log || { info() {}, warn() {}, debug() {} };
     /** Live self-defense status provider; the goal text must explain reflex preemption. */
     this.selfDefense = typeof deps.selfDefense === 'function' ? deps.selfDefense : null;
+    /**
+     * The escalation ledger is goal-scoped. Without a goal-end event from DSH, the next
+     * goal creation is the safe boundary: a previous failure cannot gate a fresh goal.
+     */
+    this.onNewGoal = typeof deps.onNewGoal === 'function' ? deps.onNewGoal : null;
     this.recent = new Map();
     this.lastGoal = null;
     this.lastSkip = null;
@@ -90,6 +95,13 @@ class TaskGoalInjection {
     }
     this.recent.set(command, this.now());
     if (this.recent.size > 100) this.recent.delete(this.recent.keys().next().value);
+    if (this.onNewGoal) {
+      try {
+        this.onNewGoal();
+      } catch (err) {
+        this.log.warn(`failure-escalation reset failed: ${err.message}`);
+      }
+    }
 
     const text = input.objective
       ? String(input.objective)
@@ -99,17 +111,25 @@ class TaskGoalInjection {
           input.taskName ? `Node 侧已交给确定性技能执行（${input.taskName}），不要重复它的动作。` : 'Node 侧已排队执行，不要重复它的动作。',
           '你的职责是目标驱动地监督这次任务：',
           '1) 用 mc_state/mc_observe 看真实状态与结果（不要只看任务回执）；',
-          '2) 同一命令/技能连续两次因同样原因失败时，**不要再重试它**：先用 mc_state 看卡在哪，',
-          '   然后换渠道亲自做——用输入层（mc_step 一次一个）：',
-          '   "key forward down/up"、"hold attack 600"、"tap inventory"、"look 180 0"、',
-          '   "menu"、"click 10 0 pickup"、"close"、"shot 768"；输入步之间核对坐标与 screen。',
-          '3) 模组键位先用 mc_keybinds 查稳定 ID（如 immersive_aircraft:dismount），',
-          '   一次性动作用 "tap <id>"，按住用 "hold <id> ms" / "key <id> down|up"；',
-          '   ID 不随键码变化；raw R/键码不接受，没有对应 ID 时**直接说明限制**，不要让玩家猜或代按。',
-          '4) 输入层也表达不了的动作（模组 GUI、没有对应 ID 的动作），才提议代码生成（需人工发起），',
-          '   不要静默重试原命令第三次。',
-          '5) 结束时如实报告：做了什么、结果如何、还有什么没完成。',
-          '不要把 Node 的失败回执当成成功，也不要在没有结构化证据时宣称完成。'
+          '2) 非 minecraft: 物品/机制在首次尝试前先 lookup_mod_content 查"怎么放置/使用"；失败按类别处理',
+          '   （回执带 class/requires）：transient→重观察后重试一次；precondition→修前置',
+          '   （取物/合成/换工具），不要加重试次数；knowledge/unverified→**不要重复同一坐标**，先',
+          '   lookup_mod_content 查模组机制，资料解决不了就 mc_ask_player 问玩家（等待回答期间身体动作',
+          '   会被 Node 拒绝），然后带新信息经命令通道重试；capability→换输入层，表达不了才提议代码生成；',
+          '   permission→停或问，绝不重试。**同一签名第三次盲试会被 Node 拒绝**。',
+          '3) 升级是按动作的，不是按任务的：只有失败的那个动作换渠道；移动、观察、其他命令仍走能力优先',
+          '   （例如锄地换了键鼠，走去下一片田仍用 goto）。动作成功后该签名清零，下次同类动作重新从命令通道开始。',
+          '4) 换输入层亲自做（mc_step 一次一个）："key forward down/up"、"hold attack 600"、"tap inventory"、',
+          '   "look 180 0"、"menu"、"click 10 0 pickup"、"close"、"shot 768"；输入步之间核对坐标与 screen。',
+          '   模组键位先用 mc_keybinds 查稳定 ID（如 immersive_aircraft:dismount），一次性用 "tap <id>"，',
+          '   按住用 "hold <id> ms" / "key <id> down|up"；raw R/键码不接受，没有对应 ID 时**直接说明限制**，',
+          '   不要让玩家猜或代按（这不是禁止求助：机制不明时应该用 mc_ask_player 提一个具体问题）。',
+          '5) **ms 级连续控制（驾驶/骑乘载具 mounted=true、行进中转向、动态瞄准）不要用原子 mc_step 键鼠驱动**：',
+          '   每次调用隔一个会话回合，输入到达即过期，首次失败可能不可逆（载具坠毁/位移），之后写脚本也救不回。',
+          '   首次尝试就用已晋升 code-skill，没有就立即提议代码生成（仍需人工批准），脚本在 Node 内以',
+          '   ctx.state() + ctx.key/ctx.hold/ctx.tap + ctx.wait(ms) 跑实时闭环。等待批准期间保持载具安全（悬停/下机）。',
+          '6) 结束时如实报告：做了什么、结果如何、还有什么没完成。',
+          '不要把 Node 的失败回执当成成功（ok 但世界无效果 = unverified，不是成功），没有结构化证据不得宣称完成。'
         ].filter(Boolean).join('\n');
 
     /**
@@ -177,10 +197,14 @@ class TaskGoalInjection {
       '- 如果是聊天/问答：用 mc_say 简短回答，然后 update_goal complete。',
       '- 如果是动手任务：按能力优先执行（code-skill → 命令表 → 输入层 → 提议代码生成）；',
       '  每步用 mc_state/mc_observe 核对真实结果，不要只信回执。',
-      '- 同一动作连续两次同因失败就换键鼠输入层（key/hold/tap/look/menu/click/close/shot），',
-      '  不要第三次重试原命令；模组键位先用 mc_keybinds 查稳定 ID，一次性用 tap、按住用 hold/key down，',
-      '  raw R/键码不接受；没有对应 ID 时直接说明限制，不要让玩家猜或代按；仍无通道才提议代码生成（需人工发起）。',
-      '- 结束时如实报告：做了什么、结果如何、还缺什么；没有结构化证据不得宣称完成。'
+      '- 失败按类别处理：非 minecraft: 物品/机制首次尝试前先 lookup_mod_content；knowledge/unverified（回执会标注）不要重复同一坐标，先 lookup_mod_content 查机制，',
+      '  资料解决不了就 mc_ask_player 问玩家，再带新信息经命令通道重试；其余类别按回执 requires 处理；',
+      '  同一签名第三次盲试会被 Node 拒绝。升级按动作不按任务：只有失败动作换渠道，移动仍用 goto。',
+      '- 换键鼠输入层（key/hold/tap/look/menu/click/close/shot）时：模组键位先用 mc_keybinds 查稳定 ID，',
+      '  一次性用 tap、按住用 hold/key down；raw R/键码不接受；没有对应 ID 时直接说明限制。',
+      '- **ms 级连续控制（驾驶载具 mounted=true 等）不要用原子键鼠**：首次就提议 code-skill 脚本',
+      '  （ctx.key/ctx.hold + ctx.wait 实时闭环，需人工批准）；等待期间保持载具安全，不要"试一下"。',
+      '- 结束时如实报告：做了什么、结果如何、还缺什么；ok 但世界无效果不算成功，没有结构化证据不得宣称完成。'
     ].filter(Boolean).join('\n');
     return this.maybeCreate({ command: text, source: input.source || 'dialogue', objective });
   }
