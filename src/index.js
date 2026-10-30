@@ -349,9 +349,24 @@ async function main() {
      * dialogue goes through DialogueRouter below, but unified language-brain mode and the
      * addressed channel call this function directly - so the goal injection must live here
      * too, not only in the router (2026-10-30).
+     *
+     * It also owns the A02 identity envelope: the original text is embedded verbatim inside
+     * `text: "..."`; provenance stays metadata. The language brain used to build this itself
+     * and call the bridge directly, which silently bypassed the goal injection.
      */
     ctx.forwardToActionBrain = async (text, meta = {}) => {
-      const result = await harnessBridge.forward(text, meta);
+      const snap = ctx.body && typeof ctx.body.snapshot === 'function' ? ctx.body.snapshot() : null;
+      const { buildRequestEnvelope } = require('./chat/dialogueRouter');
+      const envelope = buildRequestEnvelope(text, {
+        source: meta.originalSource || meta.source || 'chat',
+        speaker: meta.speaker || '玩家',
+        agentPosition: meta.agentPosition || (snap ? snap.position : null)
+      });
+      const result = await harnessBridge.forward(envelope, {
+        from: meta.source || 'chat',
+        imagePath: meta.imagePath,
+        mode: meta.mode
+      });
       if (result && result.ok === true && ctx.taskGoals && typeof ctx.taskGoals.maybeCreateDialogue === 'function') {
         try {
           const goal = await ctx.taskGoals.maybeCreateDialogue({
@@ -825,7 +840,6 @@ async function main() {
   let languageBrain = null;
   if (languageMode === 'unified') {
     const { LanguageBrain } = require('./llm/languageBrain');
-    const { buildRequestEnvelope } = require('./chat/dialogueRouter');
     const { loadChatSilenceProfile, formatSilencePolicy } = require('./llm/chatSilenceProfile');
     const silenceProfileFile = languageCfg.silenceProfile
       ? path.resolve(cfg.root || process.cwd(), languageCfg.silenceProfile)
@@ -865,19 +879,10 @@ async function main() {
       approvalGate: ctx.approvalGate,
       /**
        * Approval sends the ORIGINAL text to the action brain inside the same identity
-       * envelope DialogueRouter uses; the metadata never rewrites the player's words.
+       * envelope DialogueRouter uses; the wrapper also creates the durable goal, so the
+       * unified path and the router cannot drift apart (2026-10-30 live finding).
        */
-      forwardToActionBrain: harnessBridge
-        ? async (text, meta = {}) => {
-            const snap = ctx.body && typeof ctx.body.snapshot === 'function' ? ctx.body.snapshot() : null;
-            const envelope = buildRequestEnvelope(text, {
-              source: meta.originalSource || meta.source || 'chat',
-              speaker: meta.speaker || '玩家',
-              agentPosition: meta.agentPosition || (snap ? snap.position : null)
-            });
-            return harnessBridge.forward(envelope, { from: meta.source || 'chat' });
-          }
-        : null,
+      forwardToActionBrain: ctx.forwardToActionBrain,
       conversation: ctx.conversation,
       silencePolicy,
       onChange: () => brain.scheduleStateSave(),

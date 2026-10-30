@@ -183,6 +183,26 @@ async function main() {
       assert.match(bridgeSource, /mode: meta\.mode === 'steer' \? 'steer' : 'followup'/);
       assert.match(bridgeSource, /delivery: payload\.delivery/);
     });
+
+    /**
+     * Live 2026-10-30: while DSH still ran the OLD plugin, `/message` ignored `mode` and
+     * answered without `delivery`. The bridge must not claim "steer" just because the
+     * caller asked for it; the fallback is the old behaviour (followup).
+     */
+    {
+      const { HarnessBridge } = require(path.join(ROOT, 'src', 'chat', 'harnessBridge'));
+      const bridge = new HarnessBridge({
+        url: 'http://127.0.0.1:9',
+        agentId: 'agent-x',
+        fetchImpl: async () => ({ ok: true, status: 200, json: async () => ({ ok: true, forwarded: true }) })
+      });
+      const result = await bridge.forward('queued text', { mode: 'steer' });
+      check('an old plugin without delivery is reported as followup, not steer', () => {
+        assert.strictEqual(result.ok, true);
+        assert.strictEqual(result.delivery, 'followup');
+      });
+    }
+
     const policySource = fs.readFileSync(path.join(ROOT, 'src', 'perception', 'screenshotPolicy.js'), 'utf8');
     check('the screenshot policy asks for steer delivery', () => {
       assert.match(policySource, /imagePath: record\.path,\s*\n\s*mode: 'steer'/);

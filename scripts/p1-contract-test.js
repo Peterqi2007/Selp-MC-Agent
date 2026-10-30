@@ -1301,6 +1301,13 @@ function makeBrain() {
     assert.throws(() => parseVerdict(['allow']), /malformed-verdict/);
   });
 
+  check('the judge tolerates a fence / leading prose / a truncated object, still fail-closed', () => {
+    assert.deepStrictEqual(parseVerdict('```json\n{"verdict":"deny"}\n```'), { verdict: 'deny' });
+    assert.deepStrictEqual(parseVerdict('Reasoning: safe.\n{"verdict":"allow"}'), { verdict: 'allow' });
+    assert.deepStrictEqual(parseVerdict('{"verdict":"allow"'), { verdict: 'allow' });
+    assert.throws(() => parseVerdict('The verdict is allow'), /malformed-verdict/);
+  });
+
   {
     const judge = new InstructionJudge({ complete: async () => '{"verdict":"allow"}' });
     const verdict = await judge.judge('帮我砍树');

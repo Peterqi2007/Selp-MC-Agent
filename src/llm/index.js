@@ -943,7 +943,12 @@ class LlmCore {
           system: prompt.system,
           messages: [{ role: 'user', content: prompt.user }],
           timeoutMs,
-          maxTokens: 200,
+          /**
+           * One JSON object is ~12 tokens, but DeepSeek reasoning can spend the budget
+           * before emitting it. 200 hit the cap live (2026-10-30: completion=200,
+           * malformed-verdict); the parser also tolerates fencing/truncation now.
+           */
+          maxTokens: 600,
           usageContext: { requestId: `judge-${Date.now()}`, kind: 'judge' }
         });
         if (!result || !result.ok) throw new Error((result && result.reason) || 'model-failed');

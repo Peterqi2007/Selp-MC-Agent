@@ -1152,7 +1152,16 @@ if (STAGE === 'p1') {
     const judge = read('src/llm/judge.js');
     if (!/class InstructionJudge/.test(judge) || !/parseVerdict/.test(judge)) throw new Error('InstructionJudge is missing');
     if (!/malformed-verdict/.test(judge)) throw new Error('malformed verdicts are accepted');
-    if (!/return \{ verdict: data\.verdict \}/.test(judge)) throw new Error('the judge returns more than the verdict');
+    /**
+     * Any `return { verdict }` / `return { verdict: <expr> }` is fine; what must stay true is
+     * that no extra field (especially the player's text, a rewrite or an instruction) can
+     * leave the judge. 2026-10-30: the parser now tolerates fences/truncation, so the exact
+     * one-line shape changed while the binary contract did not.
+     */
+    if (!/return \{ verdict(?:: [^}]+)? \};/.test(judge)) throw new Error('the judge returns more than the verdict');
+    if (/return \{[^}]*verdict[^}]*\b(text|instruction|rewrite)\b/.test(judge)) {
+      throw new Error('the judge returns a rewrite field');
+    }
     if (/require\(['"](http|https|net|ws)['"]\)/.test(judge)) throw new Error('the judge owns a transport');
     return 'allow/deny only; rewrite fields dropped; injected completion';
   });
@@ -1161,7 +1170,14 @@ if (STAGE === 'p1') {
     const llm = read('src/llm/index.js');
     const index = read('src/index.js');
     if (!/async judgeInstruction/.test(llm)) throw new Error('LlmCore has no judgeInstruction()');
-    if (!/maxTokens: 200/.test(llm)) throw new Error('the judge budget is not tiny');
+    const budget = /maxTokens: (\d+)/.exec(llm);
+    if (!budget) throw new Error('the judge has no token budget');
+    /**
+     * Still a low-level, low-budget call, but 200 was too small in practice: DeepSeek used
+     * the whole budget before emitting the verdict and the answer was cut off (live
+     * 2026-10-30: completionTokens=200, malformed-verdict). 600 is the new ceiling.
+     */
+    if (Number(budget[1]) > 600) throw new Error('the judge budget is not bounded');
     if (!/judgeInstruction/.test(index)) throw new Error('the addressed channel does not use the LLM judge');
     return 'low-level call, no tools, wired to the gate';
   });

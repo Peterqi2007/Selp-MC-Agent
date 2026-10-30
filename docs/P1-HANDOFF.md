@@ -7,7 +7,10 @@
 > 2026-10-24 补 M6 受控测试（A24/C03/F02 受控 PASS、A25 四路径仅 accept 为真实 harness、
 > A23 仍缺 40 组 ×3），**M6 仍 PARTIAL**。
 > 2026-10-30 补：CU 标为 ABANDONED（[`CU-ABANDONED.md`](CU-ABANDONED.md)）、载具感知、`@` 请求 → goal、
-> 截图 steer 主动提交、Voyager 式自动课程（[`P1-WORK-2026-10-30.md`](P1-WORK-2026-10-30.md)）。
+> 截图 steer 主动提交、Voyager 式自动课程；**当天白天已拉起真实客户端补真机**：`@` goal、
+> biplane `mounted/inventory/integrity`、steer 落在 turn 70 step 2（带图）、curriculum prep level 1/4；
+> 同时修掉 judge 预算/解析、unified 语言脑绕过 goal、旧插件 delivery 误报三个缺陷
+> （[`P1-WORK-2026-10-30.md`](P1-WORK-2026-10-30.md) §8）。
 > 本文是交接入口；**阶段判定**以 [`P1-CLIENT-VERIFICATION.md`](P1-CLIENT-VERIFICATION.md) 为准，
 > 逐项证据见 [`P1-M7.md`](P1-M7.md) 的 A01–A31 矩阵与 [`P1-M3.md`](P1-M3.md) §3。
 >
@@ -35,7 +38,7 @@ npm run p1:baseline -- --suites  # 记录提交/配置指纹/套件结果到 run
 | --- | --- |
 | P0 regression（8 suites，含 `selftest 183/183`） | **8/8** |
 | `planner:test` | **35/35** |
-| `p1:contract:test` | **209/209** |
+| `p1:contract:test` | **210/210** |
 | `p1:m3:test` | **58/58** |
 | `p1:m6:test` | **25/25** |
 | `p1:proposal-autonomy:test` | **16/16** |
@@ -46,7 +49,7 @@ npm run p1:baseline -- --suites  # 记录提交/配置指纹/套件结果到 run
 | `p1:m5:test` | **32/32** |
 | `p1:channel:test` | **18/18** |
 | `p1:shot:test` | **20/20** |
-| `p1:steer:test` | **8/8** |
+| `p1:steer:test` | **9/9** |
 | `p1:taskgoal:test` | **12/12** |
 | `p1:curriculum:test` | **8/8** |
 | `p1:fault:test` | **9/9** |

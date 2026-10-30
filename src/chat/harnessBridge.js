@@ -72,8 +72,12 @@ class HarnessBridge {
         chars: original.length,
         /** Present when the plugin attached a frame to this message (image steer). */
         image: payload.image || null,
-        /** `steer` = delivered into the running turn; `followup` = queued for the next turn. */
-        delivery: payload.delivery || payload.mode || (meta.mode === 'steer' ? 'steer' : 'followup'),
+        /**
+         * What the plugin actually did. An older plugin ignores `mode` and answers without
+         * `delivery`; assuming "steer" there would claim an immediacy that did not happen,
+         * so the fallback is honestly `followup`.
+         */
+        delivery: payload.delivery || payload.mode || 'followup',
         sha256: crypto.createHash('sha256').update(original).digest('hex'),
         /**
          * The exact envelope handed to the action brain. Exposed on the local panel response

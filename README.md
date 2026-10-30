@@ -58,10 +58,10 @@
 | [`docs/M4-CLIENT-TESTS.md`](docs/M4-CLIENT-TESTS.md) | **M4 代码技能证据（2026-10-25）**：§1–§7 编排子集；§9 v2 离线（35/35）；**§10 A18 v2 真机 PASS**；**§11 A19/A20/A28–A30 真机 PASS（A19 适用子集）** |
 | [`docs/P1-M5.md`](docs/P1-M5.md) | **P1 M5 记录（2026-10-29 口径变更：进程内输入层）**：执行底座由 OS 级 `computer_use` 改为 mod 在游戏进程内注入按键/视角/槽位点击 + 帧缓冲截图经 HTTP 交 Node（Node 持唯一身体执行权与键鼠台账）；闸门 **F1 作废 → F1'a（结构性不可出界）/F1'b（键鼠台账）**；**CU 路径已放弃（abandoned）**。**输入层已实现并真机验证输入/截图/GUI 链路（`p1:m5:test 32/32`、`m5-gui-live 93/93`），但 F1' 故障注入未跑完、A22/M5.3 未执行，M5 仍未通过**；A21/A22 **不标 N/A** |
 | [`docs/CU-ABANDONED.md`](docs/CU-ABANDONED.md) | **CU 路径已放弃（2026-10-29）**：为什么换、还留了什么（只作历史证据）、现在 M5 看什么；`src/computer/*` 已标 ABANDONED |
-| [`docs/P1-WORK-2026-10-30.md`](docs/P1-WORK-2026-10-30.md) | **2026-10-30 本轮交付**：CU 标记放弃、载具感知（骑乘/载具背包/完整度，原版+Immersive Aircraft+其它模组）、`@` 请求 → DSH goal、截图 steer 主动提交、Voyager 式自动课程；含跳过项清单 |
+| [`docs/P1-WORK-2026-10-30.md`](docs/P1-WORK-2026-10-30.md) | **2026-10-30 本轮交付 + 真机**：CU 标记放弃、载具感知（骑乘/载具背包/完整度）、`@` 请求 → DSH goal、截图 steer 主动提交、Voyager 式自动课程；§8 记录客户端拉起后的真机证据（@ goal、biplane inventory/integrity、steer turn 70 step 2 + 图片、curriculum prep）与三个真机缺陷修复 |
 | [`docs/P1-M6.md`](docs/P1-M6.md) | **P1 M6 记录（聊天并发 + 按需接线）**：未读去重、过时回复拒绝、自回声拒绝、限速/重复/截断、随会话持久化；普通聊天 15 行窗口（含自己的回复、随 `p1-state.json` 保存）；**所有非 `!` 玩家消息写入 ChatMemory**；LLM 回复可 opt-in 守卫（默认关闭）；DialogueRouter + `mc_say` 已真机（2026-10-22）；A24/C03/F02 受控 PASS（2026-10-24）；**A23 的 40 组 ×3 与 A25 三条真实提案未完成** |
 | [`docs/LANGUAGE-BRAIN-REPAIR.md`](docs/LANGUAGE-BRAIN-REPAIR.md) | **语言脑统一门面**：`src/llm/languageBrain.js` 的 roleplay/expert/approval、统一语言工具、原文审批、15 行短期窗口 + ChatMemory/任务记忆 grep；**默认 `agent.language.brain=unified`（2026-10-23 真机验证）**，`legacy` 可回退；`p1:language:test 20/20` |
-| [`docs/P1-M7.md`](docs/P1-M7.md) | **P1 M7 记录（离线准备）**：`p1:verify` 一键离线验收（2026-10-29 实测 `--fast` **15/15**、完整 **16/16** 套件）、`p1:fault:test` 9/9、A01–A31 验收矩阵 + F1' 闸门（2026-10-25 回填，2026-10-29 更新 M5 口径）、发布清单与残余风险。**P1 未发布**；M1/M2/M3/M4 真机通过，M5–M7 剩余项见清单 |
+| [`docs/P1-M7.md`](docs/P1-M7.md) | **P1 M7 记录（离线准备）**：`p1:verify` 一键离线验收（2026-10-30 实测 `--fast` **17/17**、完整 **18/18** 套件）、`p1:fault:test` 9/9、A01–A31 验收矩阵 + F1' 闸门（2026-10-25 回填，2026-10-29 更新 M5 口径）、发布清单与残余风险。**P1 未发布**；M1/M2/M3/M4 真机通过，M5–M7 剩余项见清单 |
 | [`docs/P1-GAP-AUDIT.md`](docs/P1-GAP-AUDIT.md) | **P1 全文差距审计**：§1.4–§1.9 逐节“已落地/部分/仅契约/未开始”，离线待办优先级与需批准项（2026-10-22/10-25 增补现状表；2026-10-29 M5 口径变更） |
 | [`docs/P1-HANDOFF.md`](docs/P1-HANDOFF.md) | **P1 交接（2026-10-25）**：一键复验、已交付清单、客户端窗口实测、默认配置、剩余未交付、窗口顺序、代码地图与风险 |
 | [`docs/CLIENT-TEST-2026-10-17.md`](docs/CLIENT-TEST-2026-10-17.md) | **客户端窗口实测记录**：协议 23/23、登录+寻路 7/7、采集 9/10（挖石 noPath 失败）、Agent 自动登录修复、`/state` 空闲成本、F1 未授权（历史，2026-10-29 起 F1 已作废、改 F1'） |
@@ -224,10 +224,10 @@ LLM 层（`src/llm/`，生产配置已开启 `toolCalling`）：8 个工具 —�
 * 离线全绿（2026-10-29 实跑）：`selftest`、`skills:test`、`client:test`、`control:test`、`tasks:test`、
   `path:test`、`clientmod:test`、`verify:roleplay`、`llm:dry` 均通过（历史计数见 §8；P0 套件由 `p0:verify` 统一跑）。
 * P1 离线（2026-10-30 实跑）：`p1:verify` **18/18 套件**（P0 8 套件 + `planner:test 35/35` +
-  `p1:contract:test 209/209` + `p1:m3:test 58/58` + `p1:m6:test 25/25` +
+  `p1:contract:test 210/210` + `p1:m3:test 58/58` + `p1:m6:test 25/25` +
   `p1:proposal-autonomy:test 16/16` + `p1:language:test 22/22` + `p1:m7:test 11/11` +
   `p1:m4:test 35/35` + `p1:m4:evolve:test 17/17` + `p1:m5:test 32/32` + `p1:channel:test 18/18` +
-  `p1:shot:test 20/20` + `p1:steer:test 8/8` + `p1:taskgoal:test 12/12` + `p1:curriculum:test 8/8` +
+  `p1:shot:test 20/20` + `p1:steer:test 9/9` + `p1:taskgoal:test 12/12` + `p1:curriculum:test 8/8` +
   `p1:fault:test 9/9` + `plan:audit --stage p1 105/105`；`--fast` 为 **17/17**，完整 **18/18**）。
 * P1 客户端阶段（2026-10-20/21/22/24/25 + 2026-10-29）：**M1 适用子集 PASS、M2 PASS、M3 PASS、M4 PASS（A19 适用子集）**
   （A13–A17、A27 只读/异步、A28–A30、F2；均在 `planner.mode=off` 下由 DSH 动作脑/真机注入完成）；
@@ -252,7 +252,7 @@ LLM 层（`src/llm/`，生产配置已开启 `toolCalling`）：8 个工具 —�
   已 `client:install` 覆盖 PCL 版本目录。改 Mod 后必须重装（`npm run client:install`）并重启客户端。
   本次输入层/实体/载具感知真机项见 [`docs/P1-M5.md`](docs/P1-M5.md) §8/§10 与
   [`docs/P1-WORK-2026-10-30.md`](docs/P1-WORK-2026-10-30.md)。
-* **2026-10-30 本轮（离线）**：
+* **2026-10-30 本轮（离线 + 真机）**：
   - **CU 正式标为放弃**，文档/代码头统一，唯一口径 [`docs/CU-ABANDONED.md`](docs/CU-ABANDONED.md)；
   - **载具感知**：`/state` 新增 `mounted`，`riding` 带 `inventory`/`integrity`；覆盖原版容器、
     马/箱船/矿车、Immersive Aircraft（Container + ratio health）与其它模组的 IItemHandler/反射回退；
@@ -264,8 +264,12 @@ LLM 层（`src/llm/`，生产配置已开启 `toolCalling`）：8 个工具 —�
     不再等整轮结束；无 `steer()` 的运行时诚实回退 `followup`；
   - **Voyager 式自动课程**：`src/planner/curriculum.js` 维护 completed/failed 账本与难度带，
     prep goal 携带上下文，低于 band 的提案被拒（有限次后放宽），执行 goal 终态回写账本。
-  离线新增 `p1:steer:test 8/8`、`p1:curriculum:test 8/8`；需 DSH 重启/真机的四项按口径跳过，
-  见 [`docs/P1-WORK-2026-10-30.md`](docs/P1-WORK-2026-10-30.md) §7。
+  离线新增 `p1:steer:test 9/9`、`p1:curriculum:test 8/8`；**当天白天拉起真实客户端完成了四项真机**：
+  `@大肥鱼` 段落创建 goal（`/task-goals created`）、biplane 骑乘 `mounted:true` + inventory 24 格 2 件
+  + integrity 1/1 ratio、截图 steer 落在 **turn 70 step 2**（当轮中间步骤）并带 768×432 图片、
+  curriculum prep goal 带 `level 1/4` 且提案 p29 校验 `required=1 actual=1`。
+  真机还修掉三个缺陷：judge 200-token 截断导致 `malformed-verdict`、unified 语言脑绕过 goal、
+  旧插件 delivery 误报。证据见 [`docs/P1-WORK-2026-10-30.md`](docs/P1-WORK-2026-10-30.md) §8。
 
 * **客户端按任意键退出修复（2026-10-22）**：服务器新增 **Aeronautics → Sable → Veil 1.0.0.296** 后，
   Veil 的 GLFW 键回调在 ImGui context 未就绪时仍调用 `ImGui.getIO()`，任意按键都会触发

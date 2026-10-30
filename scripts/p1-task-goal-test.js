@@ -176,6 +176,10 @@ async function main() {
     // Unified language-brain / addressed channels call forwardToActionBrain, not the router.
     assert.match(index, /ctx\.forwardToActionBrain = async/);
     assert.match(index, /ctx\.taskGoals\.maybeCreateDialogue\(/);
+    // Live 2026-10-30: the language brain used to inline its own bridge call and bypass the
+    // goal injection. It must consume the shared wrapper.
+    assert.match(index, /forwardToActionBrain: ctx\.forwardToActionBrain/);
+    assert.doesNotMatch(index, /forwardToActionBrain: harnessBridge\s*\?/);
   });
 
   // ---------------------------------------------------------------- wiring
