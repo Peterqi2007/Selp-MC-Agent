@@ -51,7 +51,7 @@ npm run p1:baseline -- --suites  # 记录提交/配置指纹/套件结果到 run
 | --- | --- |
 | P0 regression（8 suites，含 `selftest 183/183`） | **8/8** |
 | `planner:test` | **35/35** |
-| `p1:contract:test` | **224/224** |
+| `p1:contract:test` | **231/231** |
 | `p1:failure-escalation:test` | **26/26** |
 | `p1:m3:test` | **58/58** |
 | `p1:m6:test` | **25/25** |

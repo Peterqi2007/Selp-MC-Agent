@@ -145,6 +145,19 @@ class Brain {
       postconditionRetryMs: 300,
       postconditionRetryAttempts: 2,
       recordMethod: (step, ok) => this.methods.recordOutcome(step.methodId, ok),
+      /**
+       * Plan-level learning (2026-10-30). `this.methods` is constructed later than this
+       * runner, so the arrow dereferences it lazily; a plan that settles before then simply
+       * returns null instead of throwing.
+       */
+      recordPlan: (plan, detail) => (this.methods
+        ? this.methods.recordPlan({
+            goal: plan && plan.goal,
+            method: this._methodShape(plan),
+            conditions: this._methodConditions(),
+            ok: !!(detail && detail.ok)
+          })
+        : null),
       onStep: (event) => this.planService && this.planService.onStep(event),
       escalation: this.failureEscalation,
       log: this.log
@@ -1127,6 +1140,46 @@ class Brain {
   }
 
   /**
+   * The remembered shape of an approach: the ordered step-type sequence of a plan.
+   *
+   * Why types and not the raw steps: the same goal reached by `goto > mine_ore` is the same
+   * method tomorrow even when the coordinates differ, and that is exactly the granularity
+   * `MethodLibrary` identity needs (a different *sequence* is a different method, a different
+   * coordinate is not).
+   *
+   * Every typed step is included, including one that a resumed run skipped because it was
+   * already done - it is still part of the approach. (The skip itself lives in the run
+   * results, not in the stored step: nothing sets a step status to 'skipped'.)
+   *
+   * @param {object} plan
+   * @returns {string} e.g. "goto > mine_ore"
+   */
+  _methodShape(plan) {
+    const steps = plan && Array.isArray(plan.steps) ? plan.steps : [];
+    return steps
+      .filter((step) => step && step.type)
+      .map((step) => String(step.type))
+      .join(' > ');
+  }
+
+  /**
+   * Observed context a method is conditioned on. Only what we actually saw: an absent
+   * dimension yields `{}` rather than a guessed one, because `MethodLibrary._score` treats
+   * unobserved conditions as neutral but a *wrong* one as evidence against.
+   */
+  _methodConditions() {
+    try {
+      /** Prefer the body's own snapshot; the world view behind it is the same read model. */
+      const read = (source) => (source && typeof source.snapshot === 'function' ? source.snapshot() : null);
+      const snap = read(this.ctx && this.ctx.body) || read(this.ctx && this.ctx.world);
+      const dimension = snap && (snap.dimension || (snap.world && snap.world.dimension));
+      return dimension ? { dimension } : {};
+    } catch {
+      return {};
+    }
+  }
+
+  /**
    * Local knowledge for a goal: best method + best remembered answer (P1 §1.6.2).
    *
    * Retrieval only - it never executes anything and never calls a model. The planner,
@@ -1473,8 +1526,19 @@ class Brain {
     } else {
       return false;
     }
+    /**
+     * Dedupe identity (2026-10-30): the same task settling the same way is one event that
+     * happened N times, not N events. Before this, 167 task events held only 129 distinct
+     * memories and the repeats were already evicting a week of history at the 200-entry cap.
+     * A *different* reason keeps the same key but a different text, so it still appends.
+     */
+    const dedupeKey = data.taskId
+      ? `task:${data.taskId}:${data.status}`
+      : data.planId
+        ? `plan:${data.planId}:${data.status}`
+        : null;
     try {
-      const stored = this.memoryStore.remember('episodic', { text, tags, source, data });
+      const stored = this.memoryStore.remember('episodic', { text, tags, source, data, dedupeKey });
       return !!(stored && stored.ok);
     } catch (err) {
       this.log.warn(`task memory write failed: ${err.message}`);

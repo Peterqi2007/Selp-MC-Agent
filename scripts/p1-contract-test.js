@@ -3484,6 +3484,102 @@ function makeBrain() {
     });
   }
 
+  // --------------------------------------- memory learning wiring (2026-10-30)
+  process.stdout.write('\n43. memory learning wiring\n');
+  {
+    const { MethodLibrary } = require('../src/learning/methodLibrary');
+    const { MemoryStore } = require('../src/memory/store');
+
+    check('a method is only learned after it worked, and repeats add evidence', () => {
+      const lib = new MethodLibrary({ now: () => 1000 });
+      assert.strictEqual(
+        lib.recordPlan({ goal: 'get iron', method: 'goto > mine_ore', ok: false }),
+        null,
+        'a plan that never worked is not an approach'
+      );
+      assert.strictEqual(lib.status().methods, 0);
+      const id = lib.recordPlan({
+        goal: 'get iron',
+        method: 'goto > mine_ore',
+        conditions: { dimension: 'minecraft:overworld' },
+        ok: true
+      });
+      assert.ok(id, 'first success must create the method');
+      assert.strictEqual(lib.status().methods, 1);
+      assert.strictEqual(lib.find('get iron', 'goto > mine_ore').success, 1);
+      const again = lib.recordPlan({ goal: 'get iron', method: 'goto > mine_ore', ok: true });
+      assert.strictEqual(again, id, 'a repeat must reuse the same method, not create a second');
+      assert.strictEqual(lib.find('get iron', 'goto > mine_ore').success, 2);
+      lib.recordPlan({ goal: 'get iron', method: 'goto > mine_ore', ok: false });
+      assert.strictEqual(lib.find('get iron', 'goto > mine_ore').failure, 1);
+      assert.strictEqual(lib.status().methods, 1);
+    });
+
+    check('a different step sequence for the same goal is a different method', () => {
+      const lib = new MethodLibrary({ now: () => 1000 });
+      lib.recordPlan({ goal: 'get iron', method: 'goto > mine_ore', ok: true });
+      lib.recordPlan({ goal: 'get iron', method: 'mine_ore', ok: true });
+      assert.strictEqual(lib.status().methods, 2);
+    });
+
+    check('the settled plan pins the method id it learned', () => {
+      const srcRunner = fs.readFileSync(require('path').join(__dirname, '..', 'src', 'core', 'planRunner.js'), 'utf8');
+      assert.match(srcRunner, /this\.recordPlan = deps\.recordPlan/, 'recordPlan dep must exist');
+      assert.match(srcRunner, /stored\.methodId = methodId/, 'the id must reach the plan');
+      const srcBrain = fs.readFileSync(require('path').join(__dirname, '..', 'src', 'brain.js'), 'utf8');
+      assert.match(srcBrain, /recordPlan: \(plan, detail\)/, 'brain must provide the hook');
+      assert.match(srcBrain, /_methodShape\(/, 'the shape must be derived from the steps');
+    });
+
+    check('episodic memory collapses a repeated identical failure into one counted entry', () => {
+      const store = new MemoryStore({ now: () => 1000 });
+      for (let i = 0; i < 4; i += 1) {
+        store.remember('episodic', {
+          text: 'task task-143 failed: not-arrived',
+          dedupeKey: 'task:task-143:failed',
+          source: 'task-event'
+        });
+      }
+      assert.strictEqual(store.status().total, 1, 'four identical failures are one event');
+      const entry = [...store.entries.values()][0];
+      assert.strictEqual(entry.count, 4, 'the count must record how often it happened');
+      assert.ok(entry.lastAt, 'lastAt must be kept');
+    });
+
+    check('a different reason stays separate evidence, and no key still appends', () => {
+      const store = new MemoryStore({ now: () => 1000 });
+      store.remember('episodic', { text: 'task t1 failed: noPath', dedupeKey: 'task:t1:failed' });
+      store.remember('episodic', { text: 'task t1 failed: throw', dedupeKey: 'task:t1:failed' });
+      assert.strictEqual(store.status().total, 2);
+      store.remember('episodic', { text: 'loose note' });
+      store.remember('episodic', { text: 'loose note' });
+      assert.strictEqual(store.status().total, 4, 'without a key every write appends');
+    });
+
+    check('task events carry a dedupe key derived from taskId and status', () => {
+      const srcBrain = fs.readFileSync(require('path').join(__dirname, '..', 'src', 'brain.js'), 'utf8');
+      assert.match(srcBrain, /const dedupeKey = data\.taskId/, 'task events must key on taskId');
+      assert.match(srcBrain, /`task:\$\{data\.taskId\}:\$\{data\.status\}`/);
+      assert.match(srcBrain, /`plan:\$\{data\.planId\}:\$\{data\.status\}`/);
+    });
+
+    check('a successful lookup writes semantic memory and refreshes instead of duplicating', () => {
+      const store = new MemoryStore({ now: () => 1000 });
+      const key = 'lookup:create:zinc_ore';
+      store.remember('semantic', { text: 'zinc v1', dedupeKey: key, dedupeMode: 'replace', source: 'lookup' });
+      store.remember('semantic', { text: 'zinc v2', dedupeKey: key, dedupeMode: 'replace', source: 'lookup' });
+      assert.strictEqual(store.status().counts.semantic, 1, 'the same query must not pile up');
+      const entry = [...store.entries.values()][0];
+      assert.strictEqual(entry.text, 'zinc v2', 'the latest answer wins');
+      assert.strictEqual(entry.count, 2);
+      const srcWeb = fs.readFileSync(require('path').join(__dirname, '..', 'src', 'web', 'statusServer.js'), 'utf8');
+      assert.match(srcWeb, /const rememberLookup = \(lookupResult\)/, 'the lookup writer must exist');
+      assert.match(srcWeb, /rememberLookup\(fixture\)/, 'the fixture path must store too');
+      assert.match(srcWeb, /rememberLookup\(result\)/, 'the live path must store');
+      assert.match(srcWeb, /dedupeMode: 'replace'/, 'lookups must refresh, not duplicate');
+    });
+  }
+
   // summary
   const failed = results.filter((result) => !result.ok);
   process.stdout.write(`\nP1 contract test: ${results.length - failed.length}/${results.length} checks passed\n`);

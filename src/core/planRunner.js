@@ -48,6 +48,13 @@ class PlanRunner {
       ? Math.max(0, deps.postconditionRetryAttempts)
       : 1;
     this.recordMethod = deps.recordMethod || null;
+    /**
+     * Plan-level learning (2026-10-30). `recordMethod` above only fires for a step that was
+     * pinned with an explicit `step.methodId`; nothing in the product ever pinned one, so the
+     * method library stayed empty. This hook runs once per settled run and learns the whole
+     * approach, which is what makes `!method` and `suggestMethod()` return anything at all.
+     */
+    this.recordPlan = deps.recordPlan || null;
     /** Called after every step settlement; PlanService turns it into a `plan:step` event. */
     this.onStep = deps.onStep || null;
     /**
@@ -322,6 +329,34 @@ class PlanRunner {
       }
       const completed = results.length === stored.steps.length &&
         results.every((result) => result.skipped || result.status === 'succeeded');
+      /**
+       * Learn the approach once the whole plan settles (2026-10-30): a successful run teaches
+       * "this goal, this step sequence"; a later run of the same shape only adds evidence.
+       * A cancelled run teaches nothing - the operator stopped it, which is not a verdict on
+       * the method. The returned id is attached to the plan for audit; the per-step
+       * `step.methodId` path above stays the separate, explicitly-pinned one.
+       */
+      if (typeof this.recordPlan === 'function') {
+        try {
+          const methodId = this.recordPlan(stored, {
+            ok: completed && !this.active.cancelled,
+            cancelled: this.active.cancelled,
+            results
+          });
+          if (methodId) {
+            stored.methodId = methodId;
+            /**
+             * `plans.get()` returns a deep copy, so the assignment above only decorates the
+             * local snapshot; the store needs its own write.
+             */
+            if (this.plans && typeof this.plans.setMethodId === 'function') {
+              this.plans.setMethodId(planId, methodId);
+            }
+          }
+        } catch (err) {
+          this.log.warn(`plan method not recorded for ${planId}: ${err.message}`);
+        }
+      }
       return {
         ok: completed && !this.active.cancelled,
         partial: !this.active.cancelled && results.some((result) => result.status === 'partial'),

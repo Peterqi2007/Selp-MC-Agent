@@ -66,6 +66,60 @@ class MethodLibrary {
       .map((entry) => ({ method: { ...entry.method, conditions: { ...entry.method.conditions } }, score: entry.score }));
   }
 
+  /**
+   * Exact identity lookup. `search()` is deliberately fuzzy (it ranks candidates); learning
+   * needs the opposite - "is this goal already done *this* way", so that a repeat does not
+   * create a second method with its own fresh success rate.
+   *
+   * @param {string} goal
+   * @param {string} method
+   * @returns {object|null}
+   */
+  find(goal, method) {
+    const wanted = String(goal || '').trim();
+    const shape = String(method || '').trim();
+    if (!wanted || !shape) return null;
+    for (const stored of this.methods.values()) {
+      if (stored.goal === wanted && stored.method === shape) {
+        return { ...stored, conditions: { ...stored.conditions } };
+      }
+    }
+    return null;
+  }
+
+  /**
+   * Learn from one settled plan (the write side that was missing: `add()` had no caller in
+   * `src/` until 2026-10-30, so the library could never leave zero entries).
+   *
+   * A **first success** creates the method (already counting that success). A later run of the
+   * same (goal, method) only adds evidence via `recordOutcome` - success and failure both,
+   * which is what makes the Laplace-smoothed ranking in `search()` meaningful. A **first
+   * failure** is never learned: a plan that has never worked is not an approach, it is an
+   * incident, and it belongs in episodic memory instead.
+   *
+   * @param {object} input { goal, method, conditions?, ok?, source? }
+   * @returns {string|null} the method id, or null when nothing was learned
+   */
+  recordPlan(input = {}) {
+    const goal = String(input.goal || '').trim();
+    const shape = String(input.method || '').trim();
+    if (!goal || !shape) return null;
+    const existing = this.find(goal, shape);
+    if (existing) {
+      this.recordOutcome(existing.id, input.ok === true);
+      return existing.id;
+    }
+    if (input.ok !== true) return null;
+    const created = this.add({
+      goal,
+      method: shape,
+      conditions: input.conditions || {},
+      source: input.source || 'local',
+      success: 1
+    });
+    return created.id;
+  }
+
   /** Evidence that a method worked (or did not) in this world. */
   recordOutcome(id, ok) {
     const method = this.methods.get(id);

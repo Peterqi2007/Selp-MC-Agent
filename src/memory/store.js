@@ -59,23 +59,66 @@ class MemoryStore {
     this.seq = 0;
   }
 
-  /** @returns {{ok:boolean, entry?:object, reason?:string}} */
+  /**
+   * Store one entry, optionally collapsing repeats of the same event.
+   *
+   * `dedupeKey` names the *identity* of an entry (e.g. `task:task-143:failed`). Without it
+   * every call appends, which is how 167 task events turned into 129 distinct memories and
+   * evicted a week of history: the same task failing four times for the same reason is one
+   * event that happened four times, not four events.
+   *
+   *   mode 'merge'   (default) same key AND same text  -> keep one entry, count += 1;
+   *                  same key but different text       -> append (a different failure reason
+   *                  is genuinely different evidence);
+   *   mode 'replace' same key                            -> refresh text/at in place, so a
+   *                  re-run lookup updates one fact instead of piling up near-duplicates.
+   *
+   * @returns {{ok:boolean, entry?:object, reason?:string, merged?:boolean}}
+   */
   remember(category, input = {}) {
     if (!CATEGORIES.has(category)) return { ok: false, reason: 'unknown-category' };
     const text = String(input.text || '').trim();
     if (!text) return { ok: false, reason: 'empty-text' };
+    const at = input.at || new Date(this.now()).toISOString();
+    const dedupeKey = input.dedupeKey ? String(input.dedupeKey) : null;
+    const dedupeMode = input.dedupeMode === 'replace' ? 'replace' : 'merge';
+    if (dedupeKey) {
+      const same = this._findByDedupeKey(category, dedupeKey);
+      if (same && (dedupeMode === 'replace' || same.text === text)) {
+        same.count = (Number(same.count) || 1) + 1;
+        same.lastAt = at;
+        if (dedupeMode === 'replace') {
+          same.text = text;
+          same.at = at;
+          if (Array.isArray(input.tags)) same.tags = input.tags.map(String);
+          if (input.data !== undefined) same.data = { ...(input.data || {}), dedupeKey };
+        }
+        return { ok: true, merged: true, entry: { ...same, tags: [...same.tags] } };
+      }
+    }
     const entry = {
       id: input.id || `mem${++this.seq}`,
       category,
       text,
       tags: Array.isArray(input.tags) ? input.tags.map(String) : [],
       source: input.source || 'unknown',
-      at: input.at || new Date(this.now()).toISOString(),
-      data: input.data || null
+      at,
+      count: 1,
+      data: dedupeKey ? { ...(input.data || {}), dedupeKey } : (input.data || null)
     };
     this.entries.set(entry.id, entry);
     this._prune(category);
     return { ok: true, entry: { ...entry, tags: [...entry.tags] } };
+  }
+
+  /** Identity lookup for `remember`'s dedupe: the key lives in `data.dedupeKey`. */
+  _findByDedupeKey(category, dedupeKey) {
+    for (const entry of this.entries.values()) {
+      if (entry.category !== category) continue;
+      if (!entry.data || entry.data.dedupeKey !== dedupeKey) continue;
+      return entry;
+    }
+    return null;
   }
 
   /**

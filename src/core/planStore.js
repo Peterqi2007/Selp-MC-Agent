@@ -75,6 +75,25 @@ class PlanStore {
     return plan ? this.view(plan) : null;
   }
 
+  /**
+   * Pin the method a settled plan taught (or reused) onto the stored plan.
+   *
+   * `get()` deliberately hands out a deep copy - every other reader must not be able to
+   * mutate the store by accident - so a caller cannot set this on the returned object and
+   * expect it to stick. That is exactly the bug this method exists to avoid.
+   *
+   * @param {string} planId
+   * @param {string} methodId
+   * @returns {boolean} true when the plan was found and updated
+   */
+  setMethodId(planId, methodId) {
+    const plan = this.plans.get(planId);
+    if (!plan || !methodId) return false;
+    plan.methodId = String(methodId);
+    plan.updatedAt = new Date().toISOString();
+    return true;
+  }
+
   list() {
     return [...this.plans.values()].map((plan) => this.view(plan));
   }

@@ -161,7 +161,7 @@ nothing changed
 | --- | --- |
 | `p1:failure-escalation:test` | **26/26**（信封/签名/闸门/lookup/ask/降级/回执/证据/计划/提示词） |
 | `client:test` | **79/79**（假 mod 协议含 place/useon 证据三分支） |
-| `p1:contract:test` | **224/224**（/command 闸门、/ask_player、lastSettled、plan gate） |
+| `p1:contract:test` | **231/231**（/command 闸门、/ask_player、lastSettled、plan gate） |
 | `p1:m4:test` | **38/38**（生成提示词实时闭环） |
 | `p1:m5:test` | **35/35** |
 | `p1:channel:test` | **18/18**（failurePolicy + 升级文本） |

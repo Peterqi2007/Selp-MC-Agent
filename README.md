@@ -231,7 +231,7 @@ LLM 层（`src/llm/`，生产配置已开启 `toolCalling`）：8 个工具 —�
 * 离线全绿（2026-10-29 实跑）：`selftest`、`skills:test`、`client:test`、`control:test`、`tasks:test`、
   `path:test`、`clientmod:test`、`verify:roleplay`、`llm:dry` 均通过（历史计数见 §8；P0 套件由 `p0:verify` 统一跑）。
 * P1 离线（2026-10-31 实跑）：`p1:verify` **19/19 套件**（P0 8 套件 + `planner:test 35/35` +
-  `p1:contract:test 224/224` + `p1:failure-escalation:test 26/26` + `p1:m3:test 58/58` + `p1:m6:test 25/25` +
+  `p1:contract:test 231/231` + `p1:failure-escalation:test 26/26` + `p1:m3:test 58/58` + `p1:m6:test 25/25` +
   `p1:proposal-autonomy:test 16/16` + `p1:language:test 22/22` + `p1:m7:test 11/11` +
   `p1:m4:test 38/38` + `p1:m4:evolve:test 17/17` + `p1:m5:test 35/35` + `p1:channel:test 18/18` +
   `p1:shot:test 20/20` + `p1:steer:test 9/9` + `p1:taskgoal:test 14/14` + `p1:curriculum:test 8/8` +
@@ -289,6 +289,20 @@ LLM 层（`src/llm/`，生产配置已开启 `toolCalling`）：8 个工具 —�
   - **动作脑改绑**：本机 [`config/agent.local.json`](config/agent.local.json) 的
     `chat.harnessAgentId` 指向 `Minecraft动作脑3`（`session-d2ad5dc4-…`），启动日志
     `action brain bound` 与插件 `/health.boundAgentId` 均已实测一致。
+  - **记忆三处接线**（2026-10-30 实测 [runtime/p1-state.json](runtime/p1-state.json) 后修）：
+    ①**方法记忆**：`MethodLibrary.add()` 此前在 `src/` 里**零调用者**，`methods` 恒为 0 条、
+    `!method` 永远空——现由 PlanRunner 在计划**成功结算**时学习
+    `{goal, method = 步骤类型序列, conditions:{dimension}}`，返回的 id 经 `PlanStore.setMethodId`
+    钉到 plan 上；同一 (goal, method) 复跑只累加成功率，**首次就失败的计划不算方法**（进 episodic）。
+    ②**任务执行记忆去重**：episodic 之前 167 条 task 事件只有 129 条唯一文本（23% 重复），
+    且在 200 条上限处把 10-21 的历史挤了出去——现按 `task:<id>:<status>` / `plan:<id>:<status>`
+    合并：同键同文 → 一条 + `count`，**同键不同原因仍分别保留**（那是不同的证据）。
+    ③**世界知识自动落库**：`semantic` 此前**没有任何自动写入方**，10 天只有 6 条靠动作脑手动
+    调 `mc_memory`；现 `POST /lookup_mod_content` 取到结果即写一条 semantic，按查询归一化 key
+    `replace` 刷新，**重查不重复落库、空结果不落库**。
+    离线 `p1:contract:test 231/231`（+7 条断言）；端到端探针
+    [`scripts/memory-wiring-probe.js`](scripts/memory-wiring-probe.js)（`npm run memory:probe`，
+    走真实 HTTP `/lookup_mod_content` + `PlanService.start` 结算，15 项全过）。
   离线新增 `p1:steer:test 9/9`、`p1:curriculum:test 8/8`；**当天白天拉起真实客户端完成了四项真机**：
   `@大肥鱼` 段落创建 goal（`/task-goals created`）、biplane 骑乘 `mounted:true` + inventory 24 格 2 件
   + integrity 1/1 ratio、截图 steer 落在 **turn 70 step 2**（当轮中间步骤）并带 768×432 图片、

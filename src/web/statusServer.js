@@ -380,6 +380,41 @@ function startStatusServer(ctx, options = {}) {
         const query = String(body.query || '').trim();
         if (!query) return json(res, 400, { ok: false, error: 'query required' });
         /**
+         * Remember what a successful lookup taught us (2026-10-30). `semantic` memory had no
+         * automatic writer at all before this: it only grew when the action brain happened to
+         * call `mc_memory` by hand (6 entries in 10 days), so world knowledge was lost in
+         * between. Identity is the normalised query with `dedupeMode:'replace'`, so looking
+         * the same thing up again refreshes one fact instead of piling up near-duplicates.
+         * Only results are stored - an empty or failed search teaches nothing.
+         */
+        const rememberLookup = (lookupResult) => {
+          try {
+            if (!ctx.memoryStore || typeof ctx.memoryStore.remember !== 'function') return;
+            const results = Array.isArray(lookupResult && lookupResult.results) ? lookupResult.results : [];
+            if (!results.length) return;
+            const digest = results
+              .slice(0, 3)
+              .map((item) => String(
+                (item && (item.snippet || item.content || item.summary || item.title || item.answer)) || ''
+              ).trim())
+              .filter(Boolean)
+              .join('\n')
+              .slice(0, 900);
+            if (!digest) return;
+            const dedupeKey = `lookup:${query.toLowerCase()}`;
+            ctx.memoryStore.remember('semantic', {
+              text: `查询「${query}」的检索结论：\n${digest}`,
+              tags: ['lookup', query],
+              source: 'lookup',
+              dedupeKey,
+              dedupeMode: 'replace',
+              data: { query, dedupeKey, resultCount: results.length }
+            });
+          } catch (err) {
+            log.debug(`lookup memory not stored: ${err.message}`);
+          }
+        };
+        /**
          * Failure escalation: record only a lookup that actually produced usable results.
          * A failed/empty search is not "informed": the gate must still force the agent to
          * ask the player instead of treating an error page as new knowledge.
@@ -395,6 +430,7 @@ function startStatusServer(ctx, options = {}) {
               } catch (err) {
                 log.debug(`lookup record failed: ${err.message}`);
               }
+              rememberLookup(fixture);
             }
             return json(res, 200, { ...fixture, source: 'p1-lookup-fixture', untrusted: true });
           }
@@ -415,6 +451,7 @@ function startStatusServer(ctx, options = {}) {
           } catch (err) {
             log.debug(`lookup record failed: ${err.message}`);
           }
+          rememberLookup(result);
         }
         return json(res, result.ok ? 200 : 502, {
           ...result,
