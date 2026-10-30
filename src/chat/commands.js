@@ -65,7 +65,7 @@ const HELP = [
   '!look <yaw> <pitch> - turn the camera to absolute angles (degrees)',
   '!lookat <x> <y> <z> - look at a coordinate',
   '!target - what is under the crosshair right now',
-  '!key <action> down|up - press or release one key in the client (input layer)',
+  '!key <action> down|up - press/release a controlled vanilla KeyMapping (held: forward/back/left/right/jump/sprint/use/attack/sneak; edge: inventory/drop/chat/swapoffhand/pickitem/hotbar1..9). Mod keybindings (e.g. R/dismount) are NOT exposed',
   '!hold <action> [ms] - hold one key for at most 10s, then auto-release',
   '!shot [maxEdge] - capture the game frame to runtime/screenshots (no OS screen capture)',
   '!inputs - what keys are currently held, and since when',

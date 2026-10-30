@@ -35,6 +35,9 @@ H1 test (Node)
   攻击敌意生物并抢占任务，动作脑不得把这些攻击当成自己的指令。`mc_state` 的 `threat`/`combat`
   组也自动包含该字段。
 - `mc_step`：一次只发一条面板命令（`goto`/`mine`/`chop`/`stop`…），不带 `!`。
+  `key <name> down|up` 只接受受控原版 KeyMapping（held 键 setDown；inventory/drop/chat/
+  swapoffhand/pickitem/hotbar1..9 为 edge click）；模组键位（含 R/下机）不可用，
+  没有对应键位时模型应直接说明限制。
 - `mc_plan`：提交多步计划；有 live 对话绑定时用 `turn:true`，计划结算后同一对话续轮；
   没有绑定时计划仍执行，可用 `mc_plan_status` 轮询。
 - `mc_plan_status`：只读 `GET /plan/:id`（状态/步骤/预算）。

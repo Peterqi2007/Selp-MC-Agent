@@ -180,6 +180,10 @@ async function main() {
     const server = read('mod-client/src/main/java/dev/agentclient/ControlHttpServer.java');
     assert.match(actions, /public String tapJson\(String action\)/, 'no tapJson');
     assert.match(actions, /KeyMapping\.click\(mapping\.getKey\(\)\)/, 'tap does not click the keybind');
+    assert.match(actions, /vanillaKeyMapping/, 'no controlled KeyMapping resolver');
+    assert.match(actions, /keyHotbarSlots/, 'hotbar mappings are not exposed');
+    assert.match(actions, /screen-open/, 'generic edge clicks do not refuse an open screen');
+    assert.match(actions, /R\/dismount/, 'mod keybindings are not explicitly refused');
     assert.match(server, /case "tap" ->/, 'no tap verb');
     // inventory/drop must NOT be holdable: setDown on them is a silent no-op.
     assert.doesNotMatch(actions, /case "inventory" -> mc\.options\.keyInventory\.setDown/,
@@ -268,7 +272,38 @@ async function main() {
     assert.strictEqual(normaliseAction('mine'), 'attack');
     assert.strictEqual(normaliseAction('crouch'), 'sneak');
     assert.strictEqual(normaliseAction('forward'), 'forward');
+    assert.strictEqual(normaliseAction('inventory'), 'inventory');
+    assert.strictEqual(normaliseAction('hotbar1'), 'hotbar1');
+    assert.strictEqual(normaliseAction('r'), null, 'mod keybindings must stay outside the vocabulary');
     assert.strictEqual(normaliseAction('nope'), null);
+  });
+
+  await check('generic edge keys click once and never enter the held table', async () => {
+    const channel = fakeChannel();
+    const ledger = new InputLedger({ log: silent, write: channel.write });
+    const result = await ledger.press('inventory');
+    assert.strictEqual(result.ok, true);
+    assert.strictEqual(result.edge, true);
+    assert.strictEqual(ledger.isClear(), true, 'inventory must not be recorded as a held key');
+    assert.deepStrictEqual(channel.calls, [{ action: 'inventory', down: true }]);
+    const up = await ledger.release('inventory');
+    assert.strictEqual(up.ok, true);
+    assert.strictEqual(up.edge, true);
+    assert.strictEqual(channel.calls.length, 1, 'edge release must not write a second event');
+  });
+
+  await check('edge keys cannot be held and a rejected write leaves nothing held', async () => {
+    const channel = fakeChannel();
+    const ledger = new InputLedger({ log: silent, write: channel.write, writeHold: channel.writeHold });
+    await assert.rejects(() => ledger.hold('hotbar1', 500), /edge-triggered/);
+    const rejected = new InputLedger({
+      log: silent,
+      write: async () => ({ ok: false, error: 'screen-open' })
+    });
+    const result = await rejected.press('forward');
+    assert.strictEqual(result.ok, false);
+    assert.strictEqual(result.error, 'screen-open');
+    assert.strictEqual(rejected.isClear(), true, 'a rejected press must not leave a phantom hold');
   });
 
   // ------------------------------------------------------ holds -> ledger

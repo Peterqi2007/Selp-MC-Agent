@@ -13,6 +13,9 @@
 > （[`P1-WORK-2026-10-30.md`](P1-WORK-2026-10-30.md) §8）。
 > 2026-10-31 补：自卫反射状态 `selfDefense` 进入 `/ui/state`、`mc_observe`、`mc_state`、
 > 请求 envelope 与 goal 文本；动作脑现在知道反射可能自行攻击/抢占任务（§9）。
+> **动作脑改绑到 `Minecraft动作脑3`（`session-d2ad5dc4-…`，`config/agent.local.json`）**；
+> 输入层新增受控 `key <name>`（仅原版 KeyMapping；edge 点击；R/mod 键位明确不可用），
+> 真机验证见 [`P1-WORK-2026-10-30.md`](P1-WORK-2026-10-30.md) §10。
 > 本文是交接入口；**阶段判定**以 [`P1-CLIENT-VERIFICATION.md`](P1-CLIENT-VERIFICATION.md) 为准，
 > 逐项证据见 [`P1-M7.md`](P1-M7.md) 的 A01–A31 矩阵与 [`P1-M3.md`](P1-M3.md) §3。
 >
@@ -48,7 +51,7 @@ npm run p1:baseline -- --suites  # 记录提交/配置指纹/套件结果到 run
 | `p1:m7:test` | **11/11** |
 | `p1:m4:test` | **35/35** |
 | `p1:m4:evolve:test` | **17/17** |
-| `p1:m5:test` | **32/32** |
+| `p1:m5:test` | **34/34** |
 | `p1:channel:test` | **18/18** |
 | `p1:shot:test` | **20/20** |
 | `p1:steer:test` | **9/9** |

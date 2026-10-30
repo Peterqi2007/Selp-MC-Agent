@@ -1,5 +1,7 @@
 'use strict';
 
+const { HELD_KEYS, EDGE_KEYS, MOD_KEY_NOTE } = require('./keyActions');
+
 /**
  * Channel policy - "capability first" (2026-10-29, L2 decision A).
  *
@@ -205,16 +207,29 @@ function describe(ctx) {
     skills: verbs.filter((verb) => !INPUT_SET.has(verb)),
     inputCommands: [...INPUT_COMMANDS],
     /**
+     * The controlled key vocabulary. `key <name> down|up` resolves these through the client
+     * mod's vanilla KeyMapping table; edge keys click once, held keys setDown until released.
+     * This is deliberately not "any key": mod keybindings are outside Options and are absent.
+     */
+    keyActions: {
+      held: [...HELD_KEYS],
+      edge: [...EDGE_KEYS],
+      usage: 'key <name> down | key <name> up; edge names click once on down (no hold)',
+      modKeyBindings: MOD_KEY_NOTE
+    },
+    /**
      * Behavioural rule, not a channel: a channel that failed twice must escalate instead of
      * being retried. Live 2026-10-29: the brain retried registered skills and never tried the
      * keyboard until the goal text spelled this out.
      */
     escalation: {
-      rule: 'a command/skill that fails twice for the same reason must not be retried a third time: read mc_state, then act through the input layer (key/hold/tap/look/menu/click/close); propose code generation only when no key can express the action',
+      rule: 'a command/skill that fails twice for the same reason must not be retried a third time: read mc_state, then act through the input layer (key/hold/tap/look/menu/click/close); if no key mapping exists (including mod keybindings such as R/dismount), state the limitation instead of asking the player to guess; propose code generation only when no key can express the action',
       inputVerbs: [...INPUT_COMMANDS],
       inputExamples: [
         'key forward down',
         'key forward up',
+        'key inventory down',
+        'key hotbar1 down',
         'hold attack 600',
         'tap inventory',
         'look 180 0',

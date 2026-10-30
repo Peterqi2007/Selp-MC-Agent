@@ -22,6 +22,8 @@
  * pressed and makes sure it can always be released.
  */
 
+const { HELD_KEYS, EDGE_KEYS, ALL_KEY_ACTIONS, MOD_KEY_NOTE, isEdgeKey } = require('./keyActions');
+
 /** Longest a single Node-side hold is allowed to live before the ledger force-releases it. */
 const MAX_HOLD_MS = 10_000;
 
@@ -29,20 +31,10 @@ const MAX_HOLD_MS = 10_000;
  * Release order. Attack/use first: those are the actions that change the world, and
  * releasing movement first would let a held attack keep running while the bot walks.
  *
- * Toggle keys (inventory/drop/chat/...) are deliberately absent: they are edge-triggered
- * (`tap`), cannot be held, and have nothing to release.
+ * Edge keys (inventory/drop/chat/hotbar...) are clicks, not holds; they are accepted by the
+ * vocabulary but never entered into `held`.
  */
-const RELEASE_ORDER = [
-  'attack',
-  'use',
-  'forward',
-  'back',
-  'left',
-  'right',
-  'jump',
-  'sprint',
-  'sneak'
-];
+const RELEASE_ORDER = [...HELD_KEYS];
 
 const ALIASES = new Map([
   ['mine', 'attack'],
@@ -53,7 +45,7 @@ const ALIASES = new Map([
   ['eat', 'use']
 ]);
 
-const KNOWN = new Set(RELEASE_ORDER);
+const KNOWN = new Set([...RELEASE_ORDER, ...EDGE_KEYS]);
 
 /** Normalise a key name; unknown names are rejected instead of silently ignored. */
 function normaliseAction(action) {
@@ -126,8 +118,25 @@ class InputLedger {
    */
   async press(action) {
     const name = normaliseAction(action);
-    if (!name) throw new Error(`unknown key "${action}" (${RELEASE_ORDER.join('|')})`);
+    if (!name) throw new Error(`unknown key "${action}" (${ALL_KEY_ACTIONS.join('|')}); ${MOD_KEY_NOTE}`);
     this.expire();
+    /**
+     * Edge keys are one click, not a held key. They still go through this ledger (validation,
+     * one writer, release semantics) but are never inserted into `held`, so `releaseAll`
+     * cannot keep chasing an inventory/hotbar key.
+     */
+    if (isEdgeKey(name)) {
+      try {
+        const result = await this._write(name, true);
+        if (result && result.ok === false) {
+          return { ok: false, action: name, edge: true, error: result.error || 'edge-press-rejected' };
+        }
+        return { ok: true, action: name, edge: true, result: result || null };
+      } catch (err) {
+        this.log.warn(`input ledger: edge key ${name} failed: ${err.message}`);
+        return { ok: false, action: name, edge: true, error: err.message };
+      }
+    }
     if (this.held.has(name)) return { ok: true, already: true, action: name };
     if (this.held.size >= this.maxHeld) {
       throw new Error(`input ledger full: ${this.held.size} keys already down (${this.list().map((k) => k.action).join(', ')})`);
@@ -141,6 +150,15 @@ class InputLedger {
     this.everPressed += 1;
     try {
       const result = await this._write(name, true);
+      /**
+       * A Mod receipt with `ok:false` means the key was NOT applied (screen closed, unknown
+       * mapping, ...). Keeping it in `held` would make stop paths chase a phantom key and
+       * would make the caller believe the press landed.
+       */
+      if (result && result.ok === false) {
+        this.held.delete(name);
+        return { ok: false, action: name, error: result.error || 'press-rejected' };
+      }
       return { ok: true, action: name, result: result || null };
     } catch (err) {
       // The press may or may not have landed; keep it recorded and let releaseAll/expire
@@ -153,7 +171,11 @@ class InputLedger {
   /** Release a single key. Idempotent: releasing what is not held is not an error. */
   async release(action) {
     const name = normaliseAction(action);
-    if (!name) throw new Error(`unknown key "${action}"`);
+    if (!name) throw new Error(`unknown key "${action}"; ${MOD_KEY_NOTE}`);
+    if (isEdgeKey(name)) {
+      // Edge keys are clicked on press; there is no down state to release.
+      return { ok: true, action: name, wasHeld: false, edge: true };
+    }
     const wasHeld = this.held.delete(name);
     try {
       const result = await this._write(name, false);
@@ -172,7 +194,10 @@ class InputLedger {
    */
   async hold(action, ms = 250) {
     const name = normaliseAction(action);
-    if (!name) throw new Error(`unknown key "${action}"`);
+    if (!name) throw new Error(`unknown key "${action}"; ${MOD_KEY_NOTE}`);
+    if (isEdgeKey(name)) {
+      throw new Error(`key "${name}" is edge-triggered; use key ${name} down for one click`);
+    }
     const bounded = Math.max(1, Math.min(Number.isFinite(Number(ms)) ? Number(ms) : 250, MAX_HOLD_MS));
     this.expire();
     if (this.held.size >= this.maxHeld && !this.held.has(name)) {
@@ -182,6 +207,10 @@ class InputLedger {
     this.everPressed += 1;
     try {
       const result = await this._writeHold(name, bounded);
+      if (result && result.ok === false) {
+        this.held.delete(name);
+        return { ok: false, action: name, ms: bounded, error: result.error || 'hold-rejected' };
+      }
       return { ok: true, action: name, ms: bounded, result: result || null };
     } catch (err) {
       this.log.warn(`input ledger: hold ${name} failed after being recorded: ${err.message}`);

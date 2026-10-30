@@ -2164,8 +2164,63 @@ public final class ClientActions {
         player.setXRot((float) -Math.toDegrees(Math.atan2(dy, horizontal)));
     }
 
-    /** Hold/release a movement key through the game's own options. */
+    /**
+     * The controlled edition of the generic key channel.
+     *
+     * It is intentionally a small allow-list of vanilla KeyMapping objects. Mod keybindings
+     * (Immersive Aircraft R/dismount, etc.) are registered outside `Options` and are NOT
+     * reachable here; an unknown or mod name must fail loudly instead of becoming arbitrary
+     * keyboard injection. Edge keys are clicked once; held keys use setDown until released.
+     */
+    private static final List<String> EDGE_KEY_NAMES = List.of(
+            "inventory", "drop", "chat", "swapoffhand", "pickitem",
+            "hotbar1", "hotbar2", "hotbar3", "hotbar4", "hotbar5",
+            "hotbar6", "hotbar7", "hotbar8", "hotbar9");
+
+    private static boolean isEdgeKey(String name) {
+        return EDGE_KEY_NAMES.contains(name);
+    }
+
+    /** Resolve a logical name to the vanilla KeyMapping; null means "not exposed". */
+    private static KeyMapping vanillaKeyMapping(String name) {
+        Minecraft mc = Minecraft.getInstance();
+        return switch (name == null ? "" : name) {
+            case "forward" -> mc.options.keyUp;
+            case "back" -> mc.options.keyDown;
+            case "left" -> mc.options.keyLeft;
+            case "right" -> mc.options.keyRight;
+            case "jump" -> mc.options.keyJump;
+            case "sprint" -> mc.options.keySprint;
+            case "use" -> mc.options.keyUse;
+            case "attack" -> mc.options.keyAttack;
+            case "sneak" -> mc.options.keyShift;
+            case "inventory" -> mc.options.keyInventory;
+            case "drop" -> mc.options.keyDrop;
+            case "chat" -> mc.options.keyChat;
+            case "swapoffhand" -> mc.options.keySwapOffhand;
+            case "pickitem" -> mc.options.keyPickItem;
+            case "hotbar1" -> mc.options.keyHotbarSlots[0];
+            case "hotbar2" -> mc.options.keyHotbarSlots[1];
+            case "hotbar3" -> mc.options.keyHotbarSlots[2];
+            case "hotbar4" -> mc.options.keyHotbarSlots[3];
+            case "hotbar5" -> mc.options.keyHotbarSlots[4];
+            case "hotbar6" -> mc.options.keyHotbarSlots[5];
+            case "hotbar7" -> mc.options.keyHotbarSlots[6];
+            case "hotbar8" -> mc.options.keyHotbarSlots[7];
+            case "hotbar9" -> mc.options.keyHotbarSlots[8];
+            default -> null;
+        };
+    }
+
+    /** Hold/release a movement key through the game's own KeyMapping table. */
     private static void setKeyInClient(String key, boolean down) {
+        KeyMapping mapping = vanillaKeyMapping(key);
+        if (mapping != null) {
+            mapping.setDown(down);
+            return;
+        }
+        // Defensive fallback for a name that reached the release path without a mapping;
+        // keep the old direct binds so a future table edit cannot strand a held key.
         Minecraft mc = Minecraft.getInstance();
         switch (key) {
             case "forward" -> mc.options.keyUp.setDown(down);
@@ -2175,8 +2230,6 @@ public final class ClientActions {
             case "jump" -> mc.options.keyJump.setDown(down);
             case "sprint" -> mc.options.keySprint.setDown(down);
             case "use" -> mc.options.keyUse.setDown(down);
-            // Input-layer keys (2026-10-29): the vanilla keybinds read these same mappings,
-            // so setting them here is what a player's finger does, not a forged packet.
             case "attack" -> mc.options.keyAttack.setDown(down);
             case "sneak" -> mc.options.keyShift.setDown(down);
             default -> { }
@@ -2192,21 +2245,19 @@ public final class ClientActions {
      * {@link KeyMapping#click}, which is what a real key press does.
      */
     private static KeyMapping tapMapping(String action) {
-        Minecraft mc = Minecraft.getInstance();
-        return switch (action) {
-            case "inventory" -> mc.options.keyInventory;
-            case "drop" -> mc.options.keyDrop;
-            case "chat" -> mc.options.keyChat;
-            case "swapoffhand" -> mc.options.keySwapOffhand;
-            case "pickitem" -> mc.options.keyPickItem;
-            default -> null;
-        };
+        KeyMapping mapping = vanillaKeyMapping(action);
+        return mapping != null && isEdgeKey(action) ? mapping : null;
     }
 
     private static String normaliseTap(String action) {
         String name = action == null ? "" : action.trim().toLowerCase(Locale.ROOT);
+        if (name.matches("slot[1-9]")) {
+            name = "hotbar" + name.charAt(4);
+        }
         return switch (name) {
-            case "inventory", "drop", "chat", "swapoffhand", "pickitem" -> name;
+            case "inventory", "drop", "chat", "swapoffhand", "pickitem",
+                 "hotbar1", "hotbar2", "hotbar3", "hotbar4", "hotbar5",
+                 "hotbar6", "hotbar7", "hotbar8", "hotbar9" -> name;
             case "dropitem" -> "drop";
             case "offhand" -> "swapoffhand";
             default -> null;
@@ -2218,7 +2269,7 @@ public final class ClientActions {
         String name = normaliseTap(action);
         if (name == null) {
             return inputError("'" + action + "' is not an edge-triggered key "
-                    + "(inventory|drop|chat|swapoffhand|pickitem); use key/hold for held keys");
+                    + "(inventory|drop|chat|swapoffhand|pickitem|hotbar1..hotbar9); use key/hold for held keys");
         }
         KeyMapping mapping = tapMapping(name);
         if (mapping == null) {
@@ -2239,15 +2290,20 @@ public final class ClientActions {
     /** Canonical key names, so a typo fails loudly instead of doing nothing quietly. */
     private static String normaliseKey(String action) {
         String name = action == null ? "" : action.trim().toLowerCase(Locale.ROOT);
+        if (name.matches("slot[1-9]")) {
+            name = "hotbar" + name.charAt(4);
+        }
         return switch (name) {
             case "forward", "back", "left", "right", "jump", "sprint", "use",
-                 "attack", "sneak" -> name;
+                 "attack", "sneak", "inventory", "drop", "chat", "swapoffhand", "pickitem",
+                 "hotbar1", "hotbar2", "hotbar3", "hotbar4", "hotbar5",
+                 "hotbar6", "hotbar7", "hotbar8", "hotbar9" -> name;
             // Friendly aliases: the action brain says "mine"/"hit", the keybind is attack.
             case "mine", "hit", "dig" -> "attack";
             case "shift", "crouch" -> "sneak";
             case "eat" -> "use";
-            // Toggle keys cannot be held: they are opened by a click, not by the down state.
-            case "drop", "inventory", "chat", "swapoffhand", "pickitem" -> null;
+            // Toggle keys are clicks, but `key` may still name them: keyJson routes them to
+            // KeyMapping.click; the old null here was why inventory could only use tap.
             default -> null;
         };
     }
@@ -2311,26 +2367,54 @@ public final class ClientActions {
         return Json.obj(out);
     }
 
-    /** `key <action> <down|up>`: one explicit press or release. */
+    /** Explicit refusal for names outside the controlled vanilla KeyMapping allow-list. */
+    private static String unsupportedKey(String action) {
+        String lower = action == null ? "" : action.trim().toLowerCase(Locale.ROOT);
+        if (lower.equals("r") || lower.equals("dismount") || lower.equals("ride")) {
+            return inputError("mod key '" + action + "' (Immersive Aircraft R/dismount) is not exposed; "
+                    + "only vanilla KeyMapping actions are available");
+        }
+        return inputError("unknown key '" + action + "' (forward|back|left|right|jump|sprint|use|attack|sneak|"
+                + "inventory|drop|chat|swapoffhand|pickitem|hotbar1..hotbar9); "
+                + "mod keybindings (e.g. R/dismount) are NOT exposed");
+    }
+
+    /** `key <action> <down|up>`: held key setDown, edge key one KeyMapping.click on down. */
     public String keyJson(String action, boolean down) {
         String name = normaliseKey(action);
         if (name == null) {
-            return inputError("unknown key '" + action + "' (forward|back|left|right|jump|sprint|use|attack|sneak|drop|inventory)");
+            return unsupportedKey(action);
         }
+        KeyMapping mapping = vanillaKeyMapping(name);
+        if (mapping == null) {
+            return unsupportedKey(action);
+        }
+        boolean edge = isEdgeKey(name);
         return onClient(() -> {
-            // Any screen open means the game ignores movement/attack input; say so instead
-            // of pretending the press landed (this is the GUI-vs-body boundary in one line).
+            // A generic click must never reach a screen's widgets. Held keys keep the old
+            // blockedByScreen report (the game ignores them while a screen is open).
+            if (edge && down && mc.screen != null) {
+                return inputError("screen-open: close the screen before pressing '" + name + "'");
+            }
             boolean blockedByScreen = mc.screen != null;
-            setKeyInClient(name, down);
-            if (down) {
-                heldUntilTick.put(name, this.clientTick + ticksFromMs(DEFAULT_KEY_HOLD_MS));
+            if (edge) {
+                if (down) {
+                    KeyMapping.click(mapping.getKey());
+                }
             } else {
-                heldUntilTick.remove(name);
+                mapping.setDown(down);
+                if (down) {
+                    heldUntilTick.put(name, this.clientTick + ticksFromMs(DEFAULT_KEY_HOLD_MS));
+                } else {
+                    heldUntilTick.remove(name);
+                }
             }
             Map<String, String> out = new LinkedHashMap<>();
             out.put("ok", Json.bool(true));
             out.put("action", Json.str(name));
             out.put("down", Json.bool(down));
+            out.put("edge", Json.bool(edge));
+            out.put("clicked", Json.bool(edge && down));
             out.put("tick", Json.num(this.clientTick));
             out.put("blockedByScreen", Json.bool(blockedByScreen));
             out.put("held", Json.num(heldUntilTick.size()));
@@ -2342,12 +2426,19 @@ public final class ClientActions {
     public String holdJson(String action, int ms) {
         String name = normaliseKey(action);
         if (name == null) {
-            return inputError("unknown key '" + action + "'");
+            return unsupportedKey(action);
+        }
+        if (isEdgeKey(name)) {
+            return inputError("key '" + name + "' is edge-triggered; use key " + name + " down for one click");
+        }
+        KeyMapping mapping = vanillaKeyMapping(name);
+        if (mapping == null) {
+            return unsupportedKey(action);
         }
         int requested = ms <= 0 ? 250 : ms;
         int clamped = Math.min(requested, MAX_HOLD_MS);
         return onClient(() -> {
-            setKeyInClient(name, true);
+            mapping.setDown(true);
             long until = this.clientTick + ticksFromMs(clamped);
             heldUntilTick.put(name, until);
             Map<String, String> out = new LinkedHashMap<>();

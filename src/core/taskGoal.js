@@ -103,9 +103,11 @@ class TaskGoalInjection {
           '   然后换渠道亲自做——用输入层（mc_step 一次一个）：',
           '   "key forward down/up"、"hold attack 600"、"tap inventory"、"look 180 0"、',
           '   "menu"、"click 10 0 pickup"、"close"、"shot 768"；输入步之间核对坐标与 screen。',
-          '3) 输入层也表达不了的动作（模组 GUI、没有键位的动作），才提议代码生成（需人工发起），',
+          '3) 输入层只暴露受控的原版 KeyMapping（如 "key inventory down"、"key hotbar1 down"）；',
+          '   模组键位（例如 R/下机）不可用——没有对应键位时**直接说明限制**，不要让玩家猜或代按。',
+          '4) 输入层也表达不了的动作（模组 GUI、没有键位的动作），才提议代码生成（需人工发起），',
           '   不要静默重试原命令第三次。',
-          '4) 结束时如实报告：做了什么、结果如何、还有什么没完成。',
+          '5) 结束时如实报告：做了什么、结果如何、还有什么没完成。',
           '不要把 Node 的失败回执当成成功，也不要在没有结构化证据时宣称完成。'
         ].filter(Boolean).join('\n');
 
@@ -175,7 +177,8 @@ class TaskGoalInjection {
       '- 如果是动手任务：按能力优先执行（code-skill → 命令表 → 输入层 → 提议代码生成）；',
       '  每步用 mc_state/mc_observe 核对真实结果，不要只信回执。',
       '- 同一动作连续两次同因失败就换键鼠输入层（key/hold/tap/look/menu/click/close/shot），',
-      '  不要第三次重试原命令；输入层也表达不了才提议代码生成（需人工发起）。',
+      '  不要第三次重试原命令；输入层只暴露受控的原版 KeyMapping，模组键位（如 R/下机）不可用，',
+      '  没有对应键位时直接说明限制，不要让玩家猜或代按；仍无通道才提议代码生成（需人工发起）。',
       '- 结束时如实报告：做了什么、结果如何、还缺什么；没有结构化证据不得宣称完成。'
     ].filter(Boolean).join('\n');
     return this.maybeCreate({ command: text, source: input.source || 'dialogue', objective });

@@ -129,6 +129,11 @@ async function main() {
     assert.strictEqual(table.channels.length, 4);
     assert(table.channels.every((channel) => channel.when && channel.example !== undefined));
     assert.deepStrictEqual(table.inputCommands, ['key', 'hold', 'tap', 'shot', 'inputs']);
+    assert(table.keyActions.held.includes('forward'));
+    assert(table.keyActions.edge.includes('inventory'));
+    assert(table.keyActions.edge.includes('hotbar1'));
+    assert.match(table.keyActions.modKeyBindings, /R\/dismount/);
+    assert.match(table.escalation.rule, /no key mapping/i);
     assert(table.skills.includes('chop'));
     assert(!table.skills.includes('key'), 'input verbs must not be listed as skills');
     assert.match(table.codeSkills.generation, /operator-only/i);

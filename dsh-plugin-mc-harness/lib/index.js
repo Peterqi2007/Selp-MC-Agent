@@ -425,11 +425,15 @@ function toolDefinitions({ controlUrl, record, log, runtime }) {
     description:
       'Execute ONE Minecraft action through the local agent, e.g. "goto 70 64 32", ' +
       '"mine dirt 2", "chop 2", "fish 3", "withdraw dirt 5", "follow Target 60", "stop". ' +
-      'The same table also exposes the raw input layer: "key <action> down|up" ' +
-      '(forward/back/left/right/jump/sprint/sneak/use/attack), "hold <action> [ms]" (<=10s), ' +
-      'e.g. "key forward down" then "key forward up" (a stuck skill can be replaced by input), ' +
+      'The same table also exposes the raw input layer (controlled vanilla KeyMappings only): ' +
+      '"key <name> down|up" — held: forward/back/left/right/jump/sprint/sneak/use/attack; ' +
+      'edge clicks: inventory/drop/chat/swapoffhand/pickitem/hotbar1..hotbar9. ' +
+      'Edge names click once on down; "hold <action> [ms]" (<=10s), e.g. "key forward down" ' +
+      'then "key forward up" (a stuck skill can be replaced by input), ' +
       '"tap <inventory|drop|chat|swapoffhand|pickitem>", "hold attack 600", "look <yaw> <pitch>", ' +
       '"menu" / "click <slot> [button] [mode]" / "close", "shot 768", "inputs". ' +
+      'Mod keybindings (including R/dismount) are NOT exposed; if no key mapping exists, ' +
+      'state the limitation instead of asking the player to guess. ' +
       'Promoted code skills run as "code-skill <name>". ' +
       'Call mc_capabilities once before choosing a channel. Capability-first: prefer a promoted code skill or ' +
       'registered command on the FIRST attempt; if the same command/skill fails twice for the ' +
