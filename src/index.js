@@ -346,6 +346,12 @@ async function main() {
    */
   const languageCfg = (cfg.agent && cfg.agent.language) || {};
   const languageMode = languageCfg.brain === 'unified' ? 'unified' : 'legacy';
+  /**
+   * An explicit `true` on a unified-inert legacy channel is an intent we cannot honour, so it
+   * fails the start rather than silently doing nothing. See src/chat/legacyChannels.js.
+   */
+  const inertLegacyMessage = require('./chat/legacyChannels').inertLegacyChatMessage(chatCfg, languageMode);
+  if (inertLegacyMessage) throw new Error(inertLegacyMessage);
   let harnessBridge = null;
   if (actionBrainMode !== 'planner') {
     const { HarnessBridge } = require('./chat/harnessBridge');

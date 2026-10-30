@@ -231,7 +231,7 @@ LLM 层（`src/llm/`，生产配置已开启 `toolCalling`）：8 个工具 —�
 * 离线全绿（2026-10-29 实跑）：`selftest`、`skills:test`、`client:test`、`control:test`、`tasks:test`、
   `path:test`、`clientmod:test`、`verify:roleplay`、`llm:dry` 均通过（历史计数见 §8；P0 套件由 `p0:verify` 统一跑）。
 * P1 离线（2026-10-31 实跑）：`p1:verify` **19/19 套件**（P0 8 套件 + `planner:test 35/35` +
-  `p1:contract:test 231/231` + `p1:failure-escalation:test 26/26` + `p1:m3:test 58/58` + `p1:m6:test 25/25` +
+  `p1:contract:test 237/237` + `p1:failure-escalation:test 26/26` + `p1:m3:test 58/58` + `p1:m6:test 25/25` +
   `p1:proposal-autonomy:test 16/16` + `p1:language:test 22/22` + `p1:m7:test 11/11` +
   `p1:m4:test 38/38` + `p1:m4:evolve:test 17/17` + `p1:m5:test 35/35` + `p1:channel:test 18/18` +
   `p1:shot:test 20/20` + `p1:steer:test 9/9` + `p1:taskgoal:test 14/14` + `p1:curriculum:test 8/8` +
@@ -300,9 +300,23 @@ LLM 层（`src/llm/`，生产配置已开启 `toolCalling`）：8 个工具 —�
     ③**世界知识自动落库**：`semantic` 此前**没有任何自动写入方**，10 天只有 6 条靠动作脑手动
     调 `mc_memory`；现 `POST /lookup_mod_content` 取到结果即写一条 semantic，按查询归一化 key
     `replace` 刷新，**重查不重复落库、空结果不落库**。
-    离线 `p1:contract:test 231/231`（+7 条断言）；端到端探针
+    离线 `p1:contract:test 237/237`（+7 条断言）；端到端探针
     [`scripts/memory-wiring-probe.js`](scripts/memory-wiring-probe.js)（`npm run memory:probe`，
     走真实 HTTP `/lookup_mod_content` + `PlanService.start` 结算，15 项全过）。
+  - **`relational` 记忆类别删除**（2026-10-30）：它唯一的写入方是遗留的
+    `src/chat/languageDialogue.js`，而 `language.brain=unified` 下该模块**根本不会构造**
+    （`src/index.js` 的条件块第一个条件就不成立），10 天真实使用 0 条；且它在能跑的 legacy
+    路径上只是把同一轮聊天又平铺存一遍，没有 ChatMemory 的 speaker/请求身份/grep/compact。
+    现 `MemoryStore` 只剩 episodic/semantic，写入 `relational` 与写未知类别一样被拒；旧状态文件
+    里的残留条目在 `restore()` 时被静默丢弃。`plan:audit` 增加反向断言，防止它作为"第四类"
+    被半接线地加回来。
+  - **两个静默空转的旧旋钮改为启动拒绝**（2026-10-30）：`chat.languageAgent`（旧
+    LanguageAgent+LanguageDialogue）与 `chat.participate`（M6 ChatParticipation）在 unified 下
+    都不构造，把它们设成 `true` 以前是**无声无息什么都不发生**。现由
+    [`src/chat/legacyChannels.js`](src/chat/legacyChannels.js) 判定，启动时直接 `fatal` 报错并给出
+    出路（改用 `language.brain="legacy"` 或把键设回 `false`）；默认的 `false` 不受影响。
+    真机验证：临时置 `participate:true` 启动 → `fatal: ... cannot take effect while
+    language.brain=unified`、exit 1，且在任何网络动作之前。
   离线新增 `p1:steer:test 9/9`、`p1:curriculum:test 8/8`；**当天白天拉起真实客户端完成了四项真机**：
   `@大肥鱼` 段落创建 goal（`/task-goals created`）、biplane 骑乘 `mounted:true` + inventory 24 格 2 件
   + integrity 1/1 ratio、截图 steer 落在 **turn 70 step 2**（当轮中间步骤）并带 768×432 图片、

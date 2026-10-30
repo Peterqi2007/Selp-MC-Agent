@@ -3,11 +3,18 @@
 /**
  * MemoryStore - classified memory for P1 §1.6.1.
  *
- * Three categories, deliberately small and inspectable:
+ * Two categories, deliberately small and inspectable:
  *
  *   - `episodic`   what happened (time, place, outcome);
- *   - `semantic`   stable facts about the world (recipes, mechanics, landmarks);
- *   - `relational` things about players/agents (preferences, trust, history).
+ *   - `semantic`   stable facts about the world (recipes, mechanics, landmarks).
+ *
+ * A third, `relational` ("things about players: preferences, trust, history"), was **removed
+ * on 2026-10-30**. Its only writer was the legacy `chat/languageDialogue.js`, which is never
+ * constructed while `language.brain=unified` - so in the default configuration the category
+ * was structurally unreachable (0 entries after 10 days of real use), and where that path did
+ * run it merely duplicated a chat turn that ChatMemory already stores better (speaker,
+ * request identity, grep/compact/context). Re-adding a "player profile" should be a deliberate
+ * LanguageBrain capability, not a resurrected legacy side effect.
  *
  * Retrieval is lexical + tag based and runs locally: no model, no embeddings. Each entry
  * keeps its `source` and `at` so a later answer can say where a fact came from. The store is
@@ -16,7 +23,7 @@
  * This is additive: the existing `ctx.memory` (deaths/landmarks/counters) is untouched.
  */
 
-const CATEGORIES = new Set(['episodic', 'semantic', 'relational']);
+const CATEGORIES = new Set(['episodic', 'semantic']);
 const STOP = new Set([
   'a', 'an', 'the', 'is', 'are', 'was', 'were', 'to', 'of', 'in', 'on', 'at', 'and', 'or',
   'for', 'i', 'you', 'we', 'me', 'my', 'your', 'it', 'this', 'that', 'with', 'from'
@@ -159,7 +166,7 @@ class MemoryStore {
   }
 
   status() {
-    const counts = { episodic: 0, semantic: 0, relational: 0 };
+    const counts = { episodic: 0, semantic: 0 };
     for (const entry of this.entries.values()) counts[entry.category] += 1;
     return { total: this.entries.size, counts };
   }

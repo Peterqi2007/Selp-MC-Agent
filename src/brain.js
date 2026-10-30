@@ -257,7 +257,7 @@ class Brain {
     /** M6: deterministic chat dedupe/rate-limit/stale-request state (persisted). */
     this.conversation = new ConversationState();
     ctx.conversation = this.conversation;
-    /** M3: classified memory (episodic/semantic/relational); ctx.memory is untouched. */
+    /** M3: classified memory (episodic/semantic; `relational` removed 2026-10-30); ctx.memory untouched. */
     this.memoryStore = new MemoryStore();
     ctx.memoryStore = this.memoryStore;
     /** Persistent language-chat memory: save/grep/context/compact, captured with state. */

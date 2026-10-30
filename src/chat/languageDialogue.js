@@ -18,13 +18,20 @@ class LanguageDialogue {
   constructor(deps = {}) {
     this.agent = deps.agent || null;
     this.fallback = deps.fallback || null;
-    /** Shared MemoryStore: chat turns are written here so the language prompt can recall them. */
-    this.memory = deps.memory || null;
-    /** Persistent chat log: save/grep/context/compact (state file). */
+    /** Persistent chat log: save/grep/context/compact (state file). The only chat store. */
     this.chatMemory = deps.chatMemory || null;
     this.log = deps.log || { info() {}, warn() {}, debug() {} };
   }
 
+  /**
+   * Persist the turn into ChatMemory - now the only chat store.
+   *
+   * This used to *also* write the same turn into `MemoryStore` as `relational`. That category
+   * was removed on 2026-10-30 (see src/memory/store.js): under `language.brain=unified` this
+   * module is never constructed, so the write never ran; and where it did run it duplicated
+   * what ChatMemory already held, in a worse shape - ChatMemory keeps speaker and request
+   * identity and supports grep/compact/context, the flat memory entry kept none of that.
+   */
   _remember(text, result) {
     const reply = result && result.text ? String(result.text).slice(0, 500) : null;
     const sources = result && Array.isArray(result.sources) ? result.sources.slice(0, 5) : [];
@@ -34,31 +41,18 @@ class LanguageDialogue {
       sources,
       tool: (result && result.tool) || null
     };
-    if (this.chatMemory) {
-      try {
-        /**
-         * The global chat recorder already stored this player line as a user entry; only
-         * the assistant half is missing. `attachReply` appends it without duplicating the
-         * player line (and falls back to saveTurn when the recorder did not run).
-         */
-        if (typeof this.chatMemory.attachReply === 'function') this.chatMemory.attachReply(payload);
-        else if (typeof this.chatMemory.saveTurn === 'function') this.chatMemory.saveTurn(payload);
-      } catch (err) {
-        this.log.warn(`chat log write failed: ${err.message}`);
-      }
-    }
-    if (!this.memory || typeof this.memory.remember !== 'function') return false;
-    const entry = `玩家说：${text}${reply ? `；大肥鱼回答：${reply}` : ''}`;
+    if (!this.chatMemory) return false;
     try {
-      const stored = this.memory.remember('relational', {
-        text: entry.slice(0, 1200),
-        tags: ['chat'],
-        source: 'language-dialogue',
-        data: { playerText: text, reply, sources, tool: (result && result.tool) || null }
-      });
-      return !!(stored && stored.ok);
+      /**
+       * The global chat recorder already stored this player line as a user entry; only
+       * the assistant half is missing. `attachReply` appends it without duplicating the
+       * player line (and falls back to saveTurn when the recorder did not run).
+       */
+      if (typeof this.chatMemory.attachReply === 'function') this.chatMemory.attachReply(payload);
+      else if (typeof this.chatMemory.saveTurn === 'function') this.chatMemory.saveTurn(payload);
+      return true;
     } catch (err) {
-      this.log.warn(`chat memory write failed: ${err.message}`);
+      this.log.warn(`chat log write failed: ${err.message}`);
       return false;
     }
   }

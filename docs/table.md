@@ -56,7 +56,7 @@ M2/M3 语言脑补充测试的逐项操作与输出见
 - M2-E01：taskDone 成功/失败、plan question、code-skill、silence、raw、fallback 均覆盖；
 - M2-F01：auto-bind 启动日志 + `/message` 409 `no-live-agent` 故障注入；
 - M3-A14：`/plan` waiting → 语言脑提问 → `!answer 继续` → completed；
-- M3-C02：`grep_task_memory` 真机召回 AnswerMemory；离线覆盖三类记忆；
+- M3-C02：`grep_task_memory` 真机召回 AnswerMemory；离线覆盖分类记忆（episodic/semantic 两类；`relational` 已于 2026-10-30 删除）；
 - M3-E02：重启 `plan questions restored` + 15 行窗口，计划仍 waiting，回答后完成；
 - M3-D03：taskDone 真机；respawn 合成事件通过；修复 `fireOnRespawn` 别名 bug。
 

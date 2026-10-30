@@ -1830,10 +1830,15 @@ function makeBrain() {
   }
 
   {
-    const { MemoryStore } = require('../src/memory/store');
-    const memory = new MemoryStore();
+    /**
+     * 2026-10-30: the turn is persisted to ChatMemory only. It used to *also* write a flat
+     * `relational` MemoryStore entry; that category is gone, and ChatMemory is the better
+     * store (speaker, request identity, grep/compact/context). Sources still come through,
+     * because they are the audit trail for an answer the agent gave.
+     */
+    const attached = [];
     const dialogue = new LanguageDialogue({
-      memory,
+      chatMemory: { attachReply: (payload) => attached.push(payload) },
       agent: {
         respond: async () => ({
           ok: true,
@@ -1845,12 +1850,13 @@ function makeBrain() {
       }
     });
     const result = await dialogue.handle('熔炉怎么做');
-    check('a language turn writes chat memory, including sources for audit', () => {
+    check('a language turn is persisted to ChatMemory, sources included', () => {
       assert(result.remembered);
-      const entries = memory.recall('', { tags: ['chat'] });
-      assert(entries.length >= 1);
-      assert.strictEqual(entries[0].entry.data.sources[0], 'https://example.invalid/furnace');
-      assert.match(entries[0].entry.text, /大肥鱼回答/);
+      assert.strictEqual(attached.length, 1, 'the turn must be written exactly once');
+      assert.strictEqual(attached[0].text, '熔炉怎么做');
+      assert.strictEqual(attached[0].reply, '熔炉用 8 个圆石');
+      assert.strictEqual(attached[0].sources[0], 'https://example.invalid/furnace');
+      assert.strictEqual(attached[0].tool, 'say');
     });
   }
 
@@ -2762,21 +2768,38 @@ function makeBrain() {
       tags: ['iron', 'recipe'],
       source: 'wiki'
     });
-    memory.remember('relational', {
-      text: 'Steve prefers building',
-      tags: ['steve'],
-      source: 'chat'
-    });
     memory.remember('semantic', {
       text: '熔炉需要八个圆石合成',
       tags: ['熔炉', '合成'],
       source: 'wiki'
     });
-    check('classified memory keeps the three categories apart', () => {
+    check('classified memory keeps its two categories apart', () => {
       const counts = memory.status().counts;
       assert.strictEqual(counts.episodic, 1);
       assert.strictEqual(counts.semantic, 2);
-      assert.strictEqual(counts.relational, 1);
+      assert.deepStrictEqual(Object.keys(counts).sort(), ['episodic', 'semantic']);
+    });
+    check('relational was removed and is refused like any unknown category', () => {
+      /**
+       * Removed 2026-10-30: unreachable under the default `language.brain=unified` (its only
+       * writer, the legacy LanguageDialogue, is never constructed there) and a worse duplicate
+       * of ChatMemory where it did run. Keeping the assertion makes the removal contractual.
+       */
+      assert.strictEqual(memory.remember('relational', { text: 'Steve prefers building' }).reason, 'unknown-category');
+      assert.strictEqual(memory.status().counts.relational, undefined);
+      const srcDialogue = fs.readFileSync(require('path').join(__dirname, '..', 'src', 'chat', 'languageDialogue.js'), 'utf8');
+      assert(!/remember\('relational'/.test(srcDialogue), 'the legacy dialogue must not write a dead category');
+    });
+    check('a state file that still carries relational restores without it', () => {
+      const restored = new MemoryStore({ now: () => 1000 });
+      assert.strictEqual(restored.restore({
+        seq: 2,
+        entries: [
+          { id: 'm1', category: 'relational', text: 'stale player fact' },
+          { id: 'm2', category: 'episodic', text: 'kept' }
+        ]
+      }), true);
+      assert.strictEqual(restored.status().total, 1, 'the stale category is dropped, not resurrected');
     });
     check('Chinese query recall matches a longer Chinese sentence', () => {
       const hits = memory.recall('熔炉', { category: 'semantic' });
@@ -3577,6 +3600,48 @@ function makeBrain() {
       assert.match(srcWeb, /rememberLookup\(fixture\)/, 'the fixture path must store too');
       assert.match(srcWeb, /rememberLookup\(result\)/, 'the live path must store');
       assert.match(srcWeb, /dedupeMode: 'replace'/, 'lookups must refresh, not duplicate');
+    });
+  }
+
+  // --------------------------------------- legacy chat switches under unified (2026-10-30)
+  process.stdout.write('\n44. legacy chat switches cannot be silently inert\n');
+  {
+    const { inertLegacyChatSwitches, inertLegacyChatMessage } = require('../src/chat/legacyChannels');
+
+    check('the two legacy switches are named in one place', () => {
+      const { LEGACY_CHAT_SWITCHES } = require('../src/chat/legacyChannels');
+      assert.deepStrictEqual([...LEGACY_CHAT_SWITCHES].sort(), ['languageAgent', 'participate']);
+    });
+
+    check('unified mode refuses an explicit legacy switch instead of ignoring it', () => {
+      assert.deepStrictEqual(inertLegacyChatSwitches({}, 'unified'), [], 'absent keys are fine');
+      assert.deepStrictEqual(inertLegacyChatSwitches({ languageAgent: false, participate: false }, 'unified'), []);
+      assert.deepStrictEqual(inertLegacyChatSwitches({ participate: true }, 'unified'), ['participate']);
+      assert.deepStrictEqual(
+        inertLegacyChatSwitches({ languageAgent: true, participate: true }, 'unified').sort(),
+        ['languageAgent', 'participate']
+      );
+      const message = inertLegacyChatMessage({ participate: true }, 'unified');
+      assert.match(message, /chat\.participate/);
+      assert.match(message, /language\.brain="legacy"/, 'the message must name the way out');
+    });
+
+    check('legacy mode still honours both switches', () => {
+      assert.deepStrictEqual(inertLegacyChatSwitches({ languageAgent: true, participate: true }, 'legacy'), []);
+      assert.strictEqual(inertLegacyChatMessage({ participate: true }, 'legacy'), null);
+    });
+
+    check('the start path throws on the message before any body work', () => {
+      const srcIndex = fs.readFileSync(require('path').join(__dirname, '..', 'src', 'index.js'), 'utf8');
+      assert.match(srcIndex, /inertLegacyChatMessage\(chatCfg, languageMode\)/);
+      assert.match(srcIndex, /if \(inertLegacyMessage\) throw new Error\(inertLegacyMessage\)/);
+      /**
+       * The guard must run before the harness bridge / body selection, otherwise a refused
+       * config would still have started network work.
+       */
+      const guardAt = srcIndex.indexOf('inertLegacyMessage');
+      const bridgeAt = srcIndex.indexOf('new HarnessBridge(');
+      assert(guardAt > 0 && bridgeAt > 0 && guardAt < bridgeAt, 'the guard must precede the bridge');
     });
   }
 

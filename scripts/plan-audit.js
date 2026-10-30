@@ -1435,19 +1435,26 @@ if (STAGE === 'p1') {
     const store = read('src/memory/store.js');
     const brain = read('src/brain.js');
     if (!/class MemoryStore/.test(store)) throw new Error('MemoryStore is missing');
-    for (const category of ['episodic', 'semantic', 'relational']) {
+    for (const category of ['episodic', 'semantic']) {
       if (!new RegExp(category).test(store)) throw new Error(`category ${category} is missing`);
     }
+    /**
+     * 2026-10-30 deviation: `relational` was removed. It was unreachable under the default
+     * `language.brain=unified` (its only writer is the legacy LanguageDialogue, which is never
+     * constructed there) and duplicated ChatMemory where it did run. Assert the removal so it
+     * cannot reappear by accident as a fourth, half-wired category.
+     */
+    if (/CATEGORIES = new Set\(\[[^\]]*relational/.test(store)) throw new Error('relational came back');
     if (!/recall\(/.test(store) || !/tags/.test(store)) throw new Error('retrieval/tags are missing');
     if (!/new MemoryStore/.test(brain)) throw new Error('brain does not create the classified store');
-    return 'three categories; lexical+tag recall; bounded';
+    return 'two categories (relational removed 2026-10-30); lexical+tag recall; bounded';
   });
 
   check('P1: classified memory is persisted with the session', () => {
     const session = read('src/core/sessionState.js');
     if (!/memoryStore/.test(session)) throw new Error('memoryStore is not captured');
     if (!/memoryStore\.restore|brain\.memoryStore/.test(session)) throw new Error('memoryStore is not restored');
-    return 'episodic/semantic/relational survive restart';
+    return 'episodic/semantic survive restart (relational removed 2026-10-30)';
   });
 
   check('P1: classified memory is read without acting', () => {
