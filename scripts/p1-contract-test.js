@@ -2611,6 +2611,35 @@ function makeBrain() {
     });
   }
 
+  // ------------------------------------------ live keybind table (mod keys)
+  process.stdout.write('\n35f. live KeyMapping table perception\n');
+  {
+    const { ObservationCache, resolveFields } = require('../src/world/observation');
+    await check('keybinds is fetched from the live provider, not cached in the body snapshot', async () => {
+      let calls = 0;
+      const cache = new ObservationCache({
+        body: { kind: 'mock', snapshot: () => null, refresh: async () => ({ ok: false }) },
+        now: () => 1000,
+        keybinds: async () => {
+          calls += 1;
+          return { ok: true, revision: calls, keybinds: [{ id: 'immersive_aircraft:dismount' }] };
+        }
+      });
+      const first = await cache.observe({ fields: ['keybinds'], purpose: 'task' });
+      const second = await cache.observe({ fields: ['keybinds'], purpose: 'task' });
+      assert.strictEqual(first.ok, true);
+      assert.strictEqual(first.fields.keybinds.known, true);
+      assert.strictEqual(first.fields.keybinds.source, 'body.keybinds');
+      assert.strictEqual(first.fields.keybinds.value.keybinds[0].id, 'immersive_aircraft:dismount');
+      assert.strictEqual(calls, 2, 'each observation must re-read the live table');
+      assert.strictEqual(second.fields.keybinds.value.revision, 2);
+    });
+
+    await check('resolveFields exposes the keybinds group', () => {
+      assert.deepStrictEqual(resolveFields(['keybinds']), ['keybinds']);
+    });
+  }
+
   {
     const { ObservationCache } = require('../src/world/observation');
     let refreshes = 0;

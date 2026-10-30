@@ -132,8 +132,10 @@ async function main() {
     assert(table.keyActions.held.includes('forward'));
     assert(table.keyActions.edge.includes('inventory'));
     assert(table.keyActions.edge.includes('hotbar1'));
-    assert.match(table.keyActions.modKeyBindings, /R\/dismount/);
-    assert.match(table.escalation.rule, /no key mapping/i);
+    assert.match(table.keyActions.modKeyIds, /mc_keybinds/);
+    assert.match(table.keyActions.modKeyIds, /immersive_aircraft:dismount/);
+    assert.match(table.keyActions.modKeyBindings, /raw key/i);
+    assert.match(table.escalation.rule, /mc_keybinds/);
     assert(table.skills.includes('chop'));
     assert(!table.skills.includes('key'), 'input verbs must not be listed as skills');
     assert.match(table.codeSkills.generation, /operator-only/i);
@@ -178,13 +180,13 @@ async function main() {
     const plugin = read('dsh-plugin-mc-harness/lib/index.js');
     assert.match(plugin, /name: 'mc_capabilities'/);
     assert.match(plugin, /controlUrl\}\/capabilities/);
-    assert.match(plugin, /return \[observe, perception, state, capabilities, propose/);
+    assert.match(plugin, /return \[observe, perception, state, capabilities, keybinds, propose/);
   });
 
   await check('mc_step advertises the input layer and code-skill, and points at mc_capabilities', () => {
     const plugin = read('dsh-plugin-mc-harness/lib/index.js');
     const start = plugin.indexOf("name: 'mc_step'");
-    const block = plugin.slice(start, start + 1200);
+    const block = plugin.slice(start, start + 2500);
     assert.match(block, /mc_capabilities/);
     assert.match(block, /key forward down/);
     assert.match(block, /hold attack/);

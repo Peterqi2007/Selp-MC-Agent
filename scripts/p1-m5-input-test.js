@@ -179,11 +179,18 @@ async function main() {
     const actions = read('mod-client/src/main/java/dev/agentclient/ClientActions.java');
     const server = read('mod-client/src/main/java/dev/agentclient/ControlHttpServer.java');
     assert.match(actions, /public String tapJson\(String action\)/, 'no tapJson');
-    assert.match(actions, /KeyMapping\.click\(mapping\.getKey\(\)\)/, 'tap does not click the keybind');
+    assert.match(actions, /KeyMapping\.click\(target\.getKey\(\)\)|KeyMapping\.click\(mapping\.getKey\(\)\)/, 'tap does not click the keybind');
     assert.match(actions, /vanillaKeyMapping/, 'no controlled KeyMapping resolver');
     assert.match(actions, /keyHotbarSlots/, 'hotbar mappings are not exposed');
     assert.match(actions, /screen-open/, 'generic edge clicks do not refuse an open screen');
-    assert.match(actions, /R\/dismount/, 'mod keybindings are not explicitly refused');
+    assert.match(actions, /keybindsJson/, 'no live keybind table');
+    assert.match(actions, /keybindId/, 'no stable keybind id');
+    assert.match(actions, /keyMappings/, 'does not enumerate the live KeyMapping array');
+    assert.match(actions, /getCategory/, 'keybind category is missing');
+    assert.match(server, /createContext\("\/keybinds"/, 'no /keybinds endpoint');
+    const plugin = read('dsh-plugin-mc-harness/lib/index.js');
+    assert.match(plugin, /name: 'mc_keybinds'/, 'no mc_keybinds tool');
+    assert.match(plugin, /keybinds HTTP/, 'mc_keybinds does not call the Node endpoint');
     assert.match(server, /case "tap" ->/, 'no tap verb');
     // inventory/drop must NOT be holdable: setDown on them is a silent no-op.
     assert.doesNotMatch(actions, /case "inventory" -> mc\.options\.keyInventory\.setDown/,
@@ -274,8 +281,24 @@ async function main() {
     assert.strictEqual(normaliseAction('forward'), 'forward');
     assert.strictEqual(normaliseAction('inventory'), 'inventory');
     assert.strictEqual(normaliseAction('hotbar1'), 'hotbar1');
+    assert.strictEqual(normaliseAction('immersive_aircraft:dismount'), 'immersive_aircraft:dismount');
     assert.strictEqual(normaliseAction('r'), null, 'mod keybindings must stay outside the vocabulary');
     assert.strictEqual(normaliseAction('nope'), null);
+  });
+
+  await check('a namespaced mod id is recorded as a held key and released symmetrically', async () => {
+    const channel = fakeChannel();
+    const ledger = new InputLedger({ log: silent, write: channel.write });
+    const id = 'immersive_aircraft:dismount';
+    const down = await ledger.press(id);
+    assert.strictEqual(down.ok, true);
+    assert.deepStrictEqual(ledger.list().map((entry) => entry.action), [id]);
+    await ledger.release(id);
+    assert.strictEqual(ledger.isClear(), true);
+    assert.deepStrictEqual(channel.calls, [
+      { action: id, down: true },
+      { action: id, down: false }
+    ]);
   });
 
   await check('generic edge keys click once and never enter the held table', async () => {

@@ -22,7 +22,7 @@
  * pressed and makes sure it can always be released.
  */
 
-const { HELD_KEYS, EDGE_KEYS, ALL_KEY_ACTIONS, MOD_KEY_NOTE, isEdgeKey } = require('./keyActions');
+const { HELD_KEYS, EDGE_KEYS, ALL_KEY_ACTIONS, MOD_KEY_NOTE, isEdgeKey, isModKeyId } = require('./keyActions');
 
 /** Longest a single Node-side hold is allowed to live before the ledger force-releases it. */
 const MAX_HOLD_MS = 10_000;
@@ -53,7 +53,14 @@ function normaliseAction(action) {
   if (!name) return null;
   if (KNOWN.has(name)) return name;
   const alias = ALIASES.get(name);
-  return alias && KNOWN.has(alias) ? alias : null;
+  if (alias && KNOWN.has(alias)) return alias;
+  /**
+   * A namespaced mod id is a shape check only. The client mod still resolves it against the
+   * live KeyMapping table and rejects an unknown/unbound id; accepting the shape here lets
+   * the ledger record a hold and keeps releaseAll symmetrical.
+   */
+  if (isModKeyId(name)) return name;
+  return null;
 }
 
 class InputLedger {
@@ -179,6 +186,9 @@ class InputLedger {
     const wasHeld = this.held.delete(name);
     try {
       const result = await this._write(name, false);
+      if (result && result.ok === false) {
+        return { ok: false, action: name, wasHeld, error: result.error || 'release-rejected' };
+      }
       return { ok: true, action: name, wasHeld, result: result || null };
     } catch (err) {
       if (wasHeld) this.held.set(name, { since: this.now(), until: this.now() + MAX_HOLD_MS, reason: 'release-failed' });

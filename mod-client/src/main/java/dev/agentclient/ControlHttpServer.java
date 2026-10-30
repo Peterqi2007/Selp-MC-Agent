@@ -71,6 +71,7 @@ public final class ControlHttpServer {
 
         server.createContext("/health", this::handleHealth);
         server.createContext("/state", this::handleState);
+        server.createContext("/keybinds", this::handleKeybinds);
         server.createContext("/progress", this::handleProgress);
         server.createContext("/diag/slash", this::handleSlashDiag);
         server.createContext("/command", this::handleCommand);
@@ -132,6 +133,20 @@ public final class ControlHttpServer {
             return;
         }
         respond(exchange, 200, actions.progressJson());
+    }
+
+    /**
+     * The live keybind table: vanilla and mod KeyMappings read from `options.keyMappings` on
+     * every request. Read-only; the action brain uses the returned stable ids with
+     * tap/hold/key.
+     */
+    private void handleKeybinds(HttpExchange exchange) throws IOException {
+        if (!authorised(exchange)) {
+            respond(exchange, 401, "{\"ok\":false,\"error\":\"unauthorised\"}");
+            return;
+        }
+        String json = actions.keybindsJson();
+        respond(exchange, 200, json == null ? "{\"ok\":false,\"error\":\"client thread busy\"}" : json);
     }
 
     /**

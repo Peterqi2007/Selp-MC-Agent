@@ -29,7 +29,7 @@
 > **A21/A22 不再标 N/A**，按新路径重跑。口径见 [`P1-M5.md`](P1-M5.md) §7、
 > [`CU-ABANDONED.md`](CU-ABANDONED.md) 与 [`P1-CLIENT-VERIFICATION.md`](P1-CLIENT-VERIFICATION.md) §7。
 > **同日实现并真机验证**：键鼠注入（`key`/`hold`/`tap`）、帧缓冲截图（`shot`）、键鼠台账与停手联动
-> 已落地；离线 `p1:m5:test` **34/34**、`p1:verify --fast` **17/17**；真实服务器上
+> 已落地；离线 `p1:m5:test` **35/35**、`p1:verify --fast` **17/17**；真实服务器上
 > `m5-live-probe 21/21`、`m5-agent-probe 11/11`、`m5-gui-live 93/93`、`m5-target-live 8/8`、
 > `m5-channel-live 8/8`、`client:verify 23/23`。**F1' 仅部分证据**（缺暂停/死亡/断连/退出注入），
 > **A21 部分通过（探针直连 mod、未走 agent 技能层）、A22/M5.3 未执行**，证据见 [`P1-M5.md`](P1-M5.md) §8。

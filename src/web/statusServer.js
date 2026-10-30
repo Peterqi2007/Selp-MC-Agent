@@ -191,6 +191,51 @@ function startStatusServer(ctx, options = {}) {
       }
 
       /**
+       * Live KeyMapping discovery (vanilla + mod). Every call goes to the client mod and
+       * rebuilds the table, so a rebind or a mod-registered mapping is visible immediately;
+       * the caller uses the stable `id`, never the cached key code.
+       */
+      if (req.method === 'GET' && url.pathname === '/keybinds') {
+        if (!ctx.body || typeof ctx.body.keybinds !== 'function') {
+          return json(res, 503, { ok: false, error: 'keybind discovery unavailable' });
+        }
+        let table;
+        try {
+          table = await ctx.body.keybinds();
+        } catch (err) {
+          return json(res, 502, { ok: false, error: `keybinds failed: ${err.message}` });
+        }
+        if (!table || table.ok === false) {
+          return json(res, 502, { ok: false, error: (table && table.error) || 'keybinds failed' });
+        }
+        const query = String(url.searchParams.get('query') || url.searchParams.get('q') || '')
+          .trim()
+          .toLowerCase();
+        const mod = String(url.searchParams.get('mod') || '').trim().toLowerCase();
+        const onlyMod = ['1', 'true', 'yes'].includes(String(url.searchParams.get('onlyMod') || '').toLowerCase());
+        const limit = Math.min(Math.max(Number(url.searchParams.get('limit') || 200), 1), 1000);
+        const all = Array.isArray(table.keybinds) ? table.keybinds : [];
+        const filtered = all.filter((entry) => {
+          if (!entry) return false;
+          if (onlyMod && entry.kind !== 'mod') return false;
+          if (mod && String(entry.mod || '').toLowerCase() !== mod) return false;
+          if (!query) return true;
+          return [entry.id, entry.name, entry.category, entry.mod]
+            .filter(Boolean)
+            .some((value) => String(value).toLowerCase().includes(query));
+        });
+        return json(res, 200, {
+          ok: true,
+          revision: table.revision || null,
+          observedAt: table.observedAt || null,
+          total: all.length,
+          count: filtered.length,
+          truncated: filtered.length > limit,
+          keybinds: filtered.slice(0, limit)
+        });
+      }
+
+      /**
        * Automatic curriculum snapshot (read-only). The action brain does not need to call
        * it - the prep goal already carries the context - but the panel/operator can see why
        * a proposal was refused as below-band.

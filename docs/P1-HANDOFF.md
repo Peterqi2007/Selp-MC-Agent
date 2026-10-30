@@ -14,8 +14,10 @@
 > 2026-10-31 补：自卫反射状态 `selfDefense` 进入 `/ui/state`、`mc_observe`、`mc_state`、
 > 请求 envelope 与 goal 文本；动作脑现在知道反射可能自行攻击/抢占任务（§9）。
 > **动作脑改绑到 `Minecraft动作脑3`（`session-d2ad5dc4-…`，`config/agent.local.json`）**；
-> 输入层新增受控 `key <name>`（仅原版 KeyMapping；edge 点击；R/mod 键位明确不可用），
-> 真机验证见 [`P1-WORK-2026-10-30.md`](P1-WORK-2026-10-30.md) §10。
+> **KeyMapping 注册表发现 + 白名单注入**：`GET /keybinds` 每次实时读 `options.keyMappings`，
+> 稳定 `modid:path` ID；`tap`/`hold`/`key <id>` 可用，R 等模组键可发现；脚本
+> `ctx.key(id)` + `read_state({includeKeybinds:true})`；真机 220 条（184 mod），
+> `immersive_aircraft:dismount = R`。证据见 [`P1-WORK-2026-10-30.md`](P1-WORK-2026-10-30.md) §10–§11。
 > 本文是交接入口；**阶段判定**以 [`P1-CLIENT-VERIFICATION.md`](P1-CLIENT-VERIFICATION.md) 为准，
 > 逐项证据见 [`P1-M7.md`](P1-M7.md) 的 A01–A31 矩阵与 [`P1-M3.md`](P1-M3.md) §3。
 >
@@ -43,15 +45,15 @@ npm run p1:baseline -- --suites  # 记录提交/配置指纹/套件结果到 run
 | --- | --- |
 | P0 regression（8 suites，含 `selftest 183/183`） | **8/8** |
 | `planner:test` | **35/35** |
-| `p1:contract:test` | **213/213** |
+| `p1:contract:test` | **215/215** |
 | `p1:m3:test` | **58/58** |
 | `p1:m6:test` | **25/25** |
 | `p1:proposal-autonomy:test` | **16/16** |
 | `p1:language:test` | **22/22** |
 | `p1:m7:test` | **11/11** |
-| `p1:m4:test` | **35/35** |
+| `p1:m4:test` | **37/37** |
 | `p1:m4:evolve:test` | **17/17** |
-| `p1:m5:test` | **34/34** |
+| `p1:m5:test` | **35/35** |
 | `p1:channel:test` | **18/18** |
 | `p1:shot:test` | **20/20** |
 | `p1:steer:test` | **9/9** |

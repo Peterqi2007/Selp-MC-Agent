@@ -576,6 +576,18 @@ const out = {};
       permissions
     });
 
+    const v3Manifest = (permissions, name = 'agent.v3key') => ({
+      name,
+      version: '1.0.0',
+      apiVersion: 3,
+      entry: 'index.js',
+      title: 'v3 keybind probe',
+      description: 'A v3 script that discovers a live mod KeyMapping id and presses it through ctx.key.',
+      permissions,
+      preconditions: { positionNear: { position: { x: 0, y: 64, z: 0 }, range: 8 } },
+      verification: { inventoryAtLeast: { 'minecraft:dirt': 1 } }
+    });
+
     const makeBody = (options = {}) => {
       const calls = [];
       const body = {
@@ -630,8 +642,18 @@ const out = {};
           }
           return out.slice(0, opts.count || 16);
         },
-        async moveTo(position, opts) {
-          calls.push({ m: 'moveTo', pos: position, opts });
+        async keybinds() {
+          return options.keybinds || {
+            ok: true,
+            revision: 1,
+            keybinds: [{ id: 'immersive_aircraft:dismount', key: { code: 82, name: 'key.keyboard.r' } }]
+          };
+        },
+        async key(action, down) {
+          calls.push({ m: 'key', action, down });
+          return { ok: true, action, down };
+        },
+        async moveTo(position, opts) {          calls.push({ m: 'moveTo', pos: position, opts });
           if (options.moveTo) return options.moveTo(position, opts);
           return true;
         },
@@ -745,6 +767,52 @@ const out = {};
       assert.strictEqual(state.items[0].name, 'minecraft:dirt');
       assert.strictEqual(state.menu.open, true);
       assert.strictEqual(state.menu.slots[0].item, 'minecraft:torch');
+    });
+
+    await check('read_state can expose the live keybind table for scripts', async () => {
+      const body = makeBody();
+      body.keybinds = async () => ({
+        ok: true,
+        revision: 9,
+        keybinds: [{ id: 'immersive_aircraft:dismount', key: { code: 82, name: 'key.keyboard.r' } }]
+      });
+      const service = makeService(body, makeSlot());
+      const state = await service._host().read_state({ includeKeybinds: true });
+      assert.strictEqual(state.ok, true);
+      assert.strictEqual(state.keybinds.revision, 9);
+      assert.strictEqual(state.keybinds.keybinds[0].id, 'immersive_aircraft:dismount');
+    });
+
+    await check('a v3 script can discover a mod id and press it through ctx.key', async () => {
+      const body = makeBody();
+      const service = makeService(body, makeSlot());
+      const code = `
+module.exports = {
+  async run(ctx) {
+    const st = await ctx.state({ includeKeybinds: true });
+    const id = st.keybinds.keybinds[0].id;
+    const down = await ctx.key(id, true);
+    const up = await ctx.key(id, false);
+    return { ok: down.ok && up.ok, id };
+  }
+};`;
+      const run = await service.sandbox.run({
+        name: 'agent.v3key',
+        version: '1.0.0',
+        entry: 'index.js',
+        code,
+        manifest: v3Manifest(['read_state', 'input_key']),
+        timeoutMs: 5000,
+        host: service._host()
+      });
+      assert(run.ok, run.reason);
+      assert.strictEqual(run.result.ok, true);
+      assert.strictEqual(run.result.id, 'immersive_aircraft:dismount');
+      const presses = body.calls.filter((call) => call.m === 'key');
+      assert.deepStrictEqual(presses.map((call) => [call.action, call.down]), [
+        ['immersive_aircraft:dismount', true],
+        ['immersive_aircraft:dismount', false]
+      ]);
     });
 
     await check('a sandboxed skill can move and dig through the host, with coordinates intact', async () => {

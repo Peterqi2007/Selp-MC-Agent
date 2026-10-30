@@ -1,5 +1,6 @@
 package dev.agentclient;
 
+import com.mojang.blaze3d.platform.InputConstants;
 import com.mojang.blaze3d.platform.NativeImage;
 import net.minecraft.client.KeyMapping;
 import net.minecraft.client.Minecraft;
@@ -2167,10 +2168,11 @@ public final class ClientActions {
     /**
      * The controlled edition of the generic key channel.
      *
-     * It is intentionally a small allow-list of vanilla KeyMapping objects. Mod keybindings
-     * (Immersive Aircraft R/dismount, etc.) are registered outside `Options` and are NOT
-     * reachable here; an unknown or mod name must fail loudly instead of becoming arbitrary
-     * keyboard injection. Edge keys are clicked once; held keys use setDown until released.
+     * Vanilla names stay a small allow-list. Forge mod keybindings are appended to
+     * `options.keyMappings`; they are reachable only through their discovered stable id
+     * (`modid:path`), never through a raw key name/code. Unknown raw names fail loudly
+     * instead of becoming arbitrary keyboard injection. Edge keys are clicked once; held
+     * keys use setDown until released.
      */
     private static final List<String> EDGE_KEY_NAMES = List.of(
             "inventory", "drop", "chat", "swapoffhand", "pickitem",
@@ -2212,11 +2214,101 @@ public final class ClientActions {
         };
     }
 
+    /** Stable id: `key.<modid>.<path>` -> `<modid>:<path>`; vanilla short names get minecraft:. */
+    private static String keybindId(KeyMapping mapping) {
+        if (mapping == null) return "";
+        String name = mapping.getName();
+        if (name == null || name.isEmpty()) return "";
+        String path = name.startsWith("key.") ? name.substring(4) : name;
+        int dot = path.indexOf('.');
+        if (dot > 0) {
+            return path.substring(0, dot) + ":" + path.substring(dot + 1);
+        }
+        return "minecraft:" + path;
+    }
+
+    private static String keybindMod(String id) {
+        int colon = id == null ? -1 : id.indexOf(':');
+        return colon > 0 ? id.substring(0, colon) : "minecraft";
+    }
+
+    /**
+     * Resolve a namespaced mod id (or its raw translation key) against the LIVE
+     * `options.keyMappings` array. Never a startup snapshot: Forge appends mod mappings to
+     * this array and rebinding mutates the KeyMapping objects in place.
+     */
+    private static KeyMapping findModMapping(String action) {
+        String raw = action == null ? "" : action.trim();
+        if (raw.isEmpty()) return null;
+        Minecraft mc = Minecraft.getInstance();
+        if (mc.options == null || mc.options.keyMappings == null) return null;
+        for (KeyMapping mapping : mc.options.keyMappings) {
+            if (mapping == null) continue;
+            String id = keybindId(mapping);
+            if (id.equalsIgnoreCase(raw) || mapping.getName().equalsIgnoreCase(raw)) {
+                return mapping;
+            }
+        }
+        return null;
+    }
+
+    /**
+     * Read-only live keybind table for the action brain and generated scripts.
+     *
+     * The ID is stable across rebinds; `key.code`/`key.name` are read from the KeyMapping
+     * object at request time. The caller must use `tap <id>` for a one-shot action and
+     * `hold <id> ms` / `key <id> down|up` for a held control; IDs are usable from scripts.
+     */
+    public String keybindsJson() {
+        return onClient(() -> {
+            List<String> rows = new ArrayList<>();
+            List<String> revisionParts = new ArrayList<>();
+            if (mc.options != null && mc.options.keyMappings != null) {
+                for (KeyMapping mapping : mc.options.keyMappings) {
+                    if (mapping == null) continue;
+                    String id = keybindId(mapping);
+                    if (id.isEmpty()) continue;
+                    String mod = keybindMod(id);
+                    boolean bound = !mapping.getKey().equals(InputConstants.UNKNOWN);
+                    String keyName = mapping.getKey().getName();
+                    Map<String, String> key = new LinkedHashMap<>();
+                    key.put("code", Json.num(mapping.getKey().getValue()));
+                    key.put("name", Json.str(keyName));
+                    Map<String, String> row = new LinkedHashMap<>();
+                    row.put("id", Json.str(id));
+                    row.put("name", Json.str(mapping.getName()));
+                    row.put("category", Json.str(mapping.getCategory()));
+                    row.put("mod", Json.str(mod));
+                    row.put("kind", Json.str("minecraft".equals(mod) ? "vanilla" : "mod"));
+                    row.put("key", Json.obj(key));
+                    row.put("bound", Json.bool(bound));
+                    row.put("usage", Json.str("tap <id> for one-shot; hold <id> ms for held; key <id> down/up explicit"));
+                    rows.add(Json.obj(row));
+                    revisionParts.add(id + "=" + mapping.getKey().getValue() + ":" + bound);
+                }
+            }
+            revisionParts.sort(String::compareTo);
+            Map<String, String> out = new LinkedHashMap<>();
+            out.put("ok", Json.bool(true));
+            out.put("observedAt", Json.num(System.currentTimeMillis()));
+            out.put("revision", Json.num(String.join(",", revisionParts).hashCode()));
+            out.put("count", Json.num(rows.size()));
+            out.put("keybinds", Json.arr(rows));
+            out.put("note", Json.str("IDs stay stable across rebinds; key code is read live at tap/press. Mod conflicts are listed, not resolved."));
+            return Json.obj(out);
+        });
+    }
+
     /** Hold/release a movement key through the game's own KeyMapping table. */
     private static void setKeyInClient(String key, boolean down) {
         KeyMapping mapping = vanillaKeyMapping(key);
         if (mapping != null) {
             mapping.setDown(down);
+            return;
+        }
+        KeyMapping mod = findModMapping(key);
+        if (mod != null) {
+            mod.setDown(down);
             return;
         }
         // Defensive fallback for a name that reached the release path without a mapping;
@@ -2267,22 +2359,35 @@ public final class ClientActions {
     /** Edge press: one click of a toggle key (inventory, drop, chat, offhand, pick item). */
     public String tapJson(String action) {
         String name = normaliseTap(action);
-        if (name == null) {
-            return inputError("'" + action + "' is not an edge-triggered key "
-                    + "(inventory|drop|chat|swapoffhand|pickitem|hotbar1..hotbar9); use key/hold for held keys");
-        }
-        KeyMapping mapping = tapMapping(name);
+        KeyMapping mapping = name == null ? null : tapMapping(name);
+        boolean mod = false;
         if (mapping == null) {
-            return inputError("key '" + name + "' has no keybind on this client");
+            mapping = findModMapping(action);
+            if (mapping == null) {
+                return unsupportedKey(action);
+            }
+            name = keybindId(mapping);
+            mod = true;
         }
+        if (mapping.getKey().equals(InputConstants.UNKNOWN)) {
+            return unboundKey(name);
+        }
+        final String keyName = name;
+        final boolean isMod = mod;
+        final KeyMapping target = mapping;
         return onClient(() -> {
-            KeyMapping.click(mapping.getKey());
+            if (mc.screen != null) {
+                return inputError("screen-open: close the screen before tapping '" + keyName + "'");
+            }
+            KeyMapping.click(target.getKey());
             Map<String, String> out = new LinkedHashMap<>();
             out.put("ok", Json.bool(true));
-            out.put("action", Json.str(name));
+            out.put("action", Json.str(keyName));
+            out.put("id", Json.str(keyName));
+            out.put("mod", Json.bool(isMod));
             out.put("tap", Json.bool(true));
             out.put("tick", Json.num(this.clientTick));
-            out.put("blockedByScreen", Json.bool(mc.screen != null));
+            out.put("blockedByScreen", Json.bool(false));
             return Json.obj(out);
         });
     }
@@ -2367,51 +2472,70 @@ public final class ClientActions {
         return Json.obj(out);
     }
 
-    /** Explicit refusal for names outside the controlled vanilla KeyMapping allow-list. */
+    /** Explicit refusal for names outside the controlled KeyMapping allow-list. */
     private static String unsupportedKey(String action) {
         String lower = action == null ? "" : action.trim().toLowerCase(Locale.ROOT);
         if (lower.equals("r") || lower.equals("dismount") || lower.equals("ride")) {
-            return inputError("mod key '" + action + "' (Immersive Aircraft R/dismount) is not exposed; "
-                    + "only vanilla KeyMapping actions are available");
+            return inputError("raw key '" + action + "' is not a keybind ID; call mc_keybinds, "
+                    + "then tap/hold the discovered id (for example immersive_aircraft:dismount)");
         }
-        return inputError("unknown key '" + action + "' (forward|back|left|right|jump|sprint|use|attack|sneak|"
-                + "inventory|drop|chat|swapoffhand|pickitem|hotbar1..hotbar9); "
-                + "mod keybindings (e.g. R/dismount) are NOT exposed");
+        return inputError("unknown key '" + action + "': use a vanilla action "
+                + "(forward|back|left|right|jump|sprint|use|attack|sneak|inventory|drop|chat|"
+                + "swapoffhand|pickitem|hotbar1..hotbar9) or a namespaced ID from mc_keybinds; "
+                + "raw key codes/names are not accepted");
     }
 
-    /** `key <action> <down|up>`: held key setDown, edge key one KeyMapping.click on down. */
+    private static String unboundKey(String id) {
+        return inputError("keybind '" + id + "' is unbound; rebind it in Options or choose another id");
+    }
+
+    /**
+     * `key <action> <down|up>`: vanilla held key setDown, vanilla edge key one click; a mod
+     * namespaced id is a held control here (use tap for a one-shot action).
+     */
     public String keyJson(String action, boolean down) {
         String name = normaliseKey(action);
-        if (name == null) {
-            return unsupportedKey(action);
-        }
-        KeyMapping mapping = vanillaKeyMapping(name);
+        KeyMapping mapping = name == null ? null : vanillaKeyMapping(name);
+        boolean mod = false;
         if (mapping == null) {
-            return unsupportedKey(action);
+            mapping = findModMapping(action);
+            if (mapping == null) {
+                return unsupportedKey(action);
+            }
+            name = keybindId(mapping);
+            mod = true;
         }
-        boolean edge = isEdgeKey(name);
+        if (mapping.getKey().equals(InputConstants.UNKNOWN)) {
+            return unboundKey(name);
+        }
+        final String keyName = name;
+        final boolean isMod = mod;
+        final KeyMapping target = mapping;
+        boolean edge = !mod && isEdgeKey(name);
         return onClient(() -> {
-            // A generic click must never reach a screen's widgets. Held keys keep the old
-            // blockedByScreen report (the game ignores them while a screen is open).
-            if (edge && down && mc.screen != null) {
-                return inputError("screen-open: close the screen before pressing '" + name + "'");
+            // A generic click or mod key must never reach a screen's widgets. Vanilla held
+            // keys keep the old blockedByScreen report (the game ignores them).
+            if ((edge || isMod) && down && mc.screen != null) {
+                return inputError("screen-open: close the screen before pressing '" + keyName + "'");
             }
             boolean blockedByScreen = mc.screen != null;
             if (edge) {
                 if (down) {
-                    KeyMapping.click(mapping.getKey());
+                    KeyMapping.click(target.getKey());
                 }
             } else {
-                mapping.setDown(down);
+                target.setDown(down);
                 if (down) {
-                    heldUntilTick.put(name, this.clientTick + ticksFromMs(DEFAULT_KEY_HOLD_MS));
+                    heldUntilTick.put(keyName, this.clientTick + ticksFromMs(DEFAULT_KEY_HOLD_MS));
                 } else {
-                    heldUntilTick.remove(name);
+                    heldUntilTick.remove(keyName);
                 }
             }
             Map<String, String> out = new LinkedHashMap<>();
             out.put("ok", Json.bool(true));
-            out.put("action", Json.str(name));
+            out.put("action", Json.str(keyName));
+            out.put("id", Json.str(keyName));
+            out.put("mod", Json.bool(isMod));
             out.put("down", Json.bool(down));
             out.put("edge", Json.bool(edge));
             out.put("clicked", Json.bool(edge && down));
@@ -2425,25 +2549,39 @@ public final class ClientActions {
     /** `hold <action> [ms]`: press, let the tick pump release it, never longer than the cap. */
     public String holdJson(String action, int ms) {
         String name = normaliseKey(action);
-        if (name == null) {
-            return unsupportedKey(action);
+        KeyMapping mapping = name == null ? null : vanillaKeyMapping(name);
+        boolean mod = false;
+        if (mapping == null) {
+            mapping = findModMapping(action);
+            if (mapping == null) {
+                return unsupportedKey(action);
+            }
+            name = keybindId(mapping);
+            mod = true;
         }
-        if (isEdgeKey(name)) {
+        if (mapping.getKey().equals(InputConstants.UNKNOWN)) {
+            return unboundKey(name);
+        }
+        if (!mod && isEdgeKey(name)) {
             return inputError("key '" + name + "' is edge-triggered; use key " + name + " down for one click");
         }
-        KeyMapping mapping = vanillaKeyMapping(name);
-        if (mapping == null) {
-            return unsupportedKey(action);
-        }
+        final String keyName = name;
+        final boolean isMod = mod;
+        final KeyMapping target = mapping;
         int requested = ms <= 0 ? 250 : ms;
         int clamped = Math.min(requested, MAX_HOLD_MS);
         return onClient(() -> {
-            mapping.setDown(true);
+            if (isMod && mc.screen != null) {
+                return inputError("screen-open: close the screen before holding '" + keyName + "'");
+            }
+            target.setDown(true);
             long until = this.clientTick + ticksFromMs(clamped);
-            heldUntilTick.put(name, until);
+            heldUntilTick.put(keyName, until);
             Map<String, String> out = new LinkedHashMap<>();
             out.put("ok", Json.bool(true));
-            out.put("action", Json.str(name));
+            out.put("action", Json.str(keyName));
+            out.put("id", Json.str(keyName));
+            out.put("mod", Json.bool(isMod));
             out.put("down", Json.bool(true));
             out.put("ms", Json.num(clamped));
             out.put("clamped", Json.bool(clamped != requested));

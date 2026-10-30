@@ -65,11 +65,12 @@ const HELP = [
   '!look <yaw> <pitch> - turn the camera to absolute angles (degrees)',
   '!lookat <x> <y> <z> - look at a coordinate',
   '!target - what is under the crosshair right now',
-  '!key <action> down|up - press/release a controlled vanilla KeyMapping (held: forward/back/left/right/jump/sprint/use/attack/sneak; edge: inventory/drop/chat/swapoffhand/pickitem/hotbar1..9). Mod keybindings (e.g. R/dismount) are NOT exposed',
-  '!hold <action> [ms] - hold one key for at most 10s, then auto-release',
+  '!key <action|modid:path> down|up - press/release a KeyMapping: vanilla held keys setDown, vanilla edge keys click; a mod id (from !keybinds) is held. Use tap for a mod one-shot',
+  '!hold <action|modid:path> [ms] - hold one key for at most 10s, then auto-release',
   '!shot [maxEdge] - capture the game frame to runtime/screenshots (no OS screen capture)',
   '!inputs - what keys are currently held, and since when',
-  '!tap <key> - edge press for toggle keys (inventory/drop/chat/swapoffhand/pickitem)',
+  '!tap <name|modid:path> - edge click via KeyMapping.click (vanilla toggle keys or a mod id from !keybinds)',
+  '!keybinds [query] - live KeyMapping table (vanilla + mod): stable id, current key code, category, bound',
   '!capabilities - channel table: capability-first order (skill -> input -> code generation)',
   '!smelt <item> [n] - smelt in a nearby furnace',
   '!fish [n] - fish for food (cast, wait for the bite, sleep at night)',
@@ -337,6 +338,25 @@ class ChatController {
         return found;
       },
       /**
+       * Read-only live KeyMapping table. `!keybinds immersive` finds the mod's stable ids;
+       * the key code shown is informational (the mod re-reads it at tap/press).
+       */
+      keybinds: async (args) => {
+        if (!ctx.body || typeof ctx.body.keybinds !== 'function') {
+          throw new Error('this body has no keybind discovery');
+        }
+        const table = await ctx.body.keybinds();
+        if (!table || table.ok === false) throw new Error((table && table.error) || 'keybinds failed');
+        const query = String(args[0] || '').trim().toLowerCase();
+        const all = Array.isArray(table.keybinds) ? table.keybinds : [];
+        const filtered = query
+          ? all.filter((entry) => [entry.id, entry.name, entry.category, entry.mod]
+            .filter(Boolean).some((value) => String(value).toLowerCase().includes(query)))
+          : all;
+        this.say(`键位 ${filtered.length}/${all.length}（revision ${table.revision}）`);
+        return { ok: true, revision: table.revision, observedAt: table.observedAt, count: filtered.length, keybinds: filtered };
+      },
+      /**
        * Input layer (M5, 2026-10-29): explicit key press/release through the client mod.
        *
        * These are the same commands the DSH action brain can reach through `mc_step`
@@ -383,7 +403,7 @@ class ChatController {
        */
       tap: async (args) => {
         const action = String(args[0] || '').trim();
-        if (!action) throw new Error('usage: !tap <inventory|drop|chat|swapoffhand|pickitem>');
+        if (!action) throw new Error('usage: !tap <inventory|drop|chat|swapoffhand|pickitem|hotbar1..9|modid:path>');
         if (!ctx.body || typeof ctx.body.tap !== 'function') {
           throw new Error('this body has no edge-triggered key support');
         }

@@ -247,6 +247,8 @@ async function main() {
      * can explain a task being preempted by the fast reflex (2026-10-31 operator finding).
      */
     staticFields: () => ({ selfDefense: selfDefenseStatus(ctx.cfg, ctx.brain) }),
+    /** Live KeyMapping discovery for mc_state(fields:["keybinds"]). */
+    keybinds: () => ctx.body.keybinds(),
     log: new Logger('observation')
   });
   ctx.craft = (options) => new CraftTask(ctx, options).execute();

@@ -1,14 +1,15 @@
 'use strict';
 
 /**
- * The controlled key vocabulary shared by the Node input ledger, `mc_capabilities` and the
- * command help. The client mod owns the authoritative KeyMapping table; this list must stay a
- * subset of it, never a free-form key injector.
+ * The controlled key vocabulary.
  *
- * `R` and other mod keybindings (Immersive Aircraft dismount, etc.) are deliberately absent:
- * they are registered by mods outside `Options`, and this channel only exposes a small,
- * auditable set of vanilla KeyMappings. If a task needs one, the action brain must say the
- * key is unavailable instead of asking the player to guess.
+ * The static tables below are the vanilla logical names. Mod keybindings are NOT baked in:
+ * they are discovered at runtime via `mc_keybinds` and used by their stable namespaced id
+ * (`modid:path`). The client mod re-resolves that id against the live `KeyMapping` table on
+ * every tap/press, so a rebind changes the key code, not the id.
+ *
+ * Raw mod key names/codes (including `r`/`dismount`) are still rejected; the agent must ask
+ * `mc_keybinds` for the id first.
  */
 
 const HELD_KEYS = Object.freeze([
@@ -43,9 +44,12 @@ const EDGE_KEYS = Object.freeze([
 
 const ALL_KEY_ACTIONS = Object.freeze([...HELD_KEYS, ...EDGE_KEYS]);
 
+const MOD_KEY_ID = /^[a-z0-9_.-]+:[a-z0-9_./-]+$/i;
+
 const MOD_KEY_NOTE =
-  'mod keybindings are not exposed (including Immersive Aircraft R/dismount); ' +
-  'only vanilla KeyMapping actions are available';
+  'vanilla short names are limited to the listed actions; mod keys must use a stable ' +
+  'namespaced id discovered via mc_keybinds (for example immersive_aircraft:dismount), ' +
+  'never a raw key name/code such as r';
 
 const EDGE_SET = new Set(EDGE_KEYS);
 const HELD_SET = new Set(HELD_KEYS);
@@ -58,11 +62,17 @@ function isHeldKey(name) {
   return HELD_SET.has(String(name || '').trim().toLowerCase());
 }
 
+/** A safe, namespaced KeyMapping id; the client mod remains the final registry check. */
+function isModKeyId(name) {
+  return MOD_KEY_ID.test(String(name || '').trim());
+}
+
 module.exports = {
   HELD_KEYS,
   EDGE_KEYS,
   ALL_KEY_ACTIONS,
   MOD_KEY_NOTE,
   isEdgeKey,
-  isHeldKey
+  isHeldKey,
+  isModKeyId
 };

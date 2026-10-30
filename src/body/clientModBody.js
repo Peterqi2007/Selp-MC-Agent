@@ -1361,6 +1361,17 @@ class ClientModBody extends Body {
   }
 
   /**
+   * The live KeyMapping table (vanilla + mod), read from the client on every call.
+   *
+   * Read-only and un-cached: a player can rebind in Options without restarting, and a mod can
+   * append a mapping. Callers must use the returned stable `id`; the `key` field is only
+   * informational and is re-read by the mod at tap/press time.
+   */
+  async keybinds() {
+    return this.request('/keybinds');
+  }
+
+  /**
    * Edge press for toggle keys (inventory / drop / chat / swapoffhand / pickitem).
    *
    * A hold cannot do these: vanilla opens the inventory from a click counter, not from the

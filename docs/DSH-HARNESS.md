@@ -8,7 +8,7 @@
 
 | 文件 | 作用 |
 | --- | --- |
-| `dsh-plugin-mc-harness/` | DSH 插件包（ESM）；注册 **12 个工具**：`mc_observe`、`mc_step`、`mc_state`、`mc_capabilities`、`mc_plan`、`mc_plan_status`、`mc_cancel`、`mc_finish`、`mc_perception`、`mc_propose`、`mc_memory`、`mc_say` |
+| `dsh-plugin-mc-harness/` | DSH 插件包（ESM）；注册 **14 个工具**：`mc_observe`、`mc_step`、`mc_state`、`mc_capabilities`、`mc_keybinds`、`mc_plan`、`mc_plan_status`、`mc_cancel`、`mc_finish`、`mc_perception`、`mc_propose`、`mc_memory`、`mc_say`、`lookup_mod_content` |
 | `scripts/install-dsh-plugin.js` | 复制插件到 desktop profile，追加 `cordis.patch.yml`（自动备份） |
 | `scripts/dsh-h1-test.js` | 通过 `POST /goal` 驱动 DSH，打印 H1a/H1b 结果 |
 | `npm run dsh:install` / `npm run dsh:h1` | 安装 / H1 测试入口 |
@@ -33,11 +33,13 @@ H1 test (Node)
 - `mc_observe`：只读 `/ui/state`（位置/血量/时间/当前任务，以及 `selfDefense` 反射姿态）；
   `mc_observe({full:true})` / `mc_state` 还包含 `selfDefense`：`enabled` 时 Node 快反射可能自行
   攻击敌意生物并抢占任务，动作脑不得把这些攻击当成自己的指令。`mc_state` 的 `threat`/`combat`
-  组也自动包含该字段。
+  组也自动包含该字段。`mc_state({fields:["keybinds"]})` 返回实时 KeyMapping 表（完整，
+  约 220 条；老插件/热加载前也可用）。
+- `mc_keybinds`：只读 `GET /keybinds?query=&mod=&onlyMod=&limit=`，返回稳定 ID 和当前键码；
+  这是动作脑查模组键的首选（重启/重载插件后出现）。
 - `mc_step`：一次只发一条面板命令（`goto`/`mine`/`chop`/`stop`…），不带 `!`。
-  `key <name> down|up` 只接受受控原版 KeyMapping（held 键 setDown；inventory/drop/chat/
-  swapoffhand/pickitem/hotbar1..9 为 edge click）；模组键位（含 R/下机）不可用，
-  没有对应键位时模型应直接说明限制。
+  原版 held 键 `key <name> down|up`，原版 edge 键 click；模组键先 `mc_keybinds`，用稳定
+  `modid:path` ID：`tap <id>` 一次性、`hold <id> ms` / `key <id> down|up` 按住；raw R/键码拒绝。
 - `mc_plan`：提交多步计划；有 live 对话绑定时用 `turn:true`，计划结算后同一对话续轮；
   没有绑定时计划仍执行，可用 `mc_plan_status` 轮询。
 - `mc_plan_status`：只读 `GET /plan/:id`（状态/步骤/预算）。

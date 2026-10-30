@@ -215,6 +215,7 @@ function describe(ctx) {
       held: [...HELD_KEYS],
       edge: [...EDGE_KEYS],
       usage: 'key <name> down | key <name> up; edge names click once on down (no hold)',
+      modKeyIds: 'discover live ids with mc_keybinds (for example immersive_aircraft:dismount); tap <id> for a one-shot action, hold <id> ms or key <id> down/up for a held control; ids are stable across rebinds',
       modKeyBindings: MOD_KEY_NOTE
     },
     /**
@@ -223,13 +224,14 @@ function describe(ctx) {
      * keyboard until the goal text spelled this out.
      */
     escalation: {
-      rule: 'a command/skill that fails twice for the same reason must not be retried a third time: read mc_state, then act through the input layer (key/hold/tap/look/menu/click/close); if no key mapping exists (including mod keybindings such as R/dismount), state the limitation instead of asking the player to guess; propose code generation only when no key can express the action',
+      rule: 'a command/skill that fails twice for the same reason must not be retried a third time: read mc_state, then act through the input layer (key/hold/tap/look/menu/click/close); for a mod key call mc_keybinds first and use its stable id (tap for one-shot, hold/key down for held); if no mapping exists, state the limitation instead of asking the player to guess; propose code generation only when no key can express the action',
       inputVerbs: [...INPUT_COMMANDS],
       inputExamples: [
         'key forward down',
         'key forward up',
         'key inventory down',
         'key hotbar1 down',
+        'tap immersive_aircraft:dismount',
         'hold attack 600',
         'tap inventory',
         'look 180 0',

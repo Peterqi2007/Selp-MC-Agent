@@ -242,11 +242,14 @@ function toolDefinitions({ controlUrl, record, log, runtime }) {
       'Pre-task state observation skill. Call it ONCE before executing a task and choose ' +
       'the fields required by that task (e.g. position, health, food, inventory, hostiles, ' +
       'target, blocks, players, nearbyItems, riding/mounted with the vehicle inventory and ' +
-      'integrity, or selfDefense for the fast self-defense reflex posture). Returns per-field ' +
+      'integrity, selfDefense for the fast self-defense reflex posture, or keybinds for the ' +
+      'live vanilla+mod KeyMapping ids). Returns per-field ' +
       'observedAt/age/revision/' +
       'stale metadata. Do not poll it every tick; state is not pushed automatically. ' +
       'If selfDefense.enabled is true, the Node fast loop may attack hostiles and preempt your ' +
       'task on its own - those are reflex actions, not your commands. ' +
+      'For a mod key call mc_keybinds first and use its stable id (tap for one-shot, hold for ' +
+      'held); raw key names are not accepted. ' +
       'If the payload carries `aux.screenshot` (a frame captured on a failure, an accepted ' +
       'plan, new terrain, or the 90 s fallback), read that file ONLY when the structured ' +
       'fields are insufficient to decide; the verdict still comes from structured conditions ' +
@@ -425,16 +428,17 @@ function toolDefinitions({ controlUrl, record, log, runtime }) {
     description:
       'Execute ONE Minecraft action through the local agent, e.g. "goto 70 64 32", ' +
       '"mine dirt 2", "chop 2", "fish 3", "withdraw dirt 5", "follow Target 60", "stop". ' +
-      'The same table also exposes the raw input layer (controlled vanilla KeyMappings only): ' +
-      '"key <name> down|up" — held: forward/back/left/right/jump/sprint/sneak/use/attack; ' +
-      'edge clicks: inventory/drop/chat/swapoffhand/pickitem/hotbar1..hotbar9. ' +
-      'Edge names click once on down; "hold <action> [ms]" (<=10s), e.g. "key forward down" ' +
-      'then "key forward up" (a stuck skill can be replaced by input), ' +
-      '"tap <inventory|drop|chat|swapoffhand|pickitem>", "hold attack 600", "look <yaw> <pitch>", ' +
-      '"menu" / "click <slot> [button] [mode]" / "close", "shot 768", "inputs". ' +
-      'Mod keybindings (including R/dismount) are NOT exposed; if no key mapping exists, ' +
-      'state the limitation instead of asking the player to guess. ' +
-      'Promoted code skills run as "code-skill <name>". ' +
+      'The same table also exposes the raw input layer: "key <name> down|up" — vanilla held: ' +
+      'forward/back/left/right/jump/sprint/sneak/use/attack; vanilla edge clicks: ' +
+      'inventory/drop/chat/swapoffhand/pickitem/hotbar1..hotbar9. For a MOD key call ' +
+      'mc_keybinds first and use its stable id: "tap <id>" for one-shot, "hold <id> ms" or ' +
+      '"key <id> down|up" for a held control. IDs do not change on rebind; raw key names/codes ' +
+      '(including R) are not accepted. Edge names click once on down; "hold <action> [ms]" ' +
+      '(<=10s), e.g. "key forward down" then "key forward up" (a stuck skill can be replaced ' +
+      'by input), "tap <inventory|drop|chat|swapoffhand|pickitem>", "hold attack 600", ' +
+      '"look <yaw> <pitch>", "menu" / "click <slot> [button] [mode]" / "close", "shot 768", ' +
+      '"inputs". If no key mapping exists, state the limitation instead of asking the player ' +
+      'to guess. Promoted code skills run as "code-skill <name>". ' +
       'Call mc_capabilities once before choosing a channel. Capability-first: prefer a promoted code skill or ' +
       'registered command on the FIRST attempt; if the same command/skill fails twice for the ' +
       'same reason, stop retrying it and do the work with input-layer steps instead. ' +
@@ -819,7 +823,7 @@ function toolDefinitions({ controlUrl, record, log, runtime }) {
       'Read the capability table: the channel order (capability-first: promoted code skill -> ' +
       'registered command/skill -> raw input layer -> code generation proposal), every ' +
       'command verb the agent currently exposes (including key/hold/shot/inputs and ' +
-      'code-skill), and the promoted code skills. Read-only; call it once before choosing ' +
+      'mc_keybinds for live mod KeyMapping ids), and the promoted code skills. Read-only; call it once before choosing ' +
       'how to act, and again only when a channel is missing.',
     parameters: { type: 'object', properties: {}, additionalProperties: false },
     output: {
@@ -840,7 +844,53 @@ function toolDefinitions({ controlUrl, record, log, runtime }) {
     }
   };
 
-  return [observe, perception, state, capabilities, propose, memory, say, step, lookupModContent, plan, planStatus, cancel, finish];
+  /**
+   * Live KeyMapping discovery for the action brain and generated scripts.
+   *
+   * Returns stable namespaced ids (`modid:path`) plus the CURRENT key code/name. The id does
+   * not change on rebind; the key code is informational and is re-read by the mod when the
+   * agent later calls tap/hold/key. Never asks the model to guess R.
+   */
+  const keybinds = {
+    name: 'mc_keybinds',
+    description:
+      'Read the live client KeyMapping table (vanilla + mod). Every call re-reads the game ' +
+      'table, so a player rebind is visible immediately. Use the returned stable id: ' +
+      '"tap <id>" for a one-shot action, "hold <id> ms" or "key <id> down|up" for a held ' +
+      'control. The key code/name is informational; never cache it. Raw key names/codes ' +
+      '(including R) are not accepted. Filter with query/mod/onlyMod.',
+    parameters: {
+      type: 'object',
+      properties: {
+        query: { type: 'string', description: 'case-insensitive filter over id/name/category' },
+        mod: { type: 'string', description: 'only this mod id, e.g. immersive_aircraft' },
+        onlyMod: { type: 'boolean', description: 'hide vanilla mappings' },
+        limit: { type: 'integer', description: 'max rows (default 200, max 1000)' }
+      },
+      additionalProperties: false
+    },
+    output: {
+      schema: { type: 'string' },
+      render: (_args, value) => [{ type: 'text', text: value }]
+    },
+    async execute(args = {}) {
+      const params = new URLSearchParams();
+      if (args.query) params.set('query', String(args.query));
+      if (args.mod) params.set('mod', String(args.mod));
+      if (args.onlyMod === true) params.set('onlyMod', '1');
+      if (args.limit) params.set('limit', String(args.limit));
+      const suffix = params.toString() ? `?${params.toString()}` : '';
+      const res = await fetch(`${controlUrl}/keybinds${suffix}`);
+      if (!res.ok) throw new Error(`mc_keybinds HTTP ${res.status}`);
+      const payload = await res.json();
+      record.keybinds = (record.keybinds || []).concat([
+        { at: new Date().toISOString(), query: args.query || null, mod: args.mod || null, count: payload.count || 0 }
+      ]).slice(-10);
+      return JSON.stringify(payload);
+    }
+  };
+
+  return [observe, perception, state, capabilities, keybinds, propose, memory, say, step, lookupModContent, plan, planStatus, cancel, finish];
 }
 
 /** Minimal SSE block parser for the harness turn stream. */
@@ -984,9 +1034,12 @@ export function apply(ctx, config = {}) {
       '  through the raw input layer, one action per mc_step:',
       '    "key forward down" / "key forward up" / "hold attack 600" / "tap inventory" /',
       '    "look 180 0" / "menu" / "click 10 0 pickup" / "close" / "shot 768".',
+      '  For a MOD key, call mc_keybinds first and use its stable id: "tap <id>" for a one-shot',
+      '  action, "hold <id> ms" / "key <id> down|up" for a held control. The id does not change',
+      '  on rebind; raw key names/codes (including R) are rejected.',
       '  Check position/screen between input steps and adjust. Retrying the same failed command',
       '  is never a strategy; switching channels is.',
-      '- Only when no key can express the action either (mod GUI without a key binding) propose',
+      '- Only when no key mapping/id exists either (mod GUI without a KeyMapping) propose',
       '  code generation: it is operator-gated and never automatic.',
       '- Decompose multi-step work into mc_plan with checkable postconditions; do not replay the',
       '  same steps with mc_step.',
@@ -1246,7 +1299,7 @@ export function apply(ctx, config = {}) {
     for (const definition of toolDefinitions({ controlUrl, record, log, runtime })) {
       toolsCtx.tools.register(definition);
     }
-    log('registered mc_observe / mc_perception / mc_state / mc_propose / mc_memory / mc_say / mc_step / lookup_mod_content / mc_plan / mc_plan_status / mc_cancel / mc_finish');
+    log('registered mc_observe / mc_perception / mc_state / mc_capabilities / mc_keybinds / mc_propose / mc_memory / mc_say / mc_step / lookup_mod_content / mc_plan / mc_plan_status / mc_cancel / mc_finish');
   });
 
   const server = http.createServer(async (req, res) => {

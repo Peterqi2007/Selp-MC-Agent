@@ -37,6 +37,8 @@ const FIELD_GROUPS = {
   self: ['position', 'dimension', 'yaw', 'pitch', 'time', 'weather'],
   /** Inventory/hotbar/durability. */
   inventory: ['inventory', 'emptySlots', 'heldItem', 'heldDurability'],
+  /** Live KeyMapping table (vanilla + mod); stable ids for tap/hold/key. */
+  keybinds: ['keybinds'],
   /** Mounted state: the vehicle carrying us, its contents and condition (2026-10-29). */
   mount: ['riding', 'mounted', 'standingOnEntity'],
   /** On-demand task entities (adult animals, combat targets, drops, other players). */
@@ -246,6 +248,12 @@ class ObservationCache {
      * value follows live config/Brain state instead of being frozen at construction.
      */
     this.staticFields = typeof deps.staticFields === 'function' ? deps.staticFields : null;
+    /**
+     * Optional async provider for the live KeyMapping table. It is Node-side (the Mod owns
+     * the registry) and is fetched only when the caller asks for `keybinds`; it is never
+     * cached here because a player can rebind between observations.
+     */
+    this.keybindsProvider = typeof deps.keybinds === 'function' ? deps.keybinds : null;
     this.now = deps.now || (() => Date.now());
     this.fieldTtls = { ...DEFAULT_FIELD_TTL, ...(deps.fieldTtls || {}) };
     this.purposeTtls = { ...PURPOSE_TTL, ...(deps.purposeTtls || {}) };
@@ -282,7 +290,8 @@ class ObservationCache {
      * the body is unreachable: their source is the local config/Brain, not the Mod.
      */
     const staticValues = this._staticValues();
-    const dynamicFields = fields.filter((field) => !(field in staticValues));
+    const wantsKeybinds = fields.includes('keybinds');
+    const dynamicFields = fields.filter((field) => field !== 'keybinds' && !(field in staticValues));
     const staleFields = dynamicFields.filter((field) => {
       const entry = this.cache.get(field);
       if (!entry) return true;
@@ -337,6 +346,7 @@ class ObservationCache {
     }
 
     for (const field of fields) {
+      if (field === 'keybinds') continue;
       const ttl = ttlFor(field, purpose, request.maxAgeMs, this.fieldTtls, this.purposeTtls);
       const entry = this.cache.get(field);
       if (field in staticValues) {
@@ -409,6 +419,63 @@ class ObservationCache {
         area,
         source: entry.source
       };
+    }
+
+    /**
+     * Live KeyMapping table: not a `/state` field and never cached. The Mod rebuilds it on
+     * every call, so a rebind is visible without restarting the agent.
+     */
+    if (wantsKeybinds) {
+      if (typeof this.keybindsProvider !== 'function') {
+        unknownFields.push('keybinds');
+        values.keybinds = {
+          value: null,
+          known: false,
+          unavailable: false,
+          stale: true,
+          valid: false,
+          observedAt: null,
+          ageMs: null,
+          revision: null,
+          dimension: snapshot ? snapshot.dimension || null : null,
+          area: null,
+          source: null
+        };
+      } else {
+        try {
+          const keybinds = await this.keybindsProvider();
+          values.keybinds = {
+            value: keybinds,
+            known: true,
+            unavailable: false,
+            stale: false,
+            valid: true,
+            staleBecause: null,
+            observedAt: this.now(),
+            ageMs: 0,
+            revision: this.revision,
+            dimension: snapshot ? snapshot.dimension || null : this._dimension || null,
+            area: null,
+            source: 'body.keybinds'
+          };
+        } catch (err) {
+          unknownFields.push('keybinds');
+          values.keybinds = {
+            value: null,
+            known: false,
+            unavailable: false,
+            stale: true,
+            valid: false,
+            error: err.message,
+            observedAt: null,
+            ageMs: null,
+            revision: null,
+            dimension: null,
+            area: null,
+            source: null
+          };
+        }
+      }
     }
 
     return {

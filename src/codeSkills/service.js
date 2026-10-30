@@ -890,6 +890,23 @@ class CodeSkillService {
         if (args && args.includeMenu === true) await this._refreshBody();
         const state = this._readState(args);
         if (args && args.includeMenu === true && state.ok === true) state.menu = await this._menuSummary();
+        /**
+         * Script-time keybind discovery. The ids are stable across rebinds and the mod
+         * re-reads the current key code when the script later calls ctx.key/tap/hold.
+         * Opt-in so the normal state payload stays small.
+         */
+        if (args && args.includeKeybinds === true && state.ok === true) {
+          const body = this.ctx && this.ctx.body;
+          if (body && typeof body.keybinds === 'function') {
+            try {
+              state.keybinds = await body.keybinds();
+            } catch (err) {
+              state.keybinds = { ok: false, error: err.message };
+            }
+          } else {
+            state.keybinds = { ok: false, error: 'body-cannot-keybinds' };
+          }
+        }
         return state;
       },
       block_at: async (args) => this._bodyBlockAt(args),
