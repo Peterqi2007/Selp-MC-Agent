@@ -161,7 +161,7 @@ npm run p1:baseline -- --suites  # 记录提交/配置指纹/套件结果到 run
 | `chat.languageAgent` | `false` |
 | `chat.conversationGuard` | `false` |
 | `chat.participate` / `chat.proposalChat` | `false` / `false`（M6 客户端窗口显式打开） |
-| `chat.harnessAgentId` | `session-8d816775-c46e-4ed7-9b08-115622a84616`（预绑定「Minecraft动作脑1」；置空则由 auto-bind/`/bind` 决定） |
+| `chat.harnessAgentId` | `""`（**入库值必须为空**：这是每次 DSH 重启都会变的会话 id，钉死入库只会把 agent 静默绑到已死会话。空则由 `HarnessBridge.autoBind` 按动作脑 durable goal 自动发现，`/bind` 可手动钉。要钉某台机器时写进不进 git 的 `config/agent.local.json`，如本机 `session-d2ad5dc4-3bf2-4ffb-be94-a4858b913731` =「Minecraft动作脑3」） |
 | `language.brain` | `unified`（2026-10-23 起默认；`legacy` 可完整回退） |
 | `planner.autonomousProposals` | `enabled=true`，`idleMs=300000`、`responseMs=30000`、`prepTimeoutMs=90000`、`maxGoalRounds=3`（动作脑自主提案；未接受不执行） |
 | `agent.codeSkills.generateMaxTokens` / `generationTimeoutMs` | `16000` / `180000`（2026-10-25 真机调参：思考模型 reasoning 计入 completion，2600/30000 会截断） |
@@ -216,8 +216,10 @@ src/learning/  methodLibrary, answerMemory
 src/memory/    store, chatMemory
 src/computer/  windowPolicy, guard（CU 已放弃（ABANDONED）；M5 已改走进程内输入层）
 src/harness/   adapter, resumeBridge, turnService
-dsh-plugin-mc-harness/lib/index.js   11 个 mc_* 工具（observe/step/plan/plan_status/cancel/
-                                     finish/state/perception/memory/propose/say）
+dsh-plugin-mc-harness/lib/index.js   15 个工具：14 个 mc_* + lookup_mod_content
+                                     （observe/step/state/capabilities/keybinds/ask_player/
+                                      plan/plan_status/cancel/finish/perception/memory/
+                                      propose/say）
 scripts/       p1-verify, p1-contract-test, p1-m3-test, p1-fault-test, p1-baseline
 docs/          P1-M0 … P1-M7, P1-GAP-AUDIT, P1-CLIENT-TESTS
 ```
@@ -246,4 +248,4 @@ docs/          P1-M0 … P1-M7, P1-GAP-AUDIT, P1-CLIENT-TESTS
 4. **M5**：进程内输入层 + 键鼠台账 → F1'（结构断言 + 台账归零）→ A21/A22；F1' 不过则实现不合并，
    A21/A22 不标 N/A（[`P1-M5.md`](P1-M5.md) §7）。
 5. **修复遗留**：挖石 noPath、夜间入睡、A02 timeout、A10 跨维度/部分刷新、A11 天气/阶段注入。
-6. 每次改动保持 `npm run p1:verify` 全绿（当前 11/11，含 P0 回归；`--fast` 10/10）；删除断言必须同提交替换。
+6. 每次改动保持 `npm run p1:verify` 全绿（当前 **完整 19/19**，含 P0 回归；**`--fast` 18/18**；2026-10-31 实跑复核）；删除断言必须同提交替换。

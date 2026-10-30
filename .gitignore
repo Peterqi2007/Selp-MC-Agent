@@ -8,6 +8,9 @@ node_modules/
 # kept locally on purpose, but they are not part of this repository's history.
 # NOTE: `refs/` already covers every future checkout, so a new project (e.g. refs/Voyager)
 # needs no new line here - it is ignored the moment it is cloned.
+# The two reference papers live there too (moved out of docs/ on 2026-10-31 to drop 28 MB
+# of PDFs from history going forward): refs/Voyager/voyager.pdf,
+# refs/MC-MineEvolve/MineEvolve.pdf
 refs/
 
 # Runtime state, downloaded servers, logs, traces

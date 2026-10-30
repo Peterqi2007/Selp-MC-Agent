@@ -39,6 +39,12 @@
 | [mindcraft-bots/mindcraft](https://github.com/mindcraft-bots/mindcraft) | 技能目录覆盖范围（采集/合成/种田/战斗/钓鱼）；技能文档先给模型看再执行 |
 | [PrismarineJS/mineflayer](https://github.com/prismarinejs/mineflayer) | 早期躯体与 pathfinder 生态（现已退居备选） |
 | [HarjjotSinghh/minecraft-mcp](https://github.com/HarjjotSinghh/minecraft-mcp) | 用外部 HTTP 控制口驱动游戏内 Agent 的思路 |
+| [MineDojo/Voyager](https://github.com/MineDojo/Voyager) | 自动课程（难度带 + 完成账本）；技能库与描述向量检索；错误回灌重试（`src/planner/curriculum.js`） |
+| MC-MineEvolve | 进化式技能生成与自评的对照参考（本地检出 `refs/MC-MineEvolve`，不入库） |
+
+> **两份论文 PDF 不入库**：`refs/Voyager/voyager.pdf`（18.8 MB）与
+> `refs/MC-MineEvolve/MineEvolve.pdf`（10.1 MB）放在已被 `.gitignore` 忽略的 `refs/` 下
+> （2026-10-31 从 `docs/` 移出，此前误入库 28 MB）。`refs/` 是本地参考检出区，克隆后为空。
 
 ---
 
