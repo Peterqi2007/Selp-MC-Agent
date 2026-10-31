@@ -234,7 +234,7 @@ LLM 层（`src/llm/`，生产配置已开启 `toolCalling`）：8 个工具 —�
   `p1:contract:test 237/237` + `p1:failure-escalation:test 26/26` + `p1:m3:test 58/58` + `p1:m6:test 25/25` +
   `p1:proposal-autonomy:test 16/16` + `p1:language:test 22/22` + `p1:m7:test 11/11` +
   `p1:m4:test 38/38` + `p1:m4:evolve:test 17/17` + `p1:m5:test 35/35` + `p1:channel:test 18/18` +
-  `p1:shot:test 20/20` + `p1:steer:test 9/9` + `p1:taskgoal:test 14/14` + `p1:curriculum:test 8/8` +
+  `p1:shot:test 20/20` + `p1:steer:test 9/9` + `p1:taskgoal:test 14/14` + `p1:curriculum:test 10/10` +
   `p1:fault:test 9/9` + `plan:audit --stage p1 105/105`；`--fast` 为 **18/18**，完整 **19/19**）。
 * P1 客户端阶段（2026-10-20/21/22/24/25 + 2026-10-29）：**M1 适用子集 PASS、M2 PASS、M3 PASS、M4 PASS（A19 适用子集）**
   （A13–A17、A27 只读/异步、A28–A30、F2；均在 `planner.mode=off` 下由 DSH 动作脑/真机注入完成）；
@@ -271,6 +271,13 @@ LLM 层（`src/llm/`，生产配置已开启 `toolCalling`）：8 个工具 —�
     不再等整轮结束；无 `steer()` 的运行时诚实回退 `followup`；
   - **Voyager 式自动课程**：`src/planner/curriculum.js` 维护 completed/failed 账本与难度带，
     prep goal 携带上下文，低于 band 的提案被拒（有限次后放宽），执行 goal 终态回写账本；
+  - **课程账本自净**（2026-10-31，对齐 Voyager `clean_up_tasks`）：`_cleanUp()` 在每次
+    记录后与**加载时**执行——completed 去重保序（首次保留），并把已完成的任务名从 failed
+    里全部移除。修前账本可能对同一个任务同时说“已完成”和“太难失败”，`describe()` 会把
+    两条矛盾信息一起塞给模型；failed 本身**不去重**（Voyager 一样保留重复失败，三次失败与
+    一次失败是不同的证据）。加载时只修复不写回（启动不该先改写一个坏文件）。
+    离线 `p1:curriculum:test 10/10`（+2 条：账本自净、污染文件加载自愈）；另核对过
+    Voyager 的 `voyager/agents/curriculum.py:340` 与 `voyager/prompts/curriculum.txt` 八条规则；
   - **自卫反射状态可见**：`selfDefense` 由 `behaviour.autoFight` 单一推导，进入
     `/ui/state`、`mc_observe`、`mc_state`（`threat`/`combat` 组）与动作脑请求/目标文本；
     enabled 时明确告诉动作脑“Node 可能自行攻击并抢占任务，这些不是你的指令”；
@@ -616,7 +623,7 @@ Invoke-RestMethod -Uri http://127.0.0.1:8766/ui/state
 | `npm run p1:shot:test` | 截图触发/预算/去重/steer 策略 | 20/20 |
 | `npm run p1:steer:test` | 主动 steer 投递（插件 `/message` steer/followup/回退 + 桥接 + 策略） | 9/9 |
 | `npm run p1:taskgoal:test` | 玩家任务 / `@` 请求 → DSH goal（含异常阶梯/自卫反射提示） | 14/14 |
-| `npm run p1:curriculum:test` | Voyager 式自动课程（难度带/账本/校验/接线） | 8/8 |
+| `npm run p1:curriculum:test` | Voyager 式自动课程（难度带/账本/账本自净/校验/接线） | 10/10 |
 | `npm run p1:m4:evolve:test` | M4 v3 键鼠脚本 / 错误回灌 / 版本链 / 检索 | 17/17 |
 | `npm run p1:language:test` | 统一语言脑门面（profile/工具/原文审批/记忆 grep/短窗口） | **20/20** |
 | `npm run corpus:learn` | 从 `chat-corpus.csv` 标注学习 20+20 条沉默/参与示例，写 `config/chat-silence-profile.json` | 40 examples |

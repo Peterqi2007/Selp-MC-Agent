@@ -120,6 +120,53 @@ async function main() {
     fs.rmSync(dir, { recursive: true, force: true });
   });
 
+  await check('the ledger keeps itself honest (Voyager clean_up_tasks)', () => {
+    /**
+     * refs/Voyager/voyager/agents/curriculum.py:340 - completed is de-duplicated (first
+     * wins, order kept) and completed tasks are dropped from failed. Without this the
+     * ledger can say "chop is completed" and "chop failed, too hard" in the same block.
+     */
+    const c = makeCurriculum();
+    c.recordFailed({ name: 'mine 5 iron', type: 'mine', reason: 'noPath' });
+    c.recordFailed({ name: 'mine 5 iron', type: 'mine', reason: 'no pickaxe' });
+    assert.strictEqual(c.failed.length, 2, 'repeated failures are kept as separate evidence');
+    c.recordCompleted({ name: 'mine 5 iron', type: 'mine', difficulty: 2 });
+    assert.strictEqual(c.failed.length, 0, 'a completed task must leave the failed list');
+    assert.strictEqual(c.completed.length, 1);
+    c.recordCompleted({ name: 'mine 5 iron', type: 'mine', difficulty: 2 });
+    c.recordCompleted({ name: 'chop 8', type: 'chop', difficulty: 1 });
+    assert.deepStrictEqual(c.completed.map((e) => e.name), ['mine 5 iron', 'chop 8'], 'dedupe keeps order');
+    c.recordFailed({ name: 'mine 5 iron', type: 'mine', reason: 'regressed' });
+    assert.strictEqual(c.failed.length, 0, 'an already-completed task cannot re-enter failed');
+    c.recordFailed({ name: 'kill dragon', type: 'attack', reason: 'too hard' });
+    assert.deepStrictEqual(c.failed.map((e) => e.name), ['kill dragon'], 'distinct failures survive');
+    assert.strictEqual(c.level(), 2, 'the band follows the de-duplicated count');
+  });
+
+  await check('a polluted ledger is repaired on load, without writing back', () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'curriculum-'));
+    const file = path.join(dir, 'curriculum.json');
+    fs.writeFileSync(file, JSON.stringify({
+      version: 1,
+      completed: [
+        { name: 'chop 8', difficulty: 1 },
+        { name: 'chop 8', difficulty: 1 },
+        { name: 'mine 5 iron', difficulty: 2 }
+      ],
+      failed: [
+        { name: 'mine 5 iron', reason: 'noPath' },
+        { name: 'kill dragon', reason: 'too hard' },
+        { name: 'mine 5 iron', reason: 'again' }
+      ]
+    }));
+    const before = fs.readFileSync(file, 'utf8');
+    const c = new Curriculum({ file, log: silent });
+    assert.deepStrictEqual(c.completed.map((e) => e.name), ['chop 8', 'mine 5 iron']);
+    assert.deepStrictEqual(c.failed.map((e) => e.name), ['kill dragon']);
+    assert.strictEqual(fs.readFileSync(file, 'utf8'), before, 'loading must stay read-only');
+    fs.rmSync(dir, { recursive: true, force: true });
+  });
+
   await check('the proposal-prep goal carries the curriculum context', async () => {
     const curriculum = makeCurriculum();
     curriculum.recordCompleted({ name: 'chop', type: 'chop', difficulty: 1 });

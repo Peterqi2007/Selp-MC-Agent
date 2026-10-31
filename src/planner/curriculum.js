@@ -150,6 +150,13 @@ class Curriculum {
       const data = JSON.parse(raw);
       if (Array.isArray(data.completed)) this.completed = data.completed.slice(-this.cfg.historyLimit * 4);
       if (Array.isArray(data.failed)) this.failed = data.failed.slice(-this.cfg.historyLimit * 4);
+      /**
+       * Heal a ledger written before `_cleanUp` existed: a file may already hold duplicate
+       * completed entries, or the same task in both lists. Repair on load and deliberately
+       * do NOT write back here - loading must stay read-only (a boot with a bad file should
+       * not rewrite it before anyone looks).
+       */
+      this._cleanUp();
     } catch {
       /* no file (first run) or unreadable: start clean, never fail startup */
     }
@@ -215,6 +222,42 @@ class Curriculum {
 
   // ---------------------------------------------------------------- history
 
+  /**
+   * Voyager's `clean_up_tasks` (refs/Voyager/voyager/agents/curriculum.py:340): keep the
+   * ledger honest after every update.
+   *
+   *   - `completed` is de-duplicated, first occurrence wins and order is preserved;
+   *   - every `completed` name is dropped from `failed` (all occurrences) - a task that
+   *     eventually succeeded is no longer "too hard", and leaving it there makes
+   *     `describe()` tell the model two contradictory things in the same block.
+   *
+   * `failed` is deliberately NOT de-duplicated: Voyager keeps repeated failures ("record
+   * repeated failed tasks"), and so do we - a task that failed three times is different
+   * evidence from one that failed once.
+   *
+   * Identity is the trimmed `name`, the same field `describe()` prints. A name is the
+   * model's own wording, not an identifier we own, so it is compared exactly rather than
+   * case-folded (two differently-cased names really are two different proposals).
+   */
+  _cleanUp() {
+    const seen = new Set();
+    const completed = [];
+    for (const entry of this.completed) {
+      const key = String((entry && entry.name) || '').trim();
+      if (!key) {
+        completed.push(entry);
+        continue;
+      }
+      if (seen.has(key)) continue;
+      seen.add(key);
+      completed.push(entry);
+    }
+    this.completed = completed;
+    if (seen.size) {
+      this.failed = this.failed.filter((entry) => !seen.has(String((entry && entry.name) || '').trim()));
+    }
+  }
+
   recordCompleted(entry = {}) {
     const name = String(entry.name || entry.type || 'task').trim();
     if (!name) return null;
@@ -226,6 +269,7 @@ class Curriculum {
       at: new Date(this.now()).toISOString()
     };
     this.completed.push(record);
+    this._cleanUp();
     if (this.completed.length > this.cfg.historyLimit * 4) this.completed.shift();
     this.rejections = 0;
     this._save();
@@ -245,6 +289,11 @@ class Curriculum {
       at: new Date(this.now()).toISOString()
     };
     this.failed.push(record);
+    /**
+     * Same cleanup as a completion: a task already in `completed` cannot re-enter `failed`
+     * (Voyager behaves the same way - the push is followed by clean_up_tasks).
+     */
+    this._cleanUp();
     if (this.failed.length > this.cfg.historyLimit * 4) this.failed.shift();
     this._save();
     this.log.info(`curriculum: failed ${record.name}${record.reason ? ` (${record.reason})` : ''}`);
