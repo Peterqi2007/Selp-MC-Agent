@@ -89,6 +89,139 @@ async function main() {
     assert.strictEqual(c.rejections, 0);
   });
 
+  // ------------------------------------------------ failure-driven easing (2026-10-31)
+  //
+  // Voyager hands the failed list to the model and validates nothing
+  // (refs/Voyager/voyager/agents/curriculum.py:204, :288). Here the band is a hard gate, so
+  // the gate has to follow the failures too, or it refuses exactly the easier task the model
+  // should pick after failing.
+
+  await check('consecutive failures ease the band down by one level', () => {
+    const c = makeCurriculum();
+    c.recordCompleted({ name: 'a', type: 'chop', difficulty: 1 });
+    c.recordCompleted({ name: 'b', type: 'chop', difficulty: 1 });
+    assert.strictEqual(c.level(), 2, 'earned level is unchanged by failures');
+    assert.strictEqual(c.requiredDifficulty, 2);
+    c.recordFailed({ name: 'mine iron', type: 'mine', reason: 'no pickaxe' });
+    assert.strictEqual(c.bandPenalty(), 0, 'one failure is not enough at failPenaltyStep=2');
+    assert.strictEqual(c.requiredDifficulty, 2);
+    c.recordFailed({ name: 'mine iron again', type: 'mine', reason: 'no pickaxe' });
+    assert.strictEqual(c.bandPenalty(), 1);
+    assert.strictEqual(c.level(), 2, 'the earned level does not move');
+    assert.strictEqual(c.requiredDifficulty, 1, 'the enforced band eased to 1');
+  });
+
+  await check('one completion restores the earned band immediately', () => {
+    const c = makeCurriculum();
+    c.recordCompleted({ name: 'a', type: 'chop', difficulty: 1 });
+    c.recordCompleted({ name: 'b', type: 'chop', difficulty: 1 });
+    c.recordFailed({ name: 'f1', type: 'mine' });
+    c.recordFailed({ name: 'f2', type: 'mine' });
+    assert.strictEqual(c.requiredDifficulty, 1);
+    c.recordCompleted({ name: 'easy win', type: 'chop', difficulty: 1 });
+    assert.strictEqual(c.consecutiveFailures, 0);
+    assert.strictEqual(c.bandPenalty(), 0);
+    assert.strictEqual(c.requiredDifficulty, c.level(), 'band is back to the earned level');
+  });
+
+  await check('the eased band never drops below level 1', () => {
+    const c = makeCurriculum();
+    assert.strictEqual(c.level(), 1, 'no completions yet');
+    for (let i = 0; i < 10; i += 1) c.recordFailed({ name: 'f' + i, type: 'mine' });
+    assert(c.bandPenalty() >= 1, 'the easing is active');
+    assert.strictEqual(c.requiredDifficulty, 1, 'floored at 1');
+  });
+
+  await check('maxBandPenalty caps how far the band may be eased', () => {
+    const c = makeCurriculum({ cfg: { failPenaltyStep: 1, maxBandPenalty: 2, bandStep: 1, maxLevel: 5 } });
+    for (let i = 0; i < 4; i += 1) c.recordCompleted({ name: 'c' + i, type: 'chop', difficulty: 1 });
+    assert.strictEqual(c.level(), 5);
+    c.recordFailed({ name: 'f1', type: 'mine' });
+    assert.strictEqual(c.requiredDifficulty, 4);
+    c.recordFailed({ name: 'f2', type: 'mine' });
+    assert.strictEqual(c.requiredDifficulty, 3);
+    c.recordFailed({ name: 'f3', type: 'mine' });
+    c.recordFailed({ name: 'f4', type: 'mine' });
+    assert.strictEqual(c.bandPenalty(), 2, 'capped at maxBandPenalty');
+    assert.strictEqual(c.requiredDifficulty, 3, 'never eased past the cap');
+    const off = makeCurriculum({ cfg: { maxBandPenalty: 0 } });
+    off.recordCompleted({ name: 'a', type: 'chop' });
+    off.recordCompleted({ name: 'b', type: 'chop' });
+    off.recordFailed({ name: 'f', type: 'mine' });
+    off.recordFailed({ name: 'g', type: 'mine' });
+    assert.strictEqual(off.bandPenalty(), 0, 'maxBandPenalty=0 disables the easing');
+    assert.strictEqual(off.requiredDifficulty, off.level());
+  });
+
+  await check('an eased band accepts the easier proposal it used to refuse', () => {
+    const c = makeCurriculum();
+    c.recordCompleted({ name: 'a', type: 'chop', difficulty: 1 });
+    c.recordCompleted({ name: 'b', type: 'chop', difficulty: 1 });
+    const before = c.validate({ type: 'chop' });
+    assert.strictEqual(before.ok, false, 'at the earned band a d1 proposal is refused');
+    assert.strictEqual(before.required, 2);
+    c.recordFailed({ name: 'f1', type: 'mine' });
+    c.recordFailed({ name: 'f2', type: 'mine' });
+    c.resetRejections();
+    const after = c.validate({ type: 'chop' });
+    assert.strictEqual(after.ok, true, 'after two failures the same proposal is accepted');
+    assert.strictEqual(after.required, 1);
+    assert.strictEqual(after.penalty, 1);
+    assert.strictEqual(after.baseLevel, 2);
+    assert.strictEqual(after.effectiveLevel, 1);
+    assert.strictEqual(after.level, 2, 'level still reports the earned band');
+  });
+
+  await check('the eased band still keeps the relax budget as the last resort', () => {
+    const c = makeCurriculum({ cfg: { failPenaltyStep: 2, maxBandPenalty: 1, maxRejections: 1 } });
+    c.recordCompleted({ name: 'a', type: 'chop' });
+    c.recordCompleted({ name: 'b', type: 'chop' });
+    c.recordFailed({ name: 'f1', type: 'mine' });
+    c.recordFailed({ name: 'f2', type: 'mine' });
+    assert.strictEqual(c.requiredDifficulty, 1);
+    // Drop the easing and the relax budget must still break the deadlock on its own.
+    c.consecutiveFailures = 0;
+    assert.strictEqual(c.requiredDifficulty, 2);
+    const first = c.validate({ type: 'chop' });
+    assert.strictEqual(first.ok, false);
+    const second = c.validate({ type: 'chop' });
+    assert.strictEqual(second.ok, true, 'relaxed after the budget');
+    assert.strictEqual(second.reason, 'curriculum-relaxed');
+  });
+
+  await check('the prep context states the eased band and why', () => {
+    const c = makeCurriculum();
+    c.recordCompleted({ name: 'chop 8', type: 'chop', difficulty: 1 });
+    c.recordCompleted({ name: 'chop 8b', type: 'chop', difficulty: 1 });
+    const before = c.describe();
+    assert.match(before, /Current difficulty band: level 2\/4/);
+    assert.doesNotMatch(before, /temporarily lowered/, 'no easing line when the band is earned');
+    c.recordFailed({ name: 'f1', type: 'mine', reason: 'no pickaxe' });
+    c.recordFailed({ name: 'f2', type: 'mine', reason: 'no pickaxe' });
+    const after = c.describe();
+    assert.match(after, /Current difficulty band: level 1\/4/, 'the enforced band is what the model is told');
+    assert.match(after, /difficulty >= 1/);
+    assert.match(after, /temporarily lowered from 2 to 1/);
+    assert.match(after, /2 consecutive tasks ended blocked/);
+    assert.match(after, /One success restores the earned band/);
+    assert.doesNotMatch(after, /prefer one step harder/, 'do not push upward while the band is eased');
+  });
+
+  await check('status() exposes the earned band, the easing and the streak', () => {
+    const c = makeCurriculum();
+    c.recordCompleted({ name: 'a', type: 'chop' });
+    c.recordCompleted({ name: 'b', type: 'chop' });
+    c.recordFailed({ name: 'f1', type: 'mine' });
+    c.recordFailed({ name: 'f2', type: 'mine' });
+    const s = c.status();
+    assert.strictEqual(s.baseLevel, 2);
+    assert.strictEqual(s.effectiveLevel, 1);
+    assert.strictEqual(s.penalty, 1);
+    assert.strictEqual(s.consecutiveFailures, 2);
+    assert.strictEqual(s.requiredDifficulty, 1);
+    assert.strictEqual(s.level, 2);
+  });
+
   await check('the prep context carries history, band, focus and Voyager rules', () => {
     const c = makeCurriculum();
     c.recordCompleted({ name: 'chop 8', type: 'chop', difficulty: 1 });

@@ -108,6 +108,16 @@ const DEFAULTS = Object.freeze({
   maxLevel: 4,
   /** Below-band proposals refused before the module lets one through. */
   maxRejections: 2,
+  /**
+   * Failure-driven easing. Voyager only hands the failed-task list to the model and lets it
+   * decide to go easier (`refs/Voyager/voyager/agents/curriculum.py:204`, `:288` validates
+   * nothing). Here the band is a hard numeric gate, and a gate that only ever rises fights
+   * the model: it sees the failures, correctly proposes something easier, and gets refused.
+   * So the gate follows the failures too - `failPenaltyStep` consecutive blocked executions
+   * lower it by one level, up to `maxBandPenalty` levels, and one completion restores it.
+   */
+  failPenaltyStep: 2,
+  maxBandPenalty: 1,
   /** How many history entries the prompt/state keeps. */
   historyLimit: 12
 });
@@ -137,6 +147,12 @@ class Curriculum {
     this.completed = [];
     this.failed = [];
     this.rejections = 0;
+    /**
+     * Consecutive blocked executions with no completion in between. In-memory on purpose:
+     * a restarted agent should not inherit a stale penalty it cannot replay (same reasoning
+     * as `rejections`). It measures *attempts*, not ledger rows - see recordFailed().
+     */
+    this.consecutiveFailures = 0;
     this.lastValidation = null;
     this._load();
   }
@@ -216,8 +232,27 @@ class Curriculum {
     return clamp(1 + Math.floor(done / Math.max(1, this.cfg.bandStep)), 1, this.cfg.maxLevel);
   }
 
+  /**
+   * How many levels the band is currently eased down by.
+   *
+   * `0` when `maxBandPenalty` is 0 (the easing is off), otherwise one level per
+   * `failPenaltyStep` consecutive blocked executions, capped by `maxBandPenalty`.
+   * `Math.max(1, ...)` on the step keeps a misconfigured 0 from dividing by zero.
+   */
+  bandPenalty() {
+    const cap = Math.max(0, Number(this.cfg.maxBandPenalty) || 0);
+    if (!cap) return 0;
+    const step = Math.max(1, Number(this.cfg.failPenaltyStep) || 1);
+    return Math.min(cap, Math.floor(this.consecutiveFailures / step));
+  }
+
+  /**
+   * The band the next proposal must reach. This used to be exactly `level()`; it now also
+   * follows the failure streak, which is the whole point of the easing. `level()` keeps its
+   * old meaning ("earned"), so progress display and logs are unaffected.
+   */
   get requiredDifficulty() {
-    return this.level();
+    return clamp(this.level() - this.bandPenalty(), 1, this.cfg.maxLevel);
   }
 
   // ---------------------------------------------------------------- history
@@ -272,6 +307,8 @@ class Curriculum {
     this._cleanUp();
     if (this.completed.length > this.cfg.historyLimit * 4) this.completed.shift();
     this.rejections = 0;
+    /** One success is the whole recovery rule for the eased band. */
+    this.consecutiveFailures = 0;
     this._save();
     this.log.info(`curriculum: completed ${record.name} (difficulty ${record.difficulty}, level -> ${this.level()})`);
     return record;
@@ -280,6 +317,14 @@ class Curriculum {
   recordFailed(entry = {}) {
     const name = String(entry.name || entry.type || 'task').trim();
     if (!name) return null;
+    /**
+     * Counted *before* `_cleanUp()` on purpose: the streak measures attempts, not ledger
+     * rows. A task that succeeded once and then ended blocked again is stripped out of
+     * `failed` by the cleanup, yet the attempt really did fail and must still ease the band.
+     * That is why `describe()` prints the streak number directly instead of deriving it
+     * from the failed list.
+     */
+    this.consecutiveFailures += 1;
     const record = {
       name,
       type: String(entry.type || name).trim(),
@@ -306,28 +351,40 @@ class Curriculum {
    * Validate a proposal against the band. The caller decides what to do with a refusal;
    * the rejection counter is capped so the round cannot deadlock.
    *
-   * @returns {{ok:boolean, reason?:string, required:number, actual:number, level:number, attempts:number}}
+   * `level` stays the *earned* level; `required` is the effective band after the failure
+   * easing, and `penalty` says how much was eased away so a refusal can explain itself.
+   *
+   * @returns {{ok:boolean, reason?:string, required:number, actual:number, level:number,
+   *   baseLevel:number, effectiveLevel:number, penalty:number, consecutiveFailures:number,
+   *   attempts:number}}
    */
   validate(candidate = {}) {
     const actual = typeof candidate.difficulty === 'number' ? candidate.difficulty : this.difficultyOf(candidate);
     const required = this.requiredDifficulty;
     const level = this.level();
+    const band = {
+      required,
+      level,
+      baseLevel: level,
+      effectiveLevel: required,
+      penalty: this.bandPenalty(),
+      consecutiveFailures: this.consecutiveFailures
+    };
     if (!this.enabled) {
-      return { ok: true, reason: 'curriculum-disabled', required, actual, level, attempts: 0 };
+      return { ok: true, reason: 'curriculum-disabled', actual, ...band, attempts: 0 };
     }
     if (actual >= required) {
       this.rejections = 0;
-      this.lastValidation = { ok: true, required, actual, level, attempts: 0 };
-      return { ok: true, required, actual, level, attempts: 0 };
+      this.lastValidation = { ok: true, actual, ...band, attempts: 0 };
+      return { ok: true, actual, ...band, attempts: 0 };
     }
     this.rejections += 1;
     const overBudget = this.rejections > this.cfg.maxRejections;
     const result = {
       ok: overBudget,
       reason: overBudget ? 'curriculum-relaxed' : 'difficulty-below-curriculum',
-      required,
       actual,
-      level,
+      ...band,
       attempts: this.rejections
     };
     this.lastValidation = result;
@@ -349,7 +406,9 @@ class Curriculum {
   describe() {
     const completed = this.completed.slice(-this.cfg.historyLimit);
     const failed = this.failed.slice(-Math.max(2, Math.floor(this.cfg.historyLimit / 2)));
-    const level = this.level();
+    const base = this.level();
+    const effective = this.requiredDifficulty;
+    const penalty = this.bandPenalty();
     const last = completed[completed.length - 1];
     const completedText = completed.length
       ? completed.map((entry) => `${entry.name} (d${entry.difficulty})`).join(', ')
@@ -362,9 +421,27 @@ class Curriculum {
       'AUTOMATIC CURRICULUM (Voyager-style; this is context, not a new task):',
       `- Completed tasks so far (${completed.length}): ${completedText}`,
       `- Failed tasks that were too hard: ${failedText}`,
-      `- Current difficulty band: level ${level}/${this.cfg.maxLevel}. The next proposal must have ` +
-        `difficulty >= ${level} (1 gatherable … 5 rare/dangerous).`,
-      last ? `- Last completed: ${last.name} (difficulty ${last.difficulty}); prefer one step harder when the world allows it.` : null,
+      `- Current difficulty band: level ${effective}/${this.cfg.maxLevel}. The next proposal must have ` +
+        `difficulty >= ${effective} (1 gatherable … 5 rare/dangerous).`,
+      /**
+       * The eased band must be stated explicitly: the model can see the failed list, but it
+       * cannot know that the *gate* moved. Without this line a lowered band looks like the
+       * agent asking for something easier for no reason.
+       */
+      penalty > 0
+        ? `- The band is temporarily lowered from ${base} to ${effective} after ` +
+          `${this.consecutiveFailures} consecutive tasks ended blocked with no completion in between. ` +
+          'One success restores the earned band, so pick something you can finish now rather than ' +
+          'something at the earned level.'
+        : null,
+      last
+        ? `- Last completed: ${last.name} (difficulty ${last.difficulty})` +
+          /**
+           * Do not tell the model to climb while the band is eased - that would contradict
+           * the line above it and re-create the push-upward pressure we just removed.
+           */
+          (penalty > 0 ? '.' : '; prefer one step harder when the world allows it.')
+        : null,
       `- Focus candidates for this band: ${focus.join(', ')}.`,
       'Rules (from Voyager curriculum):',
       '1) One concrete command-table action; no multi-step essay, no raw input and no code skill.',
@@ -379,7 +456,8 @@ class Curriculum {
 
   /** A few candidate verbs for the current band (guidance, not a whitelist). */
   focusSuggestions() {
-    const level = this.level();
+    /** The *effective* band: after a failure streak the suggestions must ease down too. */
+    const level = this.requiredDifficulty;
     const table = {
       1: ['chop', 'mine stone/coal', 'farm', 'fish', 'explore', 'collect'],
       2: ['craft', 'smelt', 'mine iron/copper', 'withdraw/deposit', 'hunt animals'],
@@ -394,7 +472,13 @@ class Curriculum {
   status() {
     return {
       enabled: this.enabled,
+      /** Earned band from completed tasks (unchanged meaning). */
       level: this.level(),
+      baseLevel: this.level(),
+      /** Band actually enforced right now, after any failure easing. */
+      effectiveLevel: this.requiredDifficulty,
+      penalty: this.bandPenalty(),
+      consecutiveFailures: this.consecutiveFailures,
       requiredDifficulty: this.requiredDifficulty,
       completed: this.completed.length,
       failed: this.failed.length,

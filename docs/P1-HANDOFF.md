@@ -65,7 +65,7 @@ npm run p1:baseline -- --suites  # 记录提交/配置指纹/套件结果到 run
 | `p1:shot:test` | **20/20** |
 | `p1:steer:test` | **9/9** |
 | `p1:taskgoal:test` | **14/14** |
-| `p1:curriculum:test` | **10/10** |
+| `p1:curriculum:test` | **18/18** |
 | `p1:fault:test` | **9/9** |
 | `plan:audit --stage p1` | **105/105** |
 

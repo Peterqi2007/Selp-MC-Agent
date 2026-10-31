@@ -988,10 +988,16 @@ async function main() {
     });
     brain.proposalCoordinator = ctx.proposalCoordinator;
     ctx.proposalCoordinator.start();
+    /** Show the enforced band; mention the earned level only when failures have eased it. */
+    const curriculumPenalty = ctx.curriculum.bandPenalty();
+    const curriculumBand = curriculumPenalty > 0
+      ? `curriculum band ${ctx.curriculum.requiredDifficulty}/${ctx.curriculum.cfg.maxLevel} ` +
+        `(earned ${ctx.curriculum.level()}, eased ${curriculumPenalty} after ${ctx.curriculum.consecutiveFailures} failures)`
+      : `curriculum level ${ctx.curriculum.level()}/${ctx.curriculum.cfg.maxLevel}`;
     log.info(
       `autonomous proposals: ${autonomyCfg.enabled === false ? 'disabled' : 'enabled'} ` +
         `(idle ${Number(autonomyCfg.idleMs) || 300000}ms, response ${Number(autonomyCfg.responseMs) || 30000}ms, ` +
-        `curriculum level ${ctx.curriculum.level()}/${ctx.curriculum.cfg.maxLevel})`
+        `${curriculumBand})`
     );
   }
 

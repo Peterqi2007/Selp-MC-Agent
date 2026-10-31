@@ -1431,22 +1431,36 @@ class Brain {
       if (curriculum && typeof curriculum.validate === 'function') {
         const verdict = curriculum.validate({ type, name, args: normalized.args });
         if (!verdict.ok) {
+          /**
+           * Name the eased band explicitly. "the band is 1 (level 2)" reads like a bug unless
+           * the reason is stated: the earned level is 2, but consecutive failures moved the
+           * gate down, and one success puts it back.
+           */
+          const eased = verdict.penalty > 0
+            ? ` The band was eased down from the earned level ${verdict.baseLevel} after ` +
+              `${verdict.consecutiveFailures} consecutive blocked tasks; one success restores it.`
+            : '';
           return {
             ok: false,
             reason: verdict.reason,
             required: verdict.required,
             actual: verdict.actual,
             level: verdict.level,
+            baseLevel: verdict.baseLevel,
+            effectiveLevel: verdict.effectiveLevel,
+            penalty: verdict.penalty,
+            consecutiveFailures: verdict.consecutiveFailures,
             detail:
               `curriculum: this proposal is difficulty ${verdict.actual}, but the current band is ` +
-              `${verdict.required} (level ${verdict.level}). Propose a harder-but-reachable single action ` +
-              `(see the AUTOMATIC CURRICULUM block in this goal).`
+              `${verdict.required} (earned level ${verdict.level}).${eased} Propose a harder-but-reachable ` +
+              `single action (see the AUTOMATIC CURRICULUM block in this goal).`
           };
         }
         normalized.difficulty = verdict.actual;
         normalized.curriculum = {
           level: verdict.level,
           required: verdict.required,
+          penalty: verdict.penalty,
           relaxed: verdict.reason === 'curriculum-relaxed'
         };
       }

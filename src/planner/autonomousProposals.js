@@ -212,10 +212,16 @@ class AutonomousProposalCoordinator {
         });
       }
     }
-    this.log.info(
-      `autonomous execution ${tracked.id} ${phase}: ${candidate.name || candidate.type}`
-        + (this.curriculum ? ` (curriculum level ${this.curriculum.level()})` : '')
-    );
+    /** Log the enforced band too - a settle that eased it is exactly what you grep for later. */
+    let band = '';
+    if (this.curriculum) {
+      const penalty = this.curriculum.bandPenalty();
+      band = penalty > 0
+        ? ` (curriculum band ${this.curriculum.requiredDifficulty}, earned ${this.curriculum.level()},`
+          + ` eased after ${this.curriculum.consecutiveFailures} failures)`
+        : ` (curriculum level ${this.curriculum.level()})`;
+    }
+    this.log.info(`autonomous execution ${tracked.id} ${phase}: ${candidate.name || candidate.type}${band}`);
     this.executionGoal = null;
     return { ok: true, reason: `execution-${phase}` };
   }

@@ -276,8 +276,18 @@ LLM 层（`src/llm/`，生产配置已开启 `toolCalling`）：8 个工具 —�
     里全部移除。修前账本可能对同一个任务同时说“已完成”和“太难失败”，`describe()` 会把
     两条矛盾信息一起塞给模型；failed 本身**不去重**（Voyager 一样保留重复失败，三次失败与
     一次失败是不同的证据）。加载时只修复不写回（启动不该先改写一个坏文件）。
-    离线 `p1:curriculum:test 10/10`（+2 条：账本自净、污染文件加载自愈）；另核对过
-    Voyager 的 `voyager/agents/curriculum.py:340` 与 `voyager/prompts/curriculum.txt` 八条规则；
+    离线 `p1:curriculum:test` 相应增加断言；另核对过 Voyager 的
+    `voyager/agents/curriculum.py:340` 与 `voyager/prompts/curriculum.txt` 八条规则；
+  - **失败降 band**（2026-10-31，对齐 Voyager 的"唱反调就放低"）：这里要纠正一个常见误解——
+    我们**不缺语义层**，`describe()` 早已把 failed 列表交给动作脑，模型看得到也愿意退一步；
+    缺的是**闸门不跟随**。Voyager 根本不做难度校验（`curriculum.py:288` 只在解析失败时重试），
+    难度完全交给模型；我们的 band 是硬闸门且**只升不降**，于是会拒掉模型在失败后主动提出的
+    简单任务，只能靠 `maxRejections` 耗尽后"放宽"放行——闸门在和模型的正确判断作对。
+    现在 `requiredDifficulty = clamp(level() - bandPenalty(), 1, maxLevel)`：
+    `failPenaltyStep`（默认 2）次连续 blocked 降 1 档，最多降 `maxBandPenalty`（默认 1）档，
+    **一次完成立即恢复**；`level()` 仍表示"已挣得"档位，日志与面板同时显示两者。
+    streak 是内存态（重启清零，避免带着无法复现的惩罚）。已知局限：`blockedReason` 无法区分
+    "任务太难"与"基础设施抖动"，当前一律计入；
   - **自卫反射状态可见**：`selfDefense` 由 `behaviour.autoFight` 单一推导，进入
     `/ui/state`、`mc_observe`、`mc_state`（`threat`/`combat` 组）与动作脑请求/目标文本；
     enabled 时明确告诉动作脑“Node 可能自行攻击并抢占任务，这些不是你的指令”；
@@ -623,7 +633,7 @@ Invoke-RestMethod -Uri http://127.0.0.1:8766/ui/state
 | `npm run p1:shot:test` | 截图触发/预算/去重/steer 策略 | 20/20 |
 | `npm run p1:steer:test` | 主动 steer 投递（插件 `/message` steer/followup/回退 + 桥接 + 策略） | 9/9 |
 | `npm run p1:taskgoal:test` | 玩家任务 / `@` 请求 → DSH goal（含异常阶梯/自卫反射提示） | 14/14 |
-| `npm run p1:curriculum:test` | Voyager 式自动课程（难度带/账本/账本自净/校验/接线） | 10/10 |
+| `npm run p1:curriculum:test` | Voyager 式自动课程（难度带/账本/账本自净/失败降带/校验/接线） | 18/18 |
 | `npm run p1:m4:evolve:test` | M4 v3 键鼠脚本 / 错误回灌 / 版本链 / 检索 | 17/17 |
 | `npm run p1:language:test` | 统一语言脑门面（profile/工具/原文审批/记忆 grep/短窗口） | **20/20** |
 | `npm run corpus:learn` | 从 `chat-corpus.csv` 标注学习 20+20 条沉默/参与示例，写 `config/chat-silence-profile.json` | 40 examples |

@@ -82,13 +82,15 @@
       "prepTimeoutMs": 90000,
       "maxGoalRounds": 3,
       "executionGoalRounds": 6,
-      "_comment_curriculum": "Voyager-style automatic curriculum (src/planner/curriculum.js): the prep goal carries completed/failed tasks and a difficulty band (level grows every bandStep completed tasks, cap maxLevel); below-band proposals are refused up to maxRejections times, then relaxed. The ledger persists to file.",
+      "_comment_curriculum": "Voyager-style automatic curriculum (src/planner/curriculum.js): the prep goal carries completed/failed tasks and a difficulty band (level grows every bandStep completed tasks, cap maxLevel); below-band proposals are refused up to maxRejections times, then relaxed. The ledger persists to file. failPenaltyStep/maxBandPenalty ease the band DOWN on consecutive failures: Voyager lets the model react to the failed list itself, but here the band is a hard numeric gate, so a gate that only rises would refuse exactly the easier task the model should pick after failing. Default: 2 consecutive blocked executions = -1 level, never more than 1 level down, and one success restores the earned band immediately. The streak is in-memory (a restart clears it).",
       "curriculum": {
         "enabled": true,
         "file": "runtime/curriculum.json",
         "bandStep": 2,
         "maxLevel": 4,
         "maxRejections": 2,
+        "failPenaltyStep": 2,
+        "maxBandPenalty": 1,
         "historyLimit": 12
       }
     }
