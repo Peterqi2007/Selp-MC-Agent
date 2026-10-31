@@ -69,10 +69,37 @@
 
 ## 需要知道的三件事
 
-1. **远端仍是旧历史。** 本地改写不会自动同步：`master` 指向
-   `https://github.com/Peterqi2007/Selp-MC-Agent`，其 `codex/p1` 仍含 PDF。
-   要同步必须 `git push --force-with-lease master codex/p1`，并且**所有其他克隆都会分叉**。
-   本次未推送。
+1. **已强制推送（2026-10-31），远端现在是 `4ebe38d`。**
+
+   **先纠正一个前提**：那 28 MB **从未上过 GitHub**。推向远端前的远端 tip 是
+   `c9414ef`（「readme correct」，2026-10-26 网页提交），而 PDF 的引入提交 `9fab777`
+   **并不是它的祖先** —— 远端历史一直停在引入 PDF 之前。所以这次推送不是「从 GitHub 清除」，
+   而是把本地改写后的历史同步上去（本地此前有 30 个提交从未推送）。
+
+   过程中的两个意外：
+
+   - **`github.com:443` 在本机不可达**（`curl 28` 超时 21s，无 proxy，DNS 正常）；
+     而 `api.github.com` / `codeload` / `raw` 正常，`ssh.github.com:443` 正常。
+     故推送改走 SSH-over-443：
+     `ssh://git@ssh.github.com:443/Peterqi2007/Selp-MC-Agent.git`（认证为 `Peterqi2007`）。
+   - **远端比本地记录多 1 个提交**：本地 `refs/remotes/master/codex/p1` 停在 `9fbee55`，
+     实际远端是 `c9414ef`（父提交 `9fbee55`）。若直接用 `--force` 会静默删掉它。
+     已先 `git fetch` 把它保住（本地对象仍在），再以
+     `--force-with-lease=refs/heads/codex/p1:c9414ef1…` 钉死旧值推送，命令回显
+     `c9414ef...4ebe38d  forced update`。
+
+   那个被取代的提交只改了一件事——在 README 第 1 行加了：
+
+   ```
+   # WARNING: This agent is not fully developed and may have serious problems(see about). English readme.md is also not provided.
+   ```
+
+   这一行**不在当前 README 里**（本地这条开发线自 `9fbee55` 后从未包含它）。内容记录在此，
+   若仍需要，直接把这行加回 README 顶部即可；`c9414ef` 的对象在本地已标注、但未设 ref，
+   执行 `git gc --prune=now` 后可能被回收——所以把文字留在这里而不是依赖那个 SHA。
+
+   - **所有其他克隆会永久分叉**；协作者必须重新 clone 或 `git reset --hard origin/codex/p1`。
+   - 推送走 HTTPS 仍会失败；需要推送时请用上面那条 SSH 地址。
 2. **备份未入库**：`.tmp/history-backup-20261031-164214.bundle`（41.4 MB，
    `git bundle create --all`），已验证可完整 clone 回改前状态（含两个 PDF blob）。
    它在 `.tmp/` 下（gitignore），**清除 `.tmp/` 即失去回滚能力**。
