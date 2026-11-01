@@ -25,6 +25,14 @@ const DEFAULT_CONTROL = 'http://127.0.0.1:8766';
 const DEFAULT_PORT = 8770;
 
 /**
+ * Stable identity of a proposal-prep goal, written by `proposalPrepObjective` and checked by
+ * `prepActive()`. It is prose on purpose: the goal service exposes no "purpose" field, and
+ * the Node coordinator creates the prep goal itself (through POST /goal) so the plugin may
+ * not hold its id.
+ */
+const PREP_OBJECTIVE_MARKER = 'Minecraft action-brain AUTONOMOUS TASK PROPOSAL';
+
+/**
  * Every field the local observation cache exposes. `mc_observe({full:true})` uses this
  * once in the autonomous-proposal prep round; it must be the real client snapshot, not a
  * hand-picked summary (the action brain has to decide what task is worth proposing).
@@ -108,22 +116,37 @@ function toolDefinitions({ controlUrl, record, log, runtime }) {
    * True while the injected goal is the autonomous-proposal prep round. During that round
    * the action brain may read and propose, but must not touch the body: the player has not
    * approved anything yet.
+   *
+   * 2026-11-01 fix: the id bookkeeping alone is not a reliable source of truth. The prep
+   * goal is created by the Node coordinator through `POST /goal` (which calls `goals.create`
+   * and records `prepGoalId`), but any later `/goal/complete` for a *different* goal used to
+   * wipe that id, and a goal created while the plugin was not tracking (restart, a cleared
+   * leftover) left `prepGoalId` null. Result: `mc_propose({autonomous:true})` was rejected
+   * every round and the brain fell back to an ordinary proposal, which never reaches
+   * `_express`. The objective written by `proposalPrepObjective` is a stable marker, so use
+   * it as the fallback identity.
    */
   const prepActive = () => {
     const id = runtime.prepGoalId || null;
-    if (!id) return false;
     const goal = typeof runtime.goalOf === 'function' ? runtime.goalOf(runtime.agent) : null;
+    if (id && goal && goal.id === id) return true;
     /**
      * Keep the guard until Node explicitly closes the prep round (`/goal/complete`) or
      * replaces it with an execution goal. The model may call update_goal complete and then
      * try a body tool in the same turn; a phase-based guard would allow that execution
      * before the player has approved anything.
      */
-    if (!goal || goal.id !== id) {
+    if (id && (!goal || goal.id !== id)) {
       runtime.prepGoalId = null;
-      return false;
+      if (!goal) return false;
     }
-    return true;
+    const objective = goal && typeof goal.objective === 'string' ? goal.objective : '';
+    if (goal && goal.phase !== 'complete' && objective.includes(PREP_OBJECTIVE_MARKER)) {
+      /** Adopt the prep goal even if this instance did not create it. */
+      runtime.prepGoalId = goal.id;
+      return true;
+    }
+    return false;
   };
 
   const observe = {
@@ -1026,7 +1049,7 @@ export function apply(ctx, config = {}) {
    */
   const proposalPrepObjective = (goal) =>
     [
-      'Minecraft action-brain AUTONOMOUS TASK PROPOSAL (proposal prep, no execution).',
+      `${PREP_OBJECTIVE_MARKER} (proposal prep, no execution).`,
       `CONTEXT: ${goal}`,
       '',
       'Rules:',
@@ -1534,10 +1557,22 @@ export function apply(ctx, config = {}) {
           ? agents.get(agentId)
           : runtime.agent;
       if (!live) return jsonReply(res, 404, { ok: false, error: 'no-live-agent' });
+      const goal = goalOf(live);
+      /**
+       * Diagnostics for the prep guard (2026-11-01): "every autonomous proposal is rejected"
+       * is hard to tell apart from "the round never ran" without these two booleans.
+       */
+      const prepTracked = !!(runtime.prepGoalId && goal && goal.id === runtime.prepGoalId);
+      const prepMarked = !!(
+        goal &&
+        goal.phase !== 'complete' &&
+        String(goal.objective || '').includes(PREP_OBJECTIVE_MARKER)
+      );
       return jsonReply(res, 200, {
         ok: true,
         agentId: live.id || agentId || null,
-        goal: goalOf(live)
+        goal,
+        prep: { tracked: prepTracked, marked: prepMarked, active: prepTracked || prepMarked, prepGoalId: runtime.prepGoalId || null }
       });
     }
     /**
@@ -1650,7 +1685,15 @@ export function apply(ctx, config = {}) {
       const goals = goalsService();
       const current = live ? goalOf(live) : null;
       const targetId = String(parsed.goalId || (current && current.id) || '').trim();
-      runtime.prepGoalId = null;
+      /**
+       * Only clear the prep flag when the completed goal IS the tracked prep goal. The old
+       * unconditional clear let any unrelated cleanup (`!stop` on a paused leftover, a
+       * restart sweep) wipe the guard while a prep round was still running - after which
+       * `mc_propose({autonomous:true})` was rejected and the brain fell back to an ordinary
+       * proposal that never reaches `_express` (2026-11-01).
+       */
+      if (targetId && runtime.prepGoalId && targetId === runtime.prepGoalId) runtime.prepGoalId = null;
+      else if (!current && runtime.prepGoalId) runtime.prepGoalId = null;
       if (!live) return jsonReply(res, 404, { ok: false, error: 'no-live-agent', completed: false });
       if (!goals || typeof goals.complete !== 'function') {
         return jsonReply(res, 503, { ok: false, error: 'goal service unavailable', completed: false });

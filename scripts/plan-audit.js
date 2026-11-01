@@ -1626,6 +1626,25 @@ if (STAGE === 'p1') {
     if (!/input-required/.test(test)) throw new Error('the ladder test does not cover the input rung');
     return 'input-required + examples + one retry after a successful key/mouse action';
   });
+
+  /**
+   * 2026-11-01 live report: `mc_propose({autonomous:true})` was rejected every prep round
+   * because the plugin tracked the prep goal only by an id set in its own POST /goal handler,
+   * while the Node coordinator creates the goal itself, and any unrelated /goal/complete
+   * wiped that id. The objective marker is the stable fallback identity.
+   */
+  check('P1: the prep guard recognizes a Node-created prep goal by its objective marker', () => {
+    const plugin = read('dsh-plugin-mc-harness/lib/index.js');
+    if (!/PREP_OBJECTIVE_MARKER/.test(plugin)) throw new Error('no stable marker for the prep objective');
+    if (!/objective\.includes\(PREP_OBJECTIVE_MARKER\)/.test(plugin)) {
+      throw new Error('prepActive does not fall back to the objective marker');
+    }
+    if (!/targetId === runtime\.prepGoalId/.test(plugin)) {
+      throw new Error('/goal/complete still wipes the prep flag unconditionally');
+    }
+    if (!/prep: \{ tracked/.test(plugin)) throw new Error('GET /goal exposes no prep diagnostics');
+    return 'marker fallback + scoped clear + /goal diagnostics';
+  });
 }
 
 // ------------------------------------------------------------------- summary

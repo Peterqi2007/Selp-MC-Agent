@@ -308,6 +308,14 @@ executionGoalRounds`）；`proposalTtlMs` 仍是 plan question 的默认值。�
   turn 与 plan）再 `/goal/complete`。`complete` 对 **paused** goal 会被 DSH 拒绝，插件现在回退
   `goals.clear` 并返回 `{ok:true, cleared:true}`，否则遗留的 paused goal 会让之后每一轮 prep
   都收到 `goal:paused`。**插件改动需要重启 DSH 生效**。
+- **prep 轮的身份**（2026-11-01 真机报告：`mc_propose({autonomous:true})` 每轮被拒、退回普通提案，
+  而普通提案不进 `_express`）：插件原来只认 `runtime.prepGoalId`，但 prep goal 是 Node 协调器
+  通过 `POST /goal` 建的（`goals.create`），而任何一次**无关的** `/goal/complete` 都会把该 id
+  清空。现在 `prepActive()` 先比 id，失配时回退到**目标文本标记**
+  （`PREP_OBJECTIVE_MARKER` = `Minecraft action-brain AUTONOMOUS TASK PROPOSAL`）并接管；
+  `/goal/complete` 只在 `targetId === prepGoalId`（或目标已不存在）时清标记。`GET /goal` 新增
+  `prep:{tracked,marked,active,prepGoalId}` 便于区分「轮次没跑」与「被守卫拒」。
+  **需要重启 DSH 才生效**。
 - **宿主会自己 pause goal**：goal-round-driver 在「agent 变 idle 时该轮的 queued 消息还没被
   admit」时会 pause（外观是 `roundsStarted:0`、`activation:disarmed`）。Node 会 resume 两次、
   再关掉重开，连续 3 轮即 `paused(prep-goals-paused)`；遇到先重开一个干净的「动作脑」会话。

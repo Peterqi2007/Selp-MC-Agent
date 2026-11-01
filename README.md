@@ -79,7 +79,7 @@
 | [`docs/M2-CLIENT-TEST-2026-10-17.md`](docs/M2-CLIENT-TEST-2026-10-17.md) | **M2 客户端记录**：A01/A02/A03/A09/A10/A11/A12/H1 均 PASS；A12 GUI 修复后 219ms 自动关工作台并击杀；TACZ reload live PASS；时间判定改为 server dayTime 优先 |
 | [`docs/DSH-HARNESS.md`](docs/DSH-HARNESS.md) | **DSH harness 接入**：`dsh-plugin-mc-harness` 插件与安装脚本；**15 个工具**（14 个 `mc_*`：observe/step/state/capabilities/keybinds/ask_player/plan/plan_status/cancel/finish/perception/memory/propose/say，外加 `lookup_mod_content`）；持久 goal、`/goal/pause`/`resume`、DialogueRouter + `mc_say` 真机结果。**CU 路径已放弃**；原 M5 的 Full Access Ask 对话级预设不再使用（M5 走进程内输入层） |
 | [`docs/P1-CLIENT-VERIFICATION.md`](docs/P1-CLIENT-VERIFICATION.md) | **P1 客户端阶段验证计划（M1–M7）**：阶段闸门、可证伪主张、正/反证据、有效性边界；**当前 4/7 通过（M1 适用子集、M2、M3、M4）**；M5 未通过（输入层已实现并真机验证链路，但 F1'/A21/A22 未收口；CU 已放弃）、M6/M7 部分 |
-| [`docs/PLANNER-RETIREMENT.md`](docs/PLANNER-RETIREMENT.md) | **自主规划器退役**：`slowLoop` 拆为 GoalEvaluator + 提案 + TaskSlot。**S0–S4 已全部离线交付**（`planner:test` 35/35、`plan:audit --stage p1` 111/111），真机判据仍登记在客户端清单 |
+| [`docs/PLANNER-RETIREMENT.md`](docs/PLANNER-RETIREMENT.md) | **自主规划器退役**：`slowLoop` 拆为 GoalEvaluator + 提案 + TaskSlot。**S0–S4 已全部离线交付**（`planner:test` 35/35、`plan:audit --stage p1` 112/112），真机判据仍登记在客户端清单 |
 | [`docs/P1-CLIENT-TESTS.md`](docs/P1-CLIENT-TESTS.md) | **客户端/真机测试清单**：P1 与退役判据里所有需要真实客户端/服务器的项，**状态已按 2026-10-21/22/24 实际执行回填**；未执行项仍为未执行 |
 | [`docs/PLANNER-AB-EXPERIMENT.md`](docs/PLANNER-AB-EXPERIMENT.md) | **选型 A/B 实验设计**（**条件触发**：仅当 P1 §1.9.2 降级判定成立才执行）：24 次计分运行的场景与门槛；成本审计按时间 / token / 模块复用三项（§6–§7），§10 是决策闸门，**不做经济性评估**（§8.4） |
 | [`docs/HARNESS-INTERFACES.md`](docs/HARNESS-INTERFACES.md) | **两侧接口事实**：Codex（`base_instructions` 可整段替换 / `tool_mode` / hooks / MCP）与 DSH（0.2.0-rc.2、cordis 插件契约、system-prompt 装配、preset）的一手机器取证，含待验证项 |
@@ -232,7 +232,7 @@ LLM 层（`src/llm/`，生产配置已开启 `toolCalling`）：8 个工具 —�
 | 10-15 | A\* 寻路六修 | 真机故障"卡在 75,63,65、随机游走、困在岸上"连修六刀：跨网格目标改**子目标接力**（删除 `toward()` 盲走，水域代价 2.5→2.0）→ 子目标落脚高度改**整列搜索**（"已经到达"不再触发 ±5 回退）→ 水格可作过渡航点 + 运动模型补**踩水横渡** → 含水台阶/半砖按陆地（剥状态后缀、**优先走桥而不是游泳**）→ **脚位格修正**（站在农田/半砖/土径上时 `feetCell()` 取脚下方块**之上**，修"一步都规划不出来/9ms 判 stalled"） | ✅ 离线（`path:test` 31→**35/35**，11f–11l 全是这轮故障的回归）；真机待复测 |
 | 10-15 | LLM 完工播报去重 | 同一件事被播报两次（模型措辞 + 632ms 后模板兜底，格式还不一样）：`config` 为 `taskDone` 声明的 `cooldownMs: 30000` **从未被消费**——现在 `announceFinished` 按「任务名\|描述\|成功与否」记时间戳并压制窗口内重复（不同完工、成功后再失败照常播）；模板去掉 `(moved N blocks in M ms)` 遥测 | ✅ 离线（`llm:dry` 工具 39→**43/43** 四条断言；真机故障见 §6 第 15 条） |
 | 10-16 | **P0 收官** | 8/8 套件、`plan:audit` 29/29 复核通过；P0 计划书与验收档案**转为历史文档**；REFS 新增 Voyager 参考项目并明确 `refs/` 忽略范围 | ✅ 离线（`p0:verify` 8/8，2026-10-16 实跑） |
-| 11-01 | **完全自主模式** | `!autonomous on [目标]` → 课程自出题、提案自动接受（**无玩家审批**）、`mc_ask_player` 拒绝、权限 `ask` 降为 `deny`；玩家任务忙拒（任务/位置/血量/做不了），普通聊天照常；死亡自行重生（Mod `respawn`）→ 走回 **Corpse 遗体**（Mod `useentity` + 容器 quick-move）取回物品 → 继续课程；`!stop` 暂停、`!autonomous off` 退出、重启只到 `paused(restart)`；护栏：每小时轮次、连续无提案、连续失败、死亡循环 | ✅ 离线（`p1:autonomous:test 33/33`、`client:test 83/83`、`p1:verify 20/20`、`plan:audit p1 111/111`）；真机 **A33.1/A33.4/A33.7 已验**（自驱 4 轮、无审批、stop/off 关闭并从遗留 active goal 接管），A33.5/6 死亡与遗体仍未执行 |
+| 11-01 | **完全自主模式** | `!autonomous on [目标]` → 课程自出题、提案自动接受（**无玩家审批**）、`mc_ask_player` 拒绝、权限 `ask` 降为 `deny`；玩家任务忙拒（任务/位置/血量/做不了），普通聊天照常；死亡自行重生（Mod `respawn`）→ 走回 **Corpse 遗体**（Mod `useentity` + 容器 quick-move）取回物品 → 继续课程；`!stop` 暂停、`!autonomous off` 退出、重启只到 `paused(restart)`；护栏：每小时轮次、连续无提案、连续失败、死亡循环 | ✅ 离线（`p1:autonomous:test 33/33`、`client:test 83/83`、`p1:verify 20/20`、`plan:audit p1 112/112`）；真机 **A33.1/A33.4/A33.7 已验**（自驱 4 轮、无审批、stop/off 关闭并从遗留 active goal 接管），A33.5/6 死亡与遗体仍未执行 |
 
 当前状态（2026-11-01 实测复核；历史计数保留在对应日期的记录里）：
 
@@ -245,7 +245,7 @@ LLM 层（`src/llm/`，生产配置已开启 `toolCalling`）：8 个工具 —�
   `p1:proposal-autonomy:test 16/16` + `p1:language:test 22/22` + `p1:m7:test 11/11` +
   `p1:m4:test 43/43` + `p1:m4:evolve:test 17/17` + `p1:m5:test 35/35` + `p1:channel:test 18/18` +
   `p1:shot:test 20/20` + `p1:steer:test 9/9` + `p1:taskgoal:test 14/14` + `p1:curriculum:test 20/20` +
-  `p1:autonomous:test 33/33` + `p1:fault:test 9/9` + `plan:audit --stage p1 111/111`；`--fast` 为 **19/19**，完整 **20/20**）。
+  `p1:autonomous:test 33/33` + `p1:fault:test 9/9` + `plan:audit --stage p1 112/112`；`--fast` 为 **19/19**，完整 **20/20**）。
 * P1 客户端阶段（2026-10-20/21/22/24/25 + 2026-10-29）：**M1 适用子集 PASS、M2 PASS、M3 PASS、M4 PASS（A19 适用子集）**
   （A13–A17、A27 只读/异步、A28–A30、F2；均在 `planner.mode=off` 下由 DSH 动作脑/真机注入完成）；
   M4 代码管线、`p1:m4:test 43/43`、`!code-skill`/`code_skill` 实时入口与 v2 直接原语真机已完成：
@@ -704,7 +704,7 @@ Invoke-RestMethod -Uri http://127.0.0.1:8766/ui/state
 | `npm run tasks:test` | 三原语（走 / 挖 / 捡）+ FishTask 适配器 | 58/58 |
 | `npm run llm:dry` | 意图路由 / Schema / 工具白名单 / 完工播报去重 | 路由 67/67 · 工具 43/43 |
 | `npm run control:test` | 双通道 + 面板 + 死亡处理 + 反射路由 + 战斗反射 | 43/43 |
-| `npm run plan:audit` | 计划书 §11 符合性 | 35/35（`--stage p1` 111/111） |
+| `npm run plan:audit` | 计划书 §11 符合性 | 35/35（`--stage p1` 112/112） |
 | `npm run p1:verify` | P1 离线门禁（P0 + 全部 P1 套件；`--fast` 跳过 P0） | **20/20**（`--fast` 19/19） |
 | `npm run p1:failure-escalation:test` | 失败信封/签名闸门/输入层档/lookup/ask 停车/降级/证据/计划接线 | 27/27 |
 | `npm run p1:m5:test` | 进程内输入层 / 键鼠台账 / 帧缓冲截图 / 感知字段契约 / 受控通用键 / 模组键表 | 35/35 |

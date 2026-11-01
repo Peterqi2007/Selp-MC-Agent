@@ -1,7 +1,7 @@
 # 完全自主模式（Fully Autonomous Mode）
 
 > 状态（2026-11-01）：**已实现：离线 `p1:autonomous:test 33/33`、`p1:verify` 19/19（含 P0 为 20/20）、
-> `plan:audit --stage p1 111/111`；真机 A33 未执行**（需要真实游戏会话，尤其是「真的死一次」）。
+> `plan:audit --stage p1 112/112`；真机 A33 未执行**（需要真实游戏会话，尤其是「真的死一次」）。
 > 代码：`src/core/autonomousMode.js`、`src/core/corpseRecovery.js`、`src/skills/corpse.js`；
 > 提案侧改动在 `src/planner/autonomousProposals.js`；遗体交互与重生在客户端 Mod（`useentity` / `respawn`）。
 
