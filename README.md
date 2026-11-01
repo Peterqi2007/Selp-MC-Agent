@@ -244,7 +244,7 @@ LLM 层（`src/llm/`，生产配置已开启 `toolCalling`）：8 个工具 —�
   `p1:contract:test 241/241` + `p1:failure-escalation:test 27/27` + `p1:m3:test 58/58` + `p1:m6:test 25/25` +
   `p1:proposal-autonomy:test 16/16` + `p1:language:test 22/22` + `p1:m7:test 11/11` +
   `p1:m4:test 43/43` + `p1:m4:evolve:test 17/17` + `p1:m5:test 35/35` + `p1:channel:test 18/18` +
-  `p1:shot:test 20/20` + `p1:steer:test 9/9` + `p1:taskgoal:test 14/14` + `p1:curriculum:test 18/18` +
+  `p1:shot:test 20/20` + `p1:steer:test 9/9` + `p1:taskgoal:test 14/14` + `p1:curriculum:test 20/20` +
   `p1:autonomous:test 33/33` + `p1:fault:test 9/9` + `plan:audit --stage p1 111/111`；`--fast` 为 **19/19**，完整 **20/20**）。
 * P1 客户端阶段（2026-10-20/21/22/24/25 + 2026-10-29）：**M1 适用子集 PASS、M2 PASS、M3 PASS、M4 PASS（A19 适用子集）**
   （A13–A17、A27 只读/异步、A28–A30、F2；均在 `planner.mode=off` 下由 DSH 动作脑/真机注入完成）；
@@ -303,6 +303,17 @@ LLM 层（`src/llm/`，生产配置已开启 `toolCalling`）：8 个工具 —�
   （位置/维度/血量/饥饿/时间/手持 + 相关的背包/附近方块/附近怪），明确标注 "write-time only;
   NOT constants"，脚本运行时必须重读。`p1:m4:test` 38→**43/43**。详见
   [`docs/P1-M4.md`](docs/P1-M4.md) §6.3b。
+* **2026-11-01 课程账本不再丢失败原因**：`runtime/curriculum.json` 里出现过
+  `"reason": "[object Object]"`——DSH goal 的 `blockedReason` 是对象，`String(obj)` 一个字段都不保，
+  而 `describe()` 会把这段文字原样喂回动作脑（模型读到"太难失败：[object Object]"，正是它要用来
+  退一步的那条证据）。现在 `src/planner/curriculum.js` 导出 `reasonText()`：优先取
+  `.message`/`.reason`/`.detail`/`.text`/`.error`/`.code`，结构化体的退路是 `JSON.stringify`
+  （空对象与不可序列化对象一律记空，不编造），统一截 200 字；**账本写入与
+  `autonomousProposals` 的 goal 轮询共用这一条规则**（轮询侧仍保留 `'blocked'` 兜底）。
+  `p1:curriculum:test` 18→**20/20**（纯函数各形状 + 从 goal 轮询 → 账本 → `describe()` 的端到端断言；
+  旧账本里的 `[object Object]` 行在加载时就地修掉，只改内存不写回，与账本自净同一规则）。
+  同轮修正文档计数漂移（m4 38→43、autonomous 31→33、curriculum 18→20、A33 剩余项 8→5；逐份见
+  P1-HANDOFF / P1-M7 / P1-GAP-AUDIT / P1-M6 / P1-CLIENT-TESTS / P1-CLIENT-VERIFICATION / DSH-HARNESS / FAILURE-ESCALATION）。
 * **2026-10-30 本轮（离线 + 真机）**：
   - **CU 正式标为放弃**，文档/代码头统一，唯一口径 [`docs/CU-ABANDONED.md`](docs/CU-ABANDONED.md)；
   - **载具感知**：`/state` 新增 `mounted`，`riding` 带 `inventory`/`integrity`；覆盖原版容器、
@@ -701,7 +712,7 @@ Invoke-RestMethod -Uri http://127.0.0.1:8766/ui/state
 | `npm run p1:shot:test` | 截图触发/预算/去重/steer 策略 | 20/20 |
 | `npm run p1:steer:test` | 主动 steer 投递（插件 `/message` steer/followup/回退 + 桥接 + 策略） | 9/9 |
 | `npm run p1:taskgoal:test` | 玩家任务 / `@` 请求 → DSH goal（含异常阶梯/自卫反射提示） | 14/14 |
-| `npm run p1:curriculum:test` | Voyager 式自动课程（难度带/账本/账本自净/失败降带/校验/接线） | 18/18 |
+| `npm run p1:curriculum:test` | Voyager 式自动课程（难度带/账本/失败原因归一化/账本自净/失败降带/校验/接线） | 20/20 |
 | `npm run p1:autonomous:test` | 完全自主模式（状态机/忙拒/自动接受/护栏/死亡重生与遗体回收/持久化/启动接管/受阻即暂停） | 33/33 |
 | `npm run p1:m4:evolve:test` | M4 v3 键鼠脚本 / 错误回灌 / 版本链 / 检索 | 17/17 |
 | `npm run p1:m4:test` | M4 沙箱/权限/生成提示词（状态驱动+写时快照）/搜索/存储 | 43/43 |

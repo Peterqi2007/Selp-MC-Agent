@@ -221,9 +221,9 @@ nothing changed
 | 套件 | 结果 |
 | --- | --- |
 | `p1:failure-escalation:test` | **27/27**（信封/签名/闸门/输入层档/lookup/ask/降级/回执/证据/计划/提示词） |
-| `client:test` | **79/79**（假 mod 协议含 place/useon 证据三分支） |
-| `p1:contract:test` | **237/237**（/command 闸门、/ask_player、lastSettled、plan gate） |
-| `p1:m4:test` | **38/38**（生成提示词实时闭环） |
+| `client:test` | **83/83**（假 mod 协议含 place/useon 证据三分支） |
+| `p1:contract:test` | **241/241**（/command 闸门、/ask_player、lastSettled、plan gate） |
+| `p1:m4:test` | **43/43**（生成提示词实时闭环） |
 | `p1:m5:test` | **35/35** |
 | `p1:channel:test` | **18/18**（failurePolicy + 升级文本） |
 | `p1:taskgoal:test` | **14/14**（goal 文本 + 新 goal 清账本） |

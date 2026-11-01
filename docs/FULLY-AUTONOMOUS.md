@@ -53,6 +53,18 @@ off ──!autonomous on──► running ──!stop / 护栏──► paused �
 4. 执行 goal（`replace:true`）：动作脑用 `mc_step`/`mc_plan` 真的动手，目标终态 `complete|blocked`。
 5. Node 把终态写回课程账本（`recordCompleted`/`recordFailed`），模式计数 `round++`，冷却后下一轮。
 
+> **失败原因必须是文字（2026-11-01）**：动作脑把 goal 标成 `blocked` 时，DSH 的
+> `goal.blockedReason` 是一个**对象**；`String(obj)` 一个字段都不保，于是
+> `runtime/curriculum.json` 里留下了 `"reason": "[object Object]"`，而 `describe()` 会在下一轮
+> 把这段文字原样喂回动作脑——它恰好是模型用来"退一步"的那条证据，等于把符号丢了。
+> 现在 `src/planner/curriculum.js` 的 `reasonText()` 是唯一规则：优先取
+> `.message`/`.reason`/`.detail`/`.text`/`.error`/`.code`，结构化体退 `JSON.stringify`
+> （空对象、不可序列化对象记空，不编造），统一截 200 字；**账本写入与
+> `autonomousProposals` 的 goal 轮询都走它**（轮询侧保留 `'blocked'` 兜底）。
+> `p1:curriculum:test` 18→**20/20**：纯函数各形状 + 从 goal 轮询 → 账本 → `describe()` 的端到端断言。
+> 加载时也会就地修掉旧账本里已经变成 `[object Object]` 的行（只改内存、不写回，与账本自净同一规则：
+> 坏文件不该在启动时被改写）；那行的失败事实保留，原因记空——已经丢失的字符串不该被编造。
+
 被否方案：一条超长 goal 自驱到底——会绕过难度带校验，也无法逐任务记账。
 
 ## 4. 玩家隔离（三层，各有唯一出口）

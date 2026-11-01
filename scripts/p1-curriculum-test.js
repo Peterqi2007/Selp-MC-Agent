@@ -20,7 +20,7 @@ const os = require('os');
 const path = require('path');
 
 const ROOT = path.resolve(__dirname, '..');
-const { Curriculum } = require(path.join(ROOT, 'src/planner', 'curriculum'));
+const { Curriculum, reasonText } = require(path.join(ROOT, 'src/planner', 'curriculum'));
 const { AutonomousProposalCoordinator } = require(path.join(ROOT, 'src/planner', 'autonomousProposals'));
 
 const silent = { info() {}, warn() {}, debug() {} };
@@ -289,13 +289,17 @@ async function main() {
       failed: [
         { name: 'mine 5 iron', reason: 'noPath' },
         { name: 'kill dragon', reason: 'too hard' },
-        { name: 'mine 5 iron', reason: 'again' }
+        { name: 'mine 5 iron', reason: 'again' },
+        /** The 2026-11-01 live row: an object-shaped blockedReason already stringified. */
+        { name: 'deposit dirt stack', type: 'deposit', difficulty: 4, reason: '[object Object]' }
       ]
     }));
     const before = fs.readFileSync(file, 'utf8');
     const c = new Curriculum({ file, log: silent });
     assert.deepStrictEqual(c.completed.map((e) => e.name), ['chop 8', 'mine 5 iron']);
-    assert.deepStrictEqual(c.failed.map((e) => e.name), ['kill dragon']);
+    assert.deepStrictEqual(c.failed.map((e) => e.name), ['kill dragon', 'deposit dirt stack']);
+    assert.strictEqual(c.failed[1].reason, '', 'a lossy string cannot be recovered, so it stores nothing');
+    assert.ok(!c.describe().includes('[object Object]'), 'the prompt never receives the marker');
     assert.strictEqual(fs.readFileSync(file, 'utf8'), before, 'loading must stay read-only');
     fs.rmSync(dir, { recursive: true, force: true });
   });
@@ -373,6 +377,71 @@ async function main() {
     await coordinator.tick();
     assert.strictEqual(curriculum.failed.length, 1);
     assert.strictEqual(curriculum.failed[0].reason, 'no pickaxe');
+  });
+
+  await check('a structured blockedReason is flattened to text (never [object Object])', async () => {
+    /**
+     * Live evidence 2026-11-01: `runtime/curriculum.json` stored `"reason": "[object Object]"`.
+     * The DSH goal's `blockedReason` is an object, `String(object)` is a lossy no-op, and
+     * `describe()` then hands the model a contradictory "failed / too hard / [object Object]"
+     * line - the one place where losing the reason actually misleads the planner.
+     */
+    assert.strictEqual(reasonText({ message: 'no path to 12,64,7', code: 'noPath' }), 'no path to 12,64,7');
+    assert.strictEqual(reasonText({ reason: 'blocked-by-plugin' }), 'blocked-by-plugin');
+    assert.strictEqual(reasonText({ detail: 'menu is not a container' }), 'menu is not a container');
+    assert.strictEqual(reasonText({ error: 'missing-body' }), 'missing-body');
+    assert.strictEqual(reasonText({ code: 429 }), '429');
+    assert.strictEqual(reasonText({ code: 'E_NO_BED' }), 'E_NO_BED');
+    assert.strictEqual(reasonText(new Error('no pickaxe')), 'no pickaxe');
+    assert.strictEqual(reasonText(42), '42');
+    assert.strictEqual(reasonText({}), '', 'an empty object carries no information, so it stores nothing');
+    assert.strictEqual(reasonText(''), '');
+    assert.strictEqual(reasonText(null), '');
+    assert.strictEqual(reasonText({ nested: { a: 1 } }), '{"nested":{"a":1}}', 'structured bodies keep their shape');
+    assert.ok(!reasonText({ nested: { a: 1 } }).includes('[object Object]'));
+    const circular = {};
+    circular.self = circular;
+    assert.strictEqual(reasonText(circular), '', 'an unserializable reason is dropped, never faked');
+    assert.strictEqual(reasonText({ message: 'x'.repeat(500) }).length, 200, 'the ledger column stays capped');
+
+    /** End to end on the exact live shape: goal poll -> ledger -> prompt text. */
+    const curriculum = makeCurriculum();
+    const bridge = {
+      async boundAgentId() {
+        return 'agent-1';
+      },
+      async goalOf() {
+        return { phase: 'blocked', blockedReason: { message: 'no path to 12,64,7', code: 'noPath' } };
+      }
+    };
+    const coordinator = new AutonomousProposalCoordinator({
+      brain: {},
+      bridge,
+      curriculum,
+      cfg: { idleMs: 0 },
+      now: () => 1000,
+      log: silent
+    });
+    coordinator.executionGoal = {
+      id: 'g3',
+      agentId: 'agent-1',
+      candidate: { type: 'deposit', name: 'deposit dirt stack', difficulty: 4 }
+    };
+    await coordinator.tick();
+    assert.strictEqual(curriculum.failed.length, 1);
+    assert.strictEqual(curriculum.failed[0].reason, 'no path to 12,64,7');
+    assert.ok(!JSON.stringify(curriculum.failed).includes('[object Object]'), 'the persisted ledger is text');
+    assert.match(curriculum.describe(), /deposit dirt stack — no path to 12,64,7/);
+  });
+
+  await check('both curriculum writers flatten the reason through the shared helper', () => {
+    const planner = fs.readFileSync(path.join(ROOT, 'src', 'planner', 'curriculum.js'), 'utf8');
+    assert.match(planner, /reason: reasonText\(entry\.reason\)/, 'the ledger normalizes on write');
+    assert.match(planner, /module\.exports = \{[^}]*reasonText/, 'the helper is shared, not duplicated');
+    const proposals = fs.readFileSync(path.join(ROOT, 'src', 'planner', 'autonomousProposals.js'), 'utf8');
+    assert.match(proposals, /require\('\.\/curriculum'\)/);
+    assert.match(proposals, /reasonText\(goal\.blockedReason\) \|\| 'blocked'/, 'the goal poll keeps its block fallback');
+    assert.ok(!/reason: goal\.blockedReason \|\|/.test(proposals), 'the raw object never reaches the ledger');
   });
 
   await check('the brain and plugin are wired to the curriculum', () => {

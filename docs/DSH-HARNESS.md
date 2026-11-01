@@ -286,7 +286,7 @@ executionGoalRounds`）；`proposalTtlMs` 仍是 plan question 的默认值。�
 - **`mc_keybinds`（第 15 个工具）**：只读 `GET /keybinds`，每次实时枚举 `options.keyMappings`
   （原版+模组），返回稳定 `modid:path` ID 与当前键码；动作脑用 `tap <id>` / `hold <id> ms` /
   `key <id> down|up`，raw 键名与键码被拒。真机 220 条（184 mod），
-  `immersive_aircraft:dismount = key.keyboard.r` 可注入（离线 `p1:m5:test 35/35`、`p1:m4:test 38/38`）。
+  `immersive_aircraft:dismount = key.keyboard.r` 可注入（离线 `p1:m5:test 35/35`、`p1:m4:test 43/43`）。
 - 工具总数仍为 **15**（14 个 `mc_*` + `lookup_mod_content`）；新增的是 `mc_keybinds`，
   取代了 10-30 之前"用 `mc_state({fields:["keybinds"]})` 当等价入口"的说法（仍然可用，但返回全表）。
 

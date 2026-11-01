@@ -14,6 +14,8 @@
  * goal, after an explicit player acceptance.
  */
 
+const { reasonText } = require('./curriculum');
+
 const DEFAULT_IDLE_MS = 300000;
 const DEFAULT_RESPONSE_MS = 30000;
 const DEFAULT_PREP_TIMEOUT_MS = 90000;
@@ -275,7 +277,12 @@ class AutonomousProposalCoordinator {
           name: candidate.name || candidate.type,
           type: candidate.type,
           difficulty: candidate.difficulty,
-          reason: goal.blockedReason || 'blocked',
+          /**
+           * The host's `blockedReason` is an object on a real DSH goal; the ledger column is
+           * text and `describe()` feeds it back to the model, so it must be flattened here
+           * too (the ledger normalizes as well - both sides share one rule).
+           */
+          reason: reasonText(goal.blockedReason) || 'blocked',
           source: 'autonomous'
         });
       }

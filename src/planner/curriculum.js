@@ -28,6 +28,63 @@ const path = require('path');
 
 const DEFAULT_FILE = path.resolve('runtime', 'curriculum.json');
 
+/**
+ * A failure reason of unknown shape -> the one line the ledger stores.
+ *
+ * `recordFailed` writes `reason` and `describe()` later hands that text to the model, so the
+ * host's wording has to survive the round trip. The live evidence for the bug this fixes is
+ * `runtime/curriculum.json` from 2026-11-01 holding `"reason": "[object Object]"`: the DSH
+ * goal's `blockedReason` is an object, and `String(object)` is a lossy no-op that reaches the
+ * prompt as a contradictory line ("failed / too hard / [object Object]").
+ *
+ * Order: the host's own sentence first (`message`, `reason`, `detail`, ...), then a compact
+ * JSON body for anything structured, then `String()` for primitives. An empty object carries
+ * no information and becomes `''` rather than `'{}'` (same rule as an empty lookup result,
+ * which is not stored at all).
+ *
+ * @param {*} value whatever the caller had
+ * @param {number} [max] cap in characters (the ledger column)
+ * @returns {string}
+ */
+function reasonText(value, max = 200) {
+  if (value === null || value === undefined) return '';
+  let text;
+  if (typeof value === 'string') {
+    text = value;
+  } else if (value instanceof Error) {
+    text = value.message || value.name || 'error';
+  } else if (typeof value === 'object') {
+    let picked = null;
+    for (const field of ['message', 'reason', 'detail', 'text', 'error', 'code']) {
+      const candidate = value[field];
+      if (typeof candidate === 'string' && candidate.trim()) {
+        picked = candidate;
+        break;
+      }
+      if (typeof candidate === 'number' && Number.isFinite(candidate)) {
+        picked = String(candidate);
+        break;
+      }
+    }
+    text = picked !== null ? picked : safeJson(value);
+  } else {
+    text = String(value);
+  }
+  return String(text === null || text === undefined ? '' : text).trim().slice(0, max);
+}
+
+/** JSON body for a structured reason, or '' when it cannot be serialized / is empty. */
+function safeJson(value) {
+  try {
+    const json = JSON.stringify(value, (key, item) => (typeof item === 'function' ? undefined : item));
+    if (typeof json !== 'string' || json === '{}') return '';
+    return json;
+  } catch (err) {
+    /** Circular or throwing getter: an empty reason is honest, a fake one is not. */
+    return '';
+  }
+}
+
 /** Base difficulty by command-table type (1 easy .. 5 hard). */
 const TYPE_TIERS = Object.freeze({
   // tier 1: gathering / small movement
@@ -172,6 +229,7 @@ class Curriculum {
        * do NOT write back here - loading must stay read-only (a boot with a bad file should
        * not rewrite it before anyone looks).
        */
+      this._healReasons();
       this._cleanUp();
     } catch {
       /* no file (first run) or unreadable: start clean, never fail startup */
@@ -258,6 +316,25 @@ class Curriculum {
   // ---------------------------------------------------------------- history
 
   /**
+   * Repair reasons loaded from a ledger written before `reasonText` existed.
+   *
+   * The 2026-11-01 live file held `"reason": "[object Object]"` for a blocked deposit, and
+   * that row would keep reaching `describe()` until it aged out of the window - i.e. the
+   * model would keep reading a failure it cannot act on. Same contract as `_cleanUp`:
+   * repair in memory on load, never write back. A string that is already lossy cannot be
+   * recovered, so it becomes an empty reason (the row itself is real evidence and stays).
+   */
+  _healReasons() {
+    this.failed = this.failed.map((entry) => {
+      if (!entry || typeof entry !== 'object' || Array.isArray(entry)) return entry;
+      const current = entry.reason;
+      if (typeof current !== 'string') return { ...entry, reason: reasonText(current) };
+      if (!current.includes('[object Object]')) return entry;
+      return { ...entry, reason: '' };
+    });
+  }
+
+  /**
    * Voyager's `clean_up_tasks` (refs/Voyager/voyager/agents/curriculum.py:340): keep the
    * ledger honest after every update.
    *
@@ -329,7 +406,7 @@ class Curriculum {
       name,
       type: String(entry.type || name).trim(),
       difficulty: Number(entry.difficulty) || this.difficultyOf(entry),
-      reason: String(entry.reason || '').slice(0, 200),
+      reason: reasonText(entry.reason),
       source: entry.source || 'autonomous',
       at: new Date(this.now()).toISOString()
     };
@@ -490,4 +567,4 @@ class Curriculum {
   }
 }
 
-module.exports = { Curriculum, DEFAULTS, TYPE_TIERS, MATERIAL_TIERS };
+module.exports = { Curriculum, DEFAULTS, TYPE_TIERS, MATERIAL_TIERS, reasonText };
