@@ -59,7 +59,7 @@
 > 忙句带当前任务 + 位置 + 血量/饥饿 + 「做不了」；死亡后**自行重生**（Mod `respawn`）→ 走回
 > **Corpse 遗体**（Mod `useentity` + 容器 quick-move）取回物品 → 继续课程；`!stop` 暂停、
 > `!autonomous off` 退出、重启只到 `paused(restart)`；护栏：每小时轮次/连续无提案/连续失败/死亡循环。
-> 离线 `p1:autonomous:test 32/32`、`client:test 83/83`、`p1:verify 20/20`；真机 **A33.1/A33.4 已验**（自驱轮次/无审批/`!stop`+`off`），A33.5/6 未执行。
+> 离线 `p1:autonomous:test 33/33`、`client:test 83/83`、`p1:verify 20/20`；真机 **A33.1/A33.4/A33.7 已验**（自驱轮次/无审批/`!stop`+`off`），A33.5/6 未执行。
 > 设计/矩阵见 [`FULLY-AUTONOMOUS.md`](FULLY-AUTONOMOUS.md)。
 
 > **2026-11-01 真机回归三修（操作员报告，全部已修并有回归）**：

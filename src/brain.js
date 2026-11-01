@@ -69,6 +69,7 @@ const { bare } = require('./world/items');
 const skills = require('./skills');
 const combatSkills = require('./skills/combat');
 const combatState = require('./world/combatState');
+const { pickEngageTarget } = require('./world/engageTarget');
 
 /** Priority levels for `enqueue` (P0-PLAN §5.7). Lower number wins. */
 const LEVELS = { urgent: 0, directive: 1, autonomous: 2 };
@@ -699,25 +700,38 @@ class Brain {
      */
     const engageRadiusXZ = (this.cfg.behaviour && this.cfg.behaviour.engageRadiusXZ) || 15;
     const engageRadiusY = (this.cfg.behaviour && this.cfg.behaviour.engageRadiusY) || 4;
+    const engageRadiusYFlying = (this.cfg.behaviour && this.cfg.behaviour.engageRadiusYFlying) || Math.max(engageRadiusY, 12);
     const origin = snapNow && snapNow.position ? snapNow.position : null;
-    const candidates = (world.hostiles(24) || [])
-      .map((h) => {
-        const pos = h.entity && h.entity.position;
-        const xzDistance = origin && pos ? Math.hypot(pos.x - origin.x, pos.z - origin.z) : h.distance;
-        const verticalDistance = origin && pos ? Math.abs(pos.y - origin.y) : null;
-        return { ...h, xzDistance, verticalDistance };
-      })
-      .filter((h) => !combatState.shouldSkip(h.entity.id, h.distance))
-      .filter((h) => !origin || (h.xzDistance <= engageRadiusXZ && (h.verticalDistance === null || h.verticalDistance <= engageRadiusY)))
-      .sort((a, b) => (a.xzDistance || 0) - (b.xzDistance || 0));
-    const nearest = candidates.length ? candidates[0] : null;
     /**
-     * Proactive radius: any hostile inside the 15-block XZ / +-4 Y window is engaged;
-     * the old "only <=5 or wounded" condition made the 15-block radius meaningless.
+     * Flying hostiles (phantom/ghast/vex...) are not bounded by the ground window: a phantom
+     * dives from ~10 blocks above and the old |dy| <= 4 filter silently dropped it, so the
+     * reflex saw danger but never attacked (live 2026-11-01). Being hurt this tick also
+     * overrides the window - something just hit us.
+     */
+    const picked = pickEngageTarget({
+      hostiles: world.hostiles(24) || [],
+      origin,
+      engageRadiusXZ,
+      engageRadiusY,
+      engageRadiusYFlying,
+      hurtThisTick,
+      shouldSkip: (id, distance) => combatState.shouldSkip(id, distance)
+    });
+    const nearest = picked.target;
+    if (nearest && picked.reason === 'hurt-outside-window') {
+      this.log.warn(
+        `hurt by ${nearest.name} outside the engage window (xz ${nearest.xzDistance.toFixed(1)}, ` +
+        `y ${nearest.verticalDistance === null ? '?' : nearest.verticalDistance.toFixed(1)}) - engaging anyway`
+      );
+    }
+    /**
+     * Proactive radius: any hostile inside the window (flying hostiles get a wider vertical
+     * one) is engaged; the old "only <=5 or wounded" condition made the 15-block radius
+     * meaningless.
      */
     const wantFight = !!nearest;
     if (wantFight && this.cfg.behaviour.autoFight && !this._reflexFight && !this.hostileFightTaskActive()) {
-      this.log.info(`hostile ${nearest.entity.name} at ${nearest.distance.toFixed(1)} blocks (xz ${nearest.xzDistance.toFixed(1)}) - engaging`);
+      this.log.info(`hostile ${nearest.name} at ${nearest.distance.toFixed(1)} blocks (xz ${nearest.xzDistance.toFixed(1)}, y ${nearest.verticalDistance === null ? '?' : nearest.verticalDistance.toFixed(1)}) - engaging`);
       this.preempt();
       if (skillDriven) {
         // Fire-and-forget with a guard: the fight can run for tens of seconds and
@@ -733,7 +747,7 @@ class Brain {
          */
         const useGun = !!(snapNow && combatSkills.chooseGun(snapNow, { distance: nearest.distance }).ok);
         const run = useGun
-          ? skills.run('shoot', this.ctx, { id: nearest.entity.id })
+          ? skills.run('shoot', this.ctx, { id: nearest.id })
           : skills.run('attack', this.ctx, {});
         Promise.resolve(run)
           .then((result) => {

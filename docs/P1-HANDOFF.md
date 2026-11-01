@@ -51,7 +51,7 @@ npm run p1:baseline -- --suites  # 记录提交/配置指纹/套件结果到 run
 | --- | --- |
 | P0 regression（8 suites，含 `selftest 183/183`） | **8/8** |
 | `planner:test` | **35/35** |
-| `p1:contract:test` | **240/240** |
+| `p1:contract:test` | **241/241** |
 | `p1:failure-escalation:test` | **27/27** |
 | `p1:m3:test` | **58/58** |
 | `p1:m6:test` | **25/25** |
@@ -66,7 +66,7 @@ npm run p1:baseline -- --suites  # 记录提交/配置指纹/套件结果到 run
 | `p1:steer:test` | **9/9** |
 | `p1:taskgoal:test` | **14/14** |
 | `p1:curriculum:test` | **18/18** |
-| `p1:autonomous:test` | **32/32**（完全自主模式 + 启动接管，2026-11-01） |
+| `p1:autonomous:test` | **33/33**（完全自主模式 + 启动接管，2026-11-01） |
 | `p1:fault:test` | **9/9** |
 | `plan:audit --stage p1` | **111/111** |
 
@@ -76,7 +76,7 @@ npm run p1:baseline -- --suites  # 记录提交/配置指纹/套件结果到 run
 
 > **计数只增不减**：正文按日期保留了各次执行的当时计数（例如 10-21 的
 > `p1:contract:test 206/206`、10-25 的 `p1:m4:test 35/35`、10-23 的 `p1:language:test 20/20`）。
-> 以上表为 2026-11-01 的最新值：contract **240/240**、m4 **38/38**、language **22/22**、
+> 以上表为 2026-11-01 的最新值：contract **241/241**、m4 **38/38**、language **22/22**、
 > taskgoal **14/14**、curriculum **18/18**、audit **111/111**。
 
 ## 2. 已交付（按里程碑）
@@ -171,7 +171,7 @@ npm run p1:baseline -- --suites  # 记录提交/配置指纹/套件结果到 run
 | `language.brain` | `unified`（2026-10-23 起默认；`legacy` 可完整回退） |
 | `planner.autonomousProposals` | `enabled=true`，`idleMs=300000`、`responseMs=30000`、`prepTimeoutMs=90000`、`maxGoalRounds=3`、`executionGoalRounds=6`（动作脑自主提案；未接受不执行） |
 | `planner.autonomousProposals.curriculum` | `enabled=true`、`file=runtime/curriculum.json`、`bandStep=2`、`maxLevel=4`、`maxRejections=2`、`failPenaltyStep=2`、`maxBandPenalty=1`、`historyLimit=12`（Voyager 式难度带：每 2 个完成 +1 档、封顶 4；2 次连续 blocked 降 1 档、最多降 1 档、一次成功即恢复） |
-| `planner.fullyAutonomous` | `enabled=true`（功能可用，仍需 `!autonomous on` 启动）；`roundCooldownMs=5000`、`maxRoundsPerHour=60`、`maxPrepFailures=3`、`maxConsecutiveBlocked=5`；`commandAllowlist=autonomous/stop/status/help/inv/where`；`death.*`：`respawn=true`、`respawnTimeoutMs=30000`、`corpseRecovery=true`、`corpseEntityTypes=["corpse:corpse"]`、`corpseRadius=16`、`maxCorpseDistance=512`、`allowOtherDimension=false`、`deathLoopMax=3`。详见 [`FULLY-AUTONOMOUS.md`](FULLY-AUTONOMOUS.md) |
+| `planner.fullyAutonomous` | `enabled=true`（功能可用，仍需 `!autonomous on` 启动）；`roundCooldownMs=5000`、`maxRoundsPerHour=60`、`maxPrepFailures=3`、`maxConsecutiveBlocked=1`（一次受阻即暂停、交还控制权）；`commandAllowlist=autonomous/stop/status/help/inv/where`；`death.*`：`respawn=true`、`respawnTimeoutMs=30000`、`corpseRecovery=true`、`corpseEntityTypes=["corpse:corpse"]`、`corpseRadius=16`、`maxCorpseDistance=512`、`allowOtherDimension=false`、`deathLoopMax=3`。详见 [`FULLY-AUTONOMOUS.md`](FULLY-AUTONOMOUS.md) |
 | `agent.codeSkills.generateMaxTokens` / `generationTimeoutMs` | `16000` / `180000`（2026-10-25 真机调参：思考模型 reasoning 计入 completion，2600/30000 会截断） |
 | `state.enabled` | `true`（A17/A29 测试窗口；`P1_STATE=off` 或改 `false` 可关） |
 | `state.path` / `debounceMs` | `runtime/p1-state.json` / `1000` |
@@ -185,7 +185,7 @@ npm run p1:baseline -- --suites  # 记录提交/配置指纹/套件结果到 run
 | M4（已完成） | **PASS（A19 适用子集）**：v2 离线 **38/38**（2026-11-01 复核；10-25 当时的 35/35）；A18 `grass_dig`/`table_click`、A19 越界/抢身体/取消/deny/无屏点击/非敌对攻击/硬杀、A20 `half_fail`、A28 长任务 15.57s、A29 硬杀恢复、A30 用量 10,352 tok 真机通过；残余：真实 PauseScreen/第二玩家仅离线 |
 | M5 F1' / A21 / A22 | CU 路径已放弃：①WGC 取不到 OpenGL 窗口帧（两轮真机 `截图未产出` + `Declared image type does not match its bytes`）；②`WindowPolicy`/`ComputerUseGuard` 接不进只读的打包插件（`resources/app.asar`），真机“未 verify 前默认拒绝”不成立。改为 Minecraft 进程内输入层（已实现并真机验证输入/截图/GUI 链路）；前置是 **F1'**（F1'a 结构性不可出界 + F1'b 键鼠台账，**无 N/A 出口**）。**A21 部分通过**（2 类 GUI ×3、`m5-gui-live 93/93`，但探针直连 mod、未走 agent 技能层）；**A22/M5.3 待执行**，F1'b 的暂停/死亡/断连/退出四类注入未跑完。详见 [`P1-M5.md`](P1-M5.md) §7/§8 |
 | M6 A23 / A25 剩余 | A24/C03/F02 受控 PASS；A23 缺真实第二名玩家 40 组 ×3 与 ≥80%/≤10% 阈值；A25 仅 accept 为真 harness，reject/不答/另派需在真实动作脑提案下重跑（单操作员/合成发送者需标注）；R2/R3 未执行 |
-| A33 完全自主模式（2026-11-01 新增） | **离线全绿（32/32）+ 真机 A33.1/A33.4 已验**（`p1:autonomous:test 32/32`、`client:test 83/83`、`plan:audit p1 111/111`），**真机 8 项未执行**：自驱 3 轮 / 任务忙拒 / 对话忙拒+聊天正常 / 无审批 / 死亡自动重生 / 遗体取回 / `!stop` 暂停恢复 / 重启 `paused(restart)`。标准见 [`FULLY-AUTONOMOUS.md`](FULLY-AUTONOMOUS.md) §9。需要真实游戏与一次真实死亡 |
+| A33 完全自主模式（2026-11-01 新增） | **离线全绿（33/33）+ 真机 A33.1/A33.4/A33.7 已验**（`p1:autonomous:test 33/33`、`client:test 83/83`、`plan:audit p1 111/111`），**真机 8 项未执行**：自驱 3 轮 / 任务忙拒 / 对话忙拒+聊天正常 / 无审批 / 死亡自动重生 / 遗体取回 / `!stop` 暂停恢复 / 重启 `paused(restart)`。标准见 [`FULLY-AUTONOMOUS.md`](FULLY-AUTONOMOUS.md) §9。需要真实游戏与一次真实死亡 |
 | M7 A26 / R1–R4 | A26 仅 2026-10-17 分项基线；R1 部分，R2–R4 未执行 |
 | M7 F3 / A31 最终组合 | F3 真机 token 端点未验；A31 双 emitter/planVersion 未验 |
 | M0-C1 剩余负载 | 仅空闲 30 次测时；移动/挖矿/反射/GUI 负载未测，阈值不得回填 |

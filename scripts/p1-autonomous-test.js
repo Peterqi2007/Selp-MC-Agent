@@ -576,13 +576,28 @@ function propose(brain, overrides = {}) {
     assert.strictEqual(h.mode.pausedReason, 'prep-failures');
   });
 
-  await check('a streak of blocked executions pauses the mode', async () => {
-    const h = makeHarness({ cfg: { maxConsecutiveBlocked: 5 } });
+  await check('a blocked execution pauses the mode so the operator can publish again', async () => {
+    /**
+     * Live 2026-11-01: the action brain marked its goal blocked and the mode stayed running,
+     * so every player task was busy-refused. A blocked round now hands control back.
+     */
+    const h = makeHarness();
     await h.mode.start({});
-    for (let i = 0; i < 4; i += 1) h.mode.noteExecution({ phase: 'blocked' });
-    assert.strictEqual(h.mode.phase, 'running');
+    h.mode.noteExecution({ phase: 'blocked', candidate: { name: 'deposit' } });
+    assert.strictEqual(h.mode.phase, 'paused');
+    assert.strictEqual(h.mode.pausedReason, 'execution-blocked');
+    assert.strictEqual(h.mode.isActive(), false, 'a paused mode must not busy-refuse player tasks');
+    assert.match(String(h.replies.map((r) => r.text).join(' ')), /执行受阻|execution-blocked/);
+  });
+
+  await check('the blocked-execution threshold is configurable', async () => {
+    const h = makeHarness({ cfg: { maxConsecutiveBlocked: 3 } });
+    await h.mode.start({});
     h.mode.noteExecution({ phase: 'blocked' });
-    assert.strictEqual(h.mode.pausedReason, 'repeated-failures');
+    h.mode.noteExecution({ phase: 'blocked' });
+    assert.strictEqual(h.mode.phase, 'running', 'below the configured threshold the mode keeps going');
+    h.mode.noteExecution({ phase: 'blocked' });
+    assert.strictEqual(h.mode.pausedReason, 'execution-blocked');
   });
 
   await check('the hourly round budget pauses a runaway loop', async () => {

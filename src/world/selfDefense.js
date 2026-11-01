@@ -41,6 +41,7 @@ function selfDefenseStatus(cfg, brain = null) {
   const engageHealthThreshold = numberOr(b.engageHealthThreshold, 16);
   const engageRadiusXZ = numberOr(b.engageRadiusXZ, 15);
   const engageRadiusY = numberOr(b.engageRadiusY, 4);
+  const engageRadiusYFlying = numberOr(b.engageRadiusYFlying, Math.max(engageRadiusY, 12));
   const fleeHealthThreshold = numberOr(b.fleeHealthThreshold, 8);
   return {
     enabled,
@@ -49,12 +50,14 @@ function selfDefenseStatus(cfg, brain = null) {
     engageHealthThreshold,
     engageRadiusXZ,
     engageRadiusY,
+    engageRadiusYFlying,
     fleeHealthThreshold,
     note: enabled
       ? `ON: the self-defense reflex may preempt the current task and attack hostile mobs ` +
-        `on its own (radius XZ ${engageRadiusXZ} / Y ±${engageRadiusY}; wounded <= ` +
-        `${engageHealthThreshold} or hit this tick). Those attacks are reflex actions, not ` +
-        `commands from the action brain.`
+        `on its own (radius XZ ${engageRadiusXZ} / Y ±${engageRadiusY}, flying ±${engageRadiusYFlying}; ` +
+        `wounded <= ${engageHealthThreshold} or hit this tick). A hit from ANY hostile in the ` +
+        `24-block scan is engaged even outside that window. Those attacks are reflex actions, ` +
+        `not commands from the action brain.`
       : 'OFF: the self-defense reflex will not attack hostiles on its own; hostiles are ' +
         'only reported, and combat happens only when a task or the action brain asks for it.'
   };
@@ -65,8 +68,8 @@ function selfDefenseLine(status) {
   if (!status || !status.enabled) return null;
   return (
     `selfDefense: ON (autoFight; reflex may attack hostiles within XZ ` +
-    `${status.engageRadiusXZ}/Y ±${status.engageRadiusY} or when wounded, and may preempt ` +
-    `the current task; those attacks are not your command)`
+    `${status.engageRadiusXZ}/Y ±${status.engageRadiusY} (flying ±${status.engageRadiusYFlying}) ` +
+    `or when wounded/hit, and may preempt the current task; those attacks are not your command)`
   );
 }
 

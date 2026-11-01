@@ -34,7 +34,13 @@ const DEFAULTS = Object.freeze({
   roundCooldownMs: 5000,
   maxRoundsPerHour: 60,
   maxPrepFailures: 3,
-  maxConsecutiveBlocked: 5,
+  /**
+   * A blocked execution stops the mode (2026-11-01 operator report). While the mode is
+   * active the player's task commands are busy-refused, so a blocked goal that only counted
+   * toward a 5-streak left the operator unable to publish anything. One blocked round now
+   * hands control back (`!autonomous on` resumes with a new curriculum round).
+   */
+  maxConsecutiveBlocked: 1,
   tickMs: 2500,
   announce: { start: true, stop: true, death: true, recovery: true },
   death: {
@@ -348,6 +354,7 @@ class AutonomousMode {
   noteExecution(outcome = {}) {
     if (!this.isActive()) return;
     const phase = String(outcome.phase || '').toLowerCase();
+    const candidate = outcome.candidate || {};
     if (phase === 'complete') {
       this.stats.completed += 1;
       this.guards.consecutiveBlocked = 0;
@@ -356,8 +363,13 @@ class AutonomousMode {
     if (phase === 'blocked') {
       this.stats.blocked += 1;
       this.guards.consecutiveBlocked += 1;
-      if (this.guards.consecutiveBlocked >= clampNum(num(this.cfg.maxConsecutiveBlocked, 5), 1, 100)) {
-        this.pause('repeated-failures');
+      if (this.guards.consecutiveBlocked >= clampNum(num(this.cfg.maxConsecutiveBlocked, 1), 1, 100)) {
+        /**
+         * A blocked goal is not "keep going with the next task": the action brain declared
+         * it cannot proceed, and the operator must be able to publish a task again.
+         */
+        this.pause('execution-blocked');
+        this.lastPauseTask = candidate.name || candidate.type || null;
       }
     }
   }

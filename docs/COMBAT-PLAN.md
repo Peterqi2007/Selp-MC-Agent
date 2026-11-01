@@ -44,6 +44,10 @@
   （参数 `type/player/id/weapon/maxDistance/timeoutMs`）；`!shoot [type|player <name>] [weapon]`。
 - 配置：`fleeHealthThreshold 8`、新增 `engageHealthThreshold 16`；其余为代码常量（6 发/轮、
   轮间 500ms、射程 16/32、逼近余量 2、kite 阈值 3、忽略 180s、反卡死 30s、遮挡 1.5s、侧翼 1 次）。
+  **2026-11-01 补**：交战半径仍是 XZ 15 / 地面 Y ±4，但飞行敌意生物（phantom/ghast/vex…）用独立
+  的 `engageRadiusYFlying=12`；且"被击中当 tick"无视窗口，直接交战 24 格内最近的敌意生物——
+  真机里幻翼从上方俯冲掉血，±4 把它过滤掉，反射只打 `danger detected` 不还手。选靶抽成纯函数
+  `src/world/engageTarget.js`（可测）。
 - 失败码表（`src/core/failure.js`）新增：`stalled/blocked/no_ammo/no_gun/not_a_gun/
   tacz_unavailable/ignored/out_of_range/shoot_failed`（否则 `fold()` 会把它们重分类，反射回退集失效）。
 

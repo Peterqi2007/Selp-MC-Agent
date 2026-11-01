@@ -2596,6 +2596,31 @@ function makeBrain() {
       assert.strictEqual(selfDefenseLine(off), null);
     });
 
+    await check('the reflex engages a diving phantom and a hit from outside the window', () => {
+      /**
+       * Live 2026-11-01: a phantom dove from above, the reflex's |dy| <= 4 filter dropped it,
+       * and the bot took damage without fighting back. Flying hostiles get a wider vertical
+       * window; a hit this tick engages the nearest hostile even outside it.
+       */
+      const { pickEngageTarget } = require('../src/world/engageTarget');
+      const origin = { x: 0, y: 64, z: 0 };
+      const phantom = { id: 7, name: 'minecraft:phantom', position: { x: 6, y: 74, z: 0 }, distance: 12 };
+      const windowed = pickEngageTarget({ hostiles: [phantom], origin });
+      assert.ok(windowed.target, 'a phantom 10 blocks above must be engaged');
+      assert.strictEqual(windowed.reason, 'window');
+
+      const far = { id: 8, name: 'minecraft:phantom', position: { x: 18, y: 84, z: 0 }, distance: 23 };
+      assert.strictEqual(pickEngageTarget({ hostiles: [far], origin }).target, null, 'outside the window and not hurt: ignore');
+      const hurt = pickEngageTarget({ hostiles: [far], origin, hurtThisTick: true });
+      assert.ok(hurt.target, 'being hit engages the nearest hostile even outside the window');
+      assert.strictEqual(hurt.reason, 'hurt-outside-window');
+
+      const zombieHigh = { id: 9, name: 'minecraft:zombie', position: { x: 3, y: 70, z: 0 }, distance: 7 };
+      assert.strictEqual(pickEngageTarget({ hostiles: [zombieHigh], origin }).target, null, 'ground mobs keep the +-4 window');
+      const skipped = pickEngageTarget({ hostiles: [phantom], origin, shouldSkip: () => true });
+      assert.strictEqual(skipped.target, null, 'combatState skip still wins');
+    });
+
     await check('the request envelope carries the reflex state only when enabled', () => {
       const on = buildRequestEnvelope('砍树', {
         selfDefense: selfDefenseStatus({ agent: { behaviour: { autoFight: true, engageRadiusXZ: 15 } } })

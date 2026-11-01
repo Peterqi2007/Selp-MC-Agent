@@ -49,7 +49,7 @@ const result = await cache.observe({
 | `workspace` | target, standingOn, blocks, crops, fishing |
 | `terrain` | blocks, lightLevel, blockLight |
 | `mount`（别名 `vehicle`） | riding, mounted, standingOnEntity；`riding.inventory`/`integrity`（原版容器 / Forge `IItemHandler` / 模组健康比例） |
-| `selfDefense` | enabled, engageRadiusXZ/Y, engageHealthThreshold（由 `behaviour.autoFight` 本地推导，不发请求） |
+| `selfDefense` | enabled, engageRadiusXZ/Y/YFlying, engageHealthThreshold（由 `behaviour.autoFight` 本地推导，不发请求；飞行敌意生物用更宽的垂直窗，被击中当 tick 无视窗口） |
 | `keybinds` | id / name / category / mod / kind / key / bound / usage / revision（每次实时 GET `/keybinds`，不缓存、不写 body 快照） |
 
 `oxygen / burning / effects / armor / biome / surface / water / containers / beds / doors /

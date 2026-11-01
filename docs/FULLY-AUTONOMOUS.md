@@ -1,6 +1,6 @@
 # 完全自主模式（Fully Autonomous Mode）
 
-> 状态（2026-11-01）：**已实现：离线 `p1:autonomous:test 32/32`、`p1:verify` 19/19（含 P0 为 20/20）、
+> 状态（2026-11-01）：**已实现：离线 `p1:autonomous:test 33/33`、`p1:verify` 19/19（含 P0 为 20/20）、
 > `plan:audit --stage p1 111/111`；真机 A33 未执行**（需要真实游戏会话，尤其是「真的死一次」）。
 > 代码：`src/core/autonomousMode.js`、`src/core/corpseRecovery.js`、`src/skills/corpse.js`；
 > 提案侧改动在 `src/planner/autonomousProposals.js`；遗体交互与重生在客户端 Mod（`useentity` / `respawn`）。
@@ -137,7 +137,7 @@ complete 掉（否则插件会一直回 `goal:paused`，prep 永远起不来）�
 | `defaultObjective` | 生存与发展… | 不传目标时使用 |
 | `commandAllowlist` | autonomous/stop/status/help/inv/where | 模式内仍可执行的 `!` 命令 |
 | `roundCooldownMs` | `5000` | 每轮之间的冷却（替代 5 分钟空闲） |
-| `maxRoundsPerHour` / `maxPrepFailures` / `maxConsecutiveBlocked` | `60` / `3` / `5` | 三个护栏，触发即 `paused` |
+| `maxRoundsPerHour` / `maxPrepFailures` / `maxConsecutiveBlocked` | `60` / `3` / `1` | 三个护栏，触发即 `paused`。**受阻即退出**（2026-11-01）：执行目标被动作脑标成 `blocked` 时模式立刻 `paused(execution-blocked)`，把控制权还给操作员——否则模式继续 active，玩家任务会被忙拒 |
 | `announce.*` | start/stop/death/recovery = true，tasks = false | 聊天播报开关（不逐任务刷屏） |
 | `death.respawn*` | `true` / `30000` | 自行重生与超时 |
 | `death.corpseRecovery` / `corpseEntityTypes` / `corpseRadius` / `maxCorpseDistance` | `true` / `["corpse:corpse"]` / `16` / `512` | 遗体回收范围与匹配 |

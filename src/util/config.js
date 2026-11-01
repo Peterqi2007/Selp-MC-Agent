@@ -50,6 +50,15 @@ const DEFAULTS = {
       fleeHealthThreshold: 8,
       /** Engage trigger: wounded below this, the reflex starts the fight (COMBAT-PLAN §②). */
       engageHealthThreshold: 16,
+      /**
+       * Combat radius (operator rule 2026-10-18): XZ 15. `engageRadiusY` is the ground
+       * window; flying hostiles (phantom/ghast/vex) get a wider one because they attack
+       * from above - a phantom dive from ~10 blocks otherwise fell outside the window and
+       * the reflex never fought back (live 2026-11-01).
+       */
+      engageRadiusXZ: 15,
+      engageRadiusY: 4,
+      engageRadiusYFlying: 12,
       eatFoodThreshold: 16,
       idleThinkIntervalMs: 2500,
       chatPrefix: '!',
