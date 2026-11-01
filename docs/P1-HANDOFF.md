@@ -1,4 +1,4 @@
-# P1 交接（2026-10-30 更新）
+# P1 交接（2026-10-31 更新）
 
 > **一句话**：P1 的**离线可交付部分**已实现并通过一键复验；**M1（适用子集）/M2/M3/M4（A19 适用子集）已通过真机验收**；
 > **P1 仍未整体验收、未发布**（M5 输入层已实现并真机验证链路，但 F1'/A21/A22 未收口；CU 路径**已放弃**；M6/M7 部分）。
@@ -40,12 +40,12 @@
 ## 1. 一键复验
 
 ```bash
-npm run p1:verify            # P0 回归 + planner + contract + m3 + m6 + m7 + m4 + fault + audit p1
+npm run p1:verify            # P0 回归 + 18 个 P1 套件 + audit p1（见下表）
 npm run p1:verify -- --fast  # 跳过 P0 回归
 npm run p1:baseline -- --suites  # 记录提交/配置指纹/套件结果到 runtime/p1-baseline.json
 ```
 
-最近一次实测（离线，2026-10-31）：
+最近一次实测（离线，2026-11-01 实跑复核；`p1:verify` 19/19、`--fast` 18/18，退出码 0）：
 
 | 套件 | 结果 |
 | --- | --- |
@@ -72,6 +72,11 @@ npm run p1:baseline -- --suites  # 记录提交/配置指纹/套件结果到 run
 `p1:verify --fast` 为 **18/18 套件**，完整含 P0 为 **19/19**（跳过 P0 回归）。
 没有启动 Minecraft、没有 GUI 自动化、没有调用生成模型；M4 测试在真实 Node 子进程中执行了探针技能，
 并用一次 DeepSeek Search 请求验证了搜索端点。
+
+> **计数只增不减**：正文按日期保留了各次执行的当时计数（例如 10-21 的
+> `p1:contract:test 206/206`、10-25 的 `p1:m4:test 35/35`、10-23 的 `p1:language:test 20/20`）。
+> 以上表为 2026-11-01 的最新值：contract **237/237**、m4 **38/38**、language **22/22**、
+> taskgoal **14/14**、curriculum **18/18**。
 
 ## 2. 已交付（按里程碑）
 
@@ -163,7 +168,8 @@ npm run p1:baseline -- --suites  # 记录提交/配置指纹/套件结果到 run
 | `chat.participate` / `chat.proposalChat` | `false` / `false`（M6 客户端窗口显式打开） |
 | `chat.harnessAgentId` | `""`（**入库值必须为空**：这是每次 DSH 重启都会变的会话 id，钉死入库只会把 agent 静默绑到已死会话。空则由 `HarnessBridge.autoBind` 按动作脑 durable goal 自动发现，`/bind` 可手动钉。要钉某台机器时写进不进 git 的 `config/agent.local.json`，如本机 `session-d2ad5dc4-3bf2-4ffb-be94-a4858b913731` =「Minecraft动作脑3」） |
 | `language.brain` | `unified`（2026-10-23 起默认；`legacy` 可完整回退） |
-| `planner.autonomousProposals` | `enabled=true`，`idleMs=300000`、`responseMs=30000`、`prepTimeoutMs=90000`、`maxGoalRounds=3`（动作脑自主提案；未接受不执行） |
+| `planner.autonomousProposals` | `enabled=true`，`idleMs=300000`、`responseMs=30000`、`prepTimeoutMs=90000`、`maxGoalRounds=3`、`executionGoalRounds=6`（动作脑自主提案；未接受不执行） |
+| `planner.autonomousProposals.curriculum` | `enabled=true`、`file=runtime/curriculum.json`、`bandStep=2`、`maxLevel=4`、`maxRejections=2`、`failPenaltyStep=2`、`maxBandPenalty=1`、`historyLimit=12`（Voyager 式难度带：每 2 个完成 +1 档、封顶 4；2 次连续 blocked 降 1 档、最多降 1 档、一次成功即恢复） |
 | `agent.codeSkills.generateMaxTokens` / `generationTimeoutMs` | `16000` / `180000`（2026-10-25 真机调参：思考模型 reasoning 计入 completion，2600/30000 会截断） |
 | `state.enabled` | `true`（A17/A29 测试窗口；`P1_STATE=off` 或改 `false` 可关） |
 | `state.path` / `debounceMs` | `runtime/p1-state.json` / `1000` |
@@ -174,8 +180,8 @@ npm run p1:baseline -- --suites  # 记录提交/配置指纹/套件结果到 run
 
 | 项 | 现状 / 下一步 |
 | --- | --- |
-| M4（已完成） | **PASS（A19 适用子集）**：v2 离线 35/35；A18 `grass_dig`/`table_click`、A19 越界/抢身体/取消/deny/无屏点击/非敌对攻击/硬杀、A20 `half_fail`、A28 长任务 15.57s、A29 硬杀恢复、A30 用量 10,352 tok 真机通过；残余：真实 PauseScreen/第二玩家仅离线 |
-| M5 F1' / A21 / A22 | CU 路径已放弃：①WGC 取不到 OpenGL 窗口帧（两轮真机 `截图未产出` + `Declared image type does not match its bytes`）；②`WindowPolicy`/`ComputerUseGuard` 接不进只读的打包插件（`resources/app.asar`），真机“未 verify 前默认拒绝”不成立。改为 Minecraft 进程内输入层；前置是 **F1'**（F1'a 结构性不可出界 + F1'b 键鼠台账，**无 N/A 出口**）；A21/A22 待执行（命题不变、证据重记）。详见 [`P1-M5.md`](P1-M5.md) §7 |
+| M4（已完成） | **PASS（A19 适用子集）**：v2 离线 **38/38**（2026-11-01 复核；10-25 当时的 35/35）；A18 `grass_dig`/`table_click`、A19 越界/抢身体/取消/deny/无屏点击/非敌对攻击/硬杀、A20 `half_fail`、A28 长任务 15.57s、A29 硬杀恢复、A30 用量 10,352 tok 真机通过；残余：真实 PauseScreen/第二玩家仅离线 |
+| M5 F1' / A21 / A22 | CU 路径已放弃：①WGC 取不到 OpenGL 窗口帧（两轮真机 `截图未产出` + `Declared image type does not match its bytes`）；②`WindowPolicy`/`ComputerUseGuard` 接不进只读的打包插件（`resources/app.asar`），真机“未 verify 前默认拒绝”不成立。改为 Minecraft 进程内输入层（已实现并真机验证输入/截图/GUI 链路）；前置是 **F1'**（F1'a 结构性不可出界 + F1'b 键鼠台账，**无 N/A 出口**）。**A21 部分通过**（2 类 GUI ×3、`m5-gui-live 93/93`，但探针直连 mod、未走 agent 技能层）；**A22/M5.3 待执行**，F1'b 的暂停/死亡/断连/退出四类注入未跑完。详见 [`P1-M5.md`](P1-M5.md) §7/§8 |
 | M6 A23 / A25 剩余 | A24/C03/F02 受控 PASS；A23 缺真实第二名玩家 40 组 ×3 与 ≥80%/≤10% 阈值；A25 仅 accept 为真 harness，reject/不答/另派需在真实动作脑提案下重跑（单操作员/合成发送者需标注）；R2/R3 未执行 |
 | M7 A26 / R1–R4 | A26 仅 2026-10-17 分项基线；R1 部分，R2–R4 未执行 |
 | M7 F3 / A31 最终组合 | F3 真机 token 端点未验；A31 双 emitter/planVersion 未验 |
@@ -189,8 +195,9 @@ npm run p1:baseline -- --suites  # 记录提交/配置指纹/套件结果到 run
 1. 先读 [`P1-CLIENT-TESTS.md`](P1-CLIENT-TESTS.md)（唯一权威清单）与
    [`P1-CLIENT-VERIFICATION.md`](P1-CLIENT-VERIFICATION.md) §0（阶段判定）。
 2. **M7 回归**：A26 完整回归、R1–R4、F3 真机 token、A31 最终组合；每项记录版本/账号/日志路径。
-3. **M4**：**A18 v2 真机 PASS；A19/A20/A28–A30 待验**——`grass_dig` dirt 1→2/2→3、
-   `table_click` 槽 10→11/11→10；残余风险记录在案。沙箱规则见 [`P1-M4-SANDBOX.md`](P1-M4-SANDBOX.md)。
+3. **M4（已完成）**：A18–A20、A28–A30 均已在真机 PASS（A18 `grass_dig` dirt 1→2/2→3、
+   `table_click` 槽 10→11/11→10；A19 适用子集；A20 `half_fail`；A28 长步 15.57s；A29 硬杀；
+   A30 10,352 tok），残余风险记录在案。沙箱规则见 [`P1-M4-SANDBOX.md`](P1-M4-SANDBOX.md)。
 4. **M5**：先做进程内输入层（mod 按键/视角/槽位点击 + 帧缓冲截图）与 `InputLedger`，过 F1'a/F1'b
    后再跑 A21/A22；F1' 不通过则实现不合并，A21/A22 **不标 N/A**。详见 [`P1-M5.md`](P1-M5.md) §7。
 5. **M6**：按 40 组 ×3 语料跑 A23（A24 受控并发已过，随语料复跑）、按四路径跑 A25 的真实动作脑部分；单操作员时标注“非真实多人”。

@@ -5,6 +5,11 @@
 > 结果：**未通过（发现 2 个真实 FAIL，已修复，待复验）**。
 > 原始证据：`runtime/logs/m1-client-run-2026-10-17.json`、`.console.log`、
 > `runtime/logs/agent-m1-2026-10-17.log`。
+>
+> **2026-10-31 订正（F3）**：本文 §4 与复验小结里的「F3 token **PASS**」**不成立**——那次 401/200
+> 是对**本地测试服务器**的检查，真机（游戏会话 + 真实客户端）的 `/events` token 端点**从未执行**。
+> F3 已归 M7（见 [`P1-CLIENT-VERIFICATION.md`](P1-CLIENT-VERIFICATION.md) §M1.7 与 §0）。M1 判定为
+> PASS（适用子集）时**不含 F3**；下表与 §4 的 F3 行只作历史证据保留，不再作为通过依据。
 
 ## 1. 环境
 
@@ -91,7 +96,8 @@
 | 完整门禁 | — | `npm run p1:verify` 结果见下 |
 
 **当前 M1 判定：PASS（适用子集，2026-10-17）。** A06 的修复已在真机确认：零矿变
-`task:failed`；A04 的同名任务 ID/终态标记已确认；A08 运行中停止 816ms；F3 token/重放通过。
+`task:failed`；A04 的同名任务 ID/终态标记已确认；A08 运行中停止 816ms；A31 重放通过。
+**F3 见 2026-10-31 订正：真机端点未执行，不计入 M1。**
 A05 命令、A07 替换/排队通过；其余明确留 M2/M3/M7（见 §4）。
 
 ## 4. 复验（2026-10-17 11:29，day 749 / timeOfDay 575）
@@ -101,7 +107,7 @@ A05 命令、A07 替换/排队通过；其余明确留 M2/M3/M7（见 §4）。
 | A06 零矿 | **PASS（修复后）**：`mine diamond_ore` 无目标 → `task:failed`（`terminal:true`），不再 `task:done` | `m1-client-retest-2026-10-17.json` |
 | A04 身份/终态 | **PASS（可测子集）**：两个 go-to 为 `task-1`/`task-2`；attempt `#0/#1/#2` 各自唯一；仅最终尝试 `terminal:true`，重试为 `retrying:true, terminal:false` | 同上 |
 | A08 停止 | **PASS（停止子集）**：`mine dirt 64` 运行中发 stop，**816ms** 后 `current=null`，任务 `cancelled`；未验按键释放/死亡/断线 | 同上 + `agent-m1-retest-2026-10-17.log` |
-| F3 token | **PASS**：无 token `401`；`?token=m1-test-token` `200` | `m1-sse-token-2026-10-17.log` |
+| F3 token | ~~**PASS**：无 token `401`；`?token=m1-test-token` `200`~~ **已订正（2026-10-31）：只对本地测试服务器成立，真机端点未执行，不计 M1** | `m1-sse-token-2026-10-17.log` |
 | A31 重放 | **PASS（重放子集）**：`lastEventId=0` 收到 seq 1–10；`lastEventId=5` 只收到 6–10 | `m1-sse-replay-2026-10-17.json` |
 | A05 命令 | 已过（missing diamond 拒绝）；NL/规划入口未测 | 首轮记录 |
 | A07 计划互斥 | 只验证了替换/排队；父计划/子步骤未测 | 首轮记录 |

@@ -5,8 +5,8 @@
 > 权限边界：`read_state / submit_task / chat / wait / search / generate / subprocess`；
 > 搜索经 Node 使用 DeepSeek Search；超时、撤销、失败清理、证据保留规则由本文件确定。
 > **2026-10-25 需求变更**：操作员要求生成代码直接 `/state` 读世界并移动/挖掘/点击；`body_*` 权限
-> 与 host 代理见 §2.1 与 [`M4-DIRECT-BODY-PLAN.md`](M4-DIRECT-BODY-PLAN.md)；**已实现（离线 35/35），
-> A18–A20、A28–A30 真机 PASS（A19 适用子集；残余 PauseScreen/第二玩家仅离线）**。
+> 与 host 代理见 §2.1 与 [`M4-DIRECT-BODY-PLAN.md`](M4-DIRECT-BODY-PLAN.md)；**已实现（离线 35/35，
+> 2026-11-01 复核 38/38），A18–A20、A28–A30 真机 PASS（A19 适用子集；残余 PauseScreen/第二玩家仅离线）**。
 
 ## 1. 信任边界
 

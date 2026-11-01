@@ -271,6 +271,25 @@ executionGoalRounds`）；`proposalTtlMs` 仍是 plan question 的默认值。�
 `p1:proposal-autonomy:test` 16/16；插件测试覆盖 prep guard、`mc_observe(full)`、
 `/goal/complete`。
 
+### 2026-10-30/31 增补（steer / task-goals / keybinds）
+
+- **`/message` 支持主动 steer**：`POST /message {mode:"steer", text, imagePath?}` → DSH
+  `agent.steer()`（当轮 next-step 生效，不等整轮结束）；运行时没有 `steer()` 时**诚实回退**
+  `followup` 并在 `delivery` 字段里写明。截图策略（`src/perception/screenshotPolicy.js`）
+  只在存在活跃 goal 时 steer；真机落在 turn 70 step 2，带 768×432 JPEG。
+  `imagePath` 走 DSH attachments（离线 `p1:steer:test 9/9`、`p1:shot:test 20/20`）。
+- **玩家任务 / `@` 请求 → goal**：`TaskGoalInjection` 在命令入队或 `@` 逐字转发后调
+  `HarnessBridge.createGoal` → 插件 `POST /goal`（`purpose:"execute"`）建持久 goal；
+  `GET /task-goals` 只读暴露 `created`/`skipped`（真机 `@` 请求 `created:1`）。goal 文本带
+  失败阶梯、粒度与实时规则；已有活跃 goal 时加入而不是叠加，同命令去重窗口内只建一个
+  （离线 `p1:taskgoal:test 14/14`）。
+- **`mc_keybinds`（第 15 个工具）**：只读 `GET /keybinds`，每次实时枚举 `options.keyMappings`
+  （原版+模组），返回稳定 `modid:path` ID 与当前键码；动作脑用 `tap <id>` / `hold <id> ms` /
+  `key <id> down|up`，raw 键名与键码被拒。真机 220 条（184 mod），
+  `immersive_aircraft:dismount = key.keyboard.r` 可注入（离线 `p1:m5:test 35/35`、`p1:m4:test 38/38`）。
+- 工具总数仍为 **15**（14 个 `mc_*` + `lookup_mod_content`）；新增的是 `mc_keybinds`，
+  取代了 10-30 之前"用 `mc_state({fields:["keybinds"]})` 当等价入口"的说法（仍然可用，但返回全表）。
+
 ### 边界
 
 - 隐藏 agent 不做 H1；live `/goal` 要求预先存在一个 DSH 对话。

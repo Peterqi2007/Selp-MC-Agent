@@ -1,3 +1,13 @@
+# 语言脑统一门面（重构请求原文 + 实现记录）
+
+> 状态（2026-11-01 复核）：**已落地并默认启用**——`agent.language.brain=unified`（2026-10-23 起），
+> `legacy` 可完整回退；离线 `p1:language:test 22/22`、`p1:verify -- --fast 18/18`、完整 **19/19**；
+> 真机（2026-10-23/24）见文末「实现状态」与 [`M2-M3-LANGUAGE-TESTS.md`](M2-M3-LANGUAGE-TESTS.md)。
+> **本文前半部分是当时操作员给出的重构请求原文**（保留原样、只作记录，不代表当前口径）；
+> 从「## 实现状态」起才是交付记录。当前口径以本节状态行为准。
+
+---
+
 /goal 按照以下建议重构语言脑，实现接入统一化。建议的目标形态
 代码块
 
@@ -58,7 +68,7 @@ LlmCore 不能直接删：任务播报、judge、mining recovery、P0 命令仍�
 | 动作脑输出 | unified 下 Node `/say` 默认全部进语言脑（兼容未带 `source` 的旧 DSH 插件），`raw:true` 才是显式直发；语言脑失败才原文 fallback；计划提问与 code-skill 同样先经 roleplay（提问失败才原文兜底） |
 | 开关 | 默认 `config/agent.json` → `agent.language.brain=unified`；`legacy` 可回退，或 `MC_LANGUAGE_BRAIN=legacy` 覆盖；`maxTokens/historyLimit/maxToolRounds/timeoutMs` 同段 |
 | 动作脑绑定 | unified 启动时若未配置 `chat.harnessAgentId`，按 `/agents` + `/goal` 自动绑定带 "action-brain" 目标的 DSH 会话；DSH 重启后无需手工 `/bind` |
-| 测试 | `npm run p1:language:test` **20/20**；`npm run p1:verify -- --fast` **10/10** 套件 |
+| 测试 | `npm run p1:language:test` **20/20**（2026-10-23 当时）；2026-11-01 复核为 **22/22**；`npm run p1:verify -- --fast` 当时 **10/10** 套件，2026-11-01 为 **18/18**（完整 **19/19**） |
 | 真机（2026-10-23） | `client:verify 23/23`；unified agent 在 `mc.example.com` 实跑：panel roleplay/expert 回复、approval 拒绝、approval 原文转发、动作脑 `mc_say` 输出经 roleplay 改写、重启恢复 `languageBrain` 13 行窗口；默认 unified 启动自动绑定动作脑。另：40 条标注样本注入，抽样 2/2、held-out 4/4，silence 全链路通过；证据 `.tmp/silence-corpus-live-2026-10-23.md` |
 
 仍待完成（下一阶段）：

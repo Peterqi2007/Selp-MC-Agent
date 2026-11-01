@@ -72,7 +72,7 @@
 | [`docs/LANGUAGE-BRAIN-REPAIR.md`](docs/LANGUAGE-BRAIN-REPAIR.md) | **语言脑统一门面**：`src/llm/languageBrain.js` 的 roleplay/expert/approval、统一语言工具、原文审批、15 行短期窗口 + ChatMemory/任务记忆 grep；**默认 `agent.language.brain=unified`（2026-10-23 真机验证）**，`legacy` 可回退；`p1:language:test 22/22` |
 | [`docs/P1-M7.md`](docs/P1-M7.md) | **P1 M7 记录（离线准备）**：`p1:verify` 一键离线验收（2026-10-31 实测 `--fast` **18/18**、完整 **19/19** 套件）、`p1:fault:test` 9/9、A01–A32 验收矩阵 + F1' 闸门（2026-10-25 回填，2026-10-29 更新 M5 口径）、发布清单与残余风险。**P1 未发布**；M1/M2/M3/M4 真机通过，M5–M7 剩余项见清单 |
 | [`docs/P1-GAP-AUDIT.md`](docs/P1-GAP-AUDIT.md) | **P1 全文差距审计**：§1.4–§1.9 逐节“已落地/部分/仅契约/未开始”，离线待办优先级与需批准项（2026-10-22/10-25 增补现状表；2026-10-29 M5 口径变更） |
-| [`docs/P1-HANDOFF.md`](docs/P1-HANDOFF.md) | **P1 交接（2026-10-30 更新）**：一键复验、已交付清单、客户端窗口实测、默认配置、剩余未交付、窗口顺序、代码地图与风险 |
+| [`docs/P1-HANDOFF.md`](docs/P1-HANDOFF.md) | **P1 交接（2026-10-31 更新）**：一键复验、已交付清单、客户端窗口实测、默认配置、剩余未交付、窗口顺序、代码地图与风险 |
 | [`docs/CLIENT-TEST-2026-10-17.md`](docs/CLIENT-TEST-2026-10-17.md) | **客户端窗口实测记录**：协议 23/23、登录+寻路 7/7、采集 9/10（挖石 noPath 失败）、Agent 自动登录修复、`/state` 空闲成本、F1 未授权（历史，2026-10-29 起 F1 已作废、改 F1'） |
 | [`docs/M1-CLIENT-TEST-2026-10-17.md`](docs/M1-CLIENT-TEST-2026-10-17.md) | **M1 客户端两轮记录**：零矿 FAIL→修复后 failed；任务 ID/终态 FAIL→修复后唯一；stop 816ms；SSE token/重放通过；**M1 适用子集 PASS**，残余 A05/A07/A08/A31 子项留 M2/M3/M7 |
 | [`docs/M2-CLIENT-TEST-2026-10-17.md`](docs/M2-CLIENT-TEST-2026-10-17.md) | **M2 客户端记录**：A01/A02/A03/A09/A10/A11/A12/H1 均 PASS；A12 GUI 修复后 219ms 自动关工作台并击杀；TACZ reload live PASS；时间判定改为 server dayTime 优先 |

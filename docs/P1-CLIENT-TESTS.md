@@ -17,7 +17,7 @@
 > 植入）。**2026-10-25 补 M4 代码技能**：A18/A19/A20、A27 代码子项与 A28–A30 编码回合一度
 > 按**编排子集**判 PASS；同日操作员要求生成代码**直接读 `/state` 并移动/挖掘/点击**，该 PASS 撤回，
 > **A18 不再成立**，A19/A20/A28–A30 需按直接原语重验（[`M4-DIRECT-BODY-PLAN.md`](M4-DIRECT-BODY-PLAN.md)）。
-> **v2 已实现（`p1:m4:test 35/35`）；A18–A20、A28–A30 已按 v2 直接原语在真实客户端 PASS**
+> **v2 已实现（`p1:m4:test 35/35`，2026-11-01 复核 38/38）；A18–A20、A28–A30 已按 v2 直接原语在真实客户端 PASS**
 > （A18 move+dig/容器+click；A19 越界/抢身体/取消/deny/无屏点击/非敌对攻击/硬杀；A20 半途失败；
 > A28 长步骤 15.57s 单次结算；A29 硬杀恢复 pending；A30 用量 10,352 tok）。A19 残余见 M4 证据 §11。
 > 实时调用入口（`!code-skill` / `code_skill`）保留。
@@ -33,9 +33,15 @@
 > `m5-live-probe 21/21`、`m5-agent-probe 11/11`、`m5-gui-live 93/93`、`m5-target-live 8/8`、
 > `m5-channel-live 8/8`、`client:verify 23/23`。**F1' 仅部分证据**（缺暂停/死亡/断连/退出注入），
 > **A21 部分通过（探针直连 mod、未走 agent 技能层）、A22/M5.3 未执行**，证据见 [`P1-M5.md`](P1-M5.md) §8。
+> **2026-10-30/31 补测与新增面**：载具感知（biplane `mounted:true`、`inventory` 24 格 2 件、
+> `integrity` 1/1 ratio）、`@` 请求 → goal（`GET /task-goals` 立即 `created:1`）、截图 steer（落在 turn 70 step 2、
+> 带 768×432 图）、Voyager 式自动课程（level 1/4 → 2/4）、自卫反射可见性、动作脑改绑
+> `Minecraft动作脑3` + KeyMapping 发现（`GET /keybinds` 220 条 / 184 mod，`immersive_aircraft:dismount`
+> 可 `tap`）、**A32 失败回执/升级闸门真机子集 PASS**（barrier 阶梯 + 生成键鼠脚本 trial/run）。
+> 证据见 [`P1-WORK-2026-10-30.md`](P1-WORK-2026-10-30.md) §8–§11 与 [`FAILURE-ESCALATION.md`](FAILURE-ESCALATION.md) §9.1。
 > **未执行项仍保持「未执行」**（A22、A23 的 40 组 ×3、A25 的真实动作脑 reject/不答/另派、
-> A31 最终组合、A32 failure escalation、R2–R4、F3 真机端点、M0-C1 剩余负载等），不得因为其它项
-> 通过而推断通过。
+> A31 最终组合、R2–R4、F3 真机端点、M0-C1 剩余负载等），不得因为其它项通过而推断通过。
+> A32 只覆盖上列真机子集，**未覆盖** mod 物品成功放置、`mc_ask_player` 插件工具本身、载具 ms 级脚本。
 >
 > 规则：
 > 1. 只有实际运行并留下证据的项才能改状态；失败要写失败，不能写“未测”。
@@ -83,7 +89,7 @@
 
 | 项 | 场景 | 通过标准 | 状态 |
 | --- | --- | --- | --- |
-| R1 | `!` / `do_task` 行为不变（真机抽测） | 与 P0 真机记录同型任务结果一致；无回归 | 未执行（本轮只测了 `!status`/非法参数与砍树） |
+| R1 | `!` / `do_task` 行为不变（真机抽测） | 与 P0 真机记录同型任务结果一致；无回归 | **部分（2026-10-17 分项）**：只测了 `!status`/非法参数与砍树；后续窗口真机执行过 `!tap`/`!key`/`!keybinds`/`!inputs` 等 `!` 命令（[`P1-WORK-2026-10-30.md`](P1-WORK-2026-10-30.md) §10–§11），但未按 R1 抽测口径成组执行 |
 | R2 | 空闲行为按授权口径（真机） | 未获准不执行；反射仍运行 | 未执行 |
 | R3 | 重启后提案/失败账本可恢复 | A17/A29 同批执行 | 代码已接（`TaskSlot` failCounts/quarantine/blockedGoal + sessionState）；真机重启未执行 |
 | R4 | `task:quarantined` 真机可观测 | 日志/面板/事件流各出现一次且原因正确 | 未执行 |
@@ -113,7 +119,8 @@
   夜间门禁实测会中止；持久化 save/重启恢复（eventSeq=1，全段 restored）**部分通过**。
   证据与细节见 [`CLIENT-TEST-2026-10-17.md`](CLIENT-TEST-2026-10-17.md)。
 - **已执行（2026-10-17/18 阶段）**：M1 适用子集 **PASS**（A04/A05 命令/A06/A07 替换/A08 stop/
-  F3/A31 重放）；M2 **PASS**（A01/A02/A03/A09/A10/A11/A12 + H1a/H1b）。
+  A31 重放；**F3 于 2026-10-31 订正为未执行**，当时的 401/200 只对本地测试服务器成立，归 M7）；
+  M2 **PASS**（A01/A02/A03/A09/A10/A11/A12 + H1a/H1b）。
   证据见 [`M1-CLIENT-TEST-2026-10-17.md`](M1-CLIENT-TEST-2026-10-17.md)、
   [`M2-CLIENT-TEST-2026-10-17.md`](M2-CLIENT-TEST-2026-10-17.md)。
 - **M3 代码入口（2026-10-18）**：计划/续轮/持久化已接线，`p1:m3:test 25/25` + live mock 冒烟；
@@ -228,7 +235,10 @@
   `agent.table_click@1.0.1` 试运行把 cobblestone 从槽 **10→11**、实时动作脑 `mc_plan`
   （`plan-1792906694355-omr8a` completed、postcondition 成立）再从 **11→10**。两技能均生成→
   试运行→晋升→实时调用；A18 **PASS**。证据 [`M4-CLIENT-TESTS.md`](M4-CLIENT-TESTS.md) §10。
-- **未执行**：M4 直接原语（v2）的 A19/A20/A28–A30 **真机**重验、A21–A22、A23 的 40 组 ×3、
+- **已执行（2026-10-25，v2 A19/A20/A28–A30 真机）**：A19 越界/抢身体/取消/`deny`/无屏点击/非敌对攻击/硬杀；
+  A20 `half_fail` → quarantined；A28 长步骤 15.57s 单次结算；A29 硬杀恢复 pending；A30 用量 10,352 tok。
+  证据 [`M4-CLIENT-TESTS.md`](M4-CLIENT-TESTS.md) §11。
+- **仍未执行**：A21–A22（A21 部分通过：探针直连 mod、未走技能层）、A23 的 40 组 ×3、
   A25 的真实动作脑 reject/不答/另派、A31 双 emitter/planVersion、R1 完整回归、R2–R4、
   F3 真机端点、M0-C1 的移动/挖矿/反射/GUI 负载。未测的阈值不得回填。
 - **夜间安全**：后续所有客户端窗口执行前先确认时间；夜里先睡觉（`client-real` 自动，

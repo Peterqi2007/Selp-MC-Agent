@@ -1,4 +1,4 @@
-# P1 全文差距审计（2026-10-17，2026-10-22/10-25 增补，2026-10-29 口径变更）
+# P1 全文差距审计（2026-10-17，2026-10-22/10-25 增补，2026-10-29 口径变更，2026-10-30/31 增补）
 
 > 目的：对照 [`P1-PLANNER-PLAN.md`](P1-PLANNER-PLAN.md) §1.4–§1.9，逐节列出**已落地 /
 > 仅契约 / 未开始**，并给出离线可继续的优先级。本文不改变任何验收结论：真机/模型项
@@ -40,6 +40,19 @@
 > **输入层已实现并真机验证输入/截图/GUI 链路**（`p1:m5:test 35/35`、`m5-gui-live 93/93`）；**A21 部分通过**
 > （探针直连 mod、未走技能层）、**A22/M5.3 未执行**、**F1'b 的暂停/死亡/断连/退出注入未跑完**，**M5 仍未通过**。
 > 完整口径见 [`P1-M5.md`](P1-M5.md) §7/§8。
+
+> **2026-10-30/31 增量（本轮新增的能力面，均已接真机或离线闭环）**：
+> ① **载具感知**：`/state` 新增 `mounted`，`riding` 带 `inventory`/`integrity`（真机 biplane：24 格 2 件、1/1 ratio）；
+> ② **`@` 请求 → DSH goal**：逐字转发后建持久 goal，不再只有一条消息；
+> ③ **截图 steer 主动提交**：`/message {mode:"steer"}` → `agent.steer()`（真机落在当轮 turn 70 step 2，带 768×432 图）；
+> ④ **Voyager 式自动课程**：`src/planner/curriculum.js` 难度带 + completed/failed 账本 + 低于 band 拒绝/放宽 +
+>    **账本自净** + **失败降 band**（2 次连续 blocked 降 1 档、一次成功恢复）；真机完成 level 1/4→2/4；
+> ⑤ **失败回执/升级阶梯**：`class/requires/attempt` 信封 + 按动作签名硬闸门 + `lookup_mod_content`→`mc_ask_player` 停车；
+>    离线 26/26，真机 A32 子集通过（barrier 阶梯 + 生成键鼠脚本 trial/run）；
+> ⑥ **KeyMapping 注册表发现**：`GET /keybinds` 实时枚举（真机 220 条 / 184 mod），稳定 `modid:path` ID 可 `tap/hold/key`；
+> ⑦ **记忆三处接线**：方法库学习、episodic 去重、lookup 落 semantic；删除 `relational` 类别，两个旧聊天旋钮改启动拒绝。
+> 逐项证据见 [`P1-WORK-2026-10-30.md`](P1-WORK-2026-10-30.md) §8–§11、[`FAILURE-ESCALATION.md`](FAILURE-ESCALATION.md)、
+> [`P1-M7.md`](P1-M7.md) §3（A32 行）。
 
 ## 1. 逐节状态
 
