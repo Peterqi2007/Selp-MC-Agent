@@ -16,6 +16,7 @@
     "dsh:install": "node scripts/install-dsh-plugin.js",
     "dsh:h1": "node scripts/dsh-h1-test.js",
     "selftest": "node scripts/selftest.js",
+    "action-brain:contract:test": "node scripts/action-brain-contract-test.js",
     "verify:roleplay": "node scripts/verify-roleplay.js",
     "clientmod:test": "node scripts/clientmod-test.js",
     "inspect": "node scripts/inspect-world.js",
