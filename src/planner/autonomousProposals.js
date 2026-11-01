@@ -61,7 +61,39 @@ class AutonomousProposalCoordinator {
     this.executionGoal = null;
     this.lastProposal = null;
     this.announcedProposalId = null;
-    this.stats = { prepStarted: 0, proposals: 0, accepted: 0, rejected: 0, expired: 0, errors: 0, expressed: 0 };
+    this.stats = { prepStarted: 0, proposals: 0, accepted: 0, rejected: 0, expired: 0, errors: 0, expressed: 0, autoAccepted: 0 };
+    /**
+     * Fully autonomous mode (src/core/autonomousMode.js). Assigned after construction because
+     * the mode owns the coordinator's goals, not the other way round. When absent the
+     * coordinator behaves exactly as before (5-minute clock, player approval).
+     *
+     * @type {null|{isActive():boolean, shouldAutoAccept():boolean, effectiveIdleMs(n:number):number,
+     *   prepPreamble():string, executionPreamble():string, notePreparation(o:object):void,
+     *   noteExecution(o:object):void, noteRound(c:object):void}}
+     */
+    this.mode = deps.mode || null;
+    /** Re-entrancy guard: one auto-accept at a time. */
+    this._autoAccepting = false;
+  }
+
+  /** The mode, when one is attached (it can be attached after construction). */
+  _mode() {
+    return this.mode || (this.ctx && this.ctx.autonomous) || null;
+  }
+
+  /** 5 minutes when a human approves, a short cooldown when nobody does. */
+  effectiveIdleMs() {
+    const mode = this._mode();
+    if (mode && typeof mode.effectiveIdleMs === 'function') {
+      return Math.max(0, Number(mode.effectiveIdleMs(this.idleMs)) || 0);
+    }
+    return this.idleMs;
+  }
+
+  /** True while the fully autonomous mode is driving this coordinator. */
+  autonomousActive() {
+    const mode = this._mode();
+    return !!(mode && typeof mode.isActive === 'function' && mode.isActive());
   }
 
   start() {
@@ -120,8 +152,8 @@ class AutonomousProposalCoordinator {
         this.lastBlockedReason = blocked;
         return { ok: true, reason: blocked };
       }
-      if (at - this.lastBusyAt < this.idleMs) {
-        return { ok: true, reason: 'idle-wait', remainingMs: this.idleMs - (at - this.lastBusyAt) };
+      if (at - this.lastBusyAt < this.effectiveIdleMs()) {
+        return { ok: true, reason: 'idle-wait', remainingMs: this.effectiveIdleMs() - (at - this.lastBusyAt) };
       }
       return await this.startPrep();
     } catch (err) {
@@ -152,6 +184,7 @@ class AutonomousProposalCoordinator {
     }
     if (at - this.prepStartedAt >= this.prepTimeoutMs) {
       await this.completePrep('prep-timeout');
+      this._notePreparation(false);
       this.resetTimer('prep-timeout');
       return { ok: true, reason: 'prep-timeout' };
     }
@@ -163,6 +196,7 @@ class AutonomousProposalCoordinator {
        * execution: end the round and restart the 5-minute idle timer.
        */
       await this.completePrep('goal-ended-without-proposal');
+      this._notePreparation(false);
       this.resetTimer('goal-ended-without-proposal');
       return { ok: true, reason: 'prep-ended-without-proposal' };
     }
@@ -223,7 +257,16 @@ class AutonomousProposalCoordinator {
     }
     this.log.info(`autonomous execution ${tracked.id} ${phase}: ${candidate.name || candidate.type}${band}`);
     this.executionGoal = null;
+    /** The mode counts completions/blocks and pauses itself on a failure streak. */
+    const mode = this._mode();
+    if (mode && typeof mode.noteExecution === 'function') mode.noteExecution({ phase, candidate });
     return { ok: true, reason: `execution-${phase}` };
+  }
+
+  /** Tell the mode a prep round ended without a proposal (its failure guard). */
+  _notePreparation(hadProposal) {
+    const mode = this._mode();
+    if (mode && typeof mode.notePreparation === 'function') mode.notePreparation({ hadProposal });
   }
 
   /**
@@ -302,7 +345,15 @@ class AutonomousProposalCoordinator {
       'Do not execute anything; the player must approve first.';
     const curriculumContext =
       this.curriculum && typeof this.curriculum.describe === 'function' ? this.curriculum.describe() : '';
-    const goalText = curriculumContext ? `${baseGoal}\n\n${curriculumContext}` : baseGoal;
+    /**
+     * Fully autonomous mode replaces "the player must approve first" with "you will be
+     * approved automatically". The preamble comes from the mode so the promise (and the ban
+     * on asking the player) has exactly one owner.
+     */
+    const mode = this._mode();
+    const preamble = mode && typeof mode.prepPreamble === 'function' ? mode.prepPreamble() : '';
+    const sections = [preamble, preamble ? null : baseGoal, curriculumContext].filter(Boolean);
+    const goalText = sections.join('\n\n');
     const res = await this.bridge.createGoal({
       agentId,
       goal: goalText,
@@ -329,12 +380,18 @@ class AutonomousProposalCoordinator {
     return { ok: true, reason: 'prep-started', goalId: this.prepGoal.id };
   }
 
-  /** Explicit accept from !proposal / chat / panel. Injects the execution goal first. */
-  async accept(proposal) {
+  /**
+   * Accept an autonomous proposal and inject its execution goal.
+   *
+   * @param {object|null} proposal pending proposal (defaults to the desk's current one)
+   * @param {{by?:'player'|'autonomous'}} [options] who approved it (recorded on the desk)
+   */
+  async accept(proposal, options = {}) {
     const pending = proposal || (this.brain.proposals && this.brain.proposals.pending());
     if (!pending || !pending.candidate || pending.candidate.autonomous !== true) {
       return { ok: false, reason: 'not-autonomous-proposal' };
     }
+    const by = options.by === 'autonomous' ? 'autonomous' : 'player';
     const at = this.now();
     if (Number.isFinite(Number(pending.expiresAt)) && at >= pending.expiresAt) {
       try {
@@ -349,14 +406,19 @@ class AutonomousProposalCoordinator {
     const agentId = await this._agentId();
     if (!agentId) return { ok: false, reason: 'no-live-action-brain', proposalId: pending.id };
     const candidate = pending.candidate;
+    const mode = this._mode();
+    const preamble = mode && typeof mode.executionPreamble === 'function' ? mode.executionPreamble() : '';
+    const body =
+      `Execute the approved autonomous task: ${candidate.name || candidate.type}. ` +
+      (by === 'autonomous'
+        ? 'It was auto-approved by fully autonomous mode; carry it out and report the real result.'
+        : 'The player accepted the proposal; carry it out and report the real result.') +
+      (candidate.commandType
+        ? ' This is a local command-table action; translate type+args into one mc_step command if needed.'
+        : '');
     const created = await this.bridge.createGoal({
       agentId,
-      goal:
-        `Execute the approved autonomous task: ${candidate.name || candidate.type}. ` +
-        'The player accepted the proposal; carry it out and report the real result.' +
-        (candidate.commandType
-          ? ' This is a local command-table action; translate type+args into one mc_step command if needed.'
-          : ''),
+      goal: preamble ? `${preamble}\n\n${body}` : body,
       purpose: 'execute',
       proposal: {
         type: candidate.type,
@@ -378,7 +440,7 @@ class AutonomousProposalCoordinator {
         proposalId: pending.id
       };
     }
-    const accepted = this.brain.proposals.accept(pending.id, { by: 'player' });
+    const accepted = this.brain.proposals.accept(pending.id, { by });
     if (!accepted.ok) {
       /* The window closed between the expiry check and the desk accept: undo the goal. */
       await this.bridge
@@ -405,10 +467,14 @@ class AutonomousProposalCoordinator {
       }
     };
     this.stats.accepted += 1;
+    if (by === 'autonomous') this.stats.autoAccepted = (this.stats.autoAccepted || 0) + 1;
     this._clearPrep();
     this.lastBusyAt = at;
     this.lastProposal = pending;
-    this.log.info(`autonomous proposal ${pending.id} accepted; execution goal ${this.executionGoal.id}`);
+    if (by === 'autonomous' && mode && typeof mode.noteRound === 'function') {
+      mode.noteRound(this.executionGoal.candidate);
+    }
+    this.log.info(`autonomous proposal ${pending.id} accepted (${by}); execution goal ${this.executionGoal.id}`);
     return {
       ...accepted,
       goalInjected: true,
@@ -416,6 +482,37 @@ class AutonomousProposalCoordinator {
       agentId: this.executionGoal.agentId,
       proposalId: pending.id
     };
+  }
+
+  /**
+   * Close the prep and execution goals and forget them.
+   *
+   * `!stop`, a death and `!autonomous off` all need this: a durable goal left "active" on the
+   * action brain keeps the model working (and calling `mc_step`) even though Node said stop.
+   * Best effort by design - a dead harness must not make the stop itself fail.
+   */
+  async abortGoals(reason = 'aborted') {
+    const goals = [];
+    if (this.prepGoal) goals.push(this.prepGoal);
+    if (this.executionGoal) goals.push(this.executionGoal);
+    this._clearPrep();
+    const execution = this.executionGoal;
+    this.executionGoal = null;
+    const agentId = (execution && execution.agentId) || (await this._agentId());
+    const closed = [];
+    for (const goal of goals) {
+      if (!goal || !goal.id || !agentId) continue;
+      try {
+        await this.bridge.completeGoal({ agentId, goalId: goal.id, revision: goal.revision });
+        closed.push(goal.id);
+      } catch (err) {
+        this.log.debug(`abort goal ${goal.id} failed (${reason}): ${err.message}`);
+      }
+    }
+    if (closed.length) this.log.info(`autonomous goals closed (${reason}): ${closed.join(', ')}`);
+    this.lastBusyAt = this.now();
+    this.lastBlockedReason = `aborted:${reason}`;
+    return { ok: true, reason, closed };
   }
 
   /** End the prep goal (timeout/reject/expiry/accept). Never touches the body. */
@@ -451,6 +548,8 @@ class AutonomousProposalCoordinator {
     return {
       enabled: this.enabled,
       idleMs: this.idleMs,
+      effectiveIdleMs: this.effectiveIdleMs(),
+      autoAccept: this.autonomousActive(),
       responseMs: this.responseMs,
       prepTimeoutMs: this.prepTimeoutMs,
       lastBusyAt: this.lastBusyAt,
@@ -482,6 +581,8 @@ class AutonomousProposalCoordinator {
     return {
       enabled: this.enabled,
       idleMs: this.idleMs,
+      effectiveIdleMs: this.effectiveIdleMs(),
+      autoAccept: this.autonomousActive(),
       responseMs: this.responseMs,
       idleForMs: Math.max(0, this.now() - this.lastBusyAt),
       lastBlockedReason: this.lastBlockedReason,
@@ -509,6 +610,33 @@ class AutonomousProposalCoordinator {
     this.lastBlockedReason = `proposal:${pending.id}`;
     this.lastProposal = pending;
     this.stats.proposals += 1;
+    this._notePreparation(true);
+
+    /**
+     * Fully autonomous mode: nobody is asked, so the proposal is accepted as soon as it
+     * exists. Any failure to inject the execution goal is settled by rejecting the proposal
+     * immediately - leaving it pending for 30 seconds would look like a stalled round.
+     */
+    const mode = this._mode();
+    if (mode && typeof mode.shouldAutoAccept === 'function' && mode.shouldAutoAccept()) {
+      if (this._autoAccepting) return;
+      this._autoAccepting = true;
+      try {
+        const result = await this.accept(pending, { by: 'autonomous' });
+        if (!result.ok) {
+          this.log.warn(`autonomous auto-accept failed (${result.reason}); rejecting the proposal`);
+          try {
+            this.brain.proposals.reject(pending.id, { by: 'autonomous' });
+          } catch {
+            /* already settled */
+          }
+        }
+      } finally {
+        this._autoAccepting = false;
+      }
+      return;
+    }
+
     if (this.announcedProposalId === pending.id) return;
     this.announcedProposalId = pending.id;
     await this._express(pending);

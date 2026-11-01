@@ -42,6 +42,12 @@ function installPermissionGate(body, options = {}) {
    * for grass_block, not once per block, and the next task asks again.
    */
   const taskScope = typeof options.taskScope === 'function' ? options.taskScope : () => null;
+  /**
+   * Fully autonomous mode has nobody to ask. The consent desk is an operator question by
+   * design, so in that mode an `ask` rule is a `deny` with a reason the failure ladder can
+   * report - waiting for an answer that can never come would park the body forever.
+   */
+  const autonomousProvider = typeof options.autonomous === 'function' ? options.autonomous : () => null;
   if (!body || !permissions) return { installed: [] };
 
   const selfPlaced = new Set();
@@ -75,6 +81,10 @@ function installPermissionGate(body, options = {}) {
     const verdict = permissions.check(action, target);
     if (verdict.verdict === 'deny') return { ok: false, target, reason: verdict.reason || 'refused' };
     if (verdict.verdict === 'ask') {
+      const autonomous = autonomousProvider();
+      if (autonomous && typeof autonomous.isActive === 'function' && autonomous.isActive()) {
+        return { ok: false, target, reason: `autonomous-no-approval: ${verdict.reason}` };
+      }
       const answer = await consent.ask({ action, target, reason: verdict.reason });
       if (answer === 'deny') return { ok: false, target, reason: 'operator did not allow it' };
       if (answer === 'always') permissions.addRule({ effect: 'allow', action, match: target.name || '*' });

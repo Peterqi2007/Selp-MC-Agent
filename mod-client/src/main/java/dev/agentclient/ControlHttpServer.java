@@ -669,6 +669,31 @@ public final class ControlHttpServer {
                         out.put("ok", Json.bool(actions.attack((int) all[0], timeout)));
                     }
                 }
+                case "respawn" -> {
+                    // Fully autonomous mode: the death screen belongs to the operator and the
+                    // mod does not click unknown screens, so the death screen's own action is
+                    // exposed as a verb instead. Refuses when the player is not dead.
+                    boolean ok = actions.respawn();
+                    out.put("ok", Json.bool(ok));
+                    if (!ok) {
+                        out.put("error", Json.str("not-dead"));
+                    }
+                }
+                case "useentity", "rightclickentity" -> {
+                    // Right-click an entity by id: corpse looting (Corpse mod), trading, mod
+                    // interactions. `interact` is already the block-face verb, hence the name.
+                    Integer entityId = tryInt(rest.split("\\s+")[0]);
+                    if (entityId == null) {
+                        out.put("ok", Json.bool(false));
+                        out.put("error", Json.str("usage: useentity <entityId>"));
+                    } else {
+                        boolean ok = actions.useEntity(entityId);
+                        out.put("ok", Json.bool(ok));
+                        if (!ok) {
+                            out.put("error", Json.str("no-entity-or-out-of-reach"));
+                        }
+                    }
+                }
                 case "shoot" -> {
                     String[] shootTokens = rest.isEmpty() ? new String[0] : rest.split("\\s+");
                     Integer id = shootTokens.length > 0 ? tryInt(shootTokens[0]) : null;

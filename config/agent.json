@@ -93,6 +93,34 @@
         "maxBandPenalty": 1,
         "historyLimit": 12
       }
+    },
+    "_comment_fullyAutonomous": "完全自主模式（docs/FULLY-AUTONOMOUS.md）。enabled 只是「功能可用」，启动仍然只能靠 !autonomous on。模式内：提案自动接受（无玩家审批）、5 分钟空闲改 roundCooldownMs、!stop 暂停、死亡后自行重生并回收遗体。commandAllowlist 是模式内仍可执行的 ! 命令白名单（其余一律忙拒）。护栏：maxRoundsPerHour 防刷轮、maxPrepFailures 连续无提案暂停、maxConsecutiveBlocked 连续失败暂停；announce 控制聊天播报。death 段控制重生与遗体回收（corpseEntityTypes 按 type 子串匹配，尸体必须在同维度且 <= maxCorpseDistance）。",
+    "fullyAutonomous": {
+      "enabled": true,
+      "defaultObjective": "生存与发展（Voyager 风格）：从基础资源开始，逐步完成更难的采集、合成、建造与探索任务，避免重复已完成的工作。",
+      "commandAllowlist": ["autonomous", "stop", "status", "help", "inv", "where"],
+      "roundCooldownMs": 5000,
+      "maxRoundsPerHour": 60,
+      "maxPrepFailures": 3,
+      "maxConsecutiveBlocked": 5,
+      "tickMs": 2500,
+      "announce": {
+        "start": true,
+        "stop": true,
+        "death": true,
+        "recovery": true
+      },
+      "death": {
+        "respawn": true,
+        "respawnTimeoutMs": 30000,
+        "corpseRecovery": true,
+        "corpseEntityTypes": ["corpse:corpse"],
+        "corpseRadius": 16,
+        "maxCorpseDistance": 512,
+        "allowOtherDimension": false,
+        "deathLoopWindowMs": 600000,
+        "deathLoopMax": 3
+      }
     }
   },
   "_comment_state": "P1 M3/A17/A29 live entry. enabled=true turns on atomic session persistence so the M3 restart items can be tested: plans, proposals (pending question), event ring, budgets, methods/answers/memory are written to path (temp+rename); a corrupt file is renamed to .corrupt-<ts> and ignored. In-flight tasks/turns are never restored, and restore never starts a plan. Offline Brain suites run with P1_STATE=off so they cannot read or write this file.",

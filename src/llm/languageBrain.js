@@ -283,6 +283,30 @@ class LanguageBrain {
   }
 
   async _approval({ text, speaker, source }) {
+    /**
+     * Fully autonomous mode: the agent is busy with its own curriculum and nobody may hand it
+     * work. The request is answered with the mode's busy line (current task + position + health
+     * + "cannot do it") and is **not** forwarded to the action brain - a forwarded request
+     * would create a goal and silently compete with the running task.
+     */
+    const autonomous = this.ctx && this.ctx.autonomous;
+    if (autonomous && typeof autonomous.gateApproval === 'function') {
+      const gate = autonomous.gateApproval(text);
+      if (gate && gate.blocked) {
+        if (typeof autonomous.noteBusyReply === 'function') autonomous.noteBusyReply();
+        const spoke = await this._say(gate.line, { source, profile: 'approval', kind: 'message' });
+        return {
+          ok: true,
+          profile: 'approval',
+          decision: 'busy',
+          approved: false,
+          autonomous: true,
+          spoke,
+          text: spoke === true ? gate.line : null,
+          reason: 'autonomous-busy'
+        };
+      }
+    }
     const unavailable = async (reason, forwarded = null) => {
       /**
        * An action request that cannot reach the action brain used to end as a silent
@@ -518,6 +542,12 @@ class LanguageBrain {
       kind === 'question'
         ? '- This is a question the action brain needs the player to answer. Ask it in one short line; do not answer it yourself.'
         : null,
+      /**
+       * Fully autonomous mode changes what a chat line may be answered with: the agent is
+       * busy with its own curriculum, so social chat stays normal but any request must be
+       * declined with its current activity - never promised.
+       */
+      this._autonomousLine(),
       source === 'dialogue' || source === 'addressed' || source === 'panel'
         ? '- This arrived through the addressed dialogue channel; the player expects an answer or a refusal.'
         : null,
@@ -530,6 +560,22 @@ class LanguageBrain {
       recent
     ];
     return lines.filter(Boolean).join('\n');
+  }
+
+  _autonomousLine() {
+    const autonomous = this.ctx && this.ctx.autonomous;
+    if (!autonomous || typeof autonomous.isActive !== 'function' || !autonomous.isActive()) return null;
+    const activity = typeof autonomous.describeActivity === 'function' ? autonomous.describeActivity() : null;
+    const doing = activity && activity.candidate
+      ? activity.candidate.name || activity.candidate.type
+      : activity && activity.phase === 'recovering'
+        ? '回收遗体'
+        : '自主探索';
+    return (
+      `- FULLY AUTONOMOUS MODE: you are busy with your own curriculum right now (${doing}).` +
+      ' Social chat is still welcome, but if the player asks you to do work, say in one line that you are busy,' +
+      ` mention what you are doing, and that you cannot take the task now. Never promise to do it later.`
+    );
   }
 
   _userMessage({ text, speaker, source, kind }) {

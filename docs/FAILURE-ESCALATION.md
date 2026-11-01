@@ -73,6 +73,11 @@
   白名单：`stop`、`inputs`、`state`、`task`、`keybinds`、`capabilities`；
 - lookup 记录 TTL 10 分钟；成功、TTL 过期、新 goal 创建都会清零（自动降级回归）；
 - 台账不持久化：重启后的旧失败不应阻止新动作。
+- **完全自主模式内没有「问玩家」这一步**：`POST /ask_player` 直接返回
+  `409 autonomous-no-approval`（hint：把当前 goal 标 blocked 换下一个任务），
+  权限规则里的 `ask` 降级为 `deny`（`permissionGate` 不弹询征）；因此
+  `ask-required` 在该模式下等价于**本轮 blocked**，由课程换题，而不是停车等人。
+  见 [`FULLY-AUTONOMOUS.md`](FULLY-AUTONOMOUS.md) §4。
 
 闸门只对 `via:'mc_step'` 的 `/command` 调用和 `mc_plan` 每步生效。面板/游戏内 `!` 是操作员，
 不受限。

@@ -309,7 +309,9 @@ async function main() {
      * A plain `!yes` is remembered for the work that asked: the running brain task, or the
      * background task slot's current job. A new task starts with a clean slate.
      */
-    taskScope: () => ctx.brain.currentTask || ctx.brain.activeTask || (ctx.hub && ctx.hub.current) || null
+    taskScope: () => ctx.brain.currentTask || ctx.brain.activeTask || (ctx.hub && ctx.hub.current) || null,
+    /** Read at call time: the mode is constructed later in startup. */
+    autonomous: () => ctx.autonomous || null
   });
   log.info(
     `places: ${ctx.places.listAreas().length} area(s), ${ctx.places.listRoutes().length} route(s); ` +
@@ -530,6 +532,19 @@ async function main() {
       gate,
       log,
       dispatch: (text, meta) => {
+        /**
+         * Fully autonomous mode: an addressed request is answered with the busy line and never
+         * forwarded - forwarding would create a goal that competes with the running task.
+         */
+        const autonomy = ctx.autonomous;
+        if (autonomy && typeof autonomy.gateApproval === 'function') {
+          const blocked = autonomy.gateApproval(text);
+          if (blocked && blocked.blocked) {
+            if (typeof autonomy.noteBusyReply === 'function') autonomy.noteBusyReply();
+            if (typeof ctx.reply === 'function') ctx.reply(blocked.line, { why: 'autonomous-busy' }).catch(() => false);
+            return { ok: false, reason: 'autonomous-busy', spoke: true, text: blocked.line };
+          }
+        }
         /**
          * The gate is the persona-bottom-line approval tool. An allowed instruction is the
          * player's ORIGINAL text; when configured, hand it to the DeepSeek harness (action
@@ -1244,6 +1259,53 @@ async function main() {
   // --------------------------------------------------------- death handling
   const deathWatch = new DeathWatch(ctx, { log: new Logger('death') });
   ctx.deathWatch = deathWatch;
+
+  /**
+   * Fully autonomous mode (2026-11-01): `!autonomous on` runs the Voyager-style curriculum
+   * without asking the player anything, and recovers its own corpse after a death.
+   *
+   * Constructed here because it needs the DeathWatch hooks (death -> respawn -> corpse ->
+   * resume) and the proposal coordinator (auto-accept). It stays `off` until a `!` command
+   * starts it - see docs/FULLY-AUTONOMOUS.md.
+   */
+  const { AutonomousMode } = require('./core/autonomousMode');
+  const fullyAutonomousCfg = ((cfg.agent && cfg.agent.planner) || {}).fullyAutonomous || {};
+  const autonomous = new AutonomousMode({
+    ctx,
+    cfg: fullyAutonomousCfg,
+    log: new Logger('autonomous')
+  });
+  ctx.autonomous = autonomous;
+  /**
+   * The coordinator reads the mode at call time (not through a constructor copy), so a stub
+   * coordinator in tests and the live one behave the same way.
+   */
+  if (ctx.proposalCoordinator) {
+    ctx.proposalCoordinator.mode = autonomous;
+    autonomous.coordinator = ctx.proposalCoordinator;
+  }
+  /**
+   * Death hooks. `DeathWatch` keeps its "no auto-resume" contract: the mode only resumes the
+   * brain when the operator started it, and `onRespawned` is informational otherwise.
+   */
+  deathWatch.hooks = {
+    onDeath: (death) => autonomous.onDeath(death),
+    onRespawned: () => autonomous.onRespawned()
+  };
+  /**
+   * The session restore ran in the Brain constructor (before the mode existed), so a saved
+   * mode is parked on the brain. It restores as `paused(restart)`: only a `!` command starts
+   * the mode, never the state file.
+   */
+  if (brain.pendingAutonomousMode) {
+    const restoredMode = autonomous.restore(brain.pendingAutonomousMode);
+    brain.pendingAutonomousMode = null;
+    log.info(`fully autonomous mode restored: ${JSON.stringify(restoredMode)}`);
+  }
+  log.info(
+    `fully autonomous mode: ${fullyAutonomousCfg.enabled === false ? 'disabled by config' : 'available'} ` +
+      `(!autonomous on to start; allowlist ${autonomous.cfg.commandAllowlist.join('/')})`
+  );
 
   /**
    * Proactive speech (role play): the bot speaks without being spoken to.

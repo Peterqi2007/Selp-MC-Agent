@@ -92,8 +92,9 @@ const HELP = [
   '!route add|plan|go|list|show|delete - named routes; plan first, go walks it',
   '!rule list|allow|deny|ask|remove|mode - permission rules',
   '!yes [always] | !no - answer a pending permission question',
-  '!stop - cancel current goal',
+  '!stop - cancel current goal (pauses fully autonomous mode)',
   '!pause | !resume - freeze or unfreeze the planner',
+  '!autonomous on [objective] | off | status - fully autonomous mode (no approvals; !stop pauses)',
   '!inv - inventory summary',
   '!where - coordinates',
   '!help - this list'
@@ -205,6 +206,17 @@ class ChatController {
         if (ctx.turnService) ctx.turnService.cancelAll('!stop');
         ctx.nav.stop();
         if (ctx.body && typeof ctx.body.interrupt === 'function') ctx.body.interrupt('!stop');
+        /**
+         * Fully autonomous mode pauses with the same command: the operator's "stop" means
+         * "stop driving", not "keep the curriculum running without me watching". The mode
+         * stays armed so `!autonomous on` can continue it.
+         */
+        const autonomy = ctx.autonomous && typeof ctx.autonomous.pause === 'function' ? ctx.autonomous : null;
+        if (autonomy && autonomy.isActive()) {
+          autonomy.pause('!stop');
+          this.say('完全自主模式已暂停（当前任务已停）。发 !autonomous on 继续');
+          return { ok: true, paused: 'autonomous' };
+        }
         this.say('停下来了（自动规划已暂停，发 !resume 继续）');
       },
       pause: () => {
@@ -217,7 +229,56 @@ class ChatController {
         if (ctx.deathWatch) ctx.deathWatch.dead = false;
         ctx.brain.autoPlanDisabled = false;
         ctx.brain.resume();
+        /**
+         * `!resume` deliberately does not restart fully autonomous mode. A paused mode is a
+         * deliberate operator decision; restarting it from a generic "continue" would make
+         * `!stop` unable to mean "stop until I say start".
+         */
+        if (ctx.autonomous && ctx.autonomous.phase === 'paused') {
+          this.say('继续干活（完全自主模式仍暂停，发 !autonomous on 恢复它）');
+          return { ok: true, autonomous: 'paused' };
+        }
         this.say('继续干活');
+      },
+      /**
+       * Fully autonomous mode: the ONLY way to start it (docs/FULLY-AUTONOMOUS.md).
+       *
+       * `on` takes an optional objective; `off` leaves the mode; `status` prints what it is
+       * doing right now. `!stop` pauses it - see the stop handler above.
+       */
+      autonomous: async (args) => {
+        const mode = ctx.autonomous;
+        if (!mode) return { ok: false, reason: 'autonomous-unavailable' };
+        const sub = String(args[0] || 'status').toLowerCase();
+        if (sub === 'on' || sub === 'start' || sub === 'resume') {
+          const objective = args.slice(1).join(' ').trim();
+          const result = await mode.start({ objective: objective || null });
+          if (!result.ok) {
+            this.say(`自主模式启动失败：${result.reason}`);
+            return result;
+          }
+          this.say(objective ? `完全自主模式：开始（${objective}）` : '完全自主模式：开始（默认目标）');
+          return result;
+        }
+        if (sub === 'off' || sub === 'stop') {
+          const result = mode.off('!autonomous off');
+          this.say('完全自主模式已关闭');
+          return result;
+        }
+        if (sub !== 'status') {
+          this.say('用法：!autonomous on [目标] / !autonomous off / !autonomous status');
+          return { ok: false, reason: 'usage' };
+        }
+        const snapshot = mode.snapshot();
+        const activity = snapshot.activity || {};
+        const candidate = activity.candidate ? activity.candidate.name || activity.candidate.type : null;
+        this.say(
+          `自主模式 ${snapshot.phase}${snapshot.pausedReason ? `(${snapshot.pausedReason})` : ''}` +
+            `，第 ${snapshot.round} 轮` +
+            (candidate ? `，当前：${candidate}` : '') +
+            `，累计完成 ${snapshot.stats.completed} / 失败 ${snapshot.stats.blocked}`
+        );
+        return snapshot;
       },
       /**
        * One mining entry for the whole command channel (plan §5.6).
@@ -1143,6 +1204,24 @@ class ChatController {
       entry.ok = false;
       entry.reason = 'unknown command';
       return { ok: false, reason: 'unknown command' };
+    }
+
+    /**
+     * Fully autonomous mode refuses player-dispatched tasks - but never silently. The player
+     * gets one line saying the agent is busy, what it is doing and where it stands; the
+     * command creates nothing (no task, no goal, no plan). Read-only control commands
+     * (`stop`, `status`, `!autonomous`, ...) stay on the allowlist so the operator can always
+     * take the wheel back.
+     */
+    if (this.ctx.autonomous && typeof this.ctx.autonomous.gateCommand === 'function') {
+      const gate = this.ctx.autonomous.gateCommand(cmd);
+      if (gate && gate.blocked) {
+        if (typeof this.ctx.autonomous.noteBusyReply === 'function') this.ctx.autonomous.noteBusyReply();
+        this.say(gate.line);
+        entry.ok = false;
+        entry.reason = gate.reason || 'autonomous-busy';
+        return { ok: false, reason: entry.reason, blocked: cmd, autonomous: true };
+      }
     }
 
     const previousSource = this.dispatchSource;

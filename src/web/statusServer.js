@@ -250,6 +250,15 @@ function startStatusServer(ctx, options = {}) {
       }
 
       /**
+       * Fully autonomous mode snapshot (read-only). Same contract as `/ui/state.autonomous`
+       * but small enough for tooling to poll: phase, objective, current activity and guards.
+       */
+      if (req.method === 'GET' && url.pathname === '/autonomous') {
+        if (!ctx.autonomous) return json(res, 503, { ok: false, error: 'autonomous mode unavailable' });
+        return json(res, 200, { ok: true, ...ctx.autonomous.snapshot() });
+      }
+
+      /**
        * Explicit state observation for the behavior brain's pre-task state skill.
        * No push: the action brain asks once with the fields it needs.
        */
@@ -476,6 +485,19 @@ function startStatusServer(ctx, options = {}) {
         }
         const question = String(body.question || '').trim();
         if (!question) return json(res, 400, { ok: false, error: 'question required' });
+        /**
+         * Fully autonomous mode has nobody to answer. Parking here would freeze the body until
+         * a timeout that nobody can shorten, so the tool is refused with a reason the action
+         * brain can act on (mark the goal blocked and pick another task).
+         */
+        if (ctx.autonomous && typeof ctx.autonomous.isActive === 'function' && ctx.autonomous.isActive()) {
+          return json(res, 409, {
+            ok: false,
+            error: 'autonomous-no-approval',
+            reason: 'the agent is in fully autonomous mode; no player approval is available',
+            hint: 'mark the current goal blocked with a concrete reason and let Node pick the next curriculum task'
+          });
+        }
         if (!ctx.planService) return json(res, 503, { ok: false, error: 'plan service unavailable' });
         const escalation = ctx.failureEscalation || null;
         if (escalation && escalation.waitingForAnswer()) {
@@ -1629,6 +1651,13 @@ function uiState(ctx) {
           context: typeof ctx.curriculum.describe === 'function' ? ctx.curriculum.describe() : null
         }
       : null,
+    /**
+     * Fully autonomous mode: phase, objective, round, current activity and the guards that can
+     * pause it. Read-only, so the panel can answer "why is it not working?" without logs.
+     */
+    autonomous: ctx.autonomous && typeof ctx.autonomous.snapshot === 'function'
+      ? ctx.autonomous.snapshot()
+      : null,
     /** Language-brain window/tool usage: proves which memory tool a turn actually used. */
     language: ctx.languageBrain && typeof ctx.languageBrain.status === 'function'
       ? ctx.languageBrain.status()
@@ -1956,6 +1985,13 @@ function emergencyStop(ctx) {
       }
       if (ctx.codeSkills && typeof ctx.codeSkills.cancelAll === 'function') {
         ctx.codeSkills.cancelAll();
+      }
+      /**
+       * The emergency stop also pauses fully autonomous mode: it is the operator's strongest
+       * "stop everything", and a mode that kept proposing tasks afterwards would defeat it.
+       */
+      if (ctx.autonomous && typeof ctx.autonomous.isActive === 'function' && ctx.autonomous.isActive()) {
+        ctx.autonomous.pause('emergency-stop');
       }
       ctx.log.warn('EMERGENCY STOP: queue cleared, current task cancelled');
     }

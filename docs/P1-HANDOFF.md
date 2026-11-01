@@ -1,4 +1,4 @@
-# P1 交接（2026-10-31 更新）
+# P1 交接（2026-11-01 更新）
 
 > **一句话**：P1 的**离线可交付部分**已实现并通过一键复验；**M1（适用子集）/M2/M3/M4（A19 适用子集）已通过真机验收**；
 > **P1 仍未整体验收、未发布**（M5 输入层已实现并真机验证链路，但 F1'/A21/A22 未收口；CU 路径**已放弃**；M6/M7 部分）。
@@ -45,13 +45,13 @@ npm run p1:verify -- --fast  # 跳过 P0 回归
 npm run p1:baseline -- --suites  # 记录提交/配置指纹/套件结果到 runtime/p1-baseline.json
 ```
 
-最近一次实测（离线，2026-11-01 实跑复核；`p1:verify` 19/19、`--fast` 18/18，退出码 0）：
+最近一次实测（离线，2026-11-01 实跑复核；`p1:verify` 20/20、`--fast` 19/19，退出码 0）：
 
 | 套件 | 结果 |
 | --- | --- |
 | P0 regression（8 suites，含 `selftest 183/183`） | **8/8** |
 | `planner:test` | **35/35** |
-| `p1:contract:test` | **237/237** |
+| `p1:contract:test` | **240/240** |
 | `p1:failure-escalation:test` | **26/26** |
 | `p1:m3:test` | **58/58** |
 | `p1:m6:test` | **25/25** |
@@ -66,17 +66,18 @@ npm run p1:baseline -- --suites  # 记录提交/配置指纹/套件结果到 run
 | `p1:steer:test` | **9/9** |
 | `p1:taskgoal:test` | **14/14** |
 | `p1:curriculum:test` | **18/18** |
+| `p1:autonomous:test` | **29/29**（完全自主模式，2026-11-01 新增） |
 | `p1:fault:test` | **9/9** |
-| `plan:audit --stage p1` | **105/105** |
+| `plan:audit --stage p1` | **108/108** |
 
-`p1:verify --fast` 为 **18/18 套件**，完整含 P0 为 **19/19**（跳过 P0 回归）。
+`p1:verify --fast` 为 **19/19 套件**，完整含 P0 为 **20/20**（跳过 P0 回归）。
 没有启动 Minecraft、没有 GUI 自动化、没有调用生成模型；M4 测试在真实 Node 子进程中执行了探针技能，
 并用一次 DeepSeek Search 请求验证了搜索端点。
 
 > **计数只增不减**：正文按日期保留了各次执行的当时计数（例如 10-21 的
 > `p1:contract:test 206/206`、10-25 的 `p1:m4:test 35/35`、10-23 的 `p1:language:test 20/20`）。
-> 以上表为 2026-11-01 的最新值：contract **237/237**、m4 **38/38**、language **22/22**、
-> taskgoal **14/14**、curriculum **18/18**。
+> 以上表为 2026-11-01 的最新值：contract **240/240**、m4 **38/38**、language **22/22**、
+> taskgoal **14/14**、curriculum **18/18**、audit **108/108**。
 
 ## 2. 已交付（按里程碑）
 
@@ -170,6 +171,7 @@ npm run p1:baseline -- --suites  # 记录提交/配置指纹/套件结果到 run
 | `language.brain` | `unified`（2026-10-23 起默认；`legacy` 可完整回退） |
 | `planner.autonomousProposals` | `enabled=true`，`idleMs=300000`、`responseMs=30000`、`prepTimeoutMs=90000`、`maxGoalRounds=3`、`executionGoalRounds=6`（动作脑自主提案；未接受不执行） |
 | `planner.autonomousProposals.curriculum` | `enabled=true`、`file=runtime/curriculum.json`、`bandStep=2`、`maxLevel=4`、`maxRejections=2`、`failPenaltyStep=2`、`maxBandPenalty=1`、`historyLimit=12`（Voyager 式难度带：每 2 个完成 +1 档、封顶 4；2 次连续 blocked 降 1 档、最多降 1 档、一次成功即恢复） |
+| `planner.fullyAutonomous` | `enabled=true`（功能可用，仍需 `!autonomous on` 启动）；`roundCooldownMs=5000`、`maxRoundsPerHour=60`、`maxPrepFailures=3`、`maxConsecutiveBlocked=5`；`commandAllowlist=autonomous/stop/status/help/inv/where`；`death.*`：`respawn=true`、`respawnTimeoutMs=30000`、`corpseRecovery=true`、`corpseEntityTypes=["corpse:corpse"]`、`corpseRadius=16`、`maxCorpseDistance=512`、`allowOtherDimension=false`、`deathLoopMax=3`。详见 [`FULLY-AUTONOMOUS.md`](FULLY-AUTONOMOUS.md) |
 | `agent.codeSkills.generateMaxTokens` / `generationTimeoutMs` | `16000` / `180000`（2026-10-25 真机调参：思考模型 reasoning 计入 completion，2600/30000 会截断） |
 | `state.enabled` | `true`（A17/A29 测试窗口；`P1_STATE=off` 或改 `false` 可关） |
 | `state.path` / `debounceMs` | `runtime/p1-state.json` / `1000` |
@@ -183,6 +185,7 @@ npm run p1:baseline -- --suites  # 记录提交/配置指纹/套件结果到 run
 | M4（已完成） | **PASS（A19 适用子集）**：v2 离线 **38/38**（2026-11-01 复核；10-25 当时的 35/35）；A18 `grass_dig`/`table_click`、A19 越界/抢身体/取消/deny/无屏点击/非敌对攻击/硬杀、A20 `half_fail`、A28 长任务 15.57s、A29 硬杀恢复、A30 用量 10,352 tok 真机通过；残余：真实 PauseScreen/第二玩家仅离线 |
 | M5 F1' / A21 / A22 | CU 路径已放弃：①WGC 取不到 OpenGL 窗口帧（两轮真机 `截图未产出` + `Declared image type does not match its bytes`）；②`WindowPolicy`/`ComputerUseGuard` 接不进只读的打包插件（`resources/app.asar`），真机“未 verify 前默认拒绝”不成立。改为 Minecraft 进程内输入层（已实现并真机验证输入/截图/GUI 链路）；前置是 **F1'**（F1'a 结构性不可出界 + F1'b 键鼠台账，**无 N/A 出口**）。**A21 部分通过**（2 类 GUI ×3、`m5-gui-live 93/93`，但探针直连 mod、未走 agent 技能层）；**A22/M5.3 待执行**，F1'b 的暂停/死亡/断连/退出四类注入未跑完。详见 [`P1-M5.md`](P1-M5.md) §7/§8 |
 | M6 A23 / A25 剩余 | A24/C03/F02 受控 PASS；A23 缺真实第二名玩家 40 组 ×3 与 ≥80%/≤10% 阈值；A25 仅 accept 为真 harness，reject/不答/另派需在真实动作脑提案下重跑（单操作员/合成发送者需标注）；R2/R3 未执行 |
+| A33 完全自主模式（2026-11-01 新增） | **离线全绿**（`p1:autonomous:test 29/29`、`client:test 83/83`、`plan:audit p1 108/108`），**真机 8 项未执行**：自驱 3 轮 / 任务忙拒 / 对话忙拒+聊天正常 / 无审批 / 死亡自动重生 / 遗体取回 / `!stop` 暂停恢复 / 重启 `paused(restart)`。标准见 [`FULLY-AUTONOMOUS.md`](FULLY-AUTONOMOUS.md) §9。需要真实游戏与一次真实死亡 |
 | M7 A26 / R1–R4 | A26 仅 2026-10-17 分项基线；R1 部分，R2–R4 未执行 |
 | M7 F3 / A31 最终组合 | F3 真机 token 端点未验；A31 双 emitter/planVersion 未验 |
 | M0-C1 剩余负载 | 仅空闲 30 次测时；移动/挖矿/反射/GUI 负载未测，阈值不得回填 |
@@ -207,8 +210,9 @@ npm run p1:baseline -- --suites  # 记录提交/配置指纹/套件结果到 run
 
 ```
 src/core/      taskEvents, planStore, planService, taskSlot, capabilities, stateStore,
-               sessionState, planRunner, turnLifecycle
-src/planner/   evaluator, proposals, autonomousProposals, budget, verifier, draftGuard, planQuestions
+               sessionState, planRunner, turnLifecycle, autonomousMode, corpseRecovery
+src/planner/   evaluator, proposals, autonomousProposals, curriculum, budget, verifier, draftGuard, planQuestions
+src/skills/    … corpse（右击实体 + 容器 quick-move，遗体取物）
 src/chat/      commandGate, addressedHandler, harnessBridge, conversation,
                languageDialogue, chatParticipation, proposalChat, dialogueRouter,
                playerChatLog（非 ! 玩家消息 → ChatMemory）
@@ -246,13 +250,18 @@ docs/          P1-M0 … P1-M7, P1-GAP-AUDIT, P1-CLIENT-TESTS
    发布前必须决定保持或回退。
 5. **阈值空置**：`/state` 周期、感知成本、聊天节奏、预算数值都未测量（500ms/3 次检索是配置，不是结论）。
 6. **两套规划循环**：默认 `off` 关闭自主规划；`legacy` 代码仍在，删除/切换需真机验收。
+7. **完全自主模式（A33）只有离线证据**：状态机/闸门/自动接受/死亡与回收都在确定性夹具下验过，
+   但「真实死亡 + 真实 Corpse 遗体」从未在游戏里跑过；遗体实体 id 与右击语义来自上游源码与 MC百科，
+   本服未验证（失败会以 `unexpected-menu`/`no-corpse` 诚实退出，不会假装成功）。
 
 ## 9. 建议顺序
 
-1. **M7 回归**：A26 行走/破坏/拾取/取消/双通道 + R1–R4；同窗口补 F3 token 与 A31 最终组合。
-2. **M6**：A23 固定 40 组 ×3（单操作员需标注；A24 受控并发已过，随语料复跑）+ A25 真实动作脑四路径。
-3. **M4**：已完成（PASS，A19 适用子集）；v2 离线 35/35，A18–A20、A28–A30 真机通过；残余记录在案。
-4. **M5**：进程内输入层 + 键鼠台账 → F1'（结构断言 + 台账归零）→ A21/A22；F1' 不过则实现不合并，
+1. **A33 完全自主模式真机**（最高优先级）：真实客户端 + 一次真实死亡，按
+   [`FULLY-AUTONOMOUS.md`](FULLY-AUTONOMOUS.md) §9 的 A33.1–A33.8 逐项取证。
+2. **M7 回归**：A26 行走/破坏/拾取/取消/双通道 + R1–R4；同窗口补 F3 token 与 A31 最终组合。
+3. **M6**：A23 固定 40 组 ×3（单操作员需标注；A24 受控并发已过，随语料复跑）+ A25 真实动作脑四路径。
+4. **M4**：已完成（PASS，A19 适用子集）；v2 离线 38/38，A18–A20、A28–A30 真机通过；残余记录在案。
+5. **M5**：进程内输入层 + 键鼠台账 → F1'（结构断言 + 台账归零）→ A21/A22；F1' 不过则实现不合并，
    A21/A22 不标 N/A（[`P1-M5.md`](P1-M5.md) §7）。
-5. **修复遗留**：挖石 noPath、夜间入睡、A02 timeout、A10 跨维度/部分刷新、A11 天气/阶段注入。
-6. 每次改动保持 `npm run p1:verify` 全绿（当前 **完整 19/19**，含 P0 回归；**`--fast` 18/18**；2026-10-31 实跑复核）；删除断言必须同提交替换。
+6. **修复遗留**：挖石 noPath、夜间入睡、A02 timeout、A10 跨维度/部分刷新、A11 天气/阶段注入。
+7. 每次改动保持 `npm run p1:verify` 全绿（当前 **完整 20/20**，含 P0 回归；**`--fast` 19/19**；2026-11-01 实跑复核）；删除断言必须同提交替换。

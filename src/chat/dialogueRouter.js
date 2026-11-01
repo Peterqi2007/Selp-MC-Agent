@@ -50,6 +50,23 @@ class DialogueRouter {
     const original = String(text === undefined || text === null ? '' : text).trim();
     if (!original) return this._record({ ok: false, mode: this.mode, reason: 'empty-text' });
 
+    /**
+     * Fully autonomous mode owns the body. The unified language brain has its own gate
+     * (`_approval`); this one covers the legacy harness/planner-first routers, where a line
+     * would otherwise be forwarded to the action brain and create a competing goal.
+     */
+    const autonomous = this.ctx && this.ctx.autonomous;
+    if (autonomous && typeof autonomous.gateApproval === 'function') {
+      const gate = autonomous.gateApproval(original);
+      if (gate && gate.blocked) {
+        if (typeof autonomous.noteBusyReply === 'function') autonomous.noteBusyReply();
+        if (typeof this.ctx.reply === 'function') {
+          await this.ctx.reply(gate.line, { why: 'autonomous-busy' }).catch(() => false);
+        }
+        return this._record({ ok: true, mode: this.mode, busy: true, reason: 'autonomous-busy' });
+      }
+    }
+
     if (this.mode === 'planner') {
       const record = await this.ctx.llm.handle(original, {
         source: meta.source || 'chat',

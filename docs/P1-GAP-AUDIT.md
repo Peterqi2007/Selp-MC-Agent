@@ -54,6 +54,14 @@
 > 逐项证据见 [`P1-WORK-2026-10-30.md`](P1-WORK-2026-10-30.md) §8–§11、[`FAILURE-ESCALATION.md`](FAILURE-ESCALATION.md)、
 > [`P1-M7.md`](P1-M7.md) §3（A32 行）。
 
+> **2026-11-01 增量（完全自主模式）**：`!autonomous on [目标]` 起一个**无审批**的课程循环
+> （提案自动接受、`mc_ask_player` 拒绝、权限 `ask` 降为 `deny`）；玩家任务三层忙拒（命令/对话/权限），
+> 忙句带当前任务 + 位置 + 血量/饥饿 + 「做不了」；死亡后**自行重生**（Mod `respawn`）→ 走回
+> **Corpse 遗体**（Mod `useentity` + 容器 quick-move）取回物品 → 继续课程；`!stop` 暂停、
+> `!autonomous off` 退出、重启只到 `paused(restart)`；护栏：每小时轮次/连续无提案/连续失败/死亡循环。
+> 离线 `p1:autonomous:test 29/29`、`client:test 83/83`、`p1:verify 20/20`；**真机 A33 未执行**。
+> 设计/矩阵见 [`FULLY-AUTONOMOUS.md`](FULLY-AUTONOMOUS.md)。
+
 ## 1. 逐节状态
 
 状态口径：

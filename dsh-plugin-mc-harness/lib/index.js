@@ -503,7 +503,10 @@ function toolDefinitions({ controlUrl, record, log, runtime }) {
       'you see it? Does it need Shift+right-click or a specific surface?" The player answers ' +
       'in game with !answer <text>. While parked, mc_step/mc_plan body actions are refused ' +
       '(stop/inputs/state stay available). Do NOT call mc_finish to end the goal instead of ' +
-      'asking; do NOT use this for questions the state/lookup tools can answer.',
+      'asking; do NOT use this for questions the state/lookup tools can answer. ' +
+      'In FULLY AUTONOMOUS MODE this tool is refused with `autonomous-no-approval` (nobody can ' +
+      'answer): mark the current goal blocked with a concrete reason and let Node propose the ' +
+      'next curriculum task instead of retrying.',
     parameters: {
       type: 'object',
       properties: {

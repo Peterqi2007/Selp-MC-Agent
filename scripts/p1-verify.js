@@ -42,6 +42,7 @@ const suites = [
   { name: 'p1:steer:test', script: 'scripts/p1-steer-test.js' },
   { name: 'p1:taskgoal:test', script: 'scripts/p1-task-goal-test.js' },
   { name: 'p1:curriculum:test', script: 'scripts/p1-curriculum-test.js' },
+  { name: 'p1:autonomous:test', script: 'scripts/p1-autonomous-test.js' },
   { name: 'p1:fault:test', script: 'scripts/p1-fault-test.js' },
   { name: 'plan:audit p1', script: 'scripts/plan-audit.js', args: ['--stage', 'p1'] }
 ];

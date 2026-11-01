@@ -298,6 +298,56 @@ public final class ClientActions {
         });
     }
 
+    /**
+     * Respawn after a death, the same thing the death screen's button does.
+     *
+     * The client has always reported `dead` in `/state`, but there was no way to act on it:
+     * the death screen is an operator screen and the mod deliberately refuses to click
+     * unknown screens. `LocalPlayer.respawn()` is exactly what `DeathScreen` calls on its
+     * button, so this is the game's own path, not a forged packet.
+     *
+     * @return true when a respawn request was sent; false when the player is not dead
+     */
+    public boolean respawn() {
+        return Boolean.TRUE.equals(onClient(() -> {
+            if (mc.player == null || mc.level == null) {
+                return false;
+            }
+            if (!mc.player.isDeadOrDying()) {
+                return false;
+            }
+            mc.player.respawn();
+            return true;
+        }));
+    }
+
+    /**
+     * Right-click an entity by id (corpse looting, villager trades, mod interactions).
+     *
+     * `interact` is already the block-face verb (`useon`), so the entity form is `useentity`.
+     * Distance is refused here rather than silently doing nothing: a corpse 40 blocks away
+     * would otherwise look like "the container never opened".
+     *
+     * @return true when the interaction was delivered to the game
+     */
+    public boolean useEntity(int entityId) {
+        return Boolean.TRUE.equals(onClient(() -> {
+            if (mc.player == null || mc.level == null || mc.gameMode == null) {
+                return false;
+            }
+            Entity entity = mc.level.getEntity(entityId);
+            if (entity == null || !entity.isAlive()) {
+                return false;
+            }
+            if (mc.player.distanceTo(entity) > 4.5D) {
+                return false;
+            }
+            mc.gameMode.interact(mc.player, entity, InteractionHand.MAIN_HAND);
+            mc.player.swing(InteractionHand.MAIN_HAND);
+            return true;
+        }));
+    }
+
     /** Attack an entity by id until it dies or the timeout expires. */
     /**
      * Attack an entity until it dies or the timeout runs out.

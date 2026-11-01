@@ -49,6 +49,10 @@ const world = {
   itemDrops: [
     { id: 7, item: 'minecraft:oak_log', count: 1, position: { x: 1, y: 64, z: 0 }, distance: 1 }
   ],
+  /** Death / corpse verbs (fully autonomous mode): the mod reports `dead` and `entities`. */
+  dead: false,
+  entities: [],
+  openedEntity: null,
   /** One TACZ gun in the pack (shoot tests) and one other player (PvP id tests). */
   guns: [{ item: 'tacz:ak47', gunId: 'tacz:ak47', type: 'rifle', magazine: 30, dummy: 0, bullets: true }],
   players: [{ id: 77, name: 'Partner', position: { x: 4, y: 64, z: 0 }, distance: 4, health: 20 }],
@@ -693,6 +697,26 @@ const server = http.createServer((req, res) => {
         }
         return send({ command, ok: true });
       }
+      /**
+       * Fully autonomous mode verbs. `respawn` mirrors the mod's refusal when the player is
+       * alive; `useentity` mirrors the id lookup (a missing entity is an error, not a silent
+       * `ok:false` without a reason).
+       */
+      if (verb === 'respawn') {
+        if (!world.dead) return send({ command, ok: false, error: 'not-dead' });
+        world.dead = false;
+        return send({ command, ok: true });
+      }
+      if (verb === 'useentity' || verb === 'rightclickentity') {
+        const id = Number(tokens[0]);
+        if (!Number.isFinite(id)) {
+          return send({ command, ok: false, error: 'usage: useentity <entityId>' });
+        }
+        const target = (world.entities || []).find((entity) => entity.id === id);
+        if (!target) return send({ command, ok: false, error: 'no-entity-or-out-of-reach' });
+        world.openedEntity = id;
+        return send({ command, ok: true });
+      }
       if (verb === 'lookat' || verb === 'stop' || verb === 'resync') {
         if (verb === 'stop') busy = null;
         return send({ command, ok: true });
@@ -1117,6 +1141,30 @@ function check(name, ok, detail) {
 
     const attacked = await body.attack({ id: 42 }, { timeoutMs: 2000 });
     check('attack() reaches the mod', attacked === true);
+
+    /**
+     * Fully autonomous mode's two body verbs (2026-11-01): leave the death screen and
+     * right-click an entity. Both must be refused honestly when the state does not allow it.
+     */
+    const respawnNotDead = await body.respawn();
+    check('respawn() is refused while alive (not-dead)', respawnNotDead.ok === false && respawnNotDead.reason === 'not-dead');
+    world.dead = true;
+    await body.refresh(true);
+    const respawned = await body.respawn();
+    check('respawn() reaches the mod while dead', respawned.ok === true);
+    world.dead = false;
+    await body.refresh(true);
+    const noEntity = await body.useEntity(999);
+    check(
+      'useEntity() reports a missing entity instead of a bare false',
+      noEntity.ok === false && /no-entity/.test(String(noEntity.reason))
+    );
+    world.entities = [{ id: 77, type: 'corpse:corpse', x: 1, y: 64, z: 0 }];
+    await body.refresh(true);
+    const usedEntity = await body.useEntity(77);
+    check('useEntity() reaches the mod', usedEntity.ok === true && usedEntity.reason === null);
+    world.entities = [];
+    world.openedEntity = null;
 
     // ---- menus and slot clicks (the crafting / container groundwork) -----
     const usedOn = await body.useOn({ x: 4, y: 64, z: 0 }, { face: { x: 0, y: 1, z: 0 }, waitMs: 0 });

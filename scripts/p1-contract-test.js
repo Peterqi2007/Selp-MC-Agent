@@ -3645,6 +3645,46 @@ function makeBrain() {
     });
   }
 
+  // ------------------------------------------------- 45. fully autonomous mode contracts
+  process.stdout.write('\n45. fully autonomous mode contracts\n');
+
+  {
+    const { AutonomousMode } = require('../src/core/autonomousMode');
+    const { captureState, restoreState } = require('../src/core/sessionState');
+    const mode = new AutonomousMode({
+      ctx: {},
+      cfg: { enabled: true },
+      log: { info() {}, warn() {}, debug() {} }
+    });
+    mode.phase = 'running';
+    mode.round = 7;
+    mode.objective = '拿到钻石';
+    const fakeBrain = { ctx: { autonomous: mode } };
+    check('the session snapshot carries the autonomous mode', () => {
+      const saved = captureState(fakeBrain);
+      assert.strictEqual(saved.autonomous.round, 7);
+      assert.strictEqual(saved.autonomous.objective, '拿到钻石');
+      /** A restore never starts the mode: only a ! command may. */
+      const other = new AutonomousMode({ ctx: {}, cfg: { enabled: true }, log: { info() {}, warn() {}, debug() {} } });
+      const restored = restoreState({ ctx: { autonomous: other } }, { version: 1, autonomous: saved.autonomous });
+      assert.strictEqual(restored.restored.autonomous, true);
+      assert.strictEqual(other.phase, 'paused');
+      assert.strictEqual(other.pausedReason, 'restart');
+    });
+    const srcWeb = fs.readFileSync(require('path').join(__dirname, '..', 'src', 'web', 'statusServer.js'), 'utf8');
+    check('/ui/state and /autonomous expose the mode, and /ask_player refuses it', () => {
+      assert.match(srcWeb, /autonomous: ctx\.autonomous && typeof ctx\.autonomous\.snapshot === 'function'/);
+      assert.match(srcWeb, /url\.pathname === '\/autonomous'/);
+      assert.match(srcWeb, /error: 'autonomous-no-approval'/);
+    });
+    const srcChat = fs.readFileSync(require('path').join(__dirname, '..', 'src', 'chat', 'commands.js'), 'utf8');
+    check('the command table gates player tasks and keeps !stop/!autonomous reachable', () => {
+      assert.match(srcChat, /this\.ctx\.autonomous\.gateCommand\(cmd\)/);
+      assert.match(srcChat, /autonomous: async \(args\) =>/);
+      assert.match(srcChat, /autonomy\.pause\('!stop'\)/);
+    });
+  }
+
   // summary
   const failed = results.filter((result) => !result.ok);
   process.stdout.write(`\nP1 contract test: ${results.length - failed.length}/${results.length} checks passed\n`);

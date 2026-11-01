@@ -290,6 +290,21 @@ executionGoalRounds`）；`proposalTtlMs` 仍是 plan question 的默认值。�
 - 工具总数仍为 **15**（14 个 `mc_*` + `lookup_mod_content`）；新增的是 `mc_keybinds`，
   取代了 10-30 之前"用 `mc_state({fields:["keybinds"]})` 当等价入口"的说法（仍然可用，但返回全表）。
 
+### 2026-11-01 增补（完全自主模式）
+
+- **prep / execution goal 的文本由 Node 决定**：模式内 prep goal 开头是
+  `FULLY AUTONOMOUS MODE: no player is available to approve anything.` + `OBJECTIVE: …` +
+  「不要调用 `mc_ask_player`、做不到就把 goal 标 blocked 换下一个」+ 课程上下文；
+  execution goal 开头是「本任务由你自己的提案自动批准」。插件本身不需要改提示词，
+  它只是把 `CONTEXT: ${goal}` 原样带给动作脑。
+- **`mc_ask_player` 在模式内被 Node 拒绝**：`POST /ask_player` → `409 autonomous-no-approval`
+  （hint：把 goal 标 blocked）。动作脑应据此换任务，而不是重试或等人。插件 `mc_ask_player`
+  的描述里也写明了这一点（2026-11-01 补充，**需要重启 DSH 才生效**）。
+- **自动接受**：`mc_propose({autonomous:true})` 一到 Node 就 `accept(pending, {by:'autonomous'})`
+  并注入 execution goal（`replace:true`）；玩家侧不再收到「要我去做吗」。
+- 死亡与遗体重建见 [`FULLY-AUTONOMOUS.md`](FULLY-AUTONOMOUS.md) §5：动作脑在
+  `phase=dead|respawning|recovering` 期间不会被唤醒（Node 先关闭 goal，回收完再放宽）。
+
 ### 边界
 
 - 隐藏 agent 不做 H1；live `/goal` 要求预先存在一个 DSH 对话。

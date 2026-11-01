@@ -1530,6 +1530,52 @@ if (STAGE === 'p1') {
     if (!/rejectProposal/.test(commands)) throw new Error('!proposal does not reject');
     return 'ProposalDesk + !proposal accept/reject';
   });
+
+  check('P1: fully autonomous mode is one opt-in state machine', () => {
+    const mode = read('src/core/autonomousMode.js');
+    const index = read('src/index.js');
+    const commands = read('src/chat/commands.js');
+    if (!/class AutonomousMode/.test(mode)) throw new Error('no AutonomousMode class');
+    if (!/this\.phase = 'off'/.test(mode)) throw new Error('the mode has no explicit off phase');
+    if (!/if \(!this\.cfg\.enabled\) return \{ ok: false, reason: 'disabled' \}/.test(mode)) {
+      throw new Error('start() is not gated by config');
+    }
+    if (!/autonomous: async \(args\)/.test(commands)) throw new Error('!autonomous is missing');
+    if (!/ctx\.autonomous = autonomous/.test(index)) throw new Error('index does not expose the mode');
+    const cfg = JSON.parse(read('config/agent.json'));
+    /** config/agent.json is the agent section itself; loadConfig nests it under `agent`. */
+    const planner = (cfg.agent && cfg.agent.planner) || cfg.planner || {};
+    if (!planner.fullyAutonomous) throw new Error('config/agent.json has no fullyAutonomous block');
+    return 'phase machine + !autonomous + config';
+  });
+
+  check('P1: the autonomous mode requires no player approval', () => {
+    const coordinator = read('src/planner/autonomousProposals.js');
+    const language = read('src/llm/languageBrain.js');
+    const server = read('src/web/statusServer.js');
+    const plugin = read('dsh-plugin-mc-harness/lib/index.js');
+    if (!/shouldAutoAccept/.test(coordinator)) throw new Error('the coordinator never auto-accepts');
+    if (!/by: 'autonomous'/.test(coordinator)) throw new Error('the acceptance provenance is missing');
+    if (!/gateApproval/.test(language)) throw new Error('the language brain has no busy gate');
+    if (!/autonomous-no-approval/.test(server)) throw new Error('/ask_player is not refused in the mode');
+    if (!/autonomous-no-approval/.test(plugin)) throw new Error('the plugin does not tell the brain what to do when refused');
+    return 'auto-accept + busy gate + ask refusal (Node + plugin text)';
+  });
+
+  check('P1: death recovery is bounded and does not change the default behaviour', () => {
+    const recovery = read('src/core/corpseRecovery.js');
+    const mode = read('src/core/autonomousMode.js');
+    const death = read('src/core/deathWatch.js');
+    for (const reason of ['other-dimension', 'too-far', 'hazard', 'no-corpse']) {
+      if (!recovery.includes(reason)) throw new Error(`recovery does not refuse ${reason}`);
+    }
+    if (!/resumeFromDeath/.test(mode)) throw new Error('the mode never resumes after recovery');
+    if (!/if \(!this\.isActive\(\)\) return \{ ok: true, reason: 'not-active' \}/.test(mode)) {
+      throw new Error('death handling is not scoped to the mode');
+    }
+    if (!/hooks = \{/.test(death)) throw new Error('DeathWatch has no observer hooks');
+    return 'bounded refusals + mode-scoped resume';
+  });
 }
 
 // ------------------------------------------------------------------- summary

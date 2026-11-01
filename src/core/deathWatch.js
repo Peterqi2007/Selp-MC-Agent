@@ -43,6 +43,11 @@ class DeathWatch {
      * is a flag that will be turned on, and the failure it produces - the bot quietly walking
      * back into whatever killed it - is exactly what "stop everything" was meant to prevent.
      *
+     * The one exception is explicit and user-started: fully autonomous mode
+     * (`src/core/autonomousMode.js`) calls `brain.resumeFromDeath()` itself after it has
+     * respawned and recovered the corpse. That is not this class resuming work on its own -
+     * `hooks` below only reports the events.
+     *
      * Recovery is always explicit: the panel's resume button, or POST /command {"command":
      * "resume"}, both of which land in `resume()` below.
      */
@@ -64,6 +69,15 @@ class DeathWatch {
     this.count = 0;
     this.timer = null;
     this.running = false;
+    /**
+     * Observers of "died" / "came back". Assigned by `src/index.js` for fully autonomous
+     * mode; keeping them as plain nullable functions means DeathWatch has no dependency on
+     * the mode (and a test can leave them unset).
+     */
+    this.hooks = {
+      onDeath: typeof options.onDeath === 'function' ? options.onDeath : null,
+      onRespawned: typeof options.onRespawned === 'function' ? options.onRespawned : null
+    };
   }
 
   start() {
@@ -139,6 +153,19 @@ class DeathWatch {
       }
     }
     if (this.alertConsole) this.alert();
+    /** Observer hook (fully autonomous mode): the stop above has already happened. */
+    this._fireHook('onDeath', this.death);
+  }
+
+  /** Run one hook without letting it break the timer. */
+  _fireHook(name, payload) {
+    const hook = this.hooks && this.hooks[name];
+    if (typeof hook !== 'function') return;
+    try {
+      Promise.resolve(hook(payload)).catch((err) => this.log.debug(`${name} hook failed: ${err.message}`));
+    } catch (err) {
+      this.log.debug(`${name} hook threw: ${err.message}`);
+    }
   }
 
   /** Console banner. Ours is the terminal the user launched the agent from. */
@@ -149,7 +176,7 @@ class DeathWatch {
     this.log.error(`BOT 已死亡 @ ${at} — 所有任务已中止 (deaths this run: ${this.count})`);
     this.log.error('  面板: http://127.0.0.1:8766/panel  （顶部红色横幅 + 恢复按钮）');
     this.log.error('  恢复: 面板点「恢复」，或 POST /command {"command":"resume"}');
-    this.log.error('  注意: 若游戏窗口停在死亡画面，需要手动点「重生」（P0 没有自动重生能力）');
+    this.log.error('  注意: 若游戏窗口停在死亡画面，需要手动点「重生」（完全自主模式下会自行重生）');
     this.log.error(line);
   }
 
@@ -180,6 +207,7 @@ class DeathWatch {
       }
     }
     this.log.warn('bot respawned - tasks remain STOPPED, resume manually (panel or !resume)');
+    this._fireHook('onRespawned', snap || null);
   }
 
   /** Human-initiated recovery. */

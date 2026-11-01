@@ -1709,6 +1709,52 @@ class ClientModBody extends Body {
     return !!(res && res.ok);
   }
 
+  /**
+   * Respawn after death (the death screen's own action).
+   *
+   * Deliberately NOT gated on `staleActionReason`: a dead client keeps polling `/state`, but
+   * the point of this call is to leave the dead state, and refusing it because a snapshot
+   * field aged out would strand the agent on the death screen forever.
+   *
+   * @returns {Promise<{ok:boolean, reason:string|null}>} `not-dead` when the mod refuses
+   */
+  async respawn() {
+    const res = await this.command('respawn');
+    if (res && res.ok) return { ok: true, reason: null };
+    return { ok: false, reason: (res && res.error) || 'respawn-failed' };
+  }
+
+  /**
+   * Right-click an entity (corpse looting, trading, mod interactions).
+   *
+   * The mod refuses an entity that is gone or out of reach (>4.5 blocks) with
+   * `no-entity-or-out-of-reach`; that reason is returned instead of a bare false so the
+   * caller can tell "walk closer" from "the container never opened".
+   *
+   * @param {number|{id:number}} entity entity id or an object carrying one
+   * @returns {Promise<{ok:boolean, reason:string|null}>}
+   */
+  async useEntity(entity, options = {}) {
+    const id = typeof entity === 'number' ? entity : entity && (entity.id !== undefined ? entity.id : entity._entity && entity._entity.id);
+    if (id === undefined || id === null) return { ok: false, reason: 'no-entity-id' };
+    if (options.ignoreStale !== true) {
+      const stale = this.staleActionReason();
+      if (stale) {
+        this.lastAction = { action: 'useentity', ok: false, reason: stale };
+        this.log.warn(`useentity refused: ${stale}`);
+        return { ok: false, reason: stale };
+      }
+    }
+    const res = await this.command(`useentity ${id}`);
+    if (res && res.ok) {
+      this.lastAction = { action: 'useentity', ok: true, id, entityId: id };
+      return { ok: true, reason: null };
+    }
+    const reason = (res && res.error) || 'useentity-failed';
+    this.lastAction = { action: 'useentity', ok: false, id, reason };
+    return { ok: false, reason };
+  }
+
   /** Trigger one explicit TACZ reload of the held gun. */
   async reload() {
     const res = await this.command('reload');

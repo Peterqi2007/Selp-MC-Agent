@@ -358,6 +358,8 @@ class Brain {
     this.pendingChatParticipation = null;
     /** Restored unified-language window, consumed after LanguageBrain is constructed. */
     this.pendingLanguageBrain = null;
+    /** Restored fully-autonomous mode, consumed after AutonomousMode is constructed. */
+    this.pendingAutonomousMode = null;
     if (stateCfg.enabled && !stateDisabled) {
       const stateFile = stateCfg.file
         ? nodePath.resolve(stateCfg.file)

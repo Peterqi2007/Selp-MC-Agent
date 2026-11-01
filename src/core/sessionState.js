@@ -45,7 +45,15 @@ function captureState(brain) {
     memoryStore:
       brain.memoryStore && typeof brain.memoryStore.toJSON === 'function' ? brain.memoryStore.toJSON() : null,
     chatMemory:
-      brain.chatMemory && typeof brain.chatMemory.toJSON === 'function' ? brain.chatMemory.toJSON() : null
+      brain.chatMemory && typeof brain.chatMemory.toJSON === 'function' ? brain.chatMemory.toJSON() : null,
+    /**
+     * Fully autonomous mode: the objective, round counter and death record survive a restart,
+     * but the mode itself comes back **paused** - only a `!` command may start working.
+     */
+    autonomous:
+      brain.ctx && brain.ctx.autonomous && typeof brain.ctx.autonomous.toJSON === 'function'
+        ? brain.ctx.autonomous.toJSON()
+        : null
   };
 }
 
@@ -66,7 +74,8 @@ function restoreState(brain, data) {
     chatParticipation: false,
     languageBrain: false,
     memoryStore: false,
-    chatMemory: false
+    chatMemory: false,
+    autonomous: false
   };
   if (data.plans && brain.plans && typeof brain.plans.restore === 'function') {
     restored.plans = brain.plans.restore(data.plans);
@@ -139,6 +148,21 @@ function restoreState(brain, data) {
   }
   if (data.chatMemory && brain.chatMemory && typeof brain.chatMemory.restore === 'function') {
     restored.chatMemory = brain.chatMemory.restore(data.chatMemory);
+  }
+  /**
+   * Fully autonomous mode is constructed after Brain (it needs DeathWatch and the coordinator),
+   * so a restore before it exists parks the data on the brain and index.js applies it. It
+   * always restores as paused - see AutonomousMode.restore.
+   */
+  if (data.autonomous) {
+    const autonomous = (brain.ctx && brain.ctx.autonomous) || null;
+    if (autonomous && typeof autonomous.restore === 'function') {
+      const outcome = autonomous.restore(data.autonomous);
+      restored.autonomous = !!(outcome && outcome.ok);
+    } else {
+      brain.pendingAutonomousMode = data.autonomous;
+      restored.autonomous = true;
+    }
   }
   return { ok: true, restored, savedAt: data.savedAt || null };
 }

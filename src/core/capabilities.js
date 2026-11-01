@@ -43,6 +43,13 @@ const SPECS = {
     reason: 'this body has no container menu (storage needs menu/clickSlot)'
   },
   hunting: { flag: 'supportsHunting', label: 'hunting', reason: 'this body cannot see or fight animals' },
+  /**
+   * Fully autonomous mode needs two body verbs the older contract did not have:
+   * right-clicking an entity (Corpse mod looting) and leaving the death screen. A body that
+   * lacks them says so here instead of failing later with a generic "no effect".
+   */
+  corpseRecovery: { method: 'useEntity', label: 'looting a corpse', reason: 'this body cannot right-click an entity' },
+  respawn: { method: 'respawn', label: 'respawning', reason: 'this body cannot leave the death screen' },
   light: { host: 'mineflayer', label: 'placing torches', reason: 'this body has no mineflayer instance' },
   shelter: { host: 'mineflayer', label: 'building a shelter', reason: 'this body has no mineflayer instance' }
 };
@@ -63,17 +70,21 @@ function capabilities(ctx) {
   for (const [name, spec] of Object.entries(SPECS)) {
     const byFlag = spec.flag ? !!(body && body[spec.flag]) : false;
     const byMenu = spec.menu === true && menuCapable(body);
+    /** A named body method is the most direct answer there is ("can it right-click an entity"). */
+    const byMethod = spec.method ? !!(body && typeof body[spec.method] === 'function') : false;
     /**
      * `menu` is a first-class capability (not just a fallback of `flag`): deposit has no
      * flag any more, and crafting wants the menu path even when the body lacks a recipe DB.
      */
     const supported = byMenu
       ? true
-      : spec.flag
-        ? byFlag
-        : spec.host === 'mineflayer'
-          ? hasBot
-          : false;
+      : spec.method
+        ? byMethod
+        : spec.flag
+          ? byFlag
+          : spec.host === 'mineflayer'
+            ? hasBot
+            : false;
     table[name] = { name, supported, reason: supported ? null : spec.reason, label: spec.label };
   }
   return table;
