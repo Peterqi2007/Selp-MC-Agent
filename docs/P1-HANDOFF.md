@@ -21,7 +21,7 @@
 > **2026-10-31 补 failure escalation**：`mc_step`/`mc_plan` 回执统一带
 > `failure/class/requires/attempt`；Node 硬闸门按动作签名限制盲试；`knowledge/unverified`
 > 走 `lookup_mod_content` → `mc_ask_player` 停车；`place/useon` 改由 mod 采集世界证据、
-> Node 判定（元素消耗但无可见效果不再算成功）。离线 `p1:failure-escalation:test 26/26`、
+> Node 判定（元素消耗但无可见效果不再算成功）。离线 `p1:failure-escalation:test 27/27`、
 > `p1:verify 19/19`；真机 A32 子集通过（barrier 失败阶梯 + 生成键鼠脚本 trial/run），
 > 未覆盖项见 [`FAILURE-ESCALATION.md`](FAILURE-ESCALATION.md) §9.1。
 > 本文是交接入口；**阶段判定**以 [`P1-CLIENT-VERIFICATION.md`](P1-CLIENT-VERIFICATION.md) 为准，
@@ -52,7 +52,7 @@ npm run p1:baseline -- --suites  # 记录提交/配置指纹/套件结果到 run
 | P0 regression（8 suites，含 `selftest 183/183`） | **8/8** |
 | `planner:test` | **35/35** |
 | `p1:contract:test` | **240/240** |
-| `p1:failure-escalation:test` | **26/26** |
+| `p1:failure-escalation:test` | **27/27** |
 | `p1:m3:test` | **58/58** |
 | `p1:m6:test` | **25/25** |
 | `p1:proposal-autonomy:test` | **16/16** |

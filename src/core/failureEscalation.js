@@ -19,30 +19,20 @@
  */
 
 const { FAILURE, CLASSES, CLASS_POLICY, classOf, envelope, fromResult } = require('./failure');
+const { isInputVerb, hasInputAlternative, INPUT_EXAMPLES } = require('./keyActions');
 
 /** Commands that stay available while a player question is parked (read-only / stop). */
 const PARKED_WHITELIST = new Set(['stop', 'inputs', 'state', 'status', 'task', 'keybinds', 'capabilities']);
 
 /**
- * The input layer (keyboard/mouse): the alternative channel the ladder must demand when the
- * command channel keeps failing (2026-11-01 operator report: "failure ladder is ineffective,
- * the agent never switched to keyboard/mouse").
+ * The input-layer rung (2026-11-01 operator report).
+ *
+ * The verb list itself lives in `keyActions.js` so the channel table, this ladder and the
+ * receipts cannot drift: before the unification the ladder's gate named `key`, the channel
+ * table listed five verbs, and a Node task failure (the live `deposit` case) named neither.
  */
-const INPUT_VERBS = new Set(['key', 'hold', 'tap', 'look', 'lookat', 'shot', 'inputs']);
-
-/** Verbs for which an input-layer attempt is a real alternative, not a nonsensical detour. */
-const INPUT_ALTERNATIVE = new Set([
-  'place', 'useon', 'use', 'useitem', 'attack', 'shoot', 'menu', 'click', 'select',
-  'dig', 'mine', 'tunnel', 'pillar', 'moveto'
-]);
-
-/** Concrete examples put in the refusal so the model has an action, not just a reason. */
-const INPUT_EXAMPLES = [
-  'look <yaw> <pitch>   (aim at the block/entity first)',
-  'key forward down / key forward up',
-  'hold attack 600',
-  'tap inventory'
-];
+const INPUT_VERBS = { has: (name) => isInputVerb(name) };
+const INPUT_ALTERNATIVE = { has: (name) => hasInputAlternative(name) };
 
 const DEFAULTS = {
   /** Same-signature blind attempts tolerated before the gate refuses (policy may lower it). */
@@ -286,8 +276,22 @@ class FailureEscalation {
     const verb = String(name || '').toLowerCase();
     if (!verb) return null;
     const target = String(description || '').trim();
-    const itemKey = (target.match(/[a-z0-9_]+:[a-z0-9_./-]+/i) || [null])[0];
+    /**
+     * The item key prefers **what actually failed** (the reason / result), not the task's
+     * nominal target: a `deposit minecraft:dirt` that died placing its chest is a
+     * `minecraft:chest` failure, and keying it on dirt made a chest lookup look "not
+     * informed" forever (live 2026-11-01). It also lets the task path share the ledger entry
+     * with the equivalent `place <item>` command.
+     */
+    const keyText = [
+      result && typeof result === 'object' ? result.item || result.block || '' : '',
+      reason || '',
+      description || ''
+    ].filter(Boolean).join(' ');
+    const itemKey = (keyText.match(/[a-z0-9_]+:[a-z0-9_./-]+/i) || [null])[0];
     if (ok === true) {
+      /** An input-layer step that ran through mc_plan is the channel switch too. */
+      if (isInputVerb(verb)) this._noteInputUsed(verb);
       this.recordSuccess({ verb, target, itemKey });
       this.lastSettled = { name: verb, ok: true, reason: reason || null, at: new Date(this.now()).toISOString() };
       return null;
@@ -298,12 +302,68 @@ class FailureEscalation {
     this.recordFailure({ verb, target, itemKey, className: folded.class, failure: folded.failure });
     const entry = this.entries.get(this.signatureOf(verb, target, itemKey));
     const settled = envelope(folded, { attempt: entry ? { count: entry.failures, budget: this._budgetFor(entry.lastClass) } : null });
+    /**
+     * Node-task failures (deposit/mine/goto/...) never pass the mc_step gate: their only
+     * receipt is this settle. The live 2026-11-01 incident was exactly that - a failed
+     * `deposit` whose receipt said `lookup_mod_content` and never mentioned the input layer.
+     * Apply the same rung here so the task path cannot lag behind the command path.
+     */
+    const stage = this._taskEscalation(entry, verb, itemKey, settled.class);
+    if (stage) Object.assign(settled, stage);
     this.lastSettled = {
       name: verb, ok: false, reason: settled.reason || null, at: new Date(this.now()).toISOString(),
       failure: settled.failure, class: settled.class, requires: settled.requires, next: settled.next,
-      lookupQuery: settled.lookupQuery || null, attempt: settled.attempt || null
+      lookupQuery: settled.lookupQuery || null, attempt: settled.attempt || null,
+      inputRequired: settled.inputRequired === true
     };
     return settled;
+  }
+
+  /**
+   * The input-layer rung for a task settle, mirroring `gate()`.
+   *
+   * @returns {object|null} fields to merge into the envelope (never a new failure)
+   */
+  _taskEscalation(entry, verb, itemKey, className) {
+    if (!entry) return null;
+    if (className === CLASSES.PERMISSION) return null;
+    if (!hasInputAlternative(verb) || isInputVerb(verb)) return null;
+    const informed = this._informed(entry, itemKey);
+    const budget = this._budgetFor(className);
+    const lookupFirst =
+      (className === CLASSES.KNOWLEDGE || className === CLASSES.UNVERIFIED) &&
+      !informed &&
+      !entry.inputTried;
+    if (lookupFirst) {
+      /** Lookup is still the first step; name the fallback so it is not a surprise later. */
+      return {
+        next: 'lookup-then-input-then-ask',
+        inputHint: 'after the lookup (and one informed retry) the next step is the input layer, not another command',
+        inputExamples: [...INPUT_EXAMPLES]
+      };
+    }
+    if (entry.inputTried && entry.postInputFailures > 0) {
+      return {
+        requires: ['mc_ask_player'],
+        next: 'input-failed-then-ask',
+        reason: `${entry.failures}x failed for ${verb} (class=${className}); the input-layer attempt did not help either - ask the player or change task`,
+        askQuestion: this._askQuestion(verb, itemKey || verb, entry)
+      };
+    }
+    if (entry.inputTried) {
+      return { next: 'input-retry-once', inputExamples: [...INPUT_EXAMPLES] };
+    }
+    if (informed || entry.failures >= budget) {
+      entry.inputDemanded = true;
+      return {
+        requires: ['input-layer'],
+        next: 'input-layer-then-retry-once',
+        inputRequired: true,
+        inputExamples: [...INPUT_EXAMPLES],
+        reason: `${verb} failed ${entry.failures}x (class=${className}): switch to the input layer (look then key/hold/tap) for one attempt`
+      };
+    }
+    return { inputHint: 'if the command keeps failing, switch to the input layer (look/key/hold/tap)' };
   }
 
   recordFailure({ verb, target, itemKey, className, failure }) {

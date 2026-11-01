@@ -72,7 +72,7 @@
 >    `noPath`。
 > ③ **失败阶梯没有键鼠档**——新增 `input-required` 档（带 `key/hold/look` 例子），输入层成功一次
 >    后允许一次重试，再失败才 `ask-required`；任务 goal 文本同步说明。`p1:failure-escalation:test`
->    26/26（含新档）。**真机链路已验**：`place minecraft:barrier` ×2 → `lookup-required` → lookup →
+>    27/27（含新档、任务结算路径）。**真机链路已验**：`place minecraft:barrier` ×2 → `lookup-required` → lookup →
 >    informed 重试失败 → `input-required`（4 个例子）→ `look 90 0` 成功 → 允许一次重试 → 再失败
 >    `ask-required`（带具体问题）。见 [`FAILURE-ESCALATION.md`](FAILURE-ESCALATION.md) §4b。
 > 另修：门禁拒绝（`operator-stop`/`autonomous-busy`）不再被折算进失败账本（否则下一次合法同类动作

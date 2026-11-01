@@ -1,6 +1,6 @@
 'use strict';
 
-const { HELD_KEYS, EDGE_KEYS, MOD_KEY_NOTE } = require('./keyActions');
+const { HELD_KEYS, EDGE_KEYS, MOD_KEY_NOTE, INPUT_VERBS } = require('./keyActions');
 const { describePolicy } = require('./failure');
 
 /**
@@ -23,8 +23,8 @@ const { describePolicy } = require('./failure');
  * verb for). Generation is last and always needs a human-written prompt.
  */
 
-/** Commands that are the raw input layer rather than a semantic skill. */
-const INPUT_COMMANDS = Object.freeze(['key', 'hold', 'tap', 'shot', 'inputs']);
+/** Commands that are the raw input layer rather than a semantic skill (one list: keyActions). */
+const INPUT_COMMANDS = INPUT_VERBS;
 const INPUT_SET = new Set(INPUT_COMMANDS);
 
 /** Ordered channels, most deterministic first. */
@@ -48,9 +48,9 @@ const CHANNELS = Object.freeze([
   {
     id: 'input',
     order: 3,
-    label: 'raw input layer (keys / bounded holds / frames)',
-    when: 'no skill covers it: a mod GUI, a key the command table has no verb for, or a look-only need',
-    example: 'key forward down | hold attack 600 | shot 768',
+    label: 'raw input layer (keys / bounded holds / frames / container clicks)',
+    when: 'no skill covers it: a mod GUI, a key the command table has no verb for, a look-only need, or the command channel failed twice (the failure ladder then demands this channel)',
+    example: 'key forward down | hold attack 600 | look 180 0 | menu/click 10 0 pickup',
     requires: 'F1\'b ledger: the press is recorded and released on stop/death/disconnect'
   },
   {
@@ -229,19 +229,19 @@ function describe(ctx) {
       rule:
         'for non-minecraft: items/mechanics, call lookup_mod_content before the first trial; ' +
         'failures are classified (see failurePolicy.classes): transient -> re-observe and retry once; ' +
-        'precondition -> fix the prerequisite, not the retry count; knowledge/unverified -> do NOT repeat ' +
-        'the same coordinates, call lookup_mod_content first, then mc_ask_player if the material does not ' +
-        'solve it, then retry via the command channel with the new information, input layer only when no ' +
-        'command can express it; capability -> input layer, else propose code generation; permission -> ' +
-        'stop or ask, never retry. The third blind same-signature attempt is REFUSED by Node. Escalation ' +
-        'is per action signature, never a task-level mode: only the failed action moves channels; ' +
-        'movement/observation stay capability-first (goto to the next plot). A success, TTL or goal end ' +
-        'clears the record. For a mod key call mc_keybinds first and use its stable id (tap for one-shot, ' +
-        'hold/key down for held); if no mapping exists, state the limitation instead of asking the player ' +
-        'to guess. ms-level continuous control (piloting a vehicle while mounted, moving steering, aim ' +
-        'tracking) must NOT use atomic mc_step key/hold calls - each arrives one conversation round late ' +
-        'and a first failure can be unrecoverable: use a promoted code skill or propose generation; the ' +
-        'script runs the loop inside Node (ctx.state + ctx.key/ctx.hold/ctx.tap + ctx.wait).',
+        'precondition -> fix the prerequisite, not the retry count, then switch to the input layer if it fails ' +
+        'again; knowledge/unverified -> lookup_mod_content first, then ONE informed retry, then the input layer ' +
+        'for one attempt (look/key/hold/tap), then mc_ask_player; capability -> input layer, else propose code ' +
+        'generation; permission -> stop or ask, never retry. The third blind same-signature attempt is ' +
+        'REFUSED by Node, and the refusal names the channel to use instead (the command channel is never ' +
+        'retried a third time; the input layer is). Escalation is per action signature, never a ' +
+        'task-level mode: only the failed action moves channels; movement/observation stay capability-first ' +
+        '(goto to the next plot). A success, TTL or goal end clears the record. For a mod key call mc_keybinds ' +
+        'first and use its stable id (tap for one-shot, hold/key down for held); if no mapping exists, state the ' +
+        'limitation instead of asking the player to guess. ms-level continuous control (piloting a vehicle while ' +
+        'mounted, moving steering, aim tracking) must NOT use atomic mc_step key/hold calls - each arrives one ' +
+        'conversation round late and a first failure can be unrecoverable: use a promoted code skill or propose ' +
+        'generation; the script runs the loop inside Node (ctx.state + ctx.key/ctx.hold/ctx.tap + ctx.wait).',
       inputVerbs: [...INPUT_COMMANDS],
       inputExamples: [
         'key forward down',

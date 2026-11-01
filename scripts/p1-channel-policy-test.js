@@ -128,7 +128,15 @@ async function main() {
     assert.deepStrictEqual(table.order, ['code-skill', 'command', 'input', 'code-generation']);
     assert.strictEqual(table.channels.length, 4);
     assert(table.channels.every((channel) => channel.when && channel.example !== undefined));
-    assert.deepStrictEqual(table.inputCommands, ['key', 'hold', 'tap', 'shot', 'inputs']);
+    /**
+     * One list for the raw-input channel, the failure ladder and the receipts (keyActions
+     * `INPUT_VERBS`). It used to be five verbs here while the escalation prose named
+     * `look/menu/click/close` too - that drift is how the ladder ended up able to say "key"
+     * without the channel table agreeing on what the input layer is.
+     */
+    assert.deepStrictEqual(table.inputCommands, [
+      'key', 'hold', 'tap', 'look', 'lookat', 'shot', 'menu', 'click', 'close', 'select', 'inputs'
+    ]);
     assert(table.keyActions.held.includes('forward'));
     assert(table.keyActions.edge.includes('inventory'));
     assert(table.keyActions.edge.includes('hotbar1'));

@@ -18,6 +18,8 @@
  * type. `fold(result)` attaches `{failure, hint}` to a failed result in one place.
  */
 
+const { isInputVerb, hasInputAlternative, INPUT_EXAMPLES } = require('./keyActions');
+
 const FAILURE = Object.freeze({
   BAD_ARGUMENT: 'bad_argument',
   NO_PATH: 'no_path',
@@ -255,11 +257,11 @@ const CLASS_POLICY = Object.freeze({
   },
   [CLASSES.KNOWLEDGE]: {
     retryable: false, blindBudget: 2,
-    requires: ['lookup_mod_content'], next: 'lookup-then-ask-then-input'
+    requires: ['lookup_mod_content'], next: 'lookup-then-input-then-ask'
   },
   [CLASSES.UNVERIFIED]: {
     retryable: false, blindBudget: 2,
-    requires: ['lookup_mod_content'], next: 'lookup-then-ask-then-input'
+    requires: ['lookup_mod_content'], next: 'lookup-then-input-then-ask'
   },
   [CLASSES.CAPABILITY]: {
     retryable: false, blindBudget: 1,
@@ -311,6 +313,16 @@ function envelope(result, context = {}) {
   if (context.lookupQuery) out.lookupQuery = context.lookupQuery;
   if (context.askQuestion) out.askQuestion = context.askQuestion;
   if (context.evidence) out.evidence = context.evidence;
+  /**
+   * The fallback channel, stated on EVERY receipt for an action that a keyboard/mouse can
+   * perform (2026-11-01). The prose goal text always said "switch to the input layer after
+   * two failures", but the machine-readable `requires` said lookup/ask and no receipt ever
+   * named the input commands - so the fallback existed only in prose.
+   */
+  if (hasInputAlternative(context.verb) && !isInputVerb(context.verb) && className !== CLASSES.PERMISSION) {
+    out.inputHint = 'if the command channel keeps failing, do it with the input layer (look/key/hold/tap)';
+    out.inputExamples = [...INPUT_EXAMPLES];
+  }
   return out;
 }
 

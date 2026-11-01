@@ -37,11 +37,13 @@
   "retryable": false,
   "retryBudget": 2,
   "requires": ["lookup_mod_content"],
-  "next": "lookup-then-ask-then-input",
+  "next": "lookup-then-input-then-ask",
   "signature": "place:immersive_aircraft:biplane",
   "verb": "place",
   "attempt": { "count": 2, "budget": 2 },
   "lookupQuery": "immersive_aircraft biplane 怎么放置 使用",
+  "inputHint": "if the command channel keeps failing, do it with the input layer (look/key/hold/tap)",
+  "inputExamples": ["look <yaw> <pitch>   (aim at the block/entity first)", "key forward down / key forward up", "hold attack 600", "tap inventory"],
   "askQuestion": "..."
 }
 ```
@@ -51,8 +53,8 @@
 | class | 典型失败 | 下一步 | 重试 |
 | --- | --- | --- | --- |
 | `transient` | timeout、卡住、战斗僵持 | 重新观察，退避一次 | 1 |
-| `precondition` | 缺物品/工具/路线/空间 | 修前置，不加重试 | 修复后 1 |
-| `knowledge` | 模组机制不明 | `lookup_mod_content` → 无答案 `mc_ask_player` | 有资料后 1 |
+| `precondition` | 缺物品/工具/路线/空间 | 修前置，不加重试；再失败 → **输入层** | 修复后 1 |
+| `knowledge` | 模组机制不明 | `lookup_mod_content` → 一次 informed 重试 → **输入层** → 问玩家 | 有资料后 1 |
 | `unverified` | `ok` 但世界无变化 | 同上，且不重复同坐标 | 有资料/回答后 1 |
 | `capability` | 没有命令/键位/API | 输入层，否则提议代码生成 | 否 |
 | `permission` | 拒绝、领地、操作员屏幕 | 停或问 | 否 |
@@ -92,10 +94,45 @@
   （`look <yaw> <pitch>`、`key forward down/up`、`hold attack 600`、`tap inventory`）；
 - 动作脑改用输入层且**成功一次**后，该签名重新允许**一次**命令重试（`inputRetry:true`）；
 - 这一次也失败 → `ask-required`（自主模式里即 blocked 换题），不再堆命令。
-- 只对确实存在键鼠替代的动词启用（place/useon/use/attack/shoot/menu/click/select/dig/mine/
-  tunnel/pillar/moveto）；`goto`/`craft` 这类没有直接键鼠等价物的动作仍走 lookup/escalation。
-- 单元验收在 `p1:failure-escalation:test`（26/26）里：`lookup-required → informed → input-required
-  → 输入成功 → 一次重试 → ask-required`。
+- 只对确实存在键鼠替代的动作启用（命令动词 + Node 任务名，清单在 `src/core/keyActions.js` 的
+  `INPUT_ALTERNATIVE_ACTIONS`：place/use/attack/dig/mine/tunnel/pillar/moveto/goto、deposit/
+  withdraw/craft/smelt/collect/farm/chop/mine_ore/go-to…）；纯只读/控制动作（state/status/plan/
+  propose/answer/stop…）没有输入层替代，仍走原阶梯。
+- **命令通道和 Node 任务通道都走同一档**：Node 任务（deposit/mine/goto/...）不经过 mc_step 闸门，
+  它们的唯一回执是 `recordTaskSettle` 的信封；以前那条路完全不看输入层（真机 `deposit` 失败回执
+  只说 `lookup_mod_content`）。现在 `_taskEscalation` 与 `gate()` 用同一规则生成 `requires/next`，
+  并且第一次失败的信封就带 `inputHint`/`inputExamples`（`envelope()`）。
+- 单元验收在 `p1:failure-escalation:test`（**27/27**）：知识阶梯 `lookup-required → informed →
+  input-required → 输入成功 → 一次重试 → ask-required`，外加**任务结算路径**的同一阶梯
+  （deposit：首败带 inputHint → 二败 lookup → lookup 后 informed 重试失败 → `input-layer` →
+  输入成功 → 再失败 `mc_ask_player`）。
+
+### 4c. 为什么以前没有这一档（2026-11-01 复盘）
+
+不是模型不想换，是**闸门从来没要求它换**，而且两个子系统各自说话：
+
+1. **规则写在了提示层**。2026-10-29 的提交 `9009ce2` 把"同一技能同因失败两次 → 换键鼠"写成
+   `taskGoal` 的 STUCK 协议、`channelPolicy.describe().escalation` 和插件描述——全是文字。
+2. **代码闸门晚一天才出现，且只覆盖 A32 的 barrier 场景**（`9ff6ece`，2026-10-30）：knowledge/
+   unverified → lookup → 一次 informed → ask。`requires` 是模型真正照做的机器字段，它从没出现过
+   `input-layer`。
+3. **分类表里唯一的 "input-layer" 在 `capability`**，而 `capability` 只由 `unsupported`/
+   `tacz_unavailable` 产生——即"身体压根没有这个动词"。`place` 跑完但没效果是 `unverified`，永远
+   到不了那一支；`CLASS_POLICY[unverified].next` 写着 `lookup-then-ask-then-input`，
+   `requires` 却只有 lookup，**字符串承诺了代码没实现的档**。
+4. **两条通道各管一段**：`channelPolicy.resolveChannel()` 只回答"这个动作归哪个渠道"（一次决策），
+   `failureEscalation` 负责"失败后下一步"，两者不 import、不共享状态；`channelPolicy` 的
+   `INPUT_COMMANDS` 只有五个动词，而提示里的键鼠清单有 `look/menu/click/close`——清单本身也对不上。
+5. **任务通道更彻底**：`recordTaskSettle` 直接生成 `envelope()`，根本不经过 `gate()`，所以连
+   "第三次盲试被拒"都只对 mc_step 生效；真机里失败的恰好是 `deposit`（Node 任务），回执里从头到尾
+   没有键鼠。
+6. **没有断言**：`p1:failure-escalation` 只测 lookup/ask 链，`p1:channel` 只测"表里写着规则"，
+   没有任何测试要求"第三条回执必须出现 input-layer"。文字与代码因此可以静默漂移。
+
+本次把四处合成一条链：`keyActions.INPUT_VERBS / INPUT_ALTERNATIVE_ACTIONS`（唯一动词表）→
+`failure.CLASS_POLICY`（next 字符串与实际一致）→ `failureEscalation.gate()` 与
+`_taskEscalation()`（同一阶梯，两条通道）→ `envelope()`（首败就声明 fallback）→ 测试（gate 与
+task 两条路径都断言 input-layer）。
 
 ## 5. `mc_ask_player`
 
@@ -179,7 +216,7 @@ nothing changed
 
 | 套件 | 结果 |
 | --- | --- |
-| `p1:failure-escalation:test` | **26/26**（信封/签名/闸门/lookup/ask/降级/回执/证据/计划/提示词） |
+| `p1:failure-escalation:test` | **27/27**（信封/签名/闸门/输入层档/lookup/ask/降级/回执/证据/计划/提示词） |
 | `client:test` | **79/79**（假 mod 协议含 place/useon 证据三分支） |
 | `p1:contract:test` | **237/237**（/command 闸门、/ask_player、lastSettled、plan gate） |
 | `p1:m4:test` | **38/38**（生成提示词实时闭环） |

@@ -60,7 +60,13 @@ test('envelope carries class policy + context; unknown is never retryable', () =
   assert.strictEqual(out.class, 'unverified');
   assert.strictEqual(out.retryable, false);
   assert.deepStrictEqual(out.requires, ['lookup_mod_content']);
-  assert.strictEqual(out.next, 'lookup-then-ask-then-input');
+  assert.strictEqual(out.next, 'lookup-then-input-then-ask');
+  /**
+   * 2026-11-01: the fallback channel must be named on the receipt itself, not only in prose.
+   * `place` has a keyboard/mouse alternative, so even the first failure carries the hint.
+   */
+  assert.match(out.inputHint, /input layer/);
+  assert.ok(Array.isArray(out.inputExamples) && out.inputExamples.some((line) => line.includes('look')));
   assert.strictEqual(out.signature, 'place:immersive_aircraft:biplane');
   assert.strictEqual(out.attempt.count, 2);
 
@@ -112,7 +118,13 @@ test('third blind same-signature attempt is refused (precondition class)', () =>
   }
   const gated = esc.gate({ command: 'craft minecraft:stick 4', via: 'mc_step' });
   assert.strictEqual(gated.ok, false);
-  assert.strictEqual(gated.error, 'escalation-required');
+  /**
+   * 2026-11-01: the rung is now the input layer, not a bare "escalation-required". `craft`
+   * has a real keyboard/mouse alternative (open the grid, click the slots), so a third blind
+   * craft is refused *with the channel to use instead*.
+   */
+  assert.strictEqual(gated.error, 'input-required');
+  assert.deepStrictEqual(gated.requires, ['input-layer']);
 });
 
 test('knowledge ladder: blind cap -> lookup -> informed retry -> input layer -> ask', () => {
@@ -264,6 +276,50 @@ test('recordTaskSettle enriches failures and feeds lastSettled', () => {
   assert.strictEqual(esc.lastSettled.ok, true);
 });
 
+test('task-settle failures reach the input layer too (the live deposit path)', () => {
+  /**
+   * 2026-11-01 live incident: a Node `deposit` task failed twice and its task:failed receipt
+   * only ever said `lookup_mod_content` - `recordTaskSettle` never consulted the input rung.
+   * The failing action was not an mc_step, so the gate (which did know about input) was not
+   * even in the path.
+   */
+  let now = 1000;
+  const esc = new FailureEscalation({ log: silent, now: () => now });
+  const fail = () =>
+    esc.recordTaskSettle({
+      name: 'deposit',
+      ok: false,
+      reason: 'crated a chest but placing it failed: no world effect after using minecraft:chest',
+      description: 'deposit minecraft:dirt 65',
+      result: { ok: false, failure: 'unverified' }
+    });
+  const first = fail();
+  assert.strictEqual(first.class, 'unverified');
+  assert.match(first.next, /input/, 'the first receipt already names the fallback channel');
+  assert.ok(first.inputHint && /input layer/.test(first.inputHint));
+
+  const second = fail();
+  assert.deepStrictEqual(second.requires, ['lookup_mod_content'], 'lookup is still the first rung');
+  assert.match(second.inputHint, /input layer/, 'but the fallback is named on the same receipt');
+
+  // The action brain looks the mechanic up, then retries once (informed) and fails again.
+  esc.recordLookup('chest 怎么放置 使用');
+  const informed = fail();
+  assert.deepStrictEqual(informed.requires, ['input-layer'], 'after the informed retry the task path demands input');
+  assert.strictEqual(informed.inputRequired, true);
+  assert.ok(Array.isArray(informed.inputExamples) && informed.inputExamples.length >= 3);
+  assert.match(informed.next, /input-layer/);
+
+  // The action brain switches channel: an input step settles ok (through either path).
+  esc.recordTaskSettle({ name: 'look', ok: true, description: 'look 90 0' });
+  assert.strictEqual(esc.status().entries.find((e) => e.signature.startsWith('deposit')).inputTried, true);
+
+  const afterInput = fail();
+  assert.deepStrictEqual(afterInput.requires, ['mc_ask_player']);
+  assert.match(afterInput.next, /input-failed-then-ask/);
+  assert.ok(afterInput.askQuestion);
+});
+
 // ------------------------------------------------------ 6. place evidence
 process.stdout.write('\n6. place evidence judging\n');
 
@@ -371,7 +427,12 @@ test('a gated step fails the plan honestly with the escalation envelope', async 
   assert.strictEqual(ran, 0, 'the gated step is never dispatched');
   const failed = result.results.find((step) => step.status === 'failed');
   assert.ok(failed && failed.gated === true, 'the step carries the gate verdict');
-  assert.strictEqual(failed.escalation.error, 'escalation-required');
+  /**
+   * `goto` has a keyboard/mouse alternative (walk with keys), so after the blind budget the
+   * gate names the input layer instead of a bare escalation-required (2026-11-01).
+   */
+  assert.strictEqual(failed.escalation.error, 'input-required');
+  assert.deepStrictEqual(failed.escalation.requires, ['input-layer']);
 });
 
 test('wait_for_player steps are never gated (ask plan must park)', async () => {

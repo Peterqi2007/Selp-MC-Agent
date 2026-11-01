@@ -3495,7 +3495,12 @@ function makeBrain() {
       esc.recordFailure({ verb: 'goto', target: '1 64 1', itemKey: null, className: 'precondition' });
       const refused = esc.gate({ command: 'goto 1 64 1', via: 'mc_step' });
       assert.strictEqual(refused.ok, false);
-      assert.strictEqual(refused.error, 'escalation-required');
+      /**
+       * 2026-11-01: `goto` has a keyboard/mouse alternative (walk with keys), so the third
+       * blind attempt is refused with the channel to use instead of a bare escalation code.
+       */
+      assert.strictEqual(refused.error, 'input-required');
+      assert.deepStrictEqual(refused.requires, ['input-layer']);
       assert.strictEqual(refused.retryable, false);
     });
     check('lastSettled reflects the enriched settle for /ui/state consumers', () => {

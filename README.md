@@ -67,7 +67,7 @@
 | [`docs/P1-M5.md`](docs/P1-M5.md) | **P1 M5 记录（2026-10-29 口径变更：进程内输入层）**：执行底座由 OS 级 `computer_use` 改为 mod 在游戏进程内注入按键/视角/槽位点击 + 帧缓冲截图经 HTTP 交 Node（Node 持唯一身体执行权与键鼠台账）；闸门 **F1 作废 → F1'a（结构性不可出界）/F1'b（键鼠台账）**；**CU 路径已放弃（abandoned）**。**输入层已实现并真机验证输入/截图/GUI 链路（`p1:m5:test 35/35`、`m5-gui-live 93/93`），但 F1' 故障注入未跑完、A22/M5.3 未执行，M5 仍未通过**；A21/A22 **不标 N/A** |
 | [`docs/CU-ABANDONED.md`](docs/CU-ABANDONED.md) | **CU 路径已放弃（2026-10-29）**：为什么换、还留了什么（只作历史证据）、现在 M5 看什么；`src/computer/*` 已标 ABANDONED |
 | [`docs/P1-WORK-2026-10-30.md`](docs/P1-WORK-2026-10-30.md) | **2026-10-30/31 交付 + 真机**：CU 标记放弃、载具感知、`@` 请求 → DSH goal、截图 steer、Voyager 式自动课程、自卫反射可见性、动作脑改绑 `Minecraft动作脑3`、KeyMapping 注册表发现 + 稳定 ID 注入（§8–§11）；含三个真机缺陷修复与 `p1:verify` 全绿 |
-| [`docs/FAILURE-ESCALATION.md`](docs/FAILURE-ESCALATION.md) | **mc_step/mc_plan 失败回执与升级阶梯**：扩展既有 failure.js（信封/分类/签名闸门），mc_step 同步回执 + 任务结算 + mc_plan step 均带 class/requires；knowledge/unverified → lookup_mod_content → mc_ask_player 停车；place/useon 由 mod 采集世界证据、Node 判定；升级按动作签名，成功/TTL/新 goal 自动降级；离线 `p1:failure-escalation:test 26/26`；真机 A32 子集通过（barrier 失败阶梯 + 生成键鼠脚本 trial/run） |
+| [`docs/FAILURE-ESCALATION.md`](docs/FAILURE-ESCALATION.md) | **mc_step/mc_plan 失败回执与升级阶梯**：扩展既有 failure.js（信封/分类/签名闸门），mc_step 同步回执 + 任务结算 + mc_plan step 均带 class/requires；knowledge/unverified → lookup_mod_content → 一次 informed → **输入层（look/key/hold/tap）** → mc_ask_player 停车；place/useon 由 mod 采集世界证据、Node 判定；升级按动作签名，成功/TTL/新 goal 自动降级；**命令通道与 Node 任务通道同一阶梯**（`recordTaskSettle` 不再漏掉输入层）；离线 `p1:failure-escalation:test 27/27`；真机 A32 子集 + 2026-11-01 输入层链路（barrier ×2 → lookup → informed → input-required → look 成功 → 一次重试 → ask）已验 |
 | [`docs/P1-M6.md`](docs/P1-M6.md) | **P1 M6 记录（聊天并发 + 按需接线）**：未读去重、过时回复拒绝、自回声拒绝、限速/重复/截断、随会话持久化；普通聊天 15 行窗口（含自己的回复、随 `p1-state.json` 保存）；**所有非 `!` 玩家消息写入 ChatMemory**；LLM 回复可 opt-in 守卫（默认关闭）；DialogueRouter + `mc_say` 已真机（2026-10-22）；A24/C03/F02 受控 PASS（2026-10-24）；**A23 的 40 组 ×3 与 A25 三条真实提案未完成** |
 | [`docs/LANGUAGE-BRAIN-REPAIR.md`](docs/LANGUAGE-BRAIN-REPAIR.md) | **语言脑统一门面**：`src/llm/languageBrain.js` 的 roleplay/expert/approval、统一语言工具、原文审批、15 行短期窗口 + ChatMemory/任务记忆 grep；**默认 `agent.language.brain=unified`（2026-10-23 真机验证）**，`legacy` 可回退；`p1:language:test 22/22` |
 | [`docs/P1-M7.md`](docs/P1-M7.md) | **P1 M7 记录（离线准备）**：`p1:verify` 一键离线验收（2026-11-01 实测 `--fast` **19/19**、完整 **20/20** 套件）、`p1:fault:test` 9/9、A01–A33 验收矩阵 + F1' 闸门（2026-10-25 回填，2026-10-29 更新 M5 口径，2026-11-01 补 A33）、发布清单与残余风险。**P1 未发布**；M1/M2/M3/M4 真机通过，M5–M7 剩余项见清单 |
@@ -241,7 +241,7 @@ LLM 层（`src/llm/`，生产配置已开启 `toolCalling`）：8 个工具 —�
 * 离线全绿（2026-11-01 复跑）：`selftest`、`skills:test`、`client:test`、`control:test`、`tasks:test`、
   `path:test`、`clientmod:test`、`verify:roleplay`、`llm:dry` 均通过（历史计数见 §8；P0 套件由 `p0:verify` 统一跑）。
 * P1 离线（2026-11-01 实跑复核）：`p1:verify` **20/20 套件**（P0 8 套件 + `planner:test 35/35` +
-  `p1:contract:test 240/240` + `p1:failure-escalation:test 26/26` + `p1:m3:test 58/58` + `p1:m6:test 25/25` +
+  `p1:contract:test 240/240` + `p1:failure-escalation:test 27/27` + `p1:m3:test 58/58` + `p1:m6:test 25/25` +
   `p1:proposal-autonomy:test 16/16` + `p1:language:test 22/22` + `p1:m7:test 11/11` +
   `p1:m4:test 38/38` + `p1:m4:evolve:test 17/17` + `p1:m5:test 35/35` + `p1:channel:test 18/18` +
   `p1:shot:test 20/20` + `p1:steer:test 9/9` + `p1:taskgoal:test 14/14` + `p1:curriculum:test 18/18` +
@@ -285,7 +285,7 @@ LLM 层（`src/llm/`，生产配置已开启 `toolCalling`）：8 个工具 —�
      （`canStandAt`），`path:test` 新增 2b 场景（**36/36**）。真机 `goto` 从"原地跳"变为诚实 `noPath`。
   ③ **失败阶梯新增键鼠档**：命令通道反复失败 → `input-required`（带 `look/key/hold/tap` 例子），
      输入层成功一次后允许一次重试，再失败才 `ask-required`；任务 goal 文本同步说明。
-     `p1:failure-escalation:test` **26/26**（含新档）。详见 [`docs/FULLY-AUTONOMOUS.md`](docs/FULLY-AUTONOMOUS.md) §4b
+     `p1:failure-escalation:test` **27/27**（含新档）。详见 [`docs/FULLY-AUTONOMOUS.md`](docs/FULLY-AUTONOMOUS.md) §4b
      与 [`docs/FAILURE-ESCALATION.md`](docs/FAILURE-ESCALATION.md) §4b。
 * **2026-10-30 本轮（离线 + 真机）**：
   - **CU 正式标为放弃**，文档/代码头统一，唯一口径 [`docs/CU-ABANDONED.md`](docs/CU-ABANDONED.md)；
@@ -624,7 +624,7 @@ Invoke-RestMethod -Uri http://127.0.0.1:8766/ui/state
    直接 `ask-required`，自主模式里等于放弃，而命令通道明明已经反复失败。现在多一档 `input-required`：
    `requires:['input-layer']` + 具体例子（`look`、`key/hold`、`tap`），动作脑改用输入层成功一次后允许
    一次命令重试，再失败才 ask。只对确有键鼠替代的动词启用（`place/useon/use/attack/shoot/menu/
-   click/select/dig/mine/tunnel/pillar/moveto`）。回归：`p1:failure-escalation:test` 26/26（原
+   click/select/dig/mine/tunnel/pillar/moveto`）。回归：`p1:failure-escalation:test` 27/27（原
    knowledge 阶梯断言同提交替换为新阶梯，未删除覆盖）。
 
 ---
@@ -679,7 +679,7 @@ Invoke-RestMethod -Uri http://127.0.0.1:8766/ui/state
 | `npm run control:test` | 双通道 + 面板 + 死亡处理 + 反射路由 + 战斗反射 | 43/43 |
 | `npm run plan:audit` | 计划书 §11 符合性 | 35/35（`--stage p1` 111/111） |
 | `npm run p1:verify` | P1 离线门禁（P0 + 全部 P1 套件；`--fast` 跳过 P0） | **20/20**（`--fast` 19/19） |
-| `npm run p1:failure-escalation:test` | 失败信封/签名闸门/lookup/ask 停车/降级/证据/计划接线 | 26/26 |
+| `npm run p1:failure-escalation:test` | 失败信封/签名闸门/输入层档/lookup/ask 停车/降级/证据/计划接线 | 27/27 |
 | `npm run p1:m5:test` | 进程内输入层 / 键鼠台账 / 帧缓冲截图 / 感知字段契约 / 受控通用键 / 模组键表 | 35/35 |
 | `npm run p1:channel:test` | 通道策略（code-skill → command → input → code-generation） | 18/18 |
 | `npm run p1:shot:test` | 截图触发/预算/去重/steer 策略 | 20/20 |
