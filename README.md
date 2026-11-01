@@ -44,7 +44,9 @@
 
 > **两份论文 PDF 不入库**：`refs/Voyager/voyager.pdf`（18.8 MB）与
 > `refs/MC-MineEvolve/MineEvolve.pdf`（10.1 MB）放在已被 `.gitignore` 忽略的 `refs/` 下
-> （2026-10-31 从 `docs/` 移出，此前误入库 28 MB）。`refs/` 是本地参考检出区，克隆后为空。
+> （2026-10-31 从 `docs/` 移出；同日用 `filter-branch` 把这 28 MB 从 **git 历史**里一并摘除，
+> `.git` 54 MB→19 MB、29 条提交哈希改写，见 [`docs/HISTORY-REWRITE-2026-10-31.md`](docs/HISTORY-REWRITE-2026-10-31.md)）。
+> `refs/` 是本地参考检出区，克隆后为空。
 
 ---
 
@@ -67,14 +69,14 @@
 | [`docs/P1-WORK-2026-10-30.md`](docs/P1-WORK-2026-10-30.md) | **2026-10-30/31 交付 + 真机**：CU 标记放弃、载具感知、`@` 请求 → DSH goal、截图 steer、Voyager 式自动课程、自卫反射可见性、动作脑改绑 `Minecraft动作脑3`、KeyMapping 注册表发现 + 稳定 ID 注入（§8–§11）；含三个真机缺陷修复与 `p1:verify` 全绿 |
 | [`docs/FAILURE-ESCALATION.md`](docs/FAILURE-ESCALATION.md) | **mc_step/mc_plan 失败回执与升级阶梯**：扩展既有 failure.js（信封/分类/签名闸门），mc_step 同步回执 + 任务结算 + mc_plan step 均带 class/requires；knowledge/unverified → lookup_mod_content → mc_ask_player 停车；place/useon 由 mod 采集世界证据、Node 判定；升级按动作签名，成功/TTL/新 goal 自动降级；离线 `p1:failure-escalation:test 26/26`；真机 A32 子集通过（barrier 失败阶梯 + 生成键鼠脚本 trial/run） |
 | [`docs/P1-M6.md`](docs/P1-M6.md) | **P1 M6 记录（聊天并发 + 按需接线）**：未读去重、过时回复拒绝、自回声拒绝、限速/重复/截断、随会话持久化；普通聊天 15 行窗口（含自己的回复、随 `p1-state.json` 保存）；**所有非 `!` 玩家消息写入 ChatMemory**；LLM 回复可 opt-in 守卫（默认关闭）；DialogueRouter + `mc_say` 已真机（2026-10-22）；A24/C03/F02 受控 PASS（2026-10-24）；**A23 的 40 组 ×3 与 A25 三条真实提案未完成** |
-| [`docs/LANGUAGE-BRAIN-REPAIR.md`](docs/LANGUAGE-BRAIN-REPAIR.md) | **语言脑统一门面**：`src/llm/languageBrain.js` 的 roleplay/expert/approval、统一语言工具、原文审批、15 行短期窗口 + ChatMemory/任务记忆 grep；**默认 `agent.language.brain=unified`（2026-10-23 真机验证）**，`legacy` 可回退；`p1:language:test 20/20` |
+| [`docs/LANGUAGE-BRAIN-REPAIR.md`](docs/LANGUAGE-BRAIN-REPAIR.md) | **语言脑统一门面**：`src/llm/languageBrain.js` 的 roleplay/expert/approval、统一语言工具、原文审批、15 行短期窗口 + ChatMemory/任务记忆 grep；**默认 `agent.language.brain=unified`（2026-10-23 真机验证）**，`legacy` 可回退；`p1:language:test 22/22` |
 | [`docs/P1-M7.md`](docs/P1-M7.md) | **P1 M7 记录（离线准备）**：`p1:verify` 一键离线验收（2026-10-31 实测 `--fast` **18/18**、完整 **19/19** 套件）、`p1:fault:test` 9/9、A01–A32 验收矩阵 + F1' 闸门（2026-10-25 回填，2026-10-29 更新 M5 口径）、发布清单与残余风险。**P1 未发布**；M1/M2/M3/M4 真机通过，M5–M7 剩余项见清单 |
 | [`docs/P1-GAP-AUDIT.md`](docs/P1-GAP-AUDIT.md) | **P1 全文差距审计**：§1.4–§1.9 逐节“已落地/部分/仅契约/未开始”，离线待办优先级与需批准项（2026-10-22/10-25 增补现状表；2026-10-29 M5 口径变更） |
-| [`docs/P1-HANDOFF.md`](docs/P1-HANDOFF.md) | **P1 交接（2026-10-25）**：一键复验、已交付清单、客户端窗口实测、默认配置、剩余未交付、窗口顺序、代码地图与风险 |
+| [`docs/P1-HANDOFF.md`](docs/P1-HANDOFF.md) | **P1 交接（2026-10-30 更新）**：一键复验、已交付清单、客户端窗口实测、默认配置、剩余未交付、窗口顺序、代码地图与风险 |
 | [`docs/CLIENT-TEST-2026-10-17.md`](docs/CLIENT-TEST-2026-10-17.md) | **客户端窗口实测记录**：协议 23/23、登录+寻路 7/7、采集 9/10（挖石 noPath 失败）、Agent 自动登录修复、`/state` 空闲成本、F1 未授权（历史，2026-10-29 起 F1 已作废、改 F1'） |
 | [`docs/M1-CLIENT-TEST-2026-10-17.md`](docs/M1-CLIENT-TEST-2026-10-17.md) | **M1 客户端两轮记录**：零矿 FAIL→修复后 failed；任务 ID/终态 FAIL→修复后唯一；stop 816ms；SSE token/重放通过；**M1 适用子集 PASS**，残余 A05/A07/A08/A31 子项留 M2/M3/M7 |
 | [`docs/M2-CLIENT-TEST-2026-10-17.md`](docs/M2-CLIENT-TEST-2026-10-17.md) | **M2 客户端记录**：A01/A02/A03/A09/A10/A11/A12/H1 均 PASS；A12 GUI 修复后 219ms 自动关工作台并击杀；TACZ reload live PASS；时间判定改为 server dayTime 优先 |
-| [`docs/DSH-HARNESS.md`](docs/DSH-HARNESS.md) | **DSH harness 接入**：`dsh-plugin-mc-harness` 插件与安装脚本；**15 个 `mc_*` 工具**（observe/step/state/capabilities/keybinds/ask_player/plan/plan_status/cancel/finish/perception/memory/propose/say + lookup_mod_content）；持久 goal、`/goal/pause`/`resume`、DialogueRouter + `mc_say` 真机结果。**CU 路径已放弃**；原 M5 的 Full Access Ask 对话级预设不再使用（M5 走进程内输入层） |
+| [`docs/DSH-HARNESS.md`](docs/DSH-HARNESS.md) | **DSH harness 接入**：`dsh-plugin-mc-harness` 插件与安装脚本；**15 个工具**（14 个 `mc_*`：observe/step/state/capabilities/keybinds/ask_player/plan/plan_status/cancel/finish/perception/memory/propose/say，外加 `lookup_mod_content`）；持久 goal、`/goal/pause`/`resume`、DialogueRouter + `mc_say` 真机结果。**CU 路径已放弃**；原 M5 的 Full Access Ask 对话级预设不再使用（M5 走进程内输入层） |
 | [`docs/P1-CLIENT-VERIFICATION.md`](docs/P1-CLIENT-VERIFICATION.md) | **P1 客户端阶段验证计划（M1–M7）**：阶段闸门、可证伪主张、正/反证据、有效性边界；**当前 4/7 通过（M1 适用子集、M2、M3、M4）**；M5 未通过（输入层已实现并真机验证链路，但 F1'/A21/A22 未收口；CU 已放弃）、M6/M7 部分 |
 | [`docs/PLANNER-RETIREMENT.md`](docs/PLANNER-RETIREMENT.md) | **自主规划器退役**：`slowLoop` 拆为 GoalEvaluator + 提案 + TaskSlot。**S0–S4 已全部离线交付**（`planner:test` 35/35、`plan:audit --stage p1` 105/105），真机判据仍登记在客户端清单 |
 | [`docs/P1-CLIENT-TESTS.md`](docs/P1-CLIENT-TESTS.md) | **客户端/真机测试清单**：P1 与退役判据里所有需要真实客户端/服务器的项，**状态已按 2026-10-21/22/24 实际执行回填**；未执行项仍为未执行 |
@@ -89,6 +91,7 @@
 | [`docs/CAPABILITY-AUDIT.md`](docs/CAPABILITY-AUDIT.md) | **历史文档**：重写前的静态能力核实（「Bot 不能自主工作」等结论均已作废，见文首对照表） |
 | [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) | 模块分层、Body 契约、安全模型与设计不变量（2026-10-07 版；§九 列与技术债，数字按版本日期读） |
 | [`docs/EXTERNAL-SERVERS.md`](docs/EXTERNAL-SERVERS.md) | 联机玩法：外部服务器配置、Forge 限制、历史方案对比 |
+| [`docs/HISTORY-REWRITE-2026-10-31.md`](docs/HISTORY-REWRITE-2026-10-31.md) | **2026-10-31 git 历史改写记录**：把 28 MB 论文 PDF 从历史里彻底摘除（346→345 提交、29 条哈希映射、`.git` 54→19 MB、工作树 tree 哈希前后一致）；含回滚 bundle 位置、SSH-over-443 推送与被取代网页提交的说明 |
 | [`mod-client/BUILDING.md`](mod-client/BUILDING.md) | 控制 Mod 的构建与安装 |
 | [`mod-bridge/README.md`](mod-bridge/README.md) | 可选的 Fabric 服务端桥（服务器权威状态） |
 | [`SECURITY.md`](SECURITY.md) | **凭据怎么放**（环境变量清单）、不要提交什么、`npm run secrets:scan`、首次公开前的历史清理记录 |
@@ -185,7 +188,7 @@ LLM 层（`src/llm/`，生产配置已开启 `toolCalling`）：8 个工具 —�
 
 ---
 
-## 3. 项目进展（批次表截至 2026-10-16；当前状态按 2026-10-29 实测复核）
+## 3. 项目进展（批次表截至 2026-10-16；当前状态按 2026-11-01 实测复核）
 
 > **CU 路径已放弃（ABANDONED，2026-10-29）**：OS 级 `computer_use` 不再作为 P1 交付路径——WGC 对
 > OpenGL 窗口取不到帧，且 `WindowPolicy`/`ComputerUseGuard` 无法接进只读的打包 DSH 插件，两项都不在
@@ -224,17 +227,17 @@ LLM 层（`src/llm/`，生产配置已开启 `toolCalling`）：8 个工具 —�
 | 10-15 | LLM 完工播报去重 | 同一件事被播报两次（模型措辞 + 632ms 后模板兜底，格式还不一样）：`config` 为 `taskDone` 声明的 `cooldownMs: 30000` **从未被消费**——现在 `announceFinished` 按「任务名\|描述\|成功与否」记时间戳并压制窗口内重复（不同完工、成功后再失败照常播）；模板去掉 `(moved N blocks in M ms)` 遥测 | ✅ 离线（`llm:dry` 工具 39→**43/43** 四条断言；真机故障见 §6 第 15 条） |
 | 10-16 | **P0 收官** | 8/8 套件、`plan:audit` 29/29 复核通过；P0 计划书与验收档案**转为历史文档**；REFS 新增 Voyager 参考项目并明确 `refs/` 忽略范围 | ✅ 离线（`p0:verify` 8/8，2026-10-16 实跑） |
 
-当前状态（2026-10-30 实测复核；历史计数保留在对应日期的记录里）：
+当前状态（2026-11-01 实测复核；历史计数保留在对应日期的记录里）：
 
 * **P0 已收官**：`p0:verify 8/8`（`path:test` · `tasks:test` · `llm:dry` · `control:test` · `verify:roleplay` ·
   `clientmod:test` · `selftest` · `plan:audit`），P0 两份文档已转历史。
-* 离线全绿（2026-10-29 实跑）：`selftest`、`skills:test`、`client:test`、`control:test`、`tasks:test`、
+* 离线全绿（2026-11-01 复跑）：`selftest`、`skills:test`、`client:test`、`control:test`、`tasks:test`、
   `path:test`、`clientmod:test`、`verify:roleplay`、`llm:dry` 均通过（历史计数见 §8；P0 套件由 `p0:verify` 统一跑）。
-* P1 离线（2026-10-31 实跑）：`p1:verify` **19/19 套件**（P0 8 套件 + `planner:test 35/35` +
+* P1 离线（2026-11-01 实跑复核）：`p1:verify` **19/19 套件**（P0 8 套件 + `planner:test 35/35` +
   `p1:contract:test 237/237` + `p1:failure-escalation:test 26/26` + `p1:m3:test 58/58` + `p1:m6:test 25/25` +
   `p1:proposal-autonomy:test 16/16` + `p1:language:test 22/22` + `p1:m7:test 11/11` +
   `p1:m4:test 38/38` + `p1:m4:evolve:test 17/17` + `p1:m5:test 35/35` + `p1:channel:test 18/18` +
-  `p1:shot:test 20/20` + `p1:steer:test 9/9` + `p1:taskgoal:test 14/14` + `p1:curriculum:test 10/10` +
+  `p1:shot:test 20/20` + `p1:steer:test 9/9` + `p1:taskgoal:test 14/14` + `p1:curriculum:test 18/18` +
   `p1:fault:test 9/9` + `plan:audit --stage p1 105/105`；`--fast` 为 **18/18**，完整 **19/19**）。
 * P1 客户端阶段（2026-10-20/21/22/24/25 + 2026-10-29）：**M1 适用子集 PASS、M2 PASS、M3 PASS、M4 PASS（A19 适用子集）**
   （A13–A17、A27 只读/异步、A28–A30、F2；均在 `planner.mode=off` 下由 DSH 动作脑/真机注入完成）；
@@ -245,12 +248,12 @@ LLM 层（`src/llm/`，生产配置已开启 `toolCalling`）：8 个工具 —�
   **M5 未通过，但已从"未实现"变为"已实现并真机验证链路"**：进程内输入层 + 键鼠台账 + 帧缓冲截图已落地
   （`p1:m5:test 35/35`；真机 `m5-live-probe 21/21`、`m5-agent-probe 11/11`、`m5-gui-live 93/93`、
   `m5-target-live 8/8`、`m5-channel-live 8/8`）；**A21 部分通过（2 类 GUI ×3，探针直连未走技能层）、
-  A22/M5.3 未执行、F1'b 的死亡/断连/退出注入未跑**；CU 路径**已放弃**；
+  A22/M5.3 未执行、F1'b 的暂停/死亡/断连/退出四类注入未跑**；CU 路径**已放弃**；
   M6 对话入口真机通过，2026-10-24 受控测试 **A24/C03/F02 PASS、A25 四路径（accept 真 harness）、
   A23 仅 6 条真实沉默（缺 40×3）**；M7 仅 A26/R1 部分基线，**R2–R4、F3 真机端点、A31 最终组合
   未执行**；**P1 未发布**。详见
   `docs/P1-CLIENT-VERIFICATION.md`、`docs/P1-M3.md`、`docs/P1-M7.md`、`docs/P1-HANDOFF.md`。
-* 控制 Mod：`mod-client/dist/agent-client-1.0.0.jar` **88769 字节**（2026-10-30 构建，**31 个 HTTP 动词**），
+* 控制 Mod：`mod-client/dist/agent-client-1.0.0.jar` **96867 字节**（2026-10-30 构建，`POST /command` **31 个 case 分支 / 别名展开 40 个 verb 名**），
   含 WalkTo 严格到达 y 容差、战斗 v3、TACZ 枪械与 server `dayTime` 昼夜判断、**TACZ `HoldToAim` 右键瞄准修复**、
   **`/state?players=1` 轻量玩家轮询**、**Veil ImGui 按键崩溃防护 Mixin**，以及 2026-10-29/30 的
   **进程内输入层**（`key/hold/tap/look/shot`、`InputLedger` 对账、`gameTime`、`entities/riding/standingOnEntity`）
@@ -459,7 +462,7 @@ LLM 层（`src/llm/`，生产配置已开启 `toolCalling`）：8 个工具 —�
 **通道 A：`!` 前缀 —— 确定性快路径**（Agent 轮询控制 Mod 的聊天缓冲，只认 `!` 开头的行）：
 
 ```
-!status / !inv / !where / !help
+!status / !inv / !where / !help / !capabilities
 !chop 8 / !mine stone 8 / !collect / !goto 120 64 -300
 !craft <item> [n] / !smelt <item> [n] / !farm [r] / !sleep / !fish [n]
 !eat [food] / !equip <item> / !armor / !drop <item> [n]
@@ -467,6 +470,11 @@ LLM 层（`src/llm/`，生产配置已开启 `toolCalling`）：8 个工具 —�
 !explore [距离] [方向] / !come <玩家> / !withdraw <item> [n]   # withdraw 为后台任务，扫描 15×15×9 纯容器并读箱
 !follow <玩家> [秒]   # 后台任务；默认 300s，150ms 轮询目标位置 + A* 重规划
 !deposit <item> <count> / !store <item> <count>   # 同一条命令；范围内无箱子会自动做并放下一个
+!hunt [n] / !light [n] / !shelter / !target / !look <yaw> <pitch> / !lookat <x> <y> <z> / !shot [maxEdge]
+!key <动作|modid:path> down|up / !hold <动作|modid:path> [ms] / !tap <动作|modid:path> / !inputs   # 进程内输入层
+!keybinds [query]                  # 实时 KeyMapping 表（原版+模组，稳定 modid:path ID）
+!goal <文本> / !state status|save / !plans / !method <目标> / !methods / !answers / !proposal status|accept|reject / !answer <文本>
+!code-skill list | find <文本> | forge <prompt> | forge-status [id] | history <名称> | <名称> [json]
 !task status / !task stop          # 后台任务槽
 !area … / !route …                 # 命名区域 / 路线（route plan 只算不走）
 !rule … / !yes [always] / !no      # 权限规则与征询应答
@@ -503,11 +511,11 @@ Invoke-RestMethod -Uri http://127.0.0.1:8766/ui/state
 | `npm run client:check` | 探测 8899：Mod 在不在、是否已进入世界 |
 | `npm run client:verify` | 真机协议验收（需要客户端在跑） |
 
-原语清单（`ControlHttpServer.execute`，**31 个 verb**）：`chat/login/say`、`cmd/command`、`look/lookat/resync/stop`、
-`moveto/goto`、`dig/mine`、`tunnel`、`pillar/pillarup/tower`、`place/useon/interact`、`menu/slots/click/close`、
-`use/useitem/select/drop`、`attack`、`shoot`、`retreat`、`target`，以及 2026-10-29 进程内输入层
-**`key/hold/tap/shot/inputs`**；
-感知 `GET /state /progress /chatlog /health`。`/register` 在四道闸门上被永久拒绝（会重置角色数据）。
+原语清单（`ControlHttpServer.execute`，**31 个 case 分支 / 别名展开 40 个 verb 名**）：
+`chat/login/say`、`cmd/command`、`look/lookat/resync/stop/reload`、`moveto/goto`、`dig/mine`、`tunnel`、
+`pillar/pillarup/tower`、`place/useon/interact`、`target`、`menu/slots/click/close`、`use/useitem/select/drop`、
+`attack`、`shoot`、`retreat`，以及 2026-10-29 进程内输入层 **`key/hold/tap/shot/inputs`**；
+感知 `GET /state /progress /chatlog /health /keybinds`。`/register` 在四道闸门上被永久拒绝（会重置角色数据）。
 
 ---
 
@@ -586,7 +594,7 @@ Invoke-RestMethod -Uri http://127.0.0.1:8766/ui/state
 ├─ src\
 │  ├─ index.js                 # 装配与生命周期
 │  ├─ brain.js                 # 快反射（600ms）+ 慢规划 双循环
-│  ├─ skills\                  # 20 个确定性技能 + miningPlan（报价/几何/台账）
+│  ├─ skills\                  # 21 个确定性技能 + miningPlan（报价/几何/台账）
 │  ├─ body\                    # Body 契约与实现：clientmod / mineflayer / mock
 │  ├─ core\                    # taskHub / recoveryLadder / permissions / places / holds / failure
 │  ├─ llm\                     # LLM 回合与 8 个工具（tools\）
@@ -613,11 +621,11 @@ Invoke-RestMethod -Uri http://127.0.0.1:8766/ui/state
 | `npm run client:launch` | 无头拉起 Forge 客户端（`--server` / `--singleplayer` / `--username`） | 主线 |
 | `npm run client:check` | 检查 Mod 与"是否在世界里" | 主线 |
 | `npm run client:build` / `client:install` | 构建 / 安装控制 Mod | 主线 |
-| `npm run client:test` | 假 Mod 协议测试（含 pillar 回执/隧道保护/空闲刷新/shoot/retreat） | 75/75 |
+| `npm run client:test` | 假 Mod 协议测试（含 pillar 回执/隧道保护/空闲刷新/shoot/retreat） | 79/79 |
 | `npm run clientmod:test` | clientmod 躯体角色扮演路径（含骑乘/载具感知映射） | 12/12 |
 | `npm run skills:test` | 技能库（含采矿/垫柱/护甲/武器/进食/枪械选枪与反卡死、战斗租约、collect 新鲜扫描、deposit 精确搬运、withdraw 读箱/跨箱精确取物、follow 高频重规划） | 74/74 |
 | `npm run mining:entry:test` | 统一挖矿入口 A 系列（含 A10 规划器停牌键、A11 全矿种深板岩矩阵） | 25/25 |
-| `npm run mining:collection:test` | 掉落物收集 C 系列 | 24/24 |
+| `npm run mining:collection:test` | 掉落物收集 C 系列 | 25/25 |
 | `npm run mining:recovery:test` | LLM 异常接管 R 系列（脚本化模型） | 18/18 |
 | `npm run selftest` | 全量离线自检 | 183/183 |
 | `npm run p0:verify` | P0 全量验收（一次跑 8 个套件） | 8/8 |
@@ -635,7 +643,7 @@ Invoke-RestMethod -Uri http://127.0.0.1:8766/ui/state
 | `npm run p1:taskgoal:test` | 玩家任务 / `@` 请求 → DSH goal（含异常阶梯/自卫反射提示） | 14/14 |
 | `npm run p1:curriculum:test` | Voyager 式自动课程（难度带/账本/账本自净/失败降带/校验/接线） | 18/18 |
 | `npm run p1:m4:evolve:test` | M4 v3 键鼠脚本 / 错误回灌 / 版本链 / 检索 | 17/17 |
-| `npm run p1:language:test` | 统一语言脑门面（profile/工具/原文审批/记忆 grep/短窗口） | **20/20** |
+| `npm run p1:language:test` | 统一语言脑门面（profile/工具/原文审批/记忆 grep/短窗口） | **22/22** |
 | `npm run corpus:learn` | 从 `chat-corpus.csv` 标注学习 20+20 条沉默/参与示例，写 `config/chat-silence-profile.json` | 40 examples |
 | `npm run inspect:server` / `mods:report` | 连服前体检 / Mod 知识报告 | 辅助 |
 | `npm run body:info` | 查看可用 body 与当前选择 | 辅助 |
@@ -703,7 +711,7 @@ P0 已于 2026-10-16 收官（`p0:verify` 8/8、`plan:audit` 29/29）；[`docs/P
 npm run p0:verify      # 离线全量（约 1 分钟，8 个套件）
 npm run selftest       # 183/183：模块图 / 插件 / 寻路 / 三原语 / 意图 Schema / 工具白名单 / 死亡处理
 npm run mining:entry:test      # 25/25：统一挖矿入口（含全矿种深板岩矩阵）
-npm run mining:collection:test # 24/24：共享收集
+npm run mining:collection:test # 25/25：共享收集
 npm run mining:recovery:test   # 18/18：LLM 接管（脚本化模型）
 ```
 
