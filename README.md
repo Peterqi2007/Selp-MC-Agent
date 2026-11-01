@@ -56,6 +56,11 @@
 | --- | --- |
 | 本文件 | 现状、架构、快速开始、指令、进展、脚本、限制 |
 | 本文件 §3 | **想知道「现在到哪一步了」先读它**：批次表 + 当前状态 + 最新真机记录 |
+| [自研动作脑计划书](docs/SELF-HOSTED-ACTION-BRAIN-PLAN.md) | **= 项目 P2（自研 Agent 落地，2026-11-01 立项）**：Pi SDK 首选方案、需求与边界、快慢循环、取消/暂停/预算与恢复、子代理/插件/UI/分发路线；内部 B0–B5 是 P2 的子阶段；当前为设计与独立代码骨架，未切换生产默认 |
+| [动作脑接口迁移清单](docs/ACTION-BRAIN-MIGRATION-INTERFACES.md) | DSH 生命周期、15 个工具、配置/HTTP/SSE 与现有执行内核的逐项替换和保留清单 |
+| [动作脑验收矩阵](docs/ACTION-BRAIN-ACCEPTANCE.md) | **B0–B5** 阶段闸门（79 项）、故障注入、性能对照、干净 Windows 交付与回滚；未执行项明确标记 |
+| [异步受理与事件唤醒契约](docs/ACTION-BRAIN-ASYNC-CONTRACT.md) | 回执/终态/事件族、三态收件箱与边界投递、拒绝式受理、持久化恢复；**契约 + 占位骨架，未实现**；对应验收 B2-15…B2-20 |
+| [动作脑代码骨架](src/actionBrain/README.md) | 可注入的运行时、Pi 驱动、epoch 栅栏、工具能力、子代理及恢复契约；离线验证：npm run action-brain:contract:test |
 | [`docs/P1-PLANNER-PLAN.md`](docs/P1-PLANNER-PLAN.md) | **下一阶段方案**：规划器重构（语言/动作脑区解耦、分级自主感知、自主解题、自主学习、聊天扩展）；§1.9 单列 coding harness 与自研动作脑的比较与接入边界。要求在**独立分支**实施；2026-10-17 裁决见 §1.1.1 |
 | [`docs/P1-M0.md`](docs/P1-M0.md) | **P1 M0 记录**：基线（提交/指纹/套件）、问题复核、P0→P1 审计迁移清单、评测集 v1、测量模板与版本登记。离线项已完成，**客户端三项部分执行**（M0-C1/C2 部分；原 C3/F1 已于 2026-10-29 作废 → 改为 F1' 契约准备（离线），真机断言移入 M5） |
 | [`docs/P1-M1.md`](docs/P1-M1.md) | **P1 M1 记录（离线 M1a–M1d）**：`TaskEvents` 汇聚/重放、身份字段、`PlanStore` 单一写者、同端口 SSE、Capability 表、TaskResult 六态、`mine_ore` progress 值域、PlanRunner、TurnLifecycle、HarnessAdapter；契约测试已扩到 206/206。真实 DSH 插件与持久化已于 M3 接线并真机验证 |
@@ -236,6 +241,12 @@ LLM 层（`src/llm/`，生产配置已开启 `toolCalling`）：8 个工具 —�
 
 当前状态（2026-11-01 实测复核；历史计数保留在对应日期的记录里）：
 
+* **P2 已立项（2026-11-01）：自研 Agent 落地**——用应用自有的 Pi 运行时替换 DSH 动作脑，
+  正式定为项目 **P2**（[计划书](docs/SELF-HOSTED-ACTION-BRAIN-PLAN.md) 内部 B0–B5 是 P2 的子阶段）。
+  同期审计出 14 条隐患并进入 P2：**回合门/任务门**（异步回合不再因任务在跑被判失败）、
+  driver 工厂超时、`stop({force})` 降级、`pause/resume`、思考 deadline、任务事件端口、
+  边界/入站接缝、用量计量。文档与 `src/actionBrain` 骨架已同步（`action-brain:contract:test` **57/57**），
+  **生产入口 `src/index.js` 未改**，`p1:verify --fast` 仍 19/19；真机与行为验收未执行。
 * **P0 已收官**：`p0:verify 8/8`（`path:test` · `tasks:test` · `llm:dry` · `control:test` · `verify:roleplay` ·
   `clientmod:test` · `selftest` · `plan:audit`），P0 两份文档已转历史。
 * 离线全绿（2026-11-01 复跑）：`selftest`、`skills:test`、`client:test`、`control:test`、`tasks:test`、
