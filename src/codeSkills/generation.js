@@ -33,7 +33,10 @@ const PERMISSION_LIST = [...INPUT_PERMISSIONS, 'read_state', 'wait', 'chat'];
 const CONDITION_LIST = ['inventoryAtLeast', 'positionNear', 'blockAt', 'targetIs'];
 
 const INPUT_METHODS = [
-  'state(args?)                          // {ok, position, health, food, dimension, screen, target, inventory, ...}',
+  'state(args?)                          // {ok, position, health, food, dimension, time, isDay,',
+  '                                      //  dead, screen, heldItem, inventory, hostiles, ...};',
+  '                                      //  opt-ins: {blocks:{radiusXZ,radiusY,limit}, includePlayers,',
+  '                                      //  includeCrops, includeItems, includeMenu, includeKeybinds}',
   'block_at({x,y,z})                     // read-only single block',
   'find_blocks({name|names, radiusXZ?, radiusY?, limit?})',
   'key(action, down)                     // hold/release: forward/back/left/right/jump/sprint/sneak/use/attack',
@@ -99,7 +102,7 @@ function feedbackBlock(feedback) {
   return lines.join('\n');
 }
 
-function generationPrompt(prompt, manifest, feedback = null) {
+function generationPrompt(prompt, manifest, feedback = null, context = null) {
   return [
     'You write ONE small Minecraft agent skill as CommonJS JavaScript: a keyboard/mouse script.',
     'Answer with exactly one JSON object:',
@@ -140,6 +143,23 @@ function generationPrompt(prompt, manifest, feedback = null) {
     '- Real-time control loops (vehicles, aircraft, moving steering): poll `await ctx.state()` in',
     '  a tight loop and pace with `await ctx.wait(ms)` (50-250 ms); decide the next input from the',
     '  FRESH state each iteration, never from a plan made before the loop started.',
+    /**
+     * 2026-11-01 operator request: make state-driven scripts the default, not only the
+     * real-time-control exception. The model used to write a straight-line script and the
+     * first trial paid for whatever had changed since it read the world.
+     */
+    'STATE-DRIVEN SCRIPTS (required):',
+    '- Start by reading state: `const s = await ctx.state();` and branch on the fields THIS task',
+    '  depends on (health, food, dead, position, screen, heldItem, inventory, hostiles, time/isDay,',
+    '  weather). For world lookups use `ctx.block_at` / `ctx.find_blocks` / `ctx.target()`.',
+    '- Loop while working with a bounded counter (`for (let i = 0; i < N; i++)` or a `while` with an',
+    '  explicit budget): re-read state every iteration, act on the FRESH state, pace with',
+    '  `ctx.wait(50-250)`, and stop on a refusal, `s.dead`, low health, or the task condition.',
+    '- Read ONLY the fields relevant to this task; do not scan the whole world on every tick',
+    '  (`ctx.state({blocks:{radiusXZ:2,radiusY:1}})` for a single cell, not a 16-block window).',
+    '- Do NOT hardcode the coordinates, counts or health values from the snapshot below. Read them',
+    '  at runtime so the skill still works elsewhere; put instance-specific numbers in `params`',
+    '  with sane defaults (e.g. `const count = Number(params.count) || 3`).',
     '- run() must return a JSON-serializable object such as {ok, steps:[...], evidence:{...}}.',
     '- Do NOT declare success yourself: success is decided by the manifest `verification`.',
     '- No require/import, no fs, no network, no process/globalThis, no eval/Function, no infinite loops.',
@@ -148,6 +168,20 @@ function generationPrompt(prompt, manifest, feedback = null) {
     '- Keep it under 120 lines; sleeps must stay under 2000 ms; explain failures honestly in the result.',
     manifest ? `Use this manifest as a starting point (server may override name/version): ${JSON.stringify(manifest)}` : null,
     feedbackBlock(feedback),
+    /**
+     * Live snapshot at write time. Labelled explicitly so the model uses it to CHOOSE which
+     * state fields to read, not as constants to paste into the script.
+     */
+    context
+      ? [
+          '',
+          'CONTEXT SNAPSHOT (write-time only; NOT constants):',
+          String(context),
+          'Use it to decide WHICH state fields the script should read and which failure modes to',
+          'handle; the script must re-read the live values at runtime (never hardcode these',
+          'coordinates, counts or health numbers).'
+        ].join('\n')
+      : null,
     '',
     `TASK: ${prompt}`
   ]
@@ -174,14 +208,17 @@ class CodeSkillGeneration {
     this.log = deps.log || { info() {}, warn() {}, debug() {} };
   }
 
-  async generate({ prompt, manifest = null, requestId = null, feedback = null } = {}) {
+  async generate({ prompt, manifest = null, requestId = null, feedback = null, context = null } = {}) {
     if (typeof this.complete !== 'function') return { ok: false, reason: 'no-generator' };
     const clean = String(prompt || '').trim();
     if (!clean) return { ok: false, reason: 'empty-prompt' };
+    const contextText = context && typeof context === 'object'
+      ? (typeof context.text === 'string' ? context.text : null)
+      : (typeof context === 'string' ? context : null);
     let raw;
     try {
       raw = await this.complete({
-        system: generationPrompt(clean, manifest, feedback),
+        system: generationPrompt(clean, manifest, feedback, contextText),
         messages: [{ role: 'user', content: clean }],
         maxTokens: this.maxTokens,
         timeoutMs: this.timeoutMs,

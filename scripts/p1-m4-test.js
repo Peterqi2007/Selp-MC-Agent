@@ -21,7 +21,8 @@ const path = require('path');
 
 const { validateManifest } = require('../src/codeSkills/manifest');
 const { CodeSkillStore } = require('../src/codeSkills/store');
-const { CodeSkillGeneration } = require('../src/codeSkills/generation');
+const { CodeSkillGeneration, generationPrompt } = require('../src/codeSkills/generation');
+const { buildStateDigest } = require('../src/codeSkills/stateDigest');
 const { SandboxRunner } = require('../src/codeSkills/sandboxRunner');
 const { CodeSkillService } = require('../src/codeSkills/service');
 const { CodeSkillTask } = require('../src/tasks/codeSkill');
@@ -182,6 +183,140 @@ function fakeSearchResponse(payload) {
     assert(good.ok);
     assert(seenPrompt.includes('Real-time control loops'), 'prompt mentions realtime loops');
     assert(seenPrompt.includes('ctx.wait(ms)'), 'prompt teaches ctx.wait pacing');
+  });
+
+  await check('the generation prompt makes state-driven scripts the default', () => {
+    /**
+     * 2026-11-01 operator request: scripts must read ctx.state() and branch/loop on it, not
+     * straight-line the task and hope the world did not move.
+     */
+    const text = generationPrompt('mine 3 dirt with a pickaxe');
+    assert.match(text, /STATE-DRIVEN SCRIPTS \(required\)/);
+    assert.match(text, /const s = await ctx\.state\(\)/);
+    assert.match(text, /re-read state every iteration/i);
+    assert.match(text, /Read ONLY the fields relevant to this task/);
+    assert.match(text, /Do NOT hardcode/);
+  });
+
+  await check('a write-time snapshot is injected but labelled as non-constants', async () => {
+    let seenPrompt = '';
+    const generation = new CodeSkillGeneration({
+      complete: async (options) => {
+        seenPrompt = String((options && options.system) || '');
+        return '{}';
+      },
+      log: silent
+    });
+    await generation.generate({
+      prompt: 'stack 3 dirt',
+      context: { text: 'position: 21.3, 52.0, 79.3 (overworld) | health 20/20' }
+    });
+    assert.match(seenPrompt, /CONTEXT SNAPSHOT \(write-time only; NOT constants\)/);
+    assert.match(seenPrompt, /position: 21\.3, 52\.0, 79\.3/);
+    assert.match(seenPrompt, /re-read the live values at runtime/);
+    const bare = generationPrompt('stack 3 dirt');
+    assert.doesNotMatch(bare, /CONTEXT SNAPSHOT/);
+  });
+
+  await check('the state digest includes only the sections the task needs', () => {
+    const snapshot = {
+      ready: true,
+      position: { x: 10.5, y: 64, z: -3.2 },
+      dimension: 'minecraft:overworld',
+      health: 18,
+      food: 17,
+      time: { day: 1974, isDay: true },
+      heldItem: 'minecraft:iron_pickaxe',
+      inventory: {
+        'minecraft:dirt': 64,
+        'minecraft:cobblestone': 32,
+        'minecraft:oak_planks': 6
+      },
+      hostiles: [
+        { name: 'minecraft:zombie', distance: 6.2, position: { x: 12, y: 64, z: -1 } },
+        { name: 'minecraft:skeleton', distance: 11.4, position: { x: 15, y: 64, z: -5 } }
+      ],
+      blocks: {
+        cells: {
+          '10,63,-3': 'minecraft:stone',
+          '11,63,-3': 'minecraft:stone',
+          '10,62,-3': 'minecraft:dirt',
+          '12,64,-3': 'minecraft:air'
+        }
+      }
+    };
+    const mining = buildStateDigest(snapshot, { prompt: 'mine 3 dirt with a pickaxe' });
+    assert.ok(mining, 'a snapshot produces a digest');
+    assert.ok(mining.sections.includes('blocks'), 'mining needs blocks');
+    assert.ok(mining.sections.includes('inventory'), 'a pickaxe prompt needs inventory');
+    assert(!mining.sections.includes('hostiles'), 'mining must not drag hostiles in');
+    assert.match(mining.text, /blocks around \(r8\/±4, 4 cells\)/);
+    assert.match(mining.text, /stone x2/);
+
+    const combat = buildStateDigest(snapshot, { prompt: 'fight the zombie with a sword' });
+    assert.ok(combat.sections.includes('hostiles'));
+    assert(!combat.sections.includes('blocks'), 'combat must not include the block palette');
+    assert.match(combat.text, /zombie 6\.2m/);
+
+    const generic = buildStateDigest(snapshot, { prompt: 'wave hello' });
+    assert.deepStrictEqual(generic.sections.sort(), ['health', 'held', 'position', 'time']);
+    assert.doesNotMatch(generic.text, /inventory|blocks around|nearby hostiles/);
+
+    assert.strictEqual(buildStateDigest(null, { prompt: 'x' }), null);
+    assert.strictEqual(buildStateDigest({ ready: false }, { prompt: 'x' }), null);
+  });
+
+  await check('the state digest caps what it ships to the model', () => {
+    const inventory = {};
+    for (let i = 0; i < 20; i += 1) inventory[`minecraft:item_${i}`] = 100 - i;
+    const hostiles = [];
+    for (let i = 0; i < 5; i += 1) hostiles.push({ name: `minecraft:mob_${i}`, distance: i + 1 });
+    const digest = buildStateDigest(
+      {
+        ready: true,
+        position: { x: 0, y: 64, z: 0 },
+        dimension: 'minecraft:overworld',
+        health: 20,
+        food: 20,
+        inventory,
+        hostiles,
+        blocks: { cells: {} }
+      },
+      { prompt: 'collect items and fight mobs', maxInventory: 3, maxHostiles: 2 }
+    );
+    assert.match(digest.text, /inventory \(top 3\)/);
+    assert.doesNotMatch(digest.text, /item_5/);
+    assert.match(digest.text, /mob_0/);
+    assert.doesNotMatch(digest.text, /mob_2/);
+  });
+
+  await check('the service feeds the digest into generation and keeps it relevant', async () => {
+    const snapshot = {
+      ready: true,
+      position: { x: 1, y: 64, z: 2 },
+      dimension: 'minecraft:overworld',
+      health: 20,
+      food: 20,
+      heldItem: 'minecraft:iron_shovel',
+      inventory: { 'minecraft:dirt': 4 },
+      hostiles: [],
+      blocks: { cells: { '1,63,2': 'minecraft:dirt', '2,63,2': 'minecraft:stone' } }
+    };
+    let captured = null;
+    const service = Object.create(CodeSkillService.prototype);
+    service.ctx = { body: { snapshot: () => snapshot } };
+    service.log = silent;
+    service.generation = {
+      generate: async (options) => {
+        captured = options;
+        return { ok: false, reason: 'probe-stop' };
+      }
+    };
+    const result = await service.generateCandidate({ prompt: 'dig 2 dirt' });
+    assert.strictEqual(result.reason, 'probe-stop');
+    assert.ok(captured && typeof captured.context === 'string', 'the generation call carries a context');
+    assert.match(captured.context, /blocks around/, 'digging includes the block palette');
+    assert.doesNotMatch(captured.context, /nearby hostiles/, 'digging does not include hostiles');
   });
 
   await check('DeepSeek Search posts the documented schema and caches the result', async () => {

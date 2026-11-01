@@ -243,12 +243,12 @@ LLM 层（`src/llm/`，生产配置已开启 `toolCalling`）：8 个工具 —�
 * P1 离线（2026-11-01 实跑复核）：`p1:verify` **20/20 套件**（P0 8 套件 + `planner:test 35/35` +
   `p1:contract:test 241/241` + `p1:failure-escalation:test 27/27` + `p1:m3:test 58/58` + `p1:m6:test 25/25` +
   `p1:proposal-autonomy:test 16/16` + `p1:language:test 22/22` + `p1:m7:test 11/11` +
-  `p1:m4:test 38/38` + `p1:m4:evolve:test 17/17` + `p1:m5:test 35/35` + `p1:channel:test 18/18` +
+  `p1:m4:test 43/43` + `p1:m4:evolve:test 17/17` + `p1:m5:test 35/35` + `p1:channel:test 18/18` +
   `p1:shot:test 20/20` + `p1:steer:test 9/9` + `p1:taskgoal:test 14/14` + `p1:curriculum:test 18/18` +
   `p1:autonomous:test 33/33` + `p1:fault:test 9/9` + `plan:audit --stage p1 111/111`；`--fast` 为 **19/19**，完整 **20/20**）。
 * P1 客户端阶段（2026-10-20/21/22/24/25 + 2026-10-29）：**M1 适用子集 PASS、M2 PASS、M3 PASS、M4 PASS（A19 适用子集）**
   （A13–A17、A27 只读/异步、A28–A30、F2；均在 `planner.mode=off` 下由 DSH 动作脑/真机注入完成）；
-  M4 代码管线、`p1:m4:test 38/38`、`!code-skill`/`code_skill` 实时入口与 v2 直接原语真机已完成：
+  M4 代码管线、`p1:m4:test 43/43`、`!code-skill`/`code_skill` 实时入口与 v2 直接原语真机已完成：
   **A18–A20、A28–A30 真机 PASS**（move+dig、容器 click、越界/抢身体/取消/deny、半途失败、长任务
   15.57s、硬杀恢复、10,352 tok 用量；A19 残余仅离线），见
   [`docs/M4-DIRECT-BODY-PLAN.md`](docs/M4-DIRECT-BODY-PLAN.md)；
@@ -297,6 +297,12 @@ LLM 层（`src/llm/`，生产配置已开启 `toolCalling`）：8 个工具 —�
      [`src/world/engageTarget.js`](src/world/engageTarget.js)：飞行敌意生物用
      `engageRadiusYFlying=12`，且"被击中当 tick"无视窗口直接交战 24 格内最近的敌意生物。
      `p1:contract:test` **241/241**（新增选靶断言）。真机复现需夜间幻翼，本轮未等到。
+* **2026-11-01 代码生成提示词**：脚本默认**状态驱动**——先 `ctx.state()`，按任务相关字段分支，
+  循环里每轮重读、`ctx.wait(50-250)` 控节奏、失败/死亡/低血/达成即停，只读相关字段，**不把现场
+  坐标/数量/血量硬编码**（实例参数走 `params`）。生成时自动注入**相关性过滤**的写时快照
+  （位置/维度/血量/饥饿/时间/手持 + 相关的背包/附近方块/附近怪），明确标注 "write-time only;
+  NOT constants"，脚本运行时必须重读。`p1:m4:test` 38→**43/43**。详见
+  [`docs/P1-M4.md`](docs/P1-M4.md) §6.3b。
 * **2026-10-30 本轮（离线 + 真机）**：
   - **CU 正式标为放弃**，文档/代码头统一，唯一口径 [`docs/CU-ABANDONED.md`](docs/CU-ABANDONED.md)；
   - **载具感知**：`/state` 新增 `mounted`，`riding` 带 `inventory`/`integrity`；覆盖原版容器、
@@ -698,6 +704,7 @@ Invoke-RestMethod -Uri http://127.0.0.1:8766/ui/state
 | `npm run p1:curriculum:test` | Voyager 式自动课程（难度带/账本/账本自净/失败降带/校验/接线） | 18/18 |
 | `npm run p1:autonomous:test` | 完全自主模式（状态机/忙拒/自动接受/护栏/死亡重生与遗体回收/持久化/启动接管/受阻即暂停） | 33/33 |
 | `npm run p1:m4:evolve:test` | M4 v3 键鼠脚本 / 错误回灌 / 版本链 / 检索 | 17/17 |
+| `npm run p1:m4:test` | M4 沙箱/权限/生成提示词（状态驱动+写时快照）/搜索/存储 | 43/43 |
 | `npm run p1:language:test` | 统一语言脑门面（profile/工具/原文审批/记忆 grep/短窗口） | **22/22** |
 | `npm run corpus:learn` | 从 `chat-corpus.csv` 标注学习 20+20 条沉默/参与示例，写 `config/chat-silence-profile.json` | 40 examples |
 | `npm run inspect:server` / `mods:report` | 连服前体检 / Mod 知识报告 | 辅助 |

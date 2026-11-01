@@ -28,6 +28,7 @@ const { spawn } = require('child_process');
 const { CodeSkillStore } = require('./store');
 const { CodeSkillDirectory } = require('./directory');
 const { CodeSkillGenerator, scanCode } = require('./generator');
+const { buildStateDigest } = require('./stateDigest');
 const { isDaytime } = require('../world/daytime');
 const {
   validateManifest,
@@ -387,6 +388,25 @@ class CodeSkillService {
    * Generate a real candidate and write it to candidates/. The model output is validated
    * and statically scanned first; it is never imported here.
    */
+  /**
+   * Relevance-filtered live snapshot for the generation prompt.
+   *
+   * Only the sections the task needs are included (mining -> blocks/inventory, fighting ->
+   * hostiles), so the model gets the situation without the full world dump, and the prompt
+   * keeps it from copying the numbers into the script.
+   */
+  _stateDigestForPrompt(prompt) {
+    const body = this.ctx && this.ctx.body;
+    const snapshot = body && typeof body.snapshot === 'function' ? body.snapshot() : null;
+    if (!snapshot) return null;
+    try {
+      return buildStateDigest(snapshot, { prompt });
+    } catch (err) {
+      this.log.debug(`state digest skipped: ${err.message}`);
+      return null;
+    }
+  }
+
   async generateCandidate(input = {}) {
     const {
       prompt,
@@ -403,7 +423,20 @@ class CodeSkillService {
     }
     if (typeof prompt !== 'string' || !prompt.trim()) return { ok: false, reason: 'empty-prompt' };
     if (prompt.length > 4000) return { ok: false, reason: 'prompt-too-long' };
-    const generated = await this.generation.generate({ prompt, manifest, requestId, feedback });
+    /**
+     * Write-time context (2026-11-01 operator request): the generator used to see only the
+     * task text. A relevance-filtered snapshot gives it the situation without shipping the
+     * whole world - and the prompt tells it to re-read the fields at runtime, so the skill
+     * stays general.
+     */
+    const digest = this._stateDigestForPrompt(prompt);
+    const generated = await this.generation.generate({
+      prompt,
+      manifest,
+      requestId,
+      feedback,
+      context: digest ? digest.text : null
+    });
     if (!generated.ok) return generated;
 
     const skillManifest = { ...generated.manifest };
