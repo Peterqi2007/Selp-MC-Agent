@@ -263,10 +263,21 @@ function makeHarness(options = {}) {
     log: silent
   };
   const stopped = [];
+  const clears = [];
   if (options.spyStop) {
     ctx.stopActionBrain = async (reason) => {
       stopped.push(reason);
       return { ok: true };
+    };
+  }
+  if (options.spyStop) {
+    /**
+     * Starting the mode is a takeover: it must clear a leftover goal, including an ACTIVE one
+     * left by a task that failed before its round began (live retest 2026-11-01).
+     */
+    ctx.clearActionBrainGoal = async (opts) => {
+      clears.push(opts || {});
+      return { ok: true, cleared: true, goalId: 'goal-leftover' };
     };
   }
   const coordinator = new AutonomousProposalCoordinator({
@@ -288,7 +299,7 @@ function makeHarness(options = {}) {
   ctx.autonomous = mode;
   ctx.proposalCoordinator = coordinator;
   coordinator.mode = mode;
-  return { now, brain, bridge, body, curriculum, coordinator, mode, ctx, replies, stopped };
+  return { now, brain, bridge, body, curriculum, coordinator, mode, ctx, replies, stopped, clears };
 }
 
 function propose(brain, overrides = {}) {
@@ -712,6 +723,18 @@ function propose(brain, overrides = {}) {
     assert.strictEqual(h.mode.phase, 'off');
     assert.ok(h.bridge.completed.length > before, 'the execution goal was not closed');
     assert.strictEqual(h.mode.isActive(), false);
+  });
+
+  await check('starting the mode takes over a leftover ACTIVE goal too', async () => {
+    /**
+     * Live retest 2026-11-01: a `goto` that failed before its round began left an active task
+     * goal behind; `!autonomous on` then sat on `goal:active` and never started prep. Starting
+     * is an explicit takeover, so the leftover must be closed - active or paused.
+     */
+    const h = makeHarness({ spyStop: true });
+    await h.mode.start({});
+    assert.ok(h.clears.length > 0, 'start must try to clear a leftover goal');
+    assert.strictEqual(h.clears[0].includeActive, true, 'the takeover clears active goals, not only paused ones');
   });
 
   await check('three deaths inside the window pause the mode (no suicide loop)', async () => {

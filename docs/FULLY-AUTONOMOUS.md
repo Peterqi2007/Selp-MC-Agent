@@ -1,6 +1,6 @@
 # 完全自主模式（Fully Autonomous Mode）
 
-> 状态（2026-11-01）：**已实现：离线 `p1:autonomous:test 31/31`、`p1:verify` 19/19（含 P0 为 20/20）、
+> 状态（2026-11-01）：**已实现：离线 `p1:autonomous:test 32/32`、`p1:verify` 19/19（含 P0 为 20/20）、
 > `plan:audit --stage p1 111/111`；真机 A33 未执行**（需要真实游戏会话，尤其是「真的死一次」）。
 > 代码：`src/core/autonomousMode.js`、`src/core/corpseRecovery.js`、`src/skills/corpse.js`；
 > 提案侧改动在 `src/planner/autonomousProposals.js`；遗体交互与重生在客户端 Mod（`useentity` / `respawn`）。
@@ -85,13 +85,22 @@ off ──!autonomous on──► running ──!stop / 护栏──► paused �
    外一律返回 `operator-stop` + `requires:['operator-resume']`；`/plan`、`/propose`、`/ask_player`
    同样返回 409 `operator-stop`。这样即使有一个抢跑的回合，身体也不会动。
 
-`!resume` 或 `!autonomous on` 调 `brain.resume()` 清掉 hold；模式启动时还会把遗留的 `paused` goal
-complete 掉（否则插件会一直回 `goal:paused`，prep 永远起不来）。
+`!resume` 或 `!autonomous on` 调 `brain.resume()` 清掉 hold；模式启动时还会把遗留的 goal
+complete 掉（否则插件会一直回 `goal:paused`，prep 永远起不来）。**启动是接管**：遗留的
+**active** goal 也会被关闭（`clearActionBrainGoal({includeActive:true})`）——2026-11-01 真机
+重测时，一个 `goto` 在回合开始前就失败，留下 active 任务 goal，`!autonomous on` 一直卡在
+`goal:active` 起不了轮；现在启动会先关掉它再出题。
 
 > **DSH 侧限制（2026-11-01 真机）**：宿主 goal-round-driver 在「agent 变 idle 时该回合消息还没被
 > admit」的情况下会**自己 pause goal**（`roundsStarted:0`、`activation:disarmed`）。Node 会先 resume
 > 两次；仍被 pause 就关掉这一轮、下一轮重建，连续 3 次则 `paused(prep-goals-paused)` 并写清楚原因，
 > 不再假装在跑。遇到这种情况先重开一个干净的「动作脑」会话再 `!autonomous on`。
+
+> **2026-11-01 重启 DSH 后真机重测（A33.1/4/7）**：`!autonomous on` 后 round 2→4，自动接受
+> `deposit-surplus-blocks`/`deposit-dirt-stack` 并注入 execution goal（全程无 `!proposal accept`/
+> `!yes`/`mc_ask_player`）；`!stop` 在回合执行中：goal `complete`、15s 内 body 无位移、
+> `mc_step` 返回 `operator-stop`，`!autonomous on` 可再次起轮；`!autonomous off` 同样关闭并上锁，
+> `!resume` 解锁。A33.5/6（真实死亡/遗体）仍未执行。
 
 ## 5. 死亡 → 重生 → 回收遗体
 

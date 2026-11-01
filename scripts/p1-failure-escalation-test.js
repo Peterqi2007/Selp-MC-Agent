@@ -163,7 +163,19 @@ test('knowledge ladder: blind cap -> lookup -> informed retry -> input layer -> 
   assert.strictEqual(afterInput.ok, true, 'a successful input action re-arms exactly one retry');
   assert.strictEqual(afterInput.inputRetry, true);
 
-  fail(); // the post-input retry fails too
+  /**
+   * The post-input retry fails. Its SYNC RECEIPT must already point at the player: the class
+   * policy alone said "lookup" here, which sent the action brain to a lookup it had already
+   * done (live retest 2026-11-01).
+   */
+  const postInput = esc.foldReceipt('place immersive_aircraft:biplane 21 65 70 up', {
+    ok: false,
+    failure: 'unverified',
+    reason: 'no world effect'
+  });
+  assert.deepStrictEqual(postInput.requires, ['mc_ask_player'], 'the receipt after the input retry asks, not re-lookups');
+  assert.strictEqual(postInput.next, 'input-failed-then-ask');
+  assert.ok(postInput.askQuestion);
   const ask = esc.gate({ command: 'place immersive_aircraft:biplane 22 65 70 up', via: 'mc_step' });
   assert.strictEqual(ask.ok, false);
   assert.strictEqual(ask.error, 'ask-required');

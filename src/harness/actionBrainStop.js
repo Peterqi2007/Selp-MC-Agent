@@ -105,12 +105,16 @@ async function stopActionBrain(ctx, reason = '!stop') {
 }
 
 /**
- * Clear a leftover paused/active goal before a fresh start (`!autonomous on`, new task).
+ * Clear a leftover paused goal before a fresh start (`!autonomous on`, new task).
  *
  * A paused goal blocks the coordinator's prep (`goal:paused`) and makes the plugin think the
  * agent is busy; completing it here keeps "start" meaning "start a new round".
+ *
+ * `options.includeActive` is the takeover variant: the caller is starting a new workflow and
+ * an active goal from the previous one (a task that failed before its round began) would
+ * otherwise block it with `goal:active`.
  */
-async function clearActionBrainGoal(ctx) {
+async function clearActionBrainGoal(ctx, options = {}) {
   const bridge = ctx && ctx.harnessBridge;
   if (!bridge || typeof bridge.boundAgentId !== 'function') return { ok: false, reason: 'no-bridge' };
   let agentId = null;
@@ -131,8 +135,16 @@ async function clearActionBrainGoal(ctx) {
    * Only a **paused** goal is a leftover from a stop. An active goal belongs to whatever is
    * running now (a player task, or a round that legitimately started) and must not be killed
    * just because the operator re-armed the autonomous mode.
+   *
+   * Except: starting the autonomous mode is an explicit takeover - it already preempts Node
+   * tasks/plans. A task goal left active by a failed instant task otherwise blocks the mode
+   * with `goal:active` until the operator presses !stop (live retest 2026-11-01: a `goto`
+   * that failed at once left `goal-8691b33e` active and prep never started).
    */
-  if (goal.phase !== 'paused') return { ok: true, agentId, cleared: false, phase: goal.phase };
+  const takeOver = options.includeActive === true;
+  if (goal.phase !== 'paused' && !(takeOver && goal.phase === 'active')) {
+    return { ok: true, agentId, cleared: false, phase: goal.phase };
+  }
   const revision = Number.isFinite(Number(goal.revision)) ? Number(goal.revision) : undefined;
   try {
     const completed = await bridge.completeGoal({ agentId, goalId: goal.id, revision });

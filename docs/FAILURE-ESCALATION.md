@@ -102,6 +102,10 @@
   它们的唯一回执是 `recordTaskSettle` 的信封；以前那条路完全不看输入层（真机 `deposit` 失败回执
   只说 `lookup_mod_content`）。现在 `_taskEscalation` 与 `gate()` 用同一规则生成 `requires/next`，
   并且第一次失败的信封就带 `inputHint`/`inputExamples`（`envelope()`）。
+- **同步回执也分档**（2026-11-01 重测补）：`foldReceipt()` 复用同一 stage 逻辑。informed 重试
+  失败的回执直接给 `requires:['input-layer']`；post-input 重试失败的回执直接给
+  `requires:['mc_ask_player']`、`next:'input-failed-then-ask'`——否则它会按类别表再回
+  `lookup_mod_content`，把动作脑送回一次已经做过的搜索。
 - 单元验收在 `p1:failure-escalation:test`（**27/27**）：知识阶梯 `lookup-required → informed →
   input-required → 输入成功 → 一次重试 → ask-required`，外加**任务结算路径**的同一阶梯
   （deposit：首败带 inputHint → 二败 lookup → lookup 后 informed 重试失败 → `input-layer` →

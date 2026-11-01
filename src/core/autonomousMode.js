@@ -188,15 +188,16 @@ class AutonomousMode {
     }
     /**
      * A stop leaves a *paused* DSH goal behind; the plugin refuses new goal rounds for it and
-     * the coordinator would sit on `goal:paused` forever. Close only paused leftovers - an
-     * active goal belongs to whatever is running now.
+     * the coordinator would sit on `goal:paused` forever. Starting the mode is an explicit
+     * takeover, so an **active** goal left by a failed task is closed too: otherwise the
+     * coordinator sits on `goal:active` and never starts a round (live retest 2026-11-01).
      */
     if (typeof this.ctx.clearActionBrainGoal === 'function') {
       try {
-        const cleared = await this.ctx.clearActionBrainGoal();
-        if (cleared && cleared.cleared) this.log.info(`cleared paused action-brain goal ${cleared.goalId}`);
+        const cleared = await this.ctx.clearActionBrainGoal({ includeActive: true });
+        if (cleared && cleared.cleared) this.log.info(`cleared leftover action-brain goal ${cleared.goalId} (${cleared.phase || 'paused'})`);
       } catch (err) {
-        this.log.debug(`clearing the paused action-brain goal failed: ${err.message}`);
+        this.log.debug(`clearing the leftover action-brain goal failed: ${err.message}`);
       }
     }
 

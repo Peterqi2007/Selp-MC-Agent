@@ -253,6 +253,17 @@ class FailureEscalation {
         lookupQuery: this._needsLookup(info.failure) ? this._lookupQuery(itemKey) : null,
         askQuestion: null
       });
+      /**
+       * The receipt must reflect where the ladder actually is. The class policy alone says
+       * "lookup" even on the post-input retry, which sent the action brain back to a lookup it
+       * had already done (live retest 2026-11-01: attempt 4 came back with
+       * `requires:['lookup_mod_content']` right after the input-layer retry). Reuse the same
+       * stage logic as task settles.
+       */
+      if (entry) {
+        const stage = this._taskEscalation(entry, verb, itemKey, folded.class);
+        if (stage) Object.assign(folded, stage);
+      }
       this.lastSettled = {
         name: verb || null,
         ok: false,
@@ -263,7 +274,8 @@ class FailureEscalation {
         requires: folded.requires,
         next: folded.next,
         lookupQuery: folded.lookupQuery || null,
-        attempt: folded.attempt || null
+        attempt: folded.attempt || null,
+        inputRequired: folded.inputRequired === true
       };
       return { ...result, ...folded, ok: false, result: nested || result };
     }

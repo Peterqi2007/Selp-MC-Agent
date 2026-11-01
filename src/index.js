@@ -371,7 +371,7 @@ async function main() {
      * one implementation and cannot drift.
      */
     ctx.stopActionBrain = (reason) => stopActionBrain(ctx, reason);
-    ctx.clearActionBrainGoal = () => clearActionBrainGoal(ctx);
+    ctx.clearActionBrainGoal = (options) => clearActionBrainGoal(ctx, options);
     /**
      * One forward entry for the language brain and the addressed channel. Native `@`
      * dialogue goes through DialogueRouter below, but unified language-brain mode and the
