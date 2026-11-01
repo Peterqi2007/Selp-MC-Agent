@@ -23,6 +23,7 @@ const { AutoEat } = require('./survival/autoEat');
 const { Combat } = require('./survival/combat');
 const { ToolManager } = require('./survival/toolManager');
 const { Brain } = require('./brain');
+const { stopActionBrain, clearActionBrainGoal, hasStopLock } = require('./harness/actionBrainStop');
 const { ChatController } = require('./chat/commands');
 const { startStatusServer } = require('./web/statusServer');
 const { acquireLock } = require('./core/lockfile');
@@ -363,6 +364,14 @@ async function main() {
       log: new Logger('harness-bridge')
     });
     ctx.harnessBridge = harnessBridge;
+    /**
+     * Operator stop plumbing (2026-11-01). `!stop` / `!autonomous off` must stop the DSH
+     * action brain, not just Node's queues: the bridge knows how to pause (cancel turns) and
+     * complete its goal. Exposed on ctx so the command table and the autonomous mode share
+     * one implementation and cannot drift.
+     */
+    ctx.stopActionBrain = (reason) => stopActionBrain(ctx, reason);
+    ctx.clearActionBrainGoal = () => clearActionBrainGoal(ctx);
     /**
      * One forward entry for the language brain and the addressed channel. Native `@`
      * dialogue goes through DialogueRouter below, but unified language-brain mode and the

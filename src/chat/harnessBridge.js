@@ -196,6 +196,33 @@ class HarnessBridge {
     return this._postJson('/goal/complete', body);
   }
 
+  /**
+   * Pause the bound agent's goal **and** cancel the plugin-owned turns/plans.
+   *
+   * `!stop` must stop the action brain, not just Node's own queues: completing the goal only
+   * stops future goal rounds, while the in-flight model turn keeps calling tools (live
+   * 2026-11-01: the bot kept issuing `mc_step` after `!stop`). The plugin's `/goal/pause` is
+   * the one endpoint that does both (it cancels `runtime.activeTurns` and the active plan).
+   */
+  async pauseGoal(options = {}) {
+    const body = {};
+    const agentId = String(options.agentId || '').trim();
+    if (agentId) body.agentId = agentId;
+    if (options.goalId) body.goalId = String(options.goalId);
+    if (Number.isFinite(Number(options.revision))) body.revision = Number(options.revision);
+    return this._postJson('/goal/pause', body);
+  }
+
+  /** Undo a `pauseGoal` (explicit operator resume). */
+  async resumeGoal(options = {}) {
+    const body = {};
+    const agentId = String(options.agentId || '').trim();
+    if (agentId) body.agentId = agentId;
+    if (options.goalId) body.goalId = String(options.goalId);
+    if (Number.isFinite(Number(options.revision))) body.revision = Number(options.revision);
+    return this._postJson('/goal/resume', body);
+  }
+
   async listAgents() {
     const payload = await this._getJson('/agents');
     if (!payload.ok || !Array.isArray(payload.agents)) {

@@ -1,5 +1,7 @@
 'use strict';
 
+const { allowedWhileStopped, hasStopLock } = require('../harness/actionBrainStop');
+
 /**
  * In-game chat control - the deterministic command channel.
  *
@@ -204,18 +206,31 @@ class ChatController {
          */
         if (ctx.planService) ctx.planService.cancelAll('!stop').catch(() => {});
         if (ctx.turnService) ctx.turnService.cancelAll('!stop');
-        ctx.nav.stop();
+        if (ctx.nav && typeof ctx.nav.stop === 'function') ctx.nav.stop();
         if (ctx.body && typeof ctx.body.interrupt === 'function') ctx.body.interrupt('!stop');
         /**
          * Fully autonomous mode pauses with the same command: the operator's "stop" means
          * "stop driving", not "keep the curriculum running without me watching". The mode
-         * stays armed so `!autonomous on` can continue it.
+         * stays armed so `!autonomous on` can continue it. `pause()` also stops the action
+         * brain, so the explicit call below is only for the non-autonomous (or already
+         * paused) case - calling it twice would complete the same goal twice.
          */
         const autonomy = ctx.autonomous && typeof ctx.autonomous.pause === 'function' ? ctx.autonomous : null;
         if (autonomy && autonomy.isActive()) {
           autonomy.pause('!stop');
           this.say('完全自主模式已暂停（当前任务已停）。发 !autonomous on 继续');
           return { ok: true, paused: 'autonomous' };
+        }
+        /**
+         * The DSH action brain is a separate owner of the same body. Cancelling Node turns
+         * does not cancel the model turn that is calling `mc_step` right now, so ask the
+         * plugin to pause the goal (which cancels its turns and plan) and close it. The
+         * `owner-stop` hold above is the hard lock for anything that still arrives.
+         */
+        if (typeof ctx.stopActionBrain === 'function') {
+          Promise.resolve(ctx.stopActionBrain('!stop')).catch((err) =>
+            (ctx.log ? ctx.log.debug(`stopActionBrain failed: ${err.message}`) : null)
+          );
         }
         this.say('停下来了（自动规划已暂停，发 !resume 继续）');
       },
@@ -261,8 +276,22 @@ class ChatController {
           return result;
         }
         if (sub === 'off' || sub === 'stop') {
+          /**
+           * Turning the mode off is also a stop: an in-flight action-brain turn would keep
+           * calling `mc_step` otherwise (2026-11-01 operator report). The owner-stop hold
+           * gates those calls, and the action brain's goal is paused+completed so its own
+           * loop cannot create a new round.
+           */
+          if (ctx.brain && typeof ctx.brain.hold === 'function') ctx.brain.hold('owner-stop', '!autonomous off');
+          const wasOff = mode.phase === 'off';
           const result = mode.off('!autonomous off');
-          this.say('完全自主模式已关闭');
+          /** `off()` stops the action brain itself; only cover the already-off case here. */
+          if (wasOff && typeof ctx.stopActionBrain === 'function') {
+            Promise.resolve(ctx.stopActionBrain('!autonomous off')).catch((err) =>
+              (ctx.log ? ctx.log.debug(`stopActionBrain failed: ${err.message}`) : null)
+            );
+          }
+          this.say('完全自主模式已关闭（动作脑已停，发 !resume 或 !autonomous on 继续）');
           return result;
         }
         if (sub !== 'status') {
@@ -1212,8 +1241,34 @@ class ChatController {
      * command creates nothing (no task, no goal, no plan). Read-only control commands
      * (`stop`, `status`, `!autonomous`, ...) stay on the allowlist so the operator can always
      * take the wheel back.
+     *
+     * `source:'action-brain'` is the one exemption: those are the autonomous mode's OWN
+     * `mc_step` calls. Gating them would refuse the very work the mode is doing (live
+     * 2026-11-01: the action brain's `mine copper_ore 2` and `look` were busy-refused, and
+     * each refusal was spoken into chat). The plugin tags its `/command` POSTs with
+     * `via=mc_step`; `statusServer` turns that into this source.
      */
-    if (this.ctx.autonomous && typeof this.ctx.autonomous.gateCommand === 'function') {
+    const fromActionBrain = options && options.source === 'action-brain';
+    /**
+     * The operator's stop is a hard lock on the body (2026-11-01 operator report: `!stop` and
+     * `!autonomous off` left the action brain driving). Closing the DSH goal stops future
+     * goal rounds, but a turn already in flight keeps calling `mc_step`; this refusal is what
+     * makes "stop" true even for that racing turn. Only read-only commands pass; the reason is
+     * actionable (`operator-stop` + `requires: operator-resume`).
+     */
+    if (fromActionBrain && hasStopLock(this.ctx) && !allowedWhileStopped(cmd)) {
+      entry.ok = false;
+      entry.reason = 'operator-stop';
+      this.log.info(`action-brain ${cmd} refused: the operator stopped the agent`);
+      return {
+        ok: false,
+        reason: 'operator-stop',
+        blocked: cmd,
+        requires: ['operator-resume'],
+        hint: 'the operator ran !stop; do not retry - finish the current goal as blocked and wait for !resume or !autonomous on'
+      };
+    }
+    if (!fromActionBrain && this.ctx.autonomous && typeof this.ctx.autonomous.gateCommand === 'function') {
       const gate = this.ctx.autonomous.gateCommand(cmd);
       if (gate && gate.blocked) {
         if (typeof this.ctx.autonomous.noteBusyReply === 'function') this.ctx.autonomous.noteBusyReply();

@@ -304,6 +304,13 @@ executionGoalRounds`）；`proposalTtlMs` 仍是 plan question 的默认值。�
   并注入 execution goal（`replace:true`）；玩家侧不再收到「要我去做吗」。
 - 死亡与遗体重建见 [`FULLY-AUTONOMOUS.md`](FULLY-AUTONOMOUS.md) §5：动作脑在
   `phase=dead|respawning|recovering` 期间不会被唤醒（Node 先关闭 goal，回收完再放宽）。
+- **停止动作脑**（2026-11-01）：Node 调 `POST /goal/pause`（暂停并取消 plugin 名下的 in-flight
+  turn 与 plan）再 `/goal/complete`。`complete` 对 **paused** goal 会被 DSH 拒绝，插件现在回退
+  `goals.clear` 并返回 `{ok:true, cleared:true}`，否则遗留的 paused goal 会让之后每一轮 prep
+  都收到 `goal:paused`。**插件改动需要重启 DSH 生效**。
+- **宿主会自己 pause goal**：goal-round-driver 在「agent 变 idle 时该轮的 queued 消息还没被
+  admit」时会 pause（外观是 `roundsStarted:0`、`activation:disarmed`）。Node 会 resume 两次、
+  再关掉重开，连续 3 轮即 `paused(prep-goals-paused)`；遇到先重开一个干净的「动作脑」会话。
 
 ### 边界
 

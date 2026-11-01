@@ -243,6 +243,34 @@ function expect(condition, message) {
     return `${res.path.length} nodes, detoured around x=6`;
   });
 
+  /**
+   * 2026-11-01 operator report: "A* does not check the 2-block height limit and asked the
+   * agent to walk through a 1-block-high passage". The doorway here is the only opening in a
+   * full-width wall, and it is one block high (feet clear, head is wall). A 1.8-block-tall
+   * body cannot use it, so the answer must be noPath - not a 2-block "jump" over the gap.
+   */
+  await scenario('2b a wall with only a 1-block-high hole is noPath (2-block height limit)', async () => {
+    const { cells } = buildMap({
+      radius: 30,
+      fill: (put) => {
+        for (let z = -30; z <= 30; z += 1) {
+          for (let y = 64; y <= 68; y += 1) put(6, y, z, STONE);
+        }
+        put(6, 64, 0, AIR); // feet-height hole only
+      }
+    });
+    const body = makeBody(cells, { x: 0, y: 64, z: 0 });
+    const planner = new PathPlanner(body, { log });
+    const res = await planner.plan({ x: 12, y: 64, z: 0 });
+    expect(
+      res.status === STATUS.NO_PATH,
+      `a 1-high hole must not be walkable, got ${res.status} ${res.reason || ''}`
+    );
+    const usedHole = !!(res.path || []).some((n) => n.x === 6 && n.z === 0);
+    expect(!usedHole, 'the path must not use the 1-high hole');
+    return `noPath (${res.nodes} nodes explored, no 1-high route)`;
+  });
+
   // ---- 3. water -----------------------------------------------------------
   await scenario('3 water: crossing needs swim, and reports noPath without it', async () => {
     // A lake spanning the *whole* map width in z, so "walk around it" is not an option and

@@ -41,6 +41,7 @@ const { describe: describeChannels } = require('../core/channelPolicy');
 const { countTrace } = require('../util/trace');
 const { PANEL_HTML, PANEL_JS } = require('./panel');
 const { Logger } = require('../util/logger');
+const { hasStopLock } = require('../harness/actionBrainStop');
 const { resolveTrigger, personaForConfig } = require('../llm/persona');
 const { streamEvents } = require('./eventStream');
 const { selfDefenseStatus } = require('../world/selfDefense');
@@ -498,6 +499,14 @@ function startStatusServer(ctx, options = {}) {
             hint: 'mark the current goal blocked with a concrete reason and let Node pick the next curriculum task'
           });
         }
+        /** Stop lock: a stopped agent has nobody to ask, and parking would outlive the stop. */
+        if (hasStopLock(ctx)) {
+          return json(res, 409, {
+            ok: false,
+            error: 'operator-stop',
+            hint: 'the operator stopped the agent; finish the goal as blocked and wait for !resume'
+          });
+        }
         if (!ctx.planService) return json(res, 503, { ok: false, error: 'plan service unavailable' });
         const escalation = ctx.failureEscalation || null;
         if (escalation && escalation.waitingForAnswer()) {
@@ -548,6 +557,17 @@ function startStatusServer(ctx, options = {}) {
        * planner.mode=off this is the only autonomous-proposal source.
        */
       if (req.method === 'POST' && url.pathname === '/propose') {
+        /**
+         * Operator stop is a hard lock: a proposal arriving from a turn that was already in
+         * flight must not restart work after `!stop` / `!autonomous off`.
+         */
+        if (hasStopLock(ctx)) {
+          return json(res, 409, {
+            ok: false,
+            error: 'operator-stop',
+            hint: 'the operator stopped the agent; wait for !resume or !autonomous on'
+          });
+        }
         if (!ctx.brain || typeof ctx.brain.proposeFromHarness !== 'function') {
           return json(res, 503, { ok: false, error: 'proposal service unavailable' });
         }
@@ -579,6 +599,15 @@ function startStatusServer(ctx, options = {}) {
       if (url.pathname === '/plan' && (req.method === 'GET' || req.method === 'POST')) {
         if (!ctx.planService) return json(res, 503, { ok: false, error: 'plan service unavailable' });
         if (req.method === 'GET') return json(res, 200, { ok: true, ...ctx.planService.status() });
+
+        /** Same operator-stop lock as /propose: a plan must not restart the body after !stop. */
+        if (hasStopLock(ctx)) {
+          return json(res, 409, {
+            ok: false,
+            error: 'operator-stop',
+            hint: 'the operator stopped the agent; wait for !resume or !autonomous on'
+          });
+        }
 
         let body = {};
         try {
@@ -1493,14 +1522,30 @@ function startStatusServer(ctx, options = {}) {
             return json(res, 200, { ...gate, gated: true, level: priority, ms: Date.now() - started });
           }
         }
-        const result = await ctx.chat.handle(commandLine, `http:${priority}`);
+        /**
+         * The action brain's own `mc_step` POSTs (`via=mc_step`) are the autonomous mode's
+         * hands, not a player task: tag them so the mode's command gate lets them through.
+         * Panel/in-game commands keep the player-facing gate.
+         */
+        const result = await ctx.chat.handle(commandLine, via === 'mc_step' ? 'mc_step' : `http:${priority}`, {
+          source: via === 'mc_step' ? 'action-brain' : 'panel'
+        });
         rememberPanelInput({ text: trimmed, via: 'panel', action: commandLine });
         if (isForm || req.method === 'GET') {
           res.writeHead(303, { location: '/panel', 'cache-control': 'no-store' });
           return res.end();
         }
+        /**
+         * A refusal from the gates is not a *task* failure: folding `operator-stop` or the
+         * autonomous busy line into the ladder would poison the next legitimate same-signature
+         * attempt (it would come back as `escalation-required`) and replace the actionable
+         * `requires` with the ladder's. These responses go straight to the caller.
+         */
+        const gateRefusal =
+          result &&
+          (result.reason === 'operator-stop' || /^autonomous-busy/.test(String(result.reason || '')));
         const receipt =
-          via === 'mc_step' && escalation && typeof escalation.foldReceipt === 'function'
+          via === 'mc_step' && !gateRefusal && escalation && typeof escalation.foldReceipt === 'function'
             ? escalation.foldReceipt(commandLine, result)
             : result;
         return json(res, 200, { ...receipt, level: priority, ms: Date.now() - started });

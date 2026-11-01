@@ -82,6 +82,21 @@
 闸门只对 `via:'mc_step'` 的 `/command` 调用和 `mc_plan` 每步生效。面板/游戏内 `!` 是操作员，
 不受限。
 
+### 4b. 输入层阶梯（2026-11-01 真机补）
+
+操作员报告「失败阶梯无效，agent 未切换键鼠操作」：旧阶梯在 knowledge/unverified 之后直接
+`ask-required`，而自主模式里 ask 等于放弃；**命令通道反复失败时从来没有要求改用键鼠**。现在：
+
+- blind 预算用尽且无 lookup 可用（或 lookup 后仍失败）→ `input-required`：
+  `requires:['input-layer']`、`next:'input-layer-then-retry-once'`，并带具体例子
+  （`look <yaw> <pitch>`、`key forward down/up`、`hold attack 600`、`tap inventory`）；
+- 动作脑改用输入层且**成功一次**后，该签名重新允许**一次**命令重试（`inputRetry:true`）；
+- 这一次也失败 → `ask-required`（自主模式里即 blocked 换题），不再堆命令。
+- 只对确实存在键鼠替代的动词启用（place/useon/use/attack/shoot/menu/click/select/dig/mine/
+  tunnel/pillar/moveto）；`goto`/`craft` 这类没有直接键鼠等价物的动作仍走 lookup/escalation。
+- 单元验收在 `p1:failure-escalation:test`（26/26）里：`lookup-required → informed → input-required
+  → 输入成功 → 一次重试 → ask-required`。
+
 ## 5. `mc_ask_player`
 
 插件工具 → `POST /ask_player` → `PlanService` 提交单步 `wait_for_player`：

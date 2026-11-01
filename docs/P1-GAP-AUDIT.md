@@ -59,8 +59,24 @@
 > 忙句带当前任务 + 位置 + 血量/饥饿 + 「做不了」；死亡后**自行重生**（Mod `respawn`）→ 走回
 > **Corpse 遗体**（Mod `useentity` + 容器 quick-move）取回物品 → 继续课程；`!stop` 暂停、
 > `!autonomous off` 退出、重启只到 `paused(restart)`；护栏：每小时轮次/连续无提案/连续失败/死亡循环。
-> 离线 `p1:autonomous:test 29/29`、`client:test 83/83`、`p1:verify 20/20`；**真机 A33 未执行**。
+> 离线 `p1:autonomous:test 31/31`、`client:test 83/83`、`p1:verify 20/20`；**真机 A33 未执行**。
 > 设计/矩阵见 [`FULLY-AUTONOMOUS.md`](FULLY-AUTONOMOUS.md)。
+
+> **2026-11-01 真机回归三修（操作员报告，全部已修并有回归）**：
+> ① **`!stop` / `!autonomous off` 对动作脑无效**——只关了 Node 队列；现在 `stopActionBrain` 调插件
+>    `/goal/pause`（取消 in-flight turn/plan）+ `/goal/complete`，再用 `owner-stop` hold 在 Node 侧
+>    硬拒 `mc_step`/`/plan`/`/propose`/`/ask_player`，`!resume`/`!autonomous on` 解锁。真机已验证
+>    （goal paused+completed、`mc_step` 回 `operator-stop`、resume 后 `look` 放行）。
+> ② **A\* 忽略二格高度**——"跳 1 格空隙"只检查落脚格，导致从一格高门洞跳过去；现在要求空隙列
+>    `canStandAt`（脚+头），`path:test` 新增 2b 场景（36/36）。真机 `goto` 由"原地跳"改为诚实
+>    `noPath`。
+> ③ **失败阶梯没有键鼠档**——新增 `input-required` 档（带 `key/hold/look` 例子），输入层成功一次
+>    后允许一次重试，再失败才 `ask-required`；任务 goal 文本同步说明。`p1:failure-escalation:test`
+>    26/26（含新档）。**真机链路已验**：`place minecraft:barrier` ×2 → `lookup-required` → lookup →
+>    informed 重试失败 → `input-required`（4 个例子）→ `look 90 0` 成功 → 允许一次重试 → 再失败
+>    `ask-required`（带具体问题）。见 [`FAILURE-ESCALATION.md`](FAILURE-ESCALATION.md) §4b。
+> 另修：门禁拒绝（`operator-stop`/`autonomous-busy`）不再被折算进失败账本（否则下一次合法同类动作
+> 会被 `escalation-required` 挡住），`!stop` 不再重复关闭同一个 goal。
 
 ## 1. 逐节状态
 

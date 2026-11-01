@@ -1,7 +1,7 @@
 # 完全自主模式（Fully Autonomous Mode）
 
-> 状态（2026-11-01）：**已实现：离线 `p1:autonomous:test 29/29`、`p1:verify` 19/19（含 P0 为 20/20）、
-> `plan:audit --stage p1 108/108`；真机 A33 未执行**（需要真实游戏会话，尤其是「真的死一次」）。
+> 状态（2026-11-01）：**已实现：离线 `p1:autonomous:test 31/31`、`p1:verify` 19/19（含 P0 为 20/20）、
+> `plan:audit --stage p1 111/111`；真机 A33 未执行**（需要真实游戏会话，尤其是「真的死一次」）。
 > 代码：`src/core/autonomousMode.js`、`src/core/corpseRecovery.js`、`src/skills/corpse.js`；
 > 提案侧改动在 `src/planner/autonomousProposals.js`；遗体交互与重生在客户端 Mod（`useentity` / `respawn`）。
 
@@ -71,6 +71,27 @@ off ──!autonomous on──► running ──!stop / 护栏──► paused �
 ```
 
 普通聊天（未点名/非动作请求）仍走语言脑 roleplay；只在 system prompt 里多一句「你在忙、别承诺」。
+
+## 4b. 操作员停止（`!stop` / `!autonomous off`）
+
+2026-11-01 真机暴露：`!stop` 只停了 Node 的队列，**动作脑还在按 goal 继续调 `mc_step`**（它甚至在下
+一条命令到达时新建 goal），操作员看到的是"按了没用"。现在的语义是两层、缺一不可：
+
+1. **brake（DSH 侧）**：`stopActionBrain` 调插件 `POST /goal/pause`（暂停 goal 并取消它名下的
+   in-flight turn 与 plan），再 `POST /goal/complete` 关闭 goal。只做 complete 不够——已开始的
+   模型回合不会因为 goal 结束而停止。
+2. **lock（Node 侧）**：`brain.hold('owner-stop')`。命令闸门对 `source:'action-brain'` 的调用
+   检查这个 hold，除只读命令（`stop/state/status/help/inv/where/capabilities/keybinds/perception`）
+   外一律返回 `operator-stop` + `requires:['operator-resume']`；`/plan`、`/propose`、`/ask_player`
+   同样返回 409 `operator-stop`。这样即使有一个抢跑的回合，身体也不会动。
+
+`!resume` 或 `!autonomous on` 调 `brain.resume()` 清掉 hold；模式启动时还会把遗留的 `paused` goal
+complete 掉（否则插件会一直回 `goal:paused`，prep 永远起不来）。
+
+> **DSH 侧限制（2026-11-01 真机）**：宿主 goal-round-driver 在「agent 变 idle 时该回合消息还没被
+> admit」的情况下会**自己 pause goal**（`roundsStarted:0`、`activation:disarmed`）。Node 会先 resume
+> 两次；仍被 pause 就关掉这一轮、下一轮重建，连续 3 次则 `paused(prep-goals-paused)` 并写清楚原因，
+> 不再假装在跑。遇到这种情况先重开一个干净的「动作脑」会话再 `!autonomous on`。
 
 ## 5. 死亡 → 重生 → 回收遗体
 

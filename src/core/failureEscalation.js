@@ -23,6 +23,27 @@ const { FAILURE, CLASSES, CLASS_POLICY, classOf, envelope, fromResult } = requir
 /** Commands that stay available while a player question is parked (read-only / stop). */
 const PARKED_WHITELIST = new Set(['stop', 'inputs', 'state', 'status', 'task', 'keybinds', 'capabilities']);
 
+/**
+ * The input layer (keyboard/mouse): the alternative channel the ladder must demand when the
+ * command channel keeps failing (2026-11-01 operator report: "failure ladder is ineffective,
+ * the agent never switched to keyboard/mouse").
+ */
+const INPUT_VERBS = new Set(['key', 'hold', 'tap', 'look', 'lookat', 'shot', 'inputs']);
+
+/** Verbs for which an input-layer attempt is a real alternative, not a nonsensical detour. */
+const INPUT_ALTERNATIVE = new Set([
+  'place', 'useon', 'use', 'useitem', 'attack', 'shoot', 'menu', 'click', 'select',
+  'dig', 'mine', 'tunnel', 'pillar', 'moveto'
+]);
+
+/** Concrete examples put in the refusal so the model has an action, not just a reason. */
+const INPUT_EXAMPLES = [
+  'look <yaw> <pitch>   (aim at the block/entity first)',
+  'key forward down / key forward up',
+  'hold attack 600',
+  'tap inventory'
+];
+
 const DEFAULTS = {
   /** Same-signature blind attempts tolerated before the gate refuses (policy may lower it). */
   maxBlindAttempts: 2,
@@ -108,17 +129,65 @@ class FailureEscalation {
 
     const informed = this._informed(entry, itemKey);
     if (entry.failures >= blindBudget && !informed) {
-      const wantsLookup = className === CLASSES.KNOWLEDGE || className === CLASSES.UNVERIFIED;
-      return this._refuse(wantsLookup ? 'lookup-required' : 'escalation-required', verb, target, entry, {
+      const wantsLookup =
+        className === CLASSES.KNOWLEDGE || (className === CLASSES.UNVERIFIED && !entry.inputTried);
+      if (wantsLookup) {
+        return this._refuse('lookup-required', verb, target, entry, {
+          className,
+          reason: `${signature} failed ${entry.failures}x with class=${className}: lookup_mod_content before any retry`,
+          lookupQuery: this._lookupQuery(itemKey)
+        });
+      }
+      /**
+       * No lookup applies (or it has been done and the retry failed): the command channel is
+       * not doing the job. Demand the input layer once before escalating to the player.
+       */
+      if (this._shouldDemandInput(verb, entry)) {
+        return this._refuse('input-required', verb, target, entry, {
+          className,
+          reason:
+            `${signature} failed ${entry.failures}x with class=${className}: the command channel is not producing an effect - ` +
+            'switch to the input layer (look then key/hold/tap) instead of retrying the same command',
+          requires: ['input-layer'],
+          next: 'input-layer-then-retry-once',
+          inputExamples: INPUT_EXAMPLES
+        });
+      }
+      if (entry.inputTried) {
+        /**
+         * The input-layer attempt is the last "different approach" before the player. Allow
+         * exactly one retry of the original command after it; a failure then escalates.
+         */
+        if (!entry.postInputFailures) {
+          return { ok: true, signature, verb, target, itemKey, inputRetry: true, inputExamples: INPUT_EXAMPLES };
+        }
+        return this._refuse('ask-required', verb, target, entry, {
+          className,
+          reason: `${signature} still fails after the input-layer attempt: ask the player (mc_ask_player) or change task`,
+          askQuestion: this._askQuestion(verb, itemKey || target, entry)
+        });
+      }
+      return this._refuse('escalation-required', verb, target, entry, {
         className,
-        reason: wantsLookup
-          ? `${signature} failed ${entry.failures}x with class=${className}: lookup_mod_content before any retry`
-          : `${signature} failed ${entry.failures}x with class=${className}: change the approach, not the retry count`,
-        lookupQuery: wantsLookup ? this._lookupQuery(itemKey) : null
+        reason: `${signature} failed ${entry.failures}x with class=${className}: change the approach, not the retry count`
       });
     }
 
     if (informed && entry.informedFailures >= this.cfg.informedAttempts && !entry.answered) {
+      if (entry.inputTried && !entry.postInputFailures) {
+        return { ok: true, signature, verb, target, itemKey, inputRetry: true, inputExamples: INPUT_EXAMPLES };
+      }
+      if (this._shouldDemandInput(verb, entry)) {
+        return this._refuse('input-required', verb, target, entry, {
+          className,
+          reason:
+            `${signature} still fails after the informed retry: the command channel is not working - ` +
+            'switch to the input layer (look then key/hold/tap) for one attempt',
+          requires: ['input-layer'],
+          next: 'input-layer-then-retry-once',
+          inputExamples: INPUT_EXAMPLES
+        });
+      }
       return this._refuse('ask-required', verb, target, entry, {
         className,
         reason: `${signature} still fails after the informed retry: ask the player (mc_ask_player) or switch channel`,
@@ -179,6 +248,11 @@ class FailureEscalation {
     const { verb, target, itemKey } = this.parseCommand(command);
     const signature = this.signatureOf(verb, target, itemKey);
     if (result.accepted === true && effective.ok !== false) return result; // background ack
+    /**
+     * A successful input-layer action is the "switch channel" the ladder asked for; it opens
+     * exactly one retry of the command that was gated (2026-11-01).
+     */
+    if (INPUT_VERBS.has(verb) && effective.ok !== false) this._noteInputUsed(verb);
     if (effective.ok === false) {
       const info = fromResult(effective);
       this.recordFailure({ verb, target, itemKey, className: classOf(info.failure), failure: info.failure });
@@ -236,7 +310,17 @@ class FailureEscalation {
     const signature = this.signatureOf(verb, target, itemKey);
     let entry = this.entries.get(signature);
     if (!entry) {
-      entry = { failures: 0, lastClass: null, lastFailureAt: 0, informedFailures: 0, answeredFailures: 0, answered: false };
+      entry = {
+        failures: 0,
+        lastClass: null,
+        lastFailureAt: 0,
+        informedFailures: 0,
+        answeredFailures: 0,
+        answered: false,
+        inputDemanded: false,
+        inputTried: false,
+        postInputFailures: 0
+      };
       this.entries.set(signature, entry);
     }
     entry.failures += 1;
@@ -245,6 +329,8 @@ class FailureEscalation {
     entry.lastFailureAt = this.now();
     if (entry.answered) entry.answeredFailures += 1;
     if (this._informed(entry, itemKey)) entry.informedFailures += 1;
+    /** A failure after the input-layer attempt means that channel did not help either. */
+    if (entry.inputTried) entry.postInputFailures = (entry.postInputFailures || 0) + 1;
     this.failureFeed.push({ at: this.now() });
     const cutoff = this.now() - this.cfg.goalFailureWindowMs;
     this.failureFeed = this.failureFeed.filter((item) => item.at >= cutoff);
@@ -355,8 +441,33 @@ class FailureEscalation {
     );
   }
 
+  _shouldDemandInput(verb, entry) {
+    if (!INPUT_ALTERNATIVE.has(verb)) return false;
+    if (INPUT_VERBS.has(verb)) return false;
+    if (entry && entry.inputTried) return false;
+    return true;
+  }
+
+  /**
+   * Mark every signature that was refused with `input-required` as having had its input-layer
+   * attempt. One retry of the original command is then allowed; a failure after it escalates.
+   */
+  _noteInputUsed(verb) {
+    let marked = 0;
+    for (const entry of this.entries.values()) {
+      if (!entry.inputDemanded || entry.inputTried) continue;
+      entry.inputTried = true;
+      entry.inputTriedAt = this.now();
+      entry.postInputFailures = 0;
+      marked += 1;
+    }
+    if (marked) this.log.info(`input layer used (${verb}): ${marked} gated signature(s) re-armed once`);
+    return marked;
+  }
+
   _refuse(error, verb, target, entry, extra = {}) {
     const className = extra.className || (entry && entry.lastClass) || null;
+    if (error === 'input-required' && entry && !entry.inputTried) entry.inputDemanded = true;
     return {
       ok: false,
       error,
@@ -365,8 +476,11 @@ class FailureEscalation {
       class: className,
       retryable: false,
       attempt: entry ? { count: entry.failures, budget: this._budgetFor(className) } : null,
-      requires: extra.lookupQuery ? ['lookup_mod_content'] : error === 'ask-required' ? ['mc_ask_player'] : [],
-      next: error,
+      requires:
+        extra.requires ||
+        (extra.lookupQuery ? ['lookup_mod_content'] : error === 'ask-required' ? ['mc_ask_player'] : []),
+      next: extra.next || error,
+      inputExamples: extra.inputExamples || null,
       lookupQuery: extra.lookupQuery || null,
       askQuestion: extra.askQuestion || null,
       question: extra.question || null,
@@ -388,7 +502,10 @@ class FailureEscalation {
         class: entry.lastClass,
         informedFailures: entry.informedFailures,
         answeredFailures: entry.answeredFailures || 0,
-        answered: entry.answered
+        answered: entry.answered,
+        inputDemanded: entry.inputDemanded === true,
+        inputTried: entry.inputTried === true,
+        postInputFailures: entry.postInputFailures || 0
       })).slice(-10)
     };
   }

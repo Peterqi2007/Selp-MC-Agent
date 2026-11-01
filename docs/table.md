@@ -33,7 +33,7 @@
 | M7-A26 | 回归与降级 | `!`、反射、取消、双通道在 unified 下不退化；关模型/搜索/CU 时仍可降级 | 取消/反射/双通道未测；`--dig stone` 点位失败 | partial（协议 23/23、登录/寻路 7/7、砍与一次挖已过） |
 | M7-F03 | 默认统一与回退 | 默认 unified 可启动；language.brain=legacy 可完整回退；旧插件无 source 不绕过语言脑；raw:true 例外 | legacy 回退未回归；`raw:true` 例外未单独验 | partial（默认 unified 与旧插件路径已跑） |
 | M7-E03 | 证据归档 | 上述结果写回 A 矩阵/客户端记录；未执行项不填 PASS；记录版本/账号/配置/证据路径 | 版本/账号/配置/证据路径未系统归档 | 未执行（2026-10-25 仅对齐 A23–A25 与套件计数） |
-| A33 | 完全自主模式（真机 8 项） | `!autonomous on` 自驱 ≥3 轮；任务忙拒（无入队/无 goal）；`@` 忙拒不 forward 且普通聊天正常；全程无审批；死亡自动重生；遗体取回物品；`!stop` 暂停/`!autonomous on` 恢复；重启 `paused(restart)` | **真机未执行**；离线 `p1:autonomous:test 29/29`、Mod 协议 `client:test 83/83` | 未执行（离线通过；标准见 [`FULLY-AUTONOMOUS.md`](FULLY-AUTONOMOUS.md) §9） |
+| A33 | 完全自主模式（真机 8 项） | `!autonomous on` 自驱 ≥3 轮；任务忙拒（无入队/无 goal）；`@` 忙拒不 forward 且普通聊天正常；全程无审批；死亡自动重生；遗体取回物品；`!stop` 暂停/`!autonomous on` 恢复；重启 `paused(restart)` | **真机未执行**；离线 `p1:autonomous:test 31/31`、Mod 协议 `client:test 83/83` | 未执行（离线通过；标准见 [`FULLY-AUTONOMOUS.md`](FULLY-AUTONOMOUS.md) §9） |
 
 M6 证据见 [`M6-LANGUAGE-TESTS.md`](M6-LANGUAGE-TESTS.md)。A23 仍缺真实第二名玩家 40×3；A25 详见 [`M6-A25-CLIENT-TESTS.md`](M6-A25-CLIENT-TESTS.md)（accept 真 harness，其余受控植入）。
 

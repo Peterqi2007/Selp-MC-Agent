@@ -1672,6 +1672,27 @@ export function apply(ctx, config = {}) {
         if (after && after.phase === 'complete') {
           return jsonReply(res, 200, { ok: true, completed: true, agentId: live.id || agentId || null, goal: after });
         }
+        /**
+         * A **paused** goal refuses `complete` (live 2026-11-01: the host paused a goal the
+         * queued round never reached, and Node could never clear it, so every following prep
+         * came back `goal:paused`). `clear` is the operation that removes it; it also removes
+         * a crashed round's leftovers, which is what "stop" wants anyway.
+         */
+        if (after && typeof goals.clear === 'function') {
+          try {
+            goals.clear(live, { id: after.id, revision: after.revision });
+            log(`goal cleared (paused, cleanup): ${after.id}`);
+            return jsonReply(res, 200, {
+              ok: true,
+              completed: false,
+              cleared: true,
+              agentId: live.id || agentId || null,
+              goal: null
+            });
+          } catch (clearError) {
+            log(`goal clear failed after complete error: ${clearError.message}`);
+          }
+        }
         return jsonReply(res, 409, {
           ok: false,
           error: error.code || 'goal-complete-failed',

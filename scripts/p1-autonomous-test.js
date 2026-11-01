@@ -86,7 +86,19 @@ function fakeBrain(now) {
   brain.currentTask = null;
   brain.queue = [];
   brain.slot = { busy: false };
-  brain.holds = { list: () => [], has: () => false };
+  /** A real hold set: the operator-stop lock is read through `holds.has('owner-stop')`. */
+  const holdSet = new Set();
+  brain.holds = {
+    list: () => [...holdSet],
+    has: (name) => holdSet.has(name),
+    hold: (name) => holdSet.add(name),
+    release: (name) => holdSet.delete(name),
+    clear: () => holdSet.clear()
+  };
+  brain.hold = (reason) => {
+    holdSet.add(reason);
+    return {};
+  };
   brain.planService = { status: () => ({ active: null, plans: [] }), cancelAll: () => Promise.resolve() };
   brain.turnService = { cancelAll: () => {} };
   brain.calls = { resume: 0, resumeFromDeath: 0, preempt: 0, enqueue: 0 };
@@ -97,6 +109,8 @@ function fakeBrain(now) {
     brain.calls.resume += 1;
     brain.paused = false;
     brain.stopped = false;
+    holdSet.delete('owner-stop');
+    holdSet.delete('paused');
     return { paused: false };
   };
   brain.resumeFromDeath = () => {
@@ -248,6 +262,13 @@ function makeHarness(options = {}) {
     },
     log: silent
   };
+  const stopped = [];
+  if (options.spyStop) {
+    ctx.stopActionBrain = async (reason) => {
+      stopped.push(reason);
+      return { ok: true };
+    };
+  }
   const coordinator = new AutonomousProposalCoordinator({
     brain,
     bridge,
@@ -267,7 +288,7 @@ function makeHarness(options = {}) {
   ctx.autonomous = mode;
   ctx.proposalCoordinator = coordinator;
   coordinator.mode = mode;
-  return { now, brain, bridge, body, curriculum, coordinator, mode, ctx, replies };
+  return { now, brain, bridge, body, curriculum, coordinator, mode, ctx, replies, stopped };
 }
 
 function propose(brain, overrides = {}) {
@@ -374,9 +395,67 @@ function propose(brain, overrides = {}) {
     assert.strictEqual(outcome.reason, 'autonomous-busy:mine');
     assert.strictEqual(h.brain.calls.enqueue, 0);
     assert.ok(said.some((line) => /正在忙/.test(line)));
+    /**
+     * The mode's own `mc_step` calls carry `source:'action-brain'`; gating them would refuse
+     * the work the mode is doing (live 2026-11-01: `mine copper_ore 2` was busy-refused).
+     */
+    const ownStep = await controller.handle('mine dirt 1', 'mc_step', { source: 'action-brain' });
+    assert.notStrictEqual(ownStep.reason, 'autonomous-busy:mine');
     /** The read-only control commands still work. */
     const statusOutcome = await controller.handle('autonomous status', 'tester');
     assert.strictEqual(statusOutcome.ok, true);
+  });
+
+  await check('an operator stop locks the action brain until resume', async () => {
+    const h = makeHarness();
+    await h.mode.start({});
+    const controller = new ChatController({ ...h.ctx, autonomous: h.mode }, {});
+    /**
+     * 2026-11-01 operator report: `!stop` / `!autonomous off` did not stop the action brain.
+     * The owner-stop hold must refuse its body calls even though the mode's own steps are
+     * normally exempt from the busy gate.
+     */
+    h.brain.hold('owner-stop', '!stop');
+    const blocked = await controller.handle('mine dirt 1', 'mc_step', { source: 'action-brain' });
+    assert.strictEqual(blocked.ok, false);
+    assert.strictEqual(blocked.reason, 'operator-stop');
+    assert.deepStrictEqual(blocked.requires, ['operator-resume']);
+    assert.match(blocked.hint, /blocked/);
+    /** Read-only commands stay usable for a final status check. */
+    const state = await controller.handle('state', 'mc_step', { source: 'action-brain' });
+    assert.notStrictEqual(state.reason, 'operator-stop');
+    /** `!resume` clears the hold: the next action-brain step is allowed again. */
+    h.brain.resume();
+    const resumed = await controller.handle('mine dirt 1', 'mc_step', { source: 'action-brain' });
+    assert.notStrictEqual(resumed.reason, 'operator-stop');
+  });
+
+  await check('!stop and !autonomous off tell the action brain to stop (goal pause+complete)', async () => {
+    const h = makeHarness({ spyStop: true });
+    await h.mode.start({});
+    assert.strictEqual(h.brain.holds.has('owner-stop'), false);
+    const controller = new ChatController({ ...h.ctx, autonomous: h.mode }, {});
+    const stopped = await controller.handle('stop', 'tester');
+    assert.strictEqual(stopped.ok, true);
+    assert.strictEqual(h.brain.holds.has('owner-stop'), true, '!stop must lock the body');
+    await flush();
+    assert.ok(
+      h.stopped.some((reason) => /!stop/.test(reason)),
+      '!stop must ask the plugin to pause/complete the goal'
+    );
+    assert.strictEqual(h.mode.phase, 'paused');
+
+    await h.mode.start({});
+    assert.strictEqual(h.brain.holds.has('owner-stop'), false, 'start clears the operator lock');
+    const off = await controller.handle('autonomous off', 'tester');
+    assert.strictEqual(off.ok, true);
+    await flush();
+    assert.ok(
+      h.stopped.some((reason) => /!autonomous off/.test(reason)),
+      'off must stop the action brain'
+    );
+    assert.strictEqual(h.brain.holds.has('owner-stop'), true, 'off leaves the body locked');
+    assert.strictEqual(h.mode.phase, 'off');
   });
 
   await check('the language-brain approval path answers busy and never forwards', async () => {

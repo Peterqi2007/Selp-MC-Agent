@@ -115,7 +115,7 @@ test('third blind same-signature attempt is refused (precondition class)', () =>
   assert.strictEqual(gated.error, 'escalation-required');
 });
 
-test('knowledge ladder: blind cap -> lookup-required -> informed retry -> ask-required', () => {
+test('knowledge ladder: blind cap -> lookup -> informed retry -> input layer -> ask', () => {
   let now = 1000;
   const esc = new FailureEscalation({ log: silent, now: () => now });
   const fail = () =>
@@ -134,13 +134,31 @@ test('knowledge ladder: blind cap -> lookup-required -> informed retry -> ask-re
   assert.strictEqual(informed.ok, true, 'a recorded lookup re-arms one informed retry');
 
   fail(); // the informed retry fails too
-  const ask = esc.gate({ command: 'place immersive_aircraft:biplane 21 65 70 up', via: 'mc_step' });
+  /**
+   * 2026-11-01 operator report: the ladder never switched to keyboard/mouse. The rung after
+   * the informed retry is now the input layer, with concrete examples, before asking.
+   */
+  const input = esc.gate({ command: 'place immersive_aircraft:biplane 21 65 70 up', via: 'mc_step' });
+  assert.strictEqual(input.ok, false);
+  assert.strictEqual(input.error, 'input-required');
+  assert.deepStrictEqual(input.requires, ['input-layer']);
+  assert.ok(Array.isArray(input.inputExamples) && input.inputExamples.length >= 3, 'the refusal names concrete input actions');
+  assert.ok(/input layer/.test(input.reason));
+
+  // The action brain switches channel and a keyboard action succeeds: exactly one retry.
+  esc.foldReceipt('look 90 0', { ok: true });
+  const afterInput = esc.gate({ command: 'place immersive_aircraft:biplane 21 65 70 up', via: 'mc_step' });
+  assert.strictEqual(afterInput.ok, true, 'a successful input action re-arms exactly one retry');
+  assert.strictEqual(afterInput.inputRetry, true);
+
+  fail(); // the post-input retry fails too
+  const ask = esc.gate({ command: 'place immersive_aircraft:biplane 22 65 70 up', via: 'mc_step' });
   assert.strictEqual(ask.ok, false);
   assert.strictEqual(ask.error, 'ask-required');
   assert.ok(ask.askQuestion, 'the refusal carries a concrete question');
 
   now += 11 * 60 * 1000; // past the lookup TTL: the search no longer informs
-  const stale = esc.gate({ command: 'place immersive_aircraft:biplane 22 65 70 up', via: 'mc_step' });
+  const stale = esc.gate({ command: 'place immersive_aircraft:biplane 23 65 70 up', via: 'mc_step' });
   assert.strictEqual(stale.ok, false, 'a lookup older than the TTL does not count');
 });
 

@@ -186,6 +186,19 @@ class AutonomousMode {
         /* stub */
       }
     }
+    /**
+     * A stop leaves a *paused* DSH goal behind; the plugin refuses new goal rounds for it and
+     * the coordinator would sit on `goal:paused` forever. Close only paused leftovers - an
+     * active goal belongs to whatever is running now.
+     */
+    if (typeof this.ctx.clearActionBrainGoal === 'function') {
+      try {
+        const cleared = await this.ctx.clearActionBrainGoal();
+        if (cleared && cleared.cleared) this.log.info(`cleared paused action-brain goal ${cleared.goalId}`);
+      } catch (err) {
+        this.log.debug(`clearing the paused action-brain goal failed: ${err.message}`);
+      }
+    }
 
     this.phase = 'running';
     this.pausedReason = null;
@@ -206,6 +219,11 @@ class AutonomousMode {
     this.phase = 'paused';
     this.pausedReason = String(reason || 'paused');
     this._abortRecovery = true;
+    /**
+     * Stop the action brain itself. Closing the goal only stops future rounds; the turn that
+     * is running right now keeps calling tools (live 2026-11-01: it kept issuing mc_step).
+     */
+    this._lockActionBrain(`autonomous:${this.pausedReason}`);
     const coordinator = this.ctx.proposalCoordinator;
     if (coordinator && typeof coordinator.abortGoals === 'function') {
       Promise.resolve(coordinator.abortGoals(`autonomous-${reason}`)).catch(() => null);
@@ -218,6 +236,7 @@ class AutonomousMode {
   /** `!autonomous off`: leave the mode entirely (not the same thing as a pause). */
   off(reason = 'off') {
     if (this.phase === 'off') return { ok: true, reason: 'already-off' };
+    this._lockActionBrain(`autonomous:${reason}`);
     const coordinator = this.ctx.proposalCoordinator;
     if (coordinator && typeof coordinator.abortGoals === 'function') {
       Promise.resolve(coordinator.abortGoals(`autonomous-${reason}`)).catch(() => null);
@@ -739,6 +758,30 @@ class AutonomousMode {
   }
 
   // ------------------------------------------------------------------ internals
+
+  /**
+   * Put the action brain behind the operator's stop lock.
+   *
+   * Two layers, because they fail differently: `brain.hold('owner-stop')` is synchronous and
+   * gates every later `mc_step` (even from a turn that is already running), while
+   * `stopActionBrain` asks the plugin to actually cancel that turn and close its goal. Without
+   * the first, a racing tool call still moves the body; without the second, the model keeps
+   * producing turns against a closed goal.
+   */
+  _lockActionBrain(reason) {
+    try {
+      if (this.ctx.brain && typeof this.ctx.brain.hold === 'function') {
+        this.ctx.brain.hold('owner-stop', reason);
+      }
+    } catch (err) {
+      this.log.debug(`brain hold failed: ${err.message}`);
+    }
+    if (typeof this.ctx.stopActionBrain === 'function') {
+      Promise.resolve(this.ctx.stopActionBrain(reason)).catch((err) =>
+        this.log.debug(`action brain stop failed: ${err.message}`)
+      );
+    }
+  }
 
   _announce(kind, text) {
     const wanted = this.cfg.announce && this.cfg.announce[kind] !== false;

@@ -190,6 +190,40 @@ class AutonomousProposalCoordinator {
     }
     const agentId = await this._agentId();
     const goal = agentId ? await this.bridge.goalOf(agentId) : null;
+    /**
+     * The harness may pause a goal on its own (a host-side brake, e.g. an interrupted round).
+     * Treating that as "the action brain finished" ended the round and left the mode sitting
+     * on `goal:paused` forever. Resume it a couple of times per prep before giving up; a
+     * deliberate operator pause arrives as `!stop`, which completes the goal instead.
+     */
+    if (goal && goal.phase === 'paused' && (this.prepResumes || 0) < 2) {
+      this.prepResumes = (this.prepResumes || 0) + 1;
+      try {
+        await this.bridge.resumeGoal({ agentId, goalId: goal.id, revision: goal.revision });
+        this.log.info(`resumed paused prep goal ${goal.id} (${this.prepResumes}/2)`);
+        return { ok: true, reason: 'prep-resumed' };
+      } catch (err) {
+        this.log.debug(`resuming paused prep goal failed: ${err.message}`);
+      }
+    }
+    if (goal && goal.phase === 'paused') {
+      /**
+       * The harness keeps pausing the round (it pauses a goal when the queued goal-round
+       * message is discarded before the agent goes idle). Resuming twice did not stick, so
+       * end this round and try a fresh goal on the next tick - and if that keeps happening,
+       * pause the mode with an honest reason instead of spinning.
+       */
+      await this.completePrep('goal-paused');
+      this.prepPauses = (this.prepPauses || 0) + 1;
+      this.resetTimer('goal-paused');
+      if (this.prepPauses >= 3 && this.mode && typeof this.mode.pause === 'function') {
+        this.log.warn(`autonomous prep goals keep being paused by the harness (${this.prepPauses}x); pausing the mode`);
+        this.mode.pause('prep-goals-paused');
+        return { ok: true, reason: 'prep-paused' };
+      }
+      this._notePreparation(false);
+      return { ok: true, reason: 'prep-paused' };
+    }
     if (!goal || goal.phase !== 'active') {
       /**
        * The action brain completed/blocked the prep goal without proposing. No consent, no
@@ -315,6 +349,36 @@ class AutonomousProposalCoordinator {
       if (Array.isArray(health.turns) && health.turns.length) return 'harness-turn-active';
     }
     const goal = await this.bridge.goalOf(agentId);
+    /**
+     * A leftover paused goal blocks every future prep (`goal:paused`). Ask the plugin to close
+     * it (it clears a paused goal when `complete` refuses). If it survives three attempts the
+     * harness itself is stuck; pause the mode with a reason instead of looking busy forever.
+     */
+    if (goal && goal.phase === 'paused') {
+      this.goalPauseClears = (this.goalPauseClears || 0) + 1;
+      try {
+        await this.bridge.completeGoal({ agentId, goalId: goal.id, revision: goal.revision });
+      } catch (err) {
+        this.log.debug(`clearing paused goal failed: ${err.message}`);
+      }
+      let after = null;
+      try {
+        after = await this.bridge.goalOf(agentId);
+      } catch (err) {
+        after = null;
+      }
+      if (!after || after.phase !== 'paused') {
+        this.goalPauseClears = 0;
+        this.lastBlockedReason = 'goal-paused-cleared';
+        this.lastBusyAt = this.now();
+        return 'goal-paused-cleared';
+      }
+      if (this.goalPauseClears >= 3 && this.mode && typeof this.mode.pause === 'function') {
+        this.log.warn('the harness goal stays paused; pausing the autonomous mode (goal-stuck)');
+        this.mode.pause('goal-stuck');
+      }
+      return `goal:${goal.phase}`;
+    }
     if (goal && goal.phase !== 'complete') return `goal:${goal.phase || 'active'}`;
     return null;
   }
@@ -337,6 +401,11 @@ class AutonomousProposalCoordinator {
     this.prepStartedAt = at;
     this.prepGoal = null;
     this.stats.prepStarted += 1;
+    /**
+     * Do NOT reset the "harness keeps pausing preps" streak here: a fresh goal is exactly
+     * what gets paused, so resetting on start made the counter unable to ever reach 3. It is
+     * reset when a proposal is actually accepted (see accept()).
+     */
     if (this.curriculum && typeof this.curriculum.resetRejections === 'function') {
       this.curriculum.resetRejections();
     }
@@ -468,6 +537,8 @@ class AutonomousProposalCoordinator {
     };
     this.stats.accepted += 1;
     if (by === 'autonomous') this.stats.autoAccepted = (this.stats.autoAccepted || 0) + 1;
+    /** A round produced a proposal: the harness is admitting rounds again. */
+    this.prepPauses = 0;
     this._clearPrep();
     this.lastBusyAt = at;
     this.lastProposal = pending;
@@ -692,6 +763,8 @@ class AutonomousProposalCoordinator {
     this.awaitingProposal = false;
     this.prepGoal = null;
     this.prepStartedAt = 0;
+    /** Give up resuming a harness-paused prep goal after two tries (see _tickPrep). */
+    this.prepResumes = 0;
   }
 
   async _agentId() {

@@ -269,8 +269,16 @@ class MovementsAdapter {
         if (landing.solid) break; // blocked: no further fall in this column
       }
 
-      // 4. jump a 1-block gap (both sides standable)
+      // 4. jump a 1-block gap (both sides standable, and the BODY fits over the gap)
       if (flatBlock === null) continue; // unknown: do not gamble
+      /**
+       * Jumping a gap still moves the whole 2-block-tall body through the gap's column:
+       * feet at y and head at y+1. Checking only `!flatBlock.solid` let A* route through a
+       * 1-block-high doorway in a wall (feet clear, head is the wall above), which the client
+       * can never walk through - the live symptom was a bot pogoing at the doorway until
+       * "jump-blocked" (2026-11-01, operator report: A* ignored the 2-block height limit).
+       */
+      if (!this.canStandAt(flat)) continue;
       const far = v3(here.x + dx * 2, here.y, here.z + dz * 2);
       if (this.world.inGrid(far) && this.canStandAt(far) && this.hasFloorAt(far) && !flatBlock.solid) {
         push(dx * 2, 0, dz * 2, MOVE.JUMP);

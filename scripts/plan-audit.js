@@ -1576,6 +1576,56 @@ if (STAGE === 'p1') {
     if (!/hooks = \{/.test(death)) throw new Error('DeathWatch has no observer hooks');
     return 'bounded refusals + mode-scoped resume';
   });
+
+  /**
+   * 2026-11-01 live-test regressions. Each one is a bug the operator saw, not a design idea:
+   * `!stop` left the action brain driving, A* routed through a 1-high hole, and the failure
+   * ladder never demanded the input layer.
+   */
+  check('P1: !stop / !autonomous off stop the DSH action brain (not only Node queues)', () => {
+    if (!exists('src/harness/actionBrainStop.js')) throw new Error('no action-brain stop module');
+    const stop = read('src/harness/actionBrainStop.js');
+    const commands = read('src/chat/commands.js');
+    const server = read('src/web/statusServer.js');
+    const bridge = read('src/chat/harnessBridge.js');
+    if (!/async pauseGoal/.test(bridge) || !/async resumeGoal/.test(bridge)) {
+      throw new Error('the bridge does not expose the plugin goal pause/resume');
+    }
+    if (!/\/goal\/pause/.test(bridge)) throw new Error('pauseGoal does not call the plugin brake');
+    if (!/stopActionBrain\('!stop'\)/.test(commands)) throw new Error('!stop never asks the action brain to stop');
+    if (!/stopActionBrain\('!autonomous off'\)/.test(commands)) throw new Error('off never asks the action brain to stop');
+    if (!/reason: 'operator-stop'/.test(commands)) throw new Error('no hard lock for racing action-brain steps');
+    if (!/url\.pathname === '\/plan'[\s\S]{0,400}hasStopLock\(ctx\)/.test(server)) {
+      throw new Error('/plan is not locked while stopped');
+    }
+    if (!/url\.pathname === '\/propose'[\s\S]{0,400}hasStopLock\(ctx\)/.test(server)) {
+      throw new Error('/propose is not locked while stopped');
+    }
+    return 'pause+complete goal, owner-stop lock on mc_step/plan/propose, !resume clears';
+  });
+
+  check('P1: A* enforces the 2-block body height (no jumping through 1-high openings)', () => {
+    const movements = read('src/pathfinding/movementsAdapter.js');
+    const pathTest = read('scripts/path-test.js');
+    if (!/canStandAt\(flat\)/.test(movements)) {
+      throw new Error('the gap-jump move does not check the body height over the gap');
+    }
+    if (!/1-block-high hole is noPath/.test(pathTest)) {
+      throw new Error('no regression scenario for the 1-high opening');
+    }
+    return 'gap jump requires feet+head clearance; path:test covers the doorway';
+  });
+
+  check('P1: the failure ladder demands the input layer before asking', () => {
+    const escalation = read('src/core/failureEscalation.js');
+    const test = read('scripts/p1-failure-escalation-test.js');
+    if (!/input-required/.test(escalation)) throw new Error('no input rung in the ladder');
+    if (!/requires: \['input-layer'\]/.test(escalation)) throw new Error('the input refusal does not name the channel');
+    if (!/inputExamples/.test(escalation)) throw new Error('the refusal carries no concrete input actions');
+    if (!/_noteInputUsed/.test(escalation)) throw new Error('an input-layer success does not re-arm the retry');
+    if (!/input-required/.test(test)) throw new Error('the ladder test does not cover the input rung');
+    return 'input-required + examples + one retry after a successful key/mouse action';
+  });
 }
 
 // ------------------------------------------------------------------- summary
