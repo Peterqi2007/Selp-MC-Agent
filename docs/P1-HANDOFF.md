@@ -1,11 +1,15 @@
-# P1 交接（2026-11-01 更新）
+# P1 交接（2026-11-06 更新）
 
-> **一句话**：P1 的**离线可交付部分**已实现并通过一键复验；**M1（适用子集）/M2/M3/M4（A19 适用子集）已通过真机验收**；
-> **P1 仍未整体验收、未发布**（M5 输入层已实现并真机验证链路，但 F1'/A21/A22 未收口；CU 路径**已放弃**；M6/M7 部分）。
+> **一句话**：P1 的**离线可交付部分**已实现并通过一键复验；**M1（适用子集）/M2/M3/M4（A19 适用子集）/
+> M5（A12 按操作员口径暂缓）/M6（A23 按操作员口径、A24 受控并发）已通过真机验收**；
+> **P1 仍未整体验收、未发布**（CU 路径**已放弃**；M7 部分）。
+> **M6 收口（2026-11-06）**：A25 四路径全部真实动作脑提案（accept p60 / 不答 p59 / reject p58 / 另派 p61）、
+> A23 按操作员口径通过、R2/R3 真机通过（空闲零越权 + 反射自行交战；重启账本/提案 12/12）；
+> **A12（GUI 内自卫反射）与 A22 的反射子项按操作员口径暂缓，不计通过**。
 > **M4：编排子集曾判 PASS，2026-10-25 需求变更重开后 v2 已实现，A18–A20、A28–A30 真机 PASS**；
 > A19 残余（真实 PauseScreen/第二玩家）仅离线；方案见 [`M4-DIRECT-BODY-PLAN.md`](M4-DIRECT-BODY-PLAN.md)。
 > 2026-10-24 补 M6 受控测试（A24/C03/F02 受控 PASS、A25 四路径仅 accept 为真实 harness、
-> A23 仍缺 40 组 ×3），**M6 仍 PARTIAL**。
+> A23 已按操作员口径通过（40×3 统计未执行）），**M6 仍 PARTIAL（只剩 A25）**。
 > 2026-10-30 补：CU 标为 ABANDONED（[`CU-ABANDONED.md`](CU-ABANDONED.md)）、载具感知、`@` 请求 → goal、
 > 截图 steer 主动提交、Voyager 式自动课程；**当天白天已拉起真实客户端补真机**：`@` goal、
 > biplane `mounted/inventory/integrity`、steer 落在 turn 70 step 2（带图）、curriculum prep level 1/4→2/4（两次完成）
@@ -60,7 +64,7 @@ npm run p1:baseline -- --suites  # 记录提交/配置指纹/套件结果到 run
 | `p1:m7:test` | **11/11** |
 | `p1:m4:test` | **43/43** |
 | `p1:m4:evolve:test` | **17/17** |
-| `p1:m5:test` | **35/35** |
+| `p1:m5:test` | **40/40** |
 | `p1:channel:test` | **18/18** |
 | `p1:shot:test` | **20/20** |
 | `p1:steer:test` | **9/9** |
@@ -88,8 +92,8 @@ npm run p1:baseline -- --suites  # 记录提交/配置指纹/套件结果到 run
 | M2 | 二值闸门 + `@` 通道（默认关闭）、严格 LLM 判定器、双脑工具清单、`say/silence`、`LanguageAgent`、可选语言对话通道（默认关闭）、快照 `observedAt`、`refreshPlan`、`ThreatObserver`、persona 注入、H1a/H1b | **PASS** |
 | M3 | `PlanService`/`POST /plan`、`TurnService`/`/harness/events`、DSH `mc_plan`、原子持久化、`wait_for_player`、计划问题复用提案、`ResumeBridge`、`MethodLibrary`、`AnswerMemory`、`MemoryStore`、`Budget`、`verifier`、`draftGuard`、`!state`、`!method`；另：持久 goal（`/goal/pause`/`resume`）、`mc_propose`、`mc_state`、`mc_perception` | **PASS（2026-10-21，M3.1–M3.10）** |
 | M4 | manifest 校验、生成管线、candidates/promoted 目录与指针、晋升/回退/下线、promoted-only 检索；2026-10-18 接真实生成、权限子进程试运行、证据、取消、DeepSeek Search、HTTP `/code-skills`；2026-10-25 接实时入口；需求变更后 v2 实现（离线 35/35）并完成 **A18–A20、A28–A30 真机**（A19 适用子集） | **PASS（A19 适用子集）**；方案 [`M4-DIRECT-BODY-PLAN.md`](M4-DIRECT-BODY-PLAN.md) |
-| M5 | 进程内输入层（按键/长按/视角/容器槽位点击/帧缓冲截图）+ 键鼠台账；**CU 路径已放弃（ABANDONED）** | **未通过**：输入/截图/GUI 链路已真机验证（`m5-gui-live 93/93`），但 F1' 四类注入未跑完、A21 部分（探针直连）、A22/M5.3 未执行 |
-| M6 | `ConversationState`（去重/过期/自回声/限速/截断）+ opt-in 守卫 + `ChatParticipation` 参与/沉默 + `ProposalChat` yes/no + **DialogueRouter + `mc_say`**；2026-10-24 受控测试 A24/C03/F02 PASS、A25 四路径（accept 真 harness） | 部分：A23 缺 40 组 ×3；A25 仅 accept 为真实提案；R2/R3 未执行 |
+| M5 | 进程内输入层（按键/长按/视角/容器槽位点击/帧缓冲截图）+ 键鼠台账；**CU 路径已放弃（ABANDONED）** | **PASS（2026-11-05；A12 暂缓）**：F1'a 加打包 jar 断言、F1'b 七条停机路径真机、A21 走 agent 技能层（2 GUI ×3 + 四类注入）、A22 复用 0 次生成调用、M5.3 A07/A08；[`P1-M5.md`](P1-M5.md) §13 |
+| M6 | `ConversationState`（去重/过期/自回声/限速/截断）+ opt-in 守卫 + `ChatParticipation` 参与/沉默 + `ProposalChat` yes/no + **DialogueRouter + `mc_say`**；2026-10-24 受控测试 A24/C03/F02 PASS | **PASS（2026-11-06；A23 操作员口径、A24 受控）**：A25 四路径真实提案、R2/R3 真机通过 |
 | M7 | 故障演练 9/9、A01–A32 矩阵、`p1:verify`、本交接文档；TaskSlot 失败账本持久化 + UsageLedger 逐请求 usage；**failure escalation 回执/闸门/证据链**（离线 26/26；真机 A32 子集通过） | 部分：R1 部分，R2–R4/F3/A31 最终组合；A32 未覆盖项见失败文档 §9.1 |
 
 ## 3. 客户端窗口实测
@@ -183,10 +187,10 @@ npm run p1:baseline -- --suites  # 记录提交/配置指纹/套件结果到 run
 | 项 | 现状 / 下一步 |
 | --- | --- |
 | M4（已完成） | **PASS（A19 适用子集）**：v2 离线 **43/43**（2026-11-01 复核；10-25 当时的 35/35）；A18 `grass_dig`/`table_click`、A19 越界/抢身体/取消/deny/无屏点击/非敌对攻击/硬杀、A20 `half_fail`、A28 长任务 15.57s、A29 硬杀恢复、A30 用量 10,352 tok 真机通过；残余：真实 PauseScreen/第二玩家仅离线 |
-| M5 F1' / A21 / A22 | CU 路径已放弃：①WGC 取不到 OpenGL 窗口帧（两轮真机 `截图未产出` + `Declared image type does not match its bytes`）；②`WindowPolicy`/`ComputerUseGuard` 接不进只读的打包插件（`resources/app.asar`），真机“未 verify 前默认拒绝”不成立。改为 Minecraft 进程内输入层（已实现并真机验证输入/截图/GUI 链路）；前置是 **F1'**（F1'a 结构性不可出界 + F1'b 键鼠台账，**无 N/A 出口**）。**A21 部分通过**（2 类 GUI ×3、`m5-gui-live 93/93`，但探针直连 mod、未走 agent 技能层）；**A22/M5.3 待执行**，F1'b 的暂停/死亡/断连/退出四类注入未跑完。详见 [`P1-M5.md`](P1-M5.md) §7/§8 |
-| M6 A23 / A25 剩余 | A24/C03/F02 受控 PASS；A23 缺真实第二名玩家 40 组 ×3 与 ≥80%/≤10% 阈值；A25 仅 accept 为真 harness，reject/不答/另派需在真实动作脑提案下重跑（单操作员/合成发送者需标注）；R2/R3 未执行 |
+| M5 F1' / A21 / A22（**已完成，2026-11-05**） | CU 路径已放弃：①WGC 取不到 OpenGL 窗口帧；②`WindowPolicy`/`ComputerUseGuard` 接不进只读打包插件。改为 Minecraft 进程内输入层；闸门 **F1'**（F1'a 结构性不可出界 + F1'b 键鼠台账，**无 N/A 出口**）。**收口**：F1'a 加打包 jar 断言（`p1:m5:test 40/40`）；F1'b 七条停机路径真机（长按到期、急停 147ms、取消 24ms、任务结束、断连 121ms、死亡 406ms、退出 124ms、暂停界面 359ms，每条都有事件之后的释放记录）；**A21 PASS（agent 技能层）**：2 类 GUI ×3 + 外部关闭/库存变化/攻击长按/挖掘长按；**A22 PASS**：复用 0 次生成调用 + 急停/取消归零；**M5.3 PASS（A07/A08；A12 暂缓）**。详见 [`P1-M5.md`](P1-M5.md) §13 |
+| M6（已完成） | A24/C03/F02 受控 PASS；A23 按操作员口径通过（40×3 统计未做）；A25 四路径真实动作脑提案 PASS；R2/R3 真机 PASS（2026-11-06） |
 | A33 完全自主模式（2026-11-01 新增） | **离线全绿（33/33）+ 真机 A33.1/A33.4/A33.7 已验**（`p1:autonomous:test 33/33`、`client:test 83/83`、`plan:audit p1 112/112`），**真机剩余 5 项未执行（A33.2/A33.3/A33.5/A33.6/A33.8）**：任务忙拒 / 对话忙拒+聊天正常 / 死亡自动重生 / 遗体取回 / 重启 `paused(restart)`。已验的三项见 [`FULLY-AUTONOMOUS.md`](FULLY-AUTONOMOUS.md) §4b（自驱轮次、无审批、`!stop`/`!autonomous off`），标准见同文件 §9。需要真实游戏与一次真实死亡 |
-| M7 A26 / R1–R4 | A26 仅 2026-10-17 分项基线；R1 部分，R2–R4 未执行 |
+| M7 A26 / R1–R4 | A26 仅 2026-10-17 分项基线；R1 部分；**R2/R3 已真机 PASS（2026-11-06）**；R4 未执行 |
 | M7 F3 / A31 最终组合 | F3 真机 token 端点未验；A31 双 emitter/planVersion 未验 |
 | M0-C1 剩余负载 | 仅空闲 30 次测时；移动/挖矿/反射/GUI 负载未测，阈值不得回填 |
 | 挖石路径（真机） | 一次 2/2、一次厚土柱 0/2；强依赖地质，需固定裸露石层测试点或更深下挖设计 |
@@ -197,13 +201,13 @@ npm run p1:baseline -- --suites  # 记录提交/配置指纹/套件结果到 run
 
 1. 先读 [`P1-CLIENT-TESTS.md`](P1-CLIENT-TESTS.md)（唯一权威清单）与
    [`P1-CLIENT-VERIFICATION.md`](P1-CLIENT-VERIFICATION.md) §0（阶段判定）。
-2. **M7 回归**：A26 完整回归、R1–R4、F3 真机 token、A31 最终组合；每项记录版本/账号/日志路径。
+2. **M7 回归**：A26 完整回归、R1/R4、F3 真机 token、A31 最终组合；每项记录版本/账号/日志路径（R2/R3 已完成）。
 3. **M4（已完成）**：A18–A20、A28–A30 均已在真机 PASS（A18 `grass_dig` dirt 1→2/2→3、
    `table_click` 槽 10→11/11→10；A19 适用子集；A20 `half_fail`；A28 长步 15.57s；A29 硬杀；
    A30 10,352 tok），残余风险记录在案。沙箱规则见 [`P1-M4-SANDBOX.md`](P1-M4-SANDBOX.md)。
-4. **M5**：先做进程内输入层（mod 按键/视角/槽位点击 + 帧缓冲截图）与 `InputLedger`，过 F1'a/F1'b
-   后再跑 A21/A22；F1' 不通过则实现不合并，A21/A22 **不标 N/A**。详见 [`P1-M5.md`](P1-M5.md) §7。
-5. **M6**：按 40 组 ×3 语料跑 A23（A24 受控并发已过，随语料复跑）、按四路径跑 A25 的真实动作脑部分；单操作员时标注“非真实多人”。
+4. **M5（已完成，2026-11-05）**：F1'a/F1'b + A21（agent 技能层）+ A22（复用/急停）+ M5.3（A07/A08）均已收口，
+   详见 [`P1-M5.md`](P1-M5.md) §13；**A12 与 A22 的反射子项按操作员口径暂缓**（恢复口径见 §13.5）。
+5. **M6：已完成（PASS，2026-11-06）**——A23 按操作员口径、A25 四路径真实提案、R2/R3 真机通过。
 6. 完成一项就回填清单，**未测不填、代码存在不算通过**。
 
 ## 7. 代码地图（P1 新增）
@@ -238,7 +242,7 @@ docs/          P1-M0 … P1-M7, P1-GAP-AUDIT, P1-CLIENT-TESTS
 ## 8. 已知风险
 
 1. **真实模型行为只覆盖已跑场景**：A02 判定、H1a/H1b、M3 动作脑/真机注入、unified 语言脑
-   已有真实回执；A23 的 40 组 ×3、A25 三条真实提案（reject/不答/另派）仍未实测；
+   已有真实回执；A23 的 40 组 ×3 统计、A25 三条真实提案（reject/不答/另派）仍未实测；
    A24 仅受控并发（合成发送者）。
 2. **A30 按操作员口径通过**：success/compress/failure/cancel 可归属；retry 用量在 DSH 执行中
    无法获取，不再取证。
@@ -250,7 +254,8 @@ docs/          P1-M0 … P1-M7, P1-GAP-AUDIT, P1-CLIENT-TESTS
    发布前必须决定保持或回退。
 5. **阈值空置**：`/state` 周期、感知成本、聊天节奏、预算数值都未测量（500ms/3 次检索是配置，不是结论）。
 6. **两套规划循环**：默认 `off` 关闭自主规划；`legacy` 代码仍在，删除/切换需真机验收。
-7. **完全自主模式（A33）只有离线证据**：状态机/闸门/自动接受/死亡与回收都在确定性夹具下验过，
+7. **完全自主模式（A33）仍有 5 项无真机证据**：A33.1/A33.4/A33.7 已真机通过（2026-11-01），
+   状态机/闸门/自动接受/死亡与回收都在确定性夹具下验过，
    但「真实死亡 + 真实 Corpse 遗体」从未在游戏里跑过；遗体实体 id 与右击语义来自上游源码与 MC百科，
    本服未验证（失败会以 `unexpected-menu`/`no-corpse` 诚实退出，不会假装成功）。
 8. **操作员停止已真机验证（2026-11-01）**：`!stop`/`!autonomous off` 会 pause+complete 动作脑 goal
@@ -263,10 +268,11 @@ docs/          P1-M0 … P1-M7, P1-GAP-AUDIT, P1-CLIENT-TESTS
 
 1. **A33 完全自主模式真机**（最高优先级）：真实客户端 + 一次真实死亡，按
    [`FULLY-AUTONOMOUS.md`](FULLY-AUTONOMOUS.md) §9 的 A33.1–A33.8 逐项取证。
-2. **M7 回归**：A26 行走/破坏/拾取/取消/双通道 + R1–R4；同窗口补 F3 token 与 A31 最终组合。
-3. **M6**：A23 固定 40 组 ×3（单操作员需标注；A24 受控并发已过，随语料复跑）+ A25 真实动作脑四路径。
+2. **M7 回归**：A26 行走/破坏/拾取/取消/双通道 + R1/R4；同窗口补 F3 token 与 A31 最终组合（R2/R3 已完成）。
+3. **M6：已完成（PASS，2026-11-06）**；后续只按需复跑，不作为待办。
 4. **M4**：已完成（PASS，A19 适用子集）；v2 离线 43/43，A18–A20、A28–A30 真机通过；残余记录在案。
-5. **M5**：进程内输入层 + 键鼠台账 → F1'（结构断言 + 台账归零）→ A21/A22；F1' 不过则实现不合并，
-   A21/A22 不标 N/A（[`P1-M5.md`](P1-M5.md) §7）。
+5. **M5**：**已完成（PASS，A12 暂缓；2026-11-05）**——F1'a/F1'b、A21（agent 技能层）、A22（复用+急停）、
+   M5.3（A07/A08）全部有真机证据；A12 与 A22 的反射子项按操作员口径暂缓，恢复口径见
+   [`P1-M5.md`](P1-M5.md) §13.5。
 6. **修复遗留**：挖石 noPath、夜间入睡、A02 timeout、A10 跨维度/部分刷新、A11 天气/阶段注入。
-7. 每次改动保持 `npm run p1:verify` 全绿（当前 **完整 20/20**，含 P0 回归；**`--fast` 19/19**；2026-11-01 实跑复核）；删除断言必须同提交替换。
+7. 每次改动保持 `npm run p1:verify` 全绿（当前 **完整 20/20**，含 P0 回归；**`--fast` 19/19**；2026-11-05 实跑复核）；删除断言必须同提交替换。

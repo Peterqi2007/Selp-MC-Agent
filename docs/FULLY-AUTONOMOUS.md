@@ -1,7 +1,9 @@
 # 完全自主模式（Fully Autonomous Mode）
 
 > 状态（2026-11-01）：**已实现：离线 `p1:autonomous:test 33/33`、`p1:verify` 19/19（含 P0 为 20/20）、
-> `plan:audit --stage p1 112/112`；真机 A33 未执行**（需要真实游戏会话，尤其是「真的死一次」）。
+> `plan:audit --stage p1 112/112`；真机 A33 部分执行**——**A33.1/A33.4/A33.7 已于 2026-11-01 重启
+> DSH 后真机通过**（§4b），**A33.2/A33.3/A33.5/A33.6/A33.8 未执行**
+> （需要真实游戏会话，尤其是「真的死一次」）。
 > 代码：`src/core/autonomousMode.js`、`src/core/corpseRecovery.js`、`src/skills/corpse.js`；
 > 提案侧改动在 `src/planner/autonomousProposals.js`；遗体交互与重生在客户端 Mod（`useentity` / `respawn`）。
 
@@ -112,7 +114,7 @@ complete 掉（否则插件会一直回 `goal:paused`，prep 永远起不来）�
 > `deposit-surplus-blocks`/`deposit-dirt-stack` 并注入 execution goal（全程无 `!proposal accept`/
 > `!yes`/`mc_ask_player`）；`!stop` 在回合执行中：goal `complete`、15s 内 body 无位移、
 > `mc_step` 返回 `operator-stop`，`!autonomous on` 可再次起轮；`!autonomous off` 同样关闭并上锁，
-> `!resume` 解锁。A33.5/6（真实死亡/遗体）仍未执行。
+> `!resume` 解锁。A33.2/A33.3/A33.8 与 A33.5/6（真实死亡/遗体）仍未执行。
 
 ## 5. 死亡 → 重生 → 回收遗体
 
@@ -166,7 +168,11 @@ complete 掉（否则插件会一直回 `goal:paused`，prep 永远起不来）�
 - `!autonomous status`：一句话摘要。
 - 面板 HTML 本轮未改（读 `/ui/state` 的 fields 已包含 `autonomous`）；要一行文字摘要请用 `!autonomous status`。
 
-## 9. 验收（A33，真机未执行）
+## 9. 验收（A33，真机部分执行）
+
+> **状态（2026-11-01）**：**A33.1 / A33.4 / A33.7 真机 PASS**（重启 DSH 后重测，逐项回执见 §4b）；
+> **A33.2 / A33.3 / A33.5 / A33.6 / A33.8 未执行**，需要真实游戏会话与一次真实死亡。
+> 下表是通过标准，不是已完成记录。
 
 | 编号 | 项 | 通过标准 |
 | --- | --- | --- |

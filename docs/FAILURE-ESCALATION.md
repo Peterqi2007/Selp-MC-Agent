@@ -224,10 +224,10 @@ nothing changed
 | `client:test` | **83/83**（假 mod 协议含 place/useon 证据三分支） |
 | `p1:contract:test` | **241/241**（/command 闸门、/ask_player、lastSettled、plan gate） |
 | `p1:m4:test` | **43/43**（生成提示词实时闭环） |
-| `p1:m5:test` | **35/35** |
+| `p1:m5:test` | **40/40** |
 | `p1:channel:test` | **18/18**（failurePolicy + 升级文本） |
 | `p1:taskgoal:test` | **14/14**（goal 文本 + 新 goal 清账本） |
-| `p1:verify` | **19/19 套件** |
+| `p1:verify` | **20/20**（`--fast` 19/19） |
 
 ### 9.1 真机验证（2026-10-31，客户端 + Node agent）
 

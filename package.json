@@ -61,6 +61,7 @@
     "p1:m4:evolve:test": "node scripts/p1-m4-evolve-test.js",
     "p1:m4:test": "node scripts/p1-m4-test.js",
     "p1:m5:test": "node scripts/p1-m5-input-test.js",
+    "docs:check": "node scripts/doc-consistency-check.js",
     "p1:taskgoal:test": "node scripts/p1-task-goal-test.js",
     "p1:curriculum:test": "node scripts/p1-curriculum-test.js",
     "p1:autonomous:test": "node scripts/p1-autonomous-test.js",

@@ -61,24 +61,24 @@
 | [`docs/P1-M1.md`](docs/P1-M1.md) | **P1 M1 记录（离线 M1a–M1d）**：`TaskEvents` 汇聚/重放、身份字段、`PlanStore` 单一写者、同端口 SSE、Capability 表、TaskResult 六态、`mine_ore` progress 值域、PlanRunner、TurnLifecycle、HarnessAdapter；契约测试已扩到 206/206。真实 DSH 插件与持久化已于 M3 接线并真机验证 |
 | [`docs/P1-M2.md`](docs/P1-M2.md) | **P1 M2 记录（离线契约 + 地址通道）**：二值闸门、`@` 通道默认关闭、严格 LLM 判定器、双脑工具清单、语言专用 `say`/`silence`、离线 `LanguageAgent`、可选语言对话通道（默认关闭）、快照字段时间戳、刷新调度、威胁订阅、persona 注入；**M2 已真机 PASS**（A01/A02/A03/A09–A12 + H1a/H1b，2026-10-17/18） |
 | [`docs/P1-M3.md`](docs/P1-M3.md) | **P1 M3 记录（2026-10-21 PASS）**：`PlanService`、`POST /plan`、`TurnService`/`/harness/events`、DSH `mc_plan`/`mc_propose`/`mc_state`、持久化、`wait_for_player`、`!state`、`!method`、`Budget`、`verifier`、`draftGuard`；A13–A17/A27（只读/异步）/A28–A30/F2 真机通过；`p1:m3:test 44/44` |
-| [`docs/P1-M4.md`](docs/P1-M4.md) | **P1 M4 记录（PASS，A19 适用子集）**：manifest 校验、生成管线、candidates/promoted 目录与指针、晋升/回退/下线、promoted-only 检索；2026-10-18 接真实生成、权限子进程试运行、证据、取消、DeepSeek Search、HTTP `/code-skills`；2026-10-25 接实时入口；需求变更后 **v2 已实现（35/35）且 A18–A20、A28–A30 真机 PASS**。沙箱规则见 [`P1-M4-SANDBOX.md`](docs/P1-M4-SANDBOX.md) |
+| [`docs/P1-M4.md`](docs/P1-M4.md) | **P1 M4 记录（PASS，A19 适用子集）**：manifest 校验、生成管线、candidates/promoted 目录与指针、晋升/回退/下线、promoted-only 检索；2026-10-18 接真实生成、权限子进程试运行、证据、取消、DeepSeek Search、HTTP `/code-skills`；2026-10-25 接实时入口；需求变更后 **v2 已实现（35/35，2026-11-01 复核 43/43）且 A18–A20、A28–A30 真机 PASS**。沙箱规则见 [`P1-M4-SANDBOX.md`](docs/P1-M4-SANDBOX.md) |
 | [`docs/M4-DIRECT-BODY-PLAN.md`](docs/M4-DIRECT-BODY-PLAN.md) | **M4 直接身体原语（v2，2026-10-25）**：生成代码直接读 `/state` 并 `body_move/body_dig/body_place/body_use/body_click/body_look/body_attack`；唯一执行权/slot 租约、权限门、容器屏幕限制、取消中断、有界 blocks；**已实现（35/35），A18–A20、A28–A30 真机 PASS** |
 | [`docs/M4-CLIENT-TESTS.md`](docs/M4-CLIENT-TESTS.md) | **M4 代码技能证据（2026-10-25）**：§1–§7 编排子集；§9 v2 离线（35/35）；**§10 A18 v2 真机 PASS**；**§11 A19/A20/A28–A30 真机 PASS（A19 适用子集）** |
-| [`docs/P1-M5.md`](docs/P1-M5.md) | **P1 M5 记录（2026-10-29 口径变更：进程内输入层）**：执行底座由 OS 级 `computer_use` 改为 mod 在游戏进程内注入按键/视角/槽位点击 + 帧缓冲截图经 HTTP 交 Node（Node 持唯一身体执行权与键鼠台账）；闸门 **F1 作废 → F1'a（结构性不可出界）/F1'b（键鼠台账）**；**CU 路径已放弃（abandoned）**。**输入层已实现并真机验证输入/截图/GUI 链路（`p1:m5:test 35/35`、`m5-gui-live 93/93`），但 F1' 故障注入未跑完、A22/M5.3 未执行，M5 仍未通过**；A21/A22 **不标 N/A** |
+| [`docs/P1-M5.md`](docs/P1-M5.md) | **P1 M5 记录（2026-10-29 口径变更：进程内输入层）**：执行底座由 OS 级 `computer_use` 改为 mod 在游戏进程内注入按键/视角/槽位点击 + 帧缓冲截图经 HTTP 交 Node（Node 持唯一身体执行权与键鼠台账）；闸门 **F1 作废 → F1'a（结构性不可出界）/F1'b（键鼠台账）**；**CU 路径已放弃（abandoned）**。**M5 PASS（2026-11-05；A12 按操作员口径暂缓）**：F1'a 加打包 jar 断言（`p1:m5:test 40/40`）、F1'b 七条停机路径真机、A21 走 agent 技能层（2 GUI ×3 + 四类注入）、A22 复用 0 次生成调用、M5.3 A07/A08；A21/A22 **不标 N/A**，逐项见该文档 §13 |
 | [`docs/CU-ABANDONED.md`](docs/CU-ABANDONED.md) | **CU 路径已放弃（2026-10-29）**：为什么换、还留了什么（只作历史证据）、现在 M5 看什么；`src/computer/*` 已标 ABANDONED |
 | [`docs/P1-WORK-2026-10-30.md`](docs/P1-WORK-2026-10-30.md) | **2026-10-30/31 交付 + 真机**：CU 标记放弃、载具感知、`@` 请求 → DSH goal、截图 steer、Voyager 式自动课程、自卫反射可见性、动作脑改绑 `Minecraft动作脑3`、KeyMapping 注册表发现 + 稳定 ID 注入（§8–§11）；含三个真机缺陷修复与 `p1:verify` 全绿 |
 | [`docs/FAILURE-ESCALATION.md`](docs/FAILURE-ESCALATION.md) | **mc_step/mc_plan 失败回执与升级阶梯**：扩展既有 failure.js（信封/分类/签名闸门），mc_step 同步回执 + 任务结算 + mc_plan step 均带 class/requires；knowledge/unverified → lookup_mod_content → 一次 informed → **输入层（look/key/hold/tap）** → mc_ask_player 停车；place/useon 由 mod 采集世界证据、Node 判定；升级按动作签名，成功/TTL/新 goal 自动降级；**命令通道与 Node 任务通道同一阶梯**（`recordTaskSettle` 不再漏掉输入层）；离线 `p1:failure-escalation:test 27/27`；真机 A32 子集 + 2026-11-01 输入层链路（barrier ×2 → lookup → informed → input-required → look 成功 → 一次重试 → ask）已验 |
-| [`docs/P1-M6.md`](docs/P1-M6.md) | **P1 M6 记录（聊天并发 + 按需接线）**：未读去重、过时回复拒绝、自回声拒绝、限速/重复/截断、随会话持久化；普通聊天 15 行窗口（含自己的回复、随 `p1-state.json` 保存）；**所有非 `!` 玩家消息写入 ChatMemory**；LLM 回复可 opt-in 守卫（默认关闭）；DialogueRouter + `mc_say` 已真机（2026-10-22）；A24/C03/F02 受控 PASS（2026-10-24）；**A23 的 40 组 ×3 与 A25 三条真实提案未完成** |
+| [`docs/P1-M6.md`](docs/P1-M6.md) | **P1 M6 记录（聊天并发 + 按需接线）**：未读去重、过时回复拒绝、自回声拒绝、限速/重复/截断、随会话持久化；普通聊天 15 行窗口（含自己的回复、随 `p1-state.json` 保存）；**所有非 `!` 玩家消息写入 ChatMemory**；LLM 回复可 opt-in 守卫（默认关闭）；DialogueRouter + `mc_say` 已真机（2026-10-22）；A24/C03/F02 受控 PASS（2026-10-24）；**A23 按操作员口径通过、A25 四路径真实提案 PASS（2026-11-06）** |
 | [`docs/LANGUAGE-BRAIN-REPAIR.md`](docs/LANGUAGE-BRAIN-REPAIR.md) | **语言脑统一门面**：`src/llm/languageBrain.js` 的 roleplay/expert/approval、统一语言工具、原文审批、15 行短期窗口 + ChatMemory/任务记忆 grep；**默认 `agent.language.brain=unified`（2026-10-23 真机验证）**，`legacy` 可回退；`p1:language:test 22/22` |
 | [`docs/P1-M7.md`](docs/P1-M7.md) | **P1 M7 记录（离线准备）**：`p1:verify` 一键离线验收（2026-11-01 实测 `--fast` **19/19**、完整 **20/20** 套件）、`p1:fault:test` 9/9、A01–A33 验收矩阵 + F1' 闸门（2026-10-25 回填，2026-10-29 更新 M5 口径，2026-11-01 补 A33）、发布清单与残余风险。**P1 未发布**；M1/M2/M3/M4 真机通过，M5–M7 剩余项见清单 |
-| [`docs/FULLY-AUTONOMOUS.md`](docs/FULLY-AUTONOMOUS.md) | **完全自主模式（2026-11-01）**：`!autonomous on` 后按 automatic curriculum 自出题、自执行、**无任何玩家审批**；玩家任务忙拒（当前任务/位置/血量/做不了），普通聊天照常；死亡自行重生 + 走回 Corpse 遗体取回物品；`!stop` 暂停、`!autonomous off` 退出、重启只恢复为 `paused(restart)`。状态机/闸门/配置/护栏/**A33 真机矩阵** 都在这里；离线 `p1:autonomous:test 33/33`，真机 **A33.1/A33.4/A33.7 已验**（A33.5/6 死亡与遗体未执行） |
+| [`docs/FULLY-AUTONOMOUS.md`](docs/FULLY-AUTONOMOUS.md) | **完全自主模式（2026-11-01）**：`!autonomous on` 后按 automatic curriculum 自出题、自执行、**无任何玩家审批**；玩家任务忙拒（当前任务/位置/血量/做不了），普通聊天照常；死亡自行重生 + 走回 Corpse 遗体取回物品；`!stop` 暂停、`!autonomous off` 退出、重启只恢复为 `paused(restart)`。状态机/闸门/配置/护栏/**A33 真机矩阵** 都在这里；离线 `p1:autonomous:test 33/33`，真机 **A33.1/A33.4/A33.7 已验**（A33.2/3/5/6/8 未执行，其中 5/6 需真实死亡与遗体） |
 | [`docs/P1-GAP-AUDIT.md`](docs/P1-GAP-AUDIT.md) | **P1 全文差距审计**：§1.4–§1.9 逐节“已落地/部分/仅契约/未开始”，离线待办优先级与需批准项（2026-10-22/10-25 增补现状表；2026-10-29 M5 口径变更） |
-| [`docs/P1-HANDOFF.md`](docs/P1-HANDOFF.md) | **P1 交接（2026-10-31 更新）**：一键复验、已交付清单、客户端窗口实测、默认配置、剩余未交付、窗口顺序、代码地图与风险 |
+| [`docs/P1-HANDOFF.md`](docs/P1-HANDOFF.md) | **P1 交接（2026-11-01 更新）**：一键复验、已交付清单、客户端窗口实测、默认配置、剩余未交付、窗口顺序、代码地图与风险 |
 | [`docs/CLIENT-TEST-2026-10-17.md`](docs/CLIENT-TEST-2026-10-17.md) | **客户端窗口实测记录**：协议 23/23、登录+寻路 7/7、采集 9/10（挖石 noPath 失败）、Agent 自动登录修复、`/state` 空闲成本、F1 未授权（历史，2026-10-29 起 F1 已作废、改 F1'） |
 | [`docs/M1-CLIENT-TEST-2026-10-17.md`](docs/M1-CLIENT-TEST-2026-10-17.md) | **M1 客户端两轮记录**：零矿 FAIL→修复后 failed；任务 ID/终态 FAIL→修复后唯一；stop 816ms；SSE token/重放通过；**M1 适用子集 PASS**，残余 A05/A07/A08/A31 子项留 M2/M3/M7 |
 | [`docs/M2-CLIENT-TEST-2026-10-17.md`](docs/M2-CLIENT-TEST-2026-10-17.md) | **M2 客户端记录**：A01/A02/A03/A09/A10/A11/A12/H1 均 PASS；A12 GUI 修复后 219ms 自动关工作台并击杀；TACZ reload live PASS；时间判定改为 server dayTime 优先 |
 | [`docs/DSH-HARNESS.md`](docs/DSH-HARNESS.md) | **DSH harness 接入**：`dsh-plugin-mc-harness` 插件与安装脚本；**15 个工具**（14 个 `mc_*`：observe/step/state/capabilities/keybinds/ask_player/plan/plan_status/cancel/finish/perception/memory/propose/say，外加 `lookup_mod_content`）；持久 goal、`/goal/pause`/`resume`、DialogueRouter + `mc_say` 真机结果。**CU 路径已放弃**；原 M5 的 Full Access Ask 对话级预设不再使用（M5 走进程内输入层） |
-| [`docs/P1-CLIENT-VERIFICATION.md`](docs/P1-CLIENT-VERIFICATION.md) | **P1 客户端阶段验证计划（M1–M7）**：阶段闸门、可证伪主张、正/反证据、有效性边界；**当前 4/7 通过（M1 适用子集、M2、M3、M4）**；M5 未通过（输入层已实现并真机验证链路，但 F1'/A21/A22 未收口；CU 已放弃）、M6/M7 部分 |
+| [`docs/P1-CLIENT-VERIFICATION.md`](docs/P1-CLIENT-VERIFICATION.md) | **P1 客户端阶段验证计划（M1–M7）**：阶段闸门、可证伪主张、正/反证据、有效性边界；**当前 5/7 通过（M1 适用子集、M2、M3、M4、M5〔A12 按操作员口径暂缓〕）**；M6/M7 部分 |
 | [`docs/PLANNER-RETIREMENT.md`](docs/PLANNER-RETIREMENT.md) | **自主规划器退役**：`slowLoop` 拆为 GoalEvaluator + 提案 + TaskSlot。**S0–S4 已全部离线交付**（`planner:test` 35/35、`plan:audit --stage p1` 112/112），真机判据仍登记在客户端清单 |
 | [`docs/P1-CLIENT-TESTS.md`](docs/P1-CLIENT-TESTS.md) | **客户端/真机测试清单**：P1 与退役判据里所有需要真实客户端/服务器的项，**状态已按 2026-10-21/22/24 实际执行回填**；未执行项仍为未执行 |
 | [`docs/PLANNER-AB-EXPERIMENT.md`](docs/PLANNER-AB-EXPERIMENT.md) | **选型 A/B 实验设计**（**条件触发**：仅当 P1 §1.9.2 降级判定成立才执行）：24 次计分运行的场景与门槛；成本审计按时间 / token / 模块复用三项（§6–§7），§10 是决策闸门，**不做经济性评估**（§8.4） |
@@ -232,7 +232,7 @@ LLM 层（`src/llm/`，生产配置已开启 `toolCalling`）：8 个工具 —�
 | 10-15 | A\* 寻路六修 | 真机故障"卡在 75,63,65、随机游走、困在岸上"连修六刀：跨网格目标改**子目标接力**（删除 `toward()` 盲走，水域代价 2.5→2.0）→ 子目标落脚高度改**整列搜索**（"已经到达"不再触发 ±5 回退）→ 水格可作过渡航点 + 运动模型补**踩水横渡** → 含水台阶/半砖按陆地（剥状态后缀、**优先走桥而不是游泳**）→ **脚位格修正**（站在农田/半砖/土径上时 `feetCell()` 取脚下方块**之上**，修"一步都规划不出来/9ms 判 stalled"） | ✅ 离线（`path:test` 31→**35/35**，11f–11l 全是这轮故障的回归）；真机待复测 |
 | 10-15 | LLM 完工播报去重 | 同一件事被播报两次（模型措辞 + 632ms 后模板兜底，格式还不一样）：`config` 为 `taskDone` 声明的 `cooldownMs: 30000` **从未被消费**——现在 `announceFinished` 按「任务名\|描述\|成功与否」记时间戳并压制窗口内重复（不同完工、成功后再失败照常播）；模板去掉 `(moved N blocks in M ms)` 遥测 | ✅ 离线（`llm:dry` 工具 39→**43/43** 四条断言；真机故障见 §6 第 15 条） |
 | 10-16 | **P0 收官** | 8/8 套件、`plan:audit` 29/29 复核通过；P0 计划书与验收档案**转为历史文档**；REFS 新增 Voyager 参考项目并明确 `refs/` 忽略范围 | ✅ 离线（`p0:verify` 8/8，2026-10-16 实跑） |
-| 11-01 | **完全自主模式** | `!autonomous on [目标]` → 课程自出题、提案自动接受（**无玩家审批**）、`mc_ask_player` 拒绝、权限 `ask` 降为 `deny`；玩家任务忙拒（任务/位置/血量/做不了），普通聊天照常；死亡自行重生（Mod `respawn`）→ 走回 **Corpse 遗体**（Mod `useentity` + 容器 quick-move）取回物品 → 继续课程；`!stop` 暂停、`!autonomous off` 退出、重启只到 `paused(restart)`；护栏：每小时轮次、连续无提案、连续失败、死亡循环 | ✅ 离线（`p1:autonomous:test 33/33`、`client:test 83/83`、`p1:verify 20/20`、`plan:audit p1 112/112`）；真机 **A33.1/A33.4/A33.7 已验**（自驱 4 轮、无审批、stop/off 关闭并从遗留 active goal 接管），A33.5/6 死亡与遗体仍未执行 |
+| 11-01 | **完全自主模式** | `!autonomous on [目标]` → 课程自出题、提案自动接受（**无玩家审批**）、`mc_ask_player` 拒绝、权限 `ask` 降为 `deny`；玩家任务忙拒（任务/位置/血量/做不了），普通聊天照常；死亡自行重生（Mod `respawn`）→ 走回 **Corpse 遗体**（Mod `useentity` + 容器 quick-move）取回物品 → 继续课程；`!stop` 暂停、`!autonomous off` 退出、重启只到 `paused(restart)`；护栏：每小时轮次、连续无提案、连续失败、死亡循环 | ✅ 离线（`p1:autonomous:test 33/33`、`client:test 83/83`、`p1:verify 20/20`、`plan:audit p1 112/112`）；真机 **A33.1/A33.4/A33.7 已验**（自驱 4 轮、无审批、stop/off 关闭并从遗留 active goal 接管），A33.2/3/5/6/8 仍未执行（5/6 需真实死亡与遗体） |
 
 当前状态（2026-11-01 实测复核；历史计数保留在对应日期的记录里）：
 
@@ -240,27 +240,29 @@ LLM 层（`src/llm/`，生产配置已开启 `toolCalling`）：8 个工具 —�
   `clientmod:test` · `selftest` · `plan:audit`），P0 两份文档已转历史。
 * 离线全绿（2026-11-01 复跑）：`selftest`、`skills:test`、`client:test`、`control:test`、`tasks:test`、
   `path:test`、`clientmod:test`、`verify:roleplay`、`llm:dry` 均通过（历史计数见 §8；P0 套件由 `p0:verify` 统一跑）。
-* P1 离线（2026-11-01 实跑复核）：`p1:verify` **20/20 套件**（P0 8 套件 + `planner:test 35/35` +
+* P1 离线（2026-11-05 实跑复核）：`p1:verify` **20/20 套件**（P0 8 套件 + `planner:test 35/35` +
   `p1:contract:test 241/241` + `p1:failure-escalation:test 27/27` + `p1:m3:test 58/58` + `p1:m6:test 25/25` +
   `p1:proposal-autonomy:test 16/16` + `p1:language:test 22/22` + `p1:m7:test 11/11` +
-  `p1:m4:test 43/43` + `p1:m4:evolve:test 17/17` + `p1:m5:test 35/35` + `p1:channel:test 18/18` +
+  `p1:m4:test 43/43` + `p1:m4:evolve:test 17/17` + `p1:m5:test 40/40` + `p1:channel:test 18/18` +
   `p1:shot:test 20/20` + `p1:steer:test 9/9` + `p1:taskgoal:test 14/14` + `p1:curriculum:test 20/20` +
   `p1:autonomous:test 33/33` + `p1:fault:test 9/9` + `plan:audit --stage p1 112/112`；`--fast` 为 **19/19**，完整 **20/20**）。
-* P1 客户端阶段（2026-10-20/21/22/24/25 + 2026-10-29）：**M1 适用子集 PASS、M2 PASS、M3 PASS、M4 PASS（A19 适用子集）**
+* P1 客户端阶段（2026-10-20/21/22/24/25 + 2026-10-29 + 2026-11-05）：**M1 适用子集 PASS、M2 PASS、M3 PASS、
+  M4 PASS（A19 适用子集）、M5 PASS（A12 按操作员口径暂缓）**
   （A13–A17、A27 只读/异步、A28–A30、F2；均在 `planner.mode=off` 下由 DSH 动作脑/真机注入完成）；
   M4 代码管线、`p1:m4:test 43/43`、`!code-skill`/`code_skill` 实时入口与 v2 直接原语真机已完成：
   **A18–A20、A28–A30 真机 PASS**（move+dig、容器 click、越界/抢身体/取消/deny、半途失败、长任务
   15.57s、硬杀恢复、10,352 tok 用量；A19 残余仅离线），见
   [`docs/M4-DIRECT-BODY-PLAN.md`](docs/M4-DIRECT-BODY-PLAN.md)；
-  **M5 未通过，但已从"未实现"变为"已实现并真机验证链路"**：进程内输入层 + 键鼠台账 + 帧缓冲截图已落地
-  （`p1:m5:test 35/35`；真机 `m5-live-probe 21/21`、`m5-agent-probe 11/11`、`m5-gui-live 93/93`、
-  `m5-target-live 8/8`、`m5-channel-live 8/8`）；**A21 部分通过（2 类 GUI ×3，探针直连未走技能层）、
-  A22/M5.3 未执行、F1'b 的暂停/死亡/断连/退出四类注入未跑**；CU 路径**已放弃**；
-  M6 对话入口真机通过，2026-10-24 受控测试 **A24/C03/F02 PASS、A25 四路径（accept 真 harness）、
-  A23 仅 6 条真实沉默（缺 40×3）**；M7 仅 A26/R1 部分基线，**R2–R4、F3 真机端点、A31 最终组合
-  未执行**；**P1 未发布**。详见
+  **M5 PASS（2026-11-05；A12 按操作员口径暂缓）**：进程内输入层 + 键鼠台账 + 帧缓冲截图落地并收口——
+  `p1:m5:test 40/40`（含**打包 jar** 断言）＋ F1'b **七条停机路径**真机（急停 147ms、取消 24ms、
+  任务结束、断连 121ms、死亡 406ms、退出 124ms、暂停界面 359ms；长按到期）；**A21 PASS（agent 技能层）**：
+  2 类 GUI ×3 + 外部关闭/库存变化/攻击长按/挖掘长按；**A22 PASS**：复用 0 次生成调用、急停/取消归零；
+  **M5.3 PASS（A07/A08）**；**A12 与 A22 的反射子项暂缓**，逐项见 `docs/P1-M5.md` §13。CU 路径**已放弃**；
+  M6 已收口（2026-11-06）：2026-10-24 受控测试 **A24/C03/F02 PASS**；**A23 按操作员口径通过**（40×3 统计未做）；
+  **A25 四路径全部真实动作脑提案 PASS**（accept 前 43s 零执行、不答过期零执行、reject 冷却 300s、另派被显式任务顶替）；
+  **R2/R3 真机 PASS**；M7：仅 A26/R1 部分基线，**R4、F3 真机端点、A31 最终组合未执行**；**P1 未发布**。详见
   `docs/P1-CLIENT-VERIFICATION.md`、`docs/P1-M3.md`、`docs/P1-M7.md`、`docs/P1-HANDOFF.md`。
-* 控制 Mod：`mod-client/dist/agent-client-1.0.0.jar` **97418 字节**（2026-11-01 构建，`POST /command` **33 个 case 分支 / 别名展开 42 个 verb 名**），
+* 控制 Mod：`mod-client/dist/agent-client-1.0.0.jar` **97745 字节**（2026-11-05 构建，`POST /command` **34 个 case 分支 / 别名展开 45 个 verb 名**），
   含 WalkTo 严格到达 y 容差、战斗 v3、TACZ 枪械与 server `dayTime` 昼夜判断、**TACZ `HoldToAim` 右键瞄准修复**、
   **`/state?players=1` 轻量玩家轮询**、**Veil ImGui 按键崩溃防护 Mixin**，2026-10-29/30 的
   **进程内输入层**（`key/hold/tap/look/shot`、`InputLedger` 对账、`gameTime`、`entities/riding/standingOnEntity`）
@@ -275,7 +277,7 @@ LLM 层（`src/llm/`，生产配置已开启 `toolCalling`）：8 个工具 —�
   （提案自动接受；`mc_ask_player` 被拒、权限 `ask` 降级为 `deny`）；玩家派发的任务一律忙拒并回
   「正在忙 + 当前任务 + 位置/血量/饥饿 + 做不了」，普通聊天照常；死亡后自行重生、走到 Corpse 模组遗体处
   取回物品再继续；`!stop` 暂停、`!autonomous off` 退出、重启只恢复为 `paused(restart)`。
-  离线 `p1:autonomous:test 33/33`；真机 **A33.1/A33.4/A33.7 已验**（自驱轮次、无审批、`!stop`/`!autonomous off` 关闭），A33.5/6 死亡与遗体仍未执行。
+  离线 `p1:autonomous:test 33/33`；真机 **A33.1/A33.4/A33.7 已验**（自驱轮次、无审批、`!stop`/`!autonomous off` 关闭），A33.2/3/5/6/8 仍未执行（5/6 需真实死亡与遗体）。
 * **2026-11-01 真机回归三修**（操作员报告）：
   ① **`!stop`/`!autonomous off` 现在真的停动作脑**——只关 Node 队列不够（模型回合还在调 `mc_step`）：
      新增 `src/harness/actionBrainStop.js`，调插件 `POST /goal/pause`（取消 in-flight turn/plan）+
@@ -524,6 +526,7 @@ LLM 层（`src/llm/`，生产配置已开启 `toolCalling`）：8 个工具 —�
 !deposit <item> <count> / !store <item> <count>   # 同一条命令；范围内无箱子会自动做并放下一个
 !hunt [n] / !light [n] / !shelter / !target / !look <yaw> <pitch> / !lookat <x> <y> <z> / !shot [maxEdge]
 !key <动作|modid:path> down|up / !hold <动作|modid:path> [ms] / !tap <动作|modid:path> / !inputs   # 进程内输入层
+!menu / !click <槽位> [button] [pickup|quickmove|swap] / !close   # GUI：读当前界面、点击前后各读一次并返回槽位 diff、按白名单关界面
 !keybinds [query]                  # 实时 KeyMapping 表（原版+模组，稳定 modid:path ID）
 !goal <文本> / !state status|save / !plans / !method <目标> / !methods / !answers / !proposal status|accept|reject / !answer <文本>
 !code-skill list | find <文本> | forge <prompt> | forge-status [id] | history <名称> | <名称> [json]
@@ -564,11 +567,12 @@ Invoke-RestMethod -Uri http://127.0.0.1:8766/ui/state
 | `npm run client:check` | 探测 8899：Mod 在不在、是否已进入世界 |
 | `npm run client:verify` | 真机协议验收（需要客户端在跑） |
 
-原语清单（`ControlHttpServer.execute`，**33 个 case 分支 / 别名展开 42 个 verb 名**）：
+原语清单（`ControlHttpServer.execute`，**34 个 case 分支 / 别名展开 45 个 verb 名**）：
 `chat/login/say`、`cmd/command`、`look/lookat/resync/stop/reload`、`moveto/goto`、`dig/mine`、`tunnel`、
 `pillar/pillarup/tower`、`place/useon/interact`、`target`、`menu/slots/click/close`、`use/useitem/select/drop`、
 `attack`、`shoot`、`retreat`，2026-10-29 进程内输入层 **`key/hold/tap/shot/inputs`**，
-以及 2026-11-01 完全自主模式 **`respawn`**（= 死亡界面按钮）与 **`useentity/rightclickentity`**（右击实体，遗体取物）；
+2026-11-01 完全自主模式 **`respawn`**（= 死亡界面按钮）与 **`useentity/rightclickentity`**（右击实体，遗体取物），
+以及 2026-11-05 为 F1'b 断连注入加的 **`disconnect`**（= 暂停菜单"断开连接"，客户端不退出）；
 感知 `GET /state /progress /chatlog /health /keybinds`。`/register` 在四道闸门上被永久拒绝（会重置角色数据）。
 
 ---
@@ -703,11 +707,12 @@ Invoke-RestMethod -Uri http://127.0.0.1:8766/ui/state
 | `npm run path:test` | 寻路场景（含跨网格子目标接力、河流与桥、陡坎不乱走、游泳过湖、1 格高洞不可通行） | 36/36 |
 | `npm run tasks:test` | 三原语（走 / 挖 / 捡）+ FishTask 适配器 | 58/58 |
 | `npm run llm:dry` | 意图路由 / Schema / 工具白名单 / 完工播报去重 | 路由 67/67 · 工具 43/43 |
-| `npm run control:test` | 双通道 + 面板 + 死亡处理 + 反射路由 + 战斗反射 | 43/43 |
+| `npm run control:test` | 双通道 + 面板 + 死亡处理 + 反射路由 + 战斗反射 + 死亡释放/任务结束释放/A07 所有权 | 46/46 |
 | `npm run plan:audit` | 计划书 §11 符合性 | 35/35（`--stage p1` 112/112） |
 | `npm run p1:verify` | P1 离线门禁（P0 + 全部 P1 套件；`--fast` 跳过 P0） | **20/20**（`--fast` 19/19） |
+| `npm run docs:check` | 文档一致性守卫（M5 判定/A12 暂缓/容器界面口径/jar 与 verb 计数/§13 引用） | 7/7 |
 | `npm run p1:failure-escalation:test` | 失败信封/签名闸门/输入层档/lookup/ask 停车/降级/证据/计划接线 | 27/27 |
-| `npm run p1:m5:test` | 进程内输入层 / 键鼠台账 / 帧缓冲截图 / 感知字段契约 / 受控通用键 / 模组键表 | 35/35 |
+| `npm run p1:m5:test` | 进程内输入层 / 键鼠台账 / **打包 jar 的 F1'a 断言** / 断连与暂停边沿 / 帧缓冲截图 / 感知字段契约 / 受控通用键 / 模组键表 | 40/40 |
 | `npm run p1:channel:test` | 通道策略（code-skill → command → input → code-generation） | 18/18 |
 | `npm run p1:shot:test` | 截图触发/预算/去重/steer 策略 | 20/20 |
 | `npm run p1:steer:test` | 主动 steer 投递（插件 `/message` steer/followup/回退 + 桥接 + 策略） | 9/9 |
@@ -716,6 +721,13 @@ Invoke-RestMethod -Uri http://127.0.0.1:8766/ui/state
 | `npm run p1:autonomous:test` | 完全自主模式（状态机/忙拒/自动接受/护栏/死亡重生与遗体回收/持久化/启动接管/受阻即暂停） | 33/33 |
 | `npm run p1:m4:evolve:test` | M4 v3 键鼠脚本 / 错误回灌 / 版本链 / 检索 | 17/17 |
 | `npm run p1:m4:test` | M4 沙箱/权限/生成提示词（状态驱动+写时快照）/搜索/存储 | 43/43 |
+| `node scripts/m5-agent-layer-live-probe.js` | A21 走 **agent 技能层**：背包/工作台 ×3 + 外部关闭/长按注入（真机） | 59/59（2026-11-02） |
+| `node scripts/m5-remaining-live-probe.js` | 挖掘长按 / 库存变化 / 取消释放 / 任务结束释放 / A07 单执行者 / A22 复用（真机） | 37/37（2026-11-05） |
+| `node scripts/m5-f1b-{injection,disconnect,death,pause}-probe.js` | F1'b 四类注入：退出 / 断连 / 死亡 / 暂停界面（真机，各自产出 evidence JSON） | 四条均 PASS |
+| `node scripts/m5-m53-gui-live-probe.js` | M5.3 仪器（GUI 场景 A07/A08/A12 的骨架；A12 需敌对生物） | 骨架 |
+| `node scripts/m6-r2-idle-probe.js` | R2a 空闲窗口（零任务/零命令/零按键）+ R2b 反射观察（真机，只读） | 已跑（2026-11-06） |
+| `node scripts/m6-r2b-log-evidence.js` | 从日志窗口生成 R2b 证据（反射 engaging/交火 + 外部命令计数） | 已跑（2026-11-06） |
+| `node scripts/m6-r3-restart-probe.js` | R3 重启持久化（注入失败 + 植入提案 → 只重启 Agent → 逐字比对） | 12/12（2026-11-06） |
 | `npm run p1:language:test` | 统一语言脑门面（profile/工具/原文审批/记忆 grep/短窗口） | **22/22** |
 | `npm run corpus:learn` | 从 `chat-corpus.csv` 标注学习 20+20 条沉默/参与示例，写 `config/chat-silence-profile.json` | 40 examples |
 | `npm run inspect:server` / `mods:report` | 连服前体检 / Mod 知识报告 | 辅助 |
@@ -775,7 +787,8 @@ P0 已于 2026-10-16 收官（`p0:verify` 8/8、`plan:audit` 29/29）；[`docs/P
 * **操作注意**：客户端窗口未聚焦或开着 GUI 时游戏忽略输入；控制 Mod 改动必须重启客户端才生效
   （Node 改动只需重启 Agent）。
 * **Mod 知识**：客户端扫描到的是真实注册表；未知方块默认不挖，避免卡在挖不动的方块上。
-* **完全自主模式（A33）只有离线证据**：状态机、忙拒、自动接受、死亡/回收都在确定性夹具下验过；
+* **完全自主模式（A33）仍有 5 项无真机证据**：A33.1/A33.4/A33.7 已真机通过（2026-11-01），
+  状态机、忙拒、自动接受、死亡/回收都在确定性夹具下验过；
   「真实死亡 + 真实 Corpse 遗体」从未在游戏里跑过（`corpse:corpse` 的 id 与右击语义来自上游源码与
   MC百科）。回收失败会以 `no-corpse`/`unexpected-menu`/`other-dimension`/`too-far`/`hazard` **诚实退出**，
   不假装成功；真机验收见 [`docs/FULLY-AUTONOMOUS.md`](docs/FULLY-AUTONOMOUS.md) §9。
