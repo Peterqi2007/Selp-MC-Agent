@@ -679,6 +679,16 @@ public final class ControlHttpServer {
                         out.put("error", Json.str("not-dead"));
                     }
                 }
+                case "disconnect" -> {
+                    // Leave the world (pause menu's "Disconnect") without killing the client.
+                    // Exists for F1'b's disconnect injection: the world disappears while the
+                    // process keeps answering /health, which a process kill cannot express.
+                    boolean ok = actions.disconnect();
+                    out.put("ok", Json.bool(ok));
+                    if (!ok) {
+                        out.put("error", Json.str("not-in-world"));
+                    }
+                }
                 case "useentity", "rightclickentity" -> {
                     // Right-click an entity by id: corpse looting (Corpse mod), trading, mod
                     // interactions. `interact` is already the block-face verb, hence the name.

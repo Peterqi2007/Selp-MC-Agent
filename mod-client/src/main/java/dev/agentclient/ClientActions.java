@@ -10,6 +10,7 @@ import net.minecraft.client.multiplayer.ClientLevel;
 import net.minecraft.client.player.LocalPlayer;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
+import net.minecraft.network.chat.Component;
 import net.minecraft.network.protocol.game.ServerboundMovePlayerPacket;
 import net.minecraft.world.InteractionHand;
 import net.minecraft.world.entity.Entity;
@@ -317,6 +318,26 @@ public final class ClientActions {
                 return false;
             }
             mc.player.respawn();
+            return true;
+        }));
+    }
+
+    /**
+     * Leave the current world without quitting the game - the pause menu's "Disconnect".
+     *
+     * F1'b needs the client to stay alive while the world goes away; a process kill cannot
+     * express that, and asking a human to click the button is not a repeatable injection.
+     * The mod owns world transitions, so this is a verb rather than something the brain
+     * simulates.
+     *
+     * @return true when the disconnect was dispatched
+     */
+    public boolean disconnect() {
+        return Boolean.TRUE.equals(onClient(() -> {
+            if (mc.getConnection() == null) {
+                return false;
+            }
+            mc.getConnection().getConnection().disconnect(Component.literal("agent: leave world (F1'b test verb)"));
             return true;
         }));
     }
