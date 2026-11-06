@@ -1148,6 +1148,82 @@ async function buildAgent(options = {}) {
     return 'aborted, stayed stopped across respawn, resumed only on request';
   });
 
+  await scenario('every death releases the held keys (a sticky dead hold must not swallow it)', async () => {
+    const agent = await buildAgent();
+    const releases = [];
+    agent.brain.releaseInput = (reason) => {
+      releases.push(reason);
+      return Promise.resolve({ ok: true, released: [], reason });
+    };
+
+    // A key can be accepted after a previous death, while the dead hold is already active.
+    // `Holds.hold` fires its listener only on the transition (that is the first record below),
+    // so from here on every release has to come from stopForDeath itself.
+    agent.brain.holds.hold('dead', 'previous death');
+    const afterPreviousDeath = releases.length;
+
+    agent.brain.stopForDeath('second death');
+    expect(releases.length === afterPreviousDeath + 1 && releases[afterPreviousDeath] === 'dead',
+      `the death with an already-active hold released nothing: ${JSON.stringify(releases)}`);
+
+    agent.brain.stopForDeath('third death');
+    expect(releases.length === afterPreviousDeath + 2 && releases[afterPreviousDeath + 1] === 'dead',
+      `release must happen on every death, not just once: ${JSON.stringify(releases)}`);
+    agent.stop();
+    return 'releaseAll on every death, sticky hold included';
+  });
+
+  await scenario('A07: one body owner - a running task refuses the action brain, not the operator', async () => {
+    const agent = await buildAgent();
+    // A skill/code-skill owning the body never shows up in hub.status(); the slot is the truth.
+    agent.brain.slot.acquire({ kind: 'skill', id: 'agent.slow_wait', note: 'slow_wait', holdsBody: true });
+
+    const status = await agent.chat.handle('task status', 'mc_step', { source: 'action-brain' });
+    expect(status.result && status.result.slot && status.result.slot.owned,
+      `task status must name the body owner: ${JSON.stringify(status.result && status.result.slot)}`);
+    expect(status.result.slot.id === 'agent.slow_wait',
+      `wrong owner reported: ${JSON.stringify(status.result.slot)}`);
+
+    let refused = null;
+    try {
+      await agent.chat.handle('key sprint down', 'mc_step', { source: 'action-brain' });
+    } catch (err) {
+      refused = err.message;
+    }
+    expect(refused && /body-busy/.test(refused),
+      `the action brain pressed a key while a task owned the body: ${refused || 'not refused'}`);
+
+    // The operator must keep control of their own bot.
+    let operatorError = null;
+    try {
+      await agent.chat.handle('key sprint up', 'panel', { source: 'panel' });
+    } catch (err) {
+      operatorError = err.message;
+    }
+    expect(!operatorError || !/body-busy/.test(operatorError),
+      `the operator was refused by the ownership guard: ${operatorError}`);
+
+    agent.brain.slot.release();
+    agent.stop();
+    return 'brain refused, operator unaffected';
+  });
+
+  await scenario('a task ending releases the keys pressed during it', async () => {
+    const agent = await buildAgent();
+    const releases = [];
+    agent.brain.releaseInput = (reason) => {
+      releases.push(reason);
+      return Promise.resolve({ ok: true, released: [], reason });
+    };
+    agent.brain.slot.acquire({ kind: 'brain', id: 'agent.slow_wait', note: 'slow_wait', holdsBody: true });
+    const atStart = releases.length;
+    agent.brain.slot.release();
+    expect(releases.length > atStart && releases.includes('task-end'),
+      `a task that ended released nothing: ${JSON.stringify(releases)}`);
+    agent.stop();
+    return 'releaseAll on task end';
+  });
+
   await scenario('the death banner is visible through /ui/state', async () => {
     const agent = await buildAgent();
     const alive = agent.body.snapshot();

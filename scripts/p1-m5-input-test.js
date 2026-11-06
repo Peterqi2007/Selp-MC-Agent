@@ -18,6 +18,7 @@ const assert = require('assert');
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
+const zlib = require('zlib');
 
 const { InputLedger, normaliseAction, MAX_HOLD_MS } = require('../src/core/inputLedger');
 const { Holds } = require('../src/core/holds');
@@ -53,6 +54,47 @@ function listJava() {
   return fs.readdirSync(dir)
     .filter((name) => name.endsWith('.java'))
     .map((name) => ({ name, code: fs.readFileSync(path.join(dir, name), 'utf8') }));
+}
+
+/**
+ * Minimal ZIP reader for the packaged mod jar (central directory -> inflate each entry).
+ *
+ * F1'a must hold for the artifact we actually ship, not only for the sources: the source scan
+ * proves `mod-client/**\/*.java` never calls an OS input/capture API, but `client:build` could
+ * still package a stale or hand-dropped class. The jar is a plain deflate zip, so this needs no
+ * dependency, no Java and no network - which keeps `p1:verify` offline.
+ */
+function readZipEntries(file) {
+  const buf = fs.readFileSync(file);
+  const EOCD = 0x06054b50;
+  let eocd = -1;
+  for (let i = buf.length - 22; i >= 0; i -= 1) {
+    if (buf.readUInt32LE(i) === EOCD) { eocd = i; break; }
+  }
+  assert.notStrictEqual(eocd, -1, `not a zip archive: ${file}`);
+  const count = buf.readUInt16LE(eocd + 10);
+  let ptr = buf.readUInt32LE(eocd + 16);
+  const entries = [];
+  for (let i = 0; i < count; i += 1) {
+    assert.strictEqual(buf.readUInt32LE(ptr), 0x02014b50, 'corrupt central directory');
+    const method = buf.readUInt16LE(ptr + 10);
+    const compressedSize = buf.readUInt32LE(ptr + 20);
+    const nameLength = buf.readUInt16LE(ptr + 28);
+    const extraLength = buf.readUInt16LE(ptr + 30);
+    const commentLength = buf.readUInt16LE(ptr + 32);
+    const localOffset = buf.readUInt32LE(ptr + 42);
+    const name = buf.toString('utf8', ptr + 46, ptr + 46 + nameLength);
+    const localNameLength = buf.readUInt16LE(localOffset + 26);
+    const localExtraLength = buf.readUInt16LE(localOffset + 28);
+    const dataStart = localOffset + 30 + localNameLength + localExtraLength;
+    const raw = buf.subarray(dataStart, dataStart + compressedSize);
+    let data = Buffer.alloc(0);
+    if (method === 0) data = raw;
+    else if (method === 8) data = zlib.inflateRawSync(raw);
+    entries.push({ name, data });
+    ptr += 46 + nameLength + extraLength + commentLength;
+  }
+  return entries;
 }
 
 /**
@@ -103,6 +145,34 @@ async function main() {
     };
     walk(srcDir);
     assert.deepStrictEqual(offenders, [], `OS-level APIs found in: ${offenders.join(', ')}`);
+  });
+
+  // The shipped artifact, not just the sources: the same assertion on the packaged classes.
+  await check('the packaged mod jar carries the input layer and no OS-level API', () => {
+    const jar = path.join(ROOT, 'mod-client/dist/agent-client-1.0.0.jar');
+    assert.ok(fs.existsSync(jar), `missing packaged jar: ${jar} (run npm run client:build)`);
+    const entries = readZipEntries(jar);
+    const classes = entries.filter((entry) => entry.name.endsWith('.class'));
+    assert.ok(classes.length > 0, 'the jar carries no classes');
+    const names = new Set(entries.map((entry) => entry.name));
+    assert.ok(names.has('dev/agentclient/ClientActions.class'),
+      'the jar has no ClientActions.class - stale or wrong build');
+
+    const forbidden = /SendInput|keybd_event|mouse_event|BitBlt|PrintWindow|CopyFromScreen|java\/awt\/Robot|java\/awt\/Toolkit|java\/awt\/GraphicsDevice/;
+    const offenders = classes
+      .filter((entry) => forbidden.test(entry.data.toString('latin1')))
+      .map((entry) => entry.name);
+    assert.deepStrictEqual(offenders, [], `packaged classes reference OS-level APIs: ${offenders.join(', ')}`);
+
+    // And it must be the build that actually implements the in-process layer. Symbols are
+    // chosen to survive Forge's SRG remap: Minecraft methods (`takeScreenshot`, `setDown`) are
+    // renamed in the production jar, so we look for our own field names plus the Minecraft
+    // class references the input layer must hold.
+    const actions = classes.find((entry) => entry.name === 'dev/agentclient/ClientActions.class');
+    const text = actions.data.toString('latin1');
+    for (const symbol of ['heldUntilTick', 'expireHolds', 'Screenshot', 'KeyMapping']) {
+      assert.ok(text.includes(symbol), `packaged ClientActions is missing ${symbol}`);
+    }
   });
 
   await check('the mod captures through the game render target, not an OS grab', () => {
@@ -199,6 +269,96 @@ async function main() {
 
   // ------------------------------------------------------------ input ledger
   process.stdout.write('\n3. input ledger: record, release, never leak\n');
+
+  /**
+   * F1'b's "process exit / disconnect" half. The game cannot be told to release anything when
+   * it is gone, so what must hold is that Node stops believing a key is down: three
+   * consecutive failed state polls fire `onLost` exactly once, and a recovered body can be
+   * lost again without a second process restart.
+   */
+  await check('a body that stops answering fires the loss hook once and re-arms after recovery', async () => {
+    const body = new ClientModBody({ agent: { clientMod: {} } }, { log: silent });
+    let lost = 0;
+    body.onLost = () => { lost += 1; };
+    let refuse = true;
+    body.request = async () => {
+      if (refuse) throw new Error('ECONNREFUSED');
+      return { ready: true, dimension: 'minecraft:overworld' };
+    };
+
+    await body.refreshStrict(true);
+    await body.refreshStrict(true);
+    assert.strictEqual(lost, 0, 'two failures are a hiccup, not a loss');
+    await body.refreshStrict(true);
+    assert.strictEqual(lost, 1, 'the third consecutive failure fires the hook');
+    await body.refreshStrict(true);
+    assert.strictEqual(lost, 1, 'it must not fire on every later failure');
+
+    refuse = false;
+    await body.refreshStrict(true);
+    refuse = true;
+    for (let i = 0; i < 3; i += 1) await body.refreshStrict(true);
+    assert.strictEqual(lost, 2, 'a recovered body can be lost again');
+  });
+
+  /**
+   * The other half of F1'b's disconnect clause: the client keeps running while the world goes
+   * away (`ready:true -> ready:false`). Nothing dies, so the failed-poll path above never
+   * fires - the transition itself must be observed, exactly once.
+   */
+  await check('leaving the world fires the loss hook once and re-arms on rejoin', async () => {
+    const body = new ClientModBody({ agent: { clientMod: {} } }, { log: silent });
+    const reasons = [];
+    body.onLost = (reason) => { reasons.push(reason); };
+    let ready = true;
+    body.request = async () => ({ ready, dimension: 'minecraft:overworld' });
+
+    await body.refreshStrict(true);
+    assert.deepStrictEqual(reasons, [], 'joining a world is not a loss');
+
+    ready = false; // Esc -> Disconnect: the mod still answers, only `ready` flips
+    await body.refreshStrict(true);
+    assert.deepStrictEqual(reasons, ['world-gone'], 'the ready:true -> ready:false edge fires once');
+    await body.refreshStrict(true);
+    assert.deepStrictEqual(reasons, ['world-gone'], 'a world that stays gone does not fire again');
+
+    ready = true;
+    await body.refreshStrict(true);
+    ready = false;
+    await body.refreshStrict(true);
+    assert.deepStrictEqual(reasons, ['world-gone', 'world-gone'], 'rejoining re-arms the edge');
+  });
+
+  /**
+   * F1'b's pause-screen clause. `KeyMapping.setDown(true)` survives a screen opening (the game
+   * stops polling input, it does not release), so the body must report the transition and the
+   * host must release. A container screen is deliberately not a "pause": vanilla keeps the
+   * keys there too and F1'b only names PauseScreen.
+   */
+  await check('opening the pause screen fires the screen hook once and re-arms on close', async () => {
+    const body = new ClientModBody({ agent: { clientMod: {} } }, { log: silent });
+    const opened = [];
+    body.onScreenOpen = (info) => { opened.push(info); };
+    let screen = 'null';
+    body.request = async () => ({ ready: true, screen });
+
+    await body.refreshStrict(true);
+    assert.deepStrictEqual(opened, [], 'a closed screen is not an event');
+    screen = 'PauseScreen';
+    await body.refreshStrict(true);
+    assert.deepStrictEqual(opened, [{ kind: 'pause', screen: 'PauseScreen' }], 'the pause screen fires once');
+    await body.refreshStrict(true);
+    assert.strictEqual(opened.length, 1, 'staying paused must not fire again');
+    screen = 'null';
+    await body.refreshStrict(true);
+    screen = 'PauseScreen';
+    await body.refreshStrict(true);
+    assert.strictEqual(opened.length, 2, 'closing the pause screen re-arms the transition');
+
+    screen = 'InventoryScreen';
+    await body.refreshStrict(true);
+    assert.strictEqual(opened.length, 2, 'a container screen is not a pause');
+  });
 
   await check('a press is recorded and a release clears it', async () => {
     const channel = fakeChannel();
@@ -443,14 +603,32 @@ async function main() {
     assert.strictEqual(ledger.list()[0].reason, 'hold');
   });
 
-  await check('!inputs reconciles with the mod ledger', async () => {
+  /**
+   * A read must not have side effects. The old contract reconciled inside `!inputs`, which made
+   * "the ledger is empty" indistinguishable from "reading the ledger cleared it" - the F1'b
+   * death measurement on 2026-11-05 was contaminated exactly that way. Reconciliation now
+   * happens on the /state poll; this pair of checks pins both halves.
+   */
+  await check('!inputs is read-only: it never drops an entry the mod no longer reports', async () => {
     const { chat, ledger } = makeController({
       body: { inputState: async () => ({ ok: true, tick: 9, held: [] }) }
     });
     await ledger.press('jump');
     const result = await chat.handle('inputs');
     assert.strictEqual(result.ok, true);
-    assert.strictEqual(ledger.isClear(), true, 'a key the mod no longer reports must be dropped');
+    assert.strictEqual(ledger.isClear(), false, 'reading must not clear the record');
+    assert.deepStrictEqual(ledger.list().map((entry) => entry.action), ['jump']);
+    assert.deepStrictEqual(result.result.mod.held, [], 'the mod view is still reported');
+  });
+
+  await check('the state poll reconciles the ledger with the mod', async () => {
+    const body = new ClientModBody({ agent: { clientMod: {} } }, { log: silent });
+    body.request = async () => ({ ready: true, input: { held: [] } });
+    const seen = [];
+    body.onState = (state) => { seen.push(state); };
+    await body.refreshStrict(true);
+    assert.strictEqual(seen.length, 1, 'the poll must hand the snapshot to the host');
+    assert.deepStrictEqual(seen[0].input.held, []);
   });
 
   await check('!shot saves through the body', async () => {
