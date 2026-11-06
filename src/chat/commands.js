@@ -72,6 +72,9 @@ const HELP = [
   '!shot [maxEdge] - capture the game frame to runtime/screenshots (no OS screen capture)',
   '!inputs - what keys are currently held, and since when',
   '!tap <name|modid:path> - edge click via KeyMapping.click (vanilla toggle keys or a mod id from !keybinds)',
+  '!menu - read the open container/menu fresh from the game (screen + every slot)',
+  '!click <slot> [button] [pickup|quickmove|swap] - click a slot; re-reads the menu before and after and returns the slot diff',
+  '!close - close the open menu (allowlisted screens only)',
   '!keybinds [query] - live KeyMapping table (vanilla + mod): stable id, current key code, category, bound',
   '!capabilities - channel table: capability-first order (skill -> input -> code generation)',
   '!smelt <item> [n] - smelt in a nearby furnace',
@@ -101,6 +104,93 @@ const HELP = [
   '!where - coordinates',
   '!help - this list'
 ];
+
+/**
+ * Container/menu views for the `!menu` / `!click` / `!close` commands (A21 through the agent
+ * layer instead of a probe talking to the mod).
+ *
+ * A21's rule is "fresh observation before every click, and the effect verified from a NEW
+ * snapshot, not from `ok:true`". These helpers are what makes that rule mechanical: the click
+ * handler reads the menu, clicks, reads again, and reports the slot diff - a stale slot index
+ * therefore shows up as an empty diff instead of a silent success.
+ */
+function menuSlotRows(menu) {
+  const rows = [];
+  for (const slot of (menu && menu.slots) || []) {
+    const index = Number(slot && slot.i !== undefined ? slot.i : slot && slot.slot);
+    if (!Number.isInteger(index)) continue;
+    const item = slot.item && slot.item !== 'null' ? String(slot.item) : null;
+    if (!item) continue;
+    rows.push({ slot: index, item, count: Number(slot.count) || 0 });
+  }
+  return rows;
+}
+
+function menuView(menu) {
+  if (!menu) return { open: false, menuClass: null, slots: [] };
+  return {
+    open: menu.open !== false,
+    menuClass: menu.menuClass || null,
+    slots: menuSlotRows(menu)
+  };
+}
+
+function menuSlotDiff(before, after) {
+  const beforeMap = new Map(menuSlotRows(before).map((row) => [row.slot, `${row.item}x${row.count}`]));
+  const afterMap = new Map(menuSlotRows(after).map((row) => [row.slot, `${row.item}x${row.count}`]));
+  const changes = [];
+  for (const [slot, value] of afterMap) {
+    if (beforeMap.get(slot) !== value) changes.push({ slot, before: beforeMap.get(slot) || null, after: value });
+  }
+  for (const [slot, value] of beforeMap) {
+    if (!afterMap.has(slot)) changes.push({ slot, before: value, after: null });
+  }
+  return changes;
+}
+
+const wait = (ms) => new Promise((resolve) => { setTimeout(resolve, ms); });
+
+/**
+ * A07: the body has exactly one owner.
+ *
+ * The raw input channel does not acquire the slot, so without this guard a model-issued
+ * `key`/`hold`/`tap`/`click` would run *inside* whichever task already owns the body - two
+ * executors on one body, which is the invariant M1 established. The operator is deliberately
+ * not gated: a human may always drive their own bot (`!key` from chat or the panel).
+ */
+function refuseForeignBody(ctx, dispatchSource, verb) {
+  if (dispatchSource !== 'action-brain') return;
+  const slot = ctx.brain && ctx.brain.slot ? ctx.brain.slot : null;
+  const view = slot && typeof slot.describe === 'function' ? slot.describe() : null;
+  if (!view || !view.owned) return;
+  throw new Error(`body-busy: ${view.kind}:${view.id || '?'} owns the body - ${verb} refused until it settles`);
+}
+
+/**
+ * The authoritative "is a screen open" answer: the body snapshot, refreshed on demand.
+ *
+ * It must come from `/state` (`screenOpen` = `mc.screen != null`) and not from the menu
+ * payload: the mod's `menuJson()` describes `player.containerMenu`, which is the player
+ * inventory even when no screen is open, and it reports `open:true` unconditionally. Trusting
+ * it made `!close` claim failure after it had actually closed the screen, and would let a
+ * click run against a GUI that is not there.
+ */
+async function screenState(ctx) {
+  const body = ctx.body;
+  if (!body) return { known: false, open: false, screen: null };
+  try {
+    if (typeof body.refresh === 'function') await body.refresh(true);
+  } catch {
+    // keep the cached snapshot: a disconnected body still answers with its last known state
+  }
+  const snapshot = typeof body.snapshot === 'function' ? body.snapshot() : null;
+  if (!snapshot) return { known: false, open: false, screen: null };
+  return {
+    known: true,
+    open: snapshot.screenOpen === undefined ? Boolean(snapshot.screen) : Boolean(snapshot.screenOpen),
+    screen: snapshot.screen || null
+  };
+}
 
 class ChatController {
   constructor(ctx, options = {}) {
@@ -461,6 +551,7 @@ class ChatController {
           throw new Error('usage: !key <action> down|up');
         }
         if (!ctx.brain || !ctx.brain.inputLedger) throw new Error('input ledger is not available');
+        refuseForeignBody(ctx, this.dispatchSource, `key ${action} ${direction}`);
         const result = direction === 'down'
           ? await ctx.brain.inputLedger.press(action)
           : await ctx.brain.inputLedger.release(action);
@@ -471,18 +562,21 @@ class ChatController {
         const action = String(args[0] || '').trim();
         if (!action) throw new Error('usage: !hold <action> [ms]');
         if (!ctx.brain || !ctx.brain.inputLedger) throw new Error('input ledger is not available');
+        refuseForeignBody(ctx, this.dispatchSource, `hold ${action}`);
         const ms = Number(args[1]);
         const result = await ctx.brain.inputLedger.hold(action, Number.isFinite(ms) && ms > 0 ? ms : 250);
         this.say(`按住 ${action} ${result.ms || ''}ms`.trim());
         return result;
       },
       inputs: async () => {
-        const ledger = ctx.brain && ctx.brain.inputLedger ? ctx.brain.inputLedger.status() : null;
+        /**
+         * Read-only by contract: reconciling the ledger here made a *read* clear the record.
+         * That is how the 2026-11-05 F1'b measurements first "passed" - the poll of `!inputs`
+         * synced an entry the mod had already dropped, which is not a release path. Sync now
+         * happens on every /state poll (ClientModBody.onState), where it belongs.
+         */
+        const status = ctx.brain && ctx.brain.inputLedger ? ctx.brain.inputLedger.status() : null;
         const remote = typeof ctx.body.inputState === 'function' ? await ctx.body.inputState() : null;
-        // Reconcile first: the mod releases on its own deadline, so a Node entry it no
-        // longer reports is already up and must not be chased later.
-        if (ledger && remote && Array.isArray(remote.held)) ctx.brain.inputLedger.sync(remote.held);
-        const status = ctx.brain && ctx.brain.inputLedger ? ctx.brain.inputLedger.status() : ledger;
         const held = status ? status.held.map((entry) => entry.action) : [];
         this.say(held.length ? `按住中: ${held.join(', ')}` : '没有按住的按键');
         return { ...status, mod: remote };
@@ -497,9 +591,94 @@ class ChatController {
         if (!ctx.body || typeof ctx.body.tap !== 'function') {
           throw new Error('this body has no edge-triggered key support');
         }
+        refuseForeignBody(ctx, this.dispatchSource, `tap ${action}`);
         const result = await ctx.body.tap(action);
         this.say(result && result.ok ? `点击键 ${action}` : `点击键失败: ${(result && result.error) || '未知原因'}`);
         return result;
+      },
+      /**
+       * A21 through the agent layer.
+       *
+       * Before these three verbs existed the only way to read a menu and click a slot was a
+       * probe talking to the mod's HTTP port directly, which is why A21 stayed "partial
+       * (probe only)". `!menu` re-reads the live screen, `!click` re-reads before and after
+       * and returns the diff, `!close` goes through the body's screen allowlist - and all
+       * three decide "is a screen open" from `screenState()` (see its comment for why).
+       */
+      menu: async () => {
+        if (!ctx.body || typeof ctx.body.menu !== 'function') {
+          throw new Error('this body has no container/menu support');
+        }
+        const screen = await screenState(ctx);
+        if (!screen.open) {
+          this.say('当前没有打开任何界面');
+          return { ok: true, open: false, screen: null, menuClass: null, slots: [] };
+        }
+        const view = menuView(await ctx.body.menu().catch(() => null));
+        this.say(`界面 ${screen.screen || view.menuClass || 'unknown'}：${view.slots.length} 个有物品的槽位`);
+        return { ok: true, open: true, screen: screen.screen, ...view };
+      },
+      click: async (args) => {
+        if (!ctx.body || typeof ctx.body.clickSlot !== 'function') {
+          throw new Error('this body has no container/menu support');
+        }
+        const slot = Number(args[0]);
+        if (!Number.isInteger(slot) || slot < 0) {
+          throw new Error('usage: !click <slot> [button] [pickup|quickmove|swap]');
+        }
+        const button = args[1] === undefined ? 0 : Number(args[1]) || 0;
+        const mode = String(args[2] || 'pickup');
+        refuseForeignBody(ctx, this.dispatchSource, `click ${slot}`);
+        const screen = await screenState(ctx);
+        if (!screen.open) {
+          throw new Error('no screen is open - open one first, then click again (!menu to check)');
+        }
+        const before = await ctx.body.menu().catch(() => null);
+        const clicked = await ctx.body.clickSlot(slot, { button, mode });
+        const after = await ctx.body.menu().catch(() => null);
+        const screenAfter = await screenState(ctx);
+        const changes = menuSlotDiff(before, after);
+        this.say(clicked === true
+          ? `点击槽位 ${slot}（${mode}，按钮 ${button}）：${changes.length} 个槽位变化`
+          : `点击槽位 ${slot} 失败`);
+        return {
+          ok: clicked === true,
+          slot,
+          button,
+          mode,
+          screen: screen.screen,
+          screenAfter: screenAfter.screen,
+          screenOpenAfter: screenAfter.open,
+          before: menuView(before),
+          after: menuView(after),
+          changed: changes.length,
+          changes
+        };
+      },
+      close: async () => {
+        if (!ctx.body || typeof ctx.body.closeMenu !== 'function') {
+          throw new Error('this body has no container/menu support');
+        }
+        const before = await screenState(ctx);
+        const acknowledged = await ctx.body.closeMenu();
+        /**
+         * The screen disappears on the client tick, not inside the command: a single read
+         * right after `close` still sees the old state. Poll briefly instead.
+         */
+        let after = before;
+        for (let attempt = 0; attempt < 12; attempt += 1) {
+          await wait(120);
+          after = await screenState(ctx);
+          if (!after.open) break;
+        }
+        this.say(after.open ? '界面没有关掉（不在可关闭白名单）' : '界面已关闭');
+        return {
+          ok: after.open === false,
+          closeAcknowledged: acknowledged === true,
+          before: before.screen,
+          after: after.screen,
+          stillOpen: after.open
+        };
       },
       shot: async (args) => {
         if (!ctx.body || typeof ctx.body.screenshot !== 'function') {
@@ -714,12 +893,23 @@ class ChatController {
           return result;
         }
         const status = ctx.hub ? ctx.hub.status() : { busy: false, current: null, recent: [] };
+        /**
+         * A07: report the *body owner*, not only the background hub. A running skill or
+         * code-skill never shows up in `hub.status()`, so before this a task could own the body
+         * while `!task status` said "no task" - and the single-owner claim could not be
+         * falsified from outside.
+         */
+        const slot = ctx.brain && ctx.brain.slot && typeof ctx.brain.slot.describe === 'function'
+          ? ctx.brain.slot.describe()
+          : null;
         if (status.busy) {
           this.say(`后台任务 ${status.current.id}「${status.current.name}」跑了 ${Math.round(status.current.ms / 1000)} 秒`);
+        } else if (slot && slot.owned) {
+          this.say(`身体被 ${slot.kind}:${slot.id || '?'} 占着（${Math.round((slot.ms || 0) / 1000)} 秒）`);
         } else {
-          this.say('现在没有后台任务');
+          this.say('现在没有任务，身体空闲');
         }
-        return status;
+        return { ...status, slot };
       },
 
       /**

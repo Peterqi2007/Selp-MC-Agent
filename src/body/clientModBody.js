@@ -348,18 +348,103 @@ class ClientModBody extends Body {
     }
     try {
       const state = await this.request('/state', { timeoutMs: 4000 });
+      const wasReady = this._wasReady === true;
+      const ready = Boolean(state && state.ready === true);
       this._snapshot = state;
       this._snapshotAt = Date.now();
       this._snapshotVersion += 1;
       this.connected = true;
+      this._consecutiveErrors = 0;
+      this._lostNotified = false;
       this._lastRefreshErrorAt = null;
       this._lastRefreshError = null;
+      /**
+       * F1'b: opening the pause screen must release the keys.
+       *
+       * `KeyMapping.setDown(true)` survives a screen opening (the game simply stops polling
+       * input), so a key held when the operator presses Esc would still be down when the game
+       * resumes. Fire once per open, re-arm when the screen closes.
+       */
+      const screenNow = state && typeof state.screen === 'string' ? state.screen : null;
+      if (/Pause/i.test(String(screenNow || '')) && !this._pauseNotified) {
+        this._pauseNotified = true;
+        this._notifyScreen('pause', screenNow);
+      } else if (!/Pause/i.test(String(screenNow || ''))) {
+        this._pauseNotified = false;
+      }
+      /**
+       * F1'b: leaving the world is a disconnect, not a hiccup.
+       *
+       * The client keeps running and the mod keeps answering, so the exited-process path
+       * below never fires; what changes is `ready:true -> ready:false`. Fire once per
+       * transition and re-arm when a world is joined again.
+       */
+      if (wasReady && !ready && !this._worldGoneNotified) {
+        this._worldGoneNotified = true;
+        this._notifyLost('world-gone');
+      } else if (ready) {
+        this._worldGoneNotified = false;
+      }
+      this._wasReady = ready;
+      /**
+       * Hand the fresh snapshot to the host: the input ledger reconciles against
+       * `state.input.held` here, in the poll, instead of inside the `!inputs` read.
+       *
+       * A read command must not have side effects - the F1'b measurements on 2026-11-05 were
+       * contaminated exactly that way (polling `!inputs` "cleared" the ledger by syncing it,
+       * which looked like a release path).
+       */
+      if (typeof this.onState === 'function') {
+        try {
+          this.onState(state);
+        } catch {
+          // a listener that throws must not break the poll loop
+        }
+      }
       return { ok: true, cached: false, state };
     } catch (err) {
       this.lastError = err;
       this._lastRefreshErrorAt = Date.now();
       this._lastRefreshError = err.message;
+      /**
+       * F1'b: "process exit / disconnect" must release the pressed keys.
+       *
+       * A dead client cannot receive `key up` (releaseAll drops the local records and
+       * reports the failed writes), so the only thing that can still be wrong is Node
+       * believing a key is down. Three consecutive failures (~1.5s at the 500ms poll) is
+       * the point where "the body is gone" stops being a hiccup; `onLost` is fired once
+       * and re-armed by the next successful poll.
+       */
+      this._consecutiveErrors = (this._consecutiveErrors || 0) + 1;
+      if (this._consecutiveErrors >= 3 && !this._lostNotified) {
+        this._lostNotified = true;
+        this._notifyLost('body-unreachable');
+      }
       return { ok: false, cached: false, state: this._snapshot, error: err.message };
+    }
+  }
+
+  /**
+   * F1'b: tell the host the body or the world is gone (at most once per transition).
+   *
+   * The host releases every held key; a listener that throws must not break the poll loop.
+   */
+  _notifyLost(reason) {
+    if (typeof this.onLost !== 'function') return;
+    try {
+      Promise.resolve(this.onLost(reason)).catch(() => {});
+    } catch {
+      // a listener that throws must not break the poll loop
+    }
+  }
+
+  /** F1'b: a screen opened (the pause menu) - the host releases the held keys. */
+  _notifyScreen(kind, screen) {
+    if (typeof this.onScreenOpen !== 'function') return;
+    try {
+      Promise.resolve(this.onScreenOpen({ kind, screen })).catch(() => {});
+    } catch {
+      // a listener that throws must not break the poll loop
     }
   }
 

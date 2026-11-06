@@ -268,6 +268,50 @@ async function main() {
   const brain = new Brain(ctx);
   ctx.brain = brain;
 
+  /**
+   * F1'b: the client going away must not leave the input ledger claiming a key is down.
+   *
+   * Two transitions reach this: three consecutive failed state polls (`body-unreachable` -
+   * process exit / crash) and `ready:true -> ready:false` (`world-gone` - the player left the
+   * world while the client kept running). Releasing also drops the local records, which is all
+   * that is left to do when there is no world to send `key up` to.
+   */
+  if (ctx.body && typeof ctx.body === 'object') {
+    ctx.body.onLost = (reason) => {
+      log.warn(`body lost (${reason}) - releasing every held key`);
+      return brain.releaseInput(reason || 'body-lost').catch((err) => {
+        log.warn(`release after body loss failed: ${err.message}`);
+      });
+    };
+    /**
+     * Ledger reconciliation lives on the poll, not in the `!inputs` read: the mod releases on
+     * its own deadline, so a Node entry the mod no longer reports is already up. Doing it in
+     * the read made "observed release" indistinguishable from "the read cleared it".
+     */
+    ctx.body.onState = (state) => {
+      const remote = state && state.input && state.input.held;
+      if (!Array.isArray(remote)) return;
+      /**
+       * Death and leaving the world have their own forced-release path (dead hold /
+       * world-gone edge). Syncing first would drop the record before that path can release it,
+       * so the release would read "released nothing" even though it ran - the 2026-11-05 F1'b
+       * run got exactly that false negative. Let those transitions own the record.
+       */
+      if (state.dead === true || state.ready === false) return;
+      brain.inputLedger.sync(remote);
+    };
+    /**
+     * F1'b: the operator opened the pause screen. Keys pressed before Esc are still down in
+     * `KeyMapping` (a screen stops input polling, it does not release), so release them here.
+     */
+    ctx.body.onScreenOpen = ({ kind, screen }) => {
+      log.warn(`screen opened (${kind}: ${screen}) - releasing every held key`);
+      return brain.releaseInput('pause-screen').catch((err) => {
+        log.warn(`release after screen open failed: ${err.message}`);
+      });
+    };
+  }
+
   // ctx.bot always points at the live mineflayer instance, including reconnects.
   controller.on('botCreated', (bot) => {
     ctx.bot = bot;

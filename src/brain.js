@@ -1757,6 +1757,16 @@ class Brain {
    */
   stopForDeath(detail = null) {
     this.holds.hold('dead', detail ? String(detail) : null);
+    /**
+     * F1'b: release every held key on death - explicitly, not only through the hold edge.
+     *
+     * `Holds.hold` fires its listener only on the transition, and the dead hold is sticky by
+     * design (only `resumeFromDeath` clears it). A key accepted after a previous death would
+     * therefore never be released by the next one - the live 2026-11-05 run showed exactly
+     * that (second death cleared the ledger only because the mod had dropped its own record).
+     * `releaseAll` is idempotent and records its reason even when nothing is held.
+     */
+    this.releaseInput('dead');
     this.proposals.supersede('death');
     this.stoppedReason = 'death';
     this.queue.length = 0;

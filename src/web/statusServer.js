@@ -1661,7 +1661,18 @@ function uiState(ctx) {
      * the rules and the named places. Same reasoning as the block scan: summaries only, so
      * the one-second panel poll stays small.
      */
-    hub: ctx.hub ? ctx.hub.status() : { busy: false, current: null, recent: [] },
+    hub: ctx.hub
+      ? {
+        ...ctx.hub.status(),
+        /**
+         * A07: the body owner, not just the background job. A skill/code-skill that owns the
+         * slot never appears in `hub.status()`, which made "the body is free" unfalsifiable.
+         */
+        slot: ctx.brain && ctx.brain.slot && typeof ctx.brain.slot.describe === 'function'
+          ? ctx.brain.slot.describe()
+          : null
+      }
+      : { busy: false, current: null, recent: [], slot: null },
     consent: ctx.consent ? ctx.consent.status() : { pending: null, recent: [] },
     permissions: ctx.permissions ? ctx.permissions.summary() : null,
     places: ctx.places

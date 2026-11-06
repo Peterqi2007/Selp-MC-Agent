@@ -61,6 +61,28 @@ class TaskSlot {
   }
 
   /**
+   * JSON-safe view of who owns the body right now.
+   *
+   * A07 needs this: `!task status` used to report only the TaskHub, so a running skill or
+   * code-skill looked like "no task" and "the body is free" could not be falsified.
+   */
+  describe() {
+    const current = this.current;
+    if (!current) {
+      return { owned: false, kind: null, id: null, note: null, holdsBody: false, since: null, ms: null };
+    }
+    return {
+      owned: true,
+      kind: current.kind || null,
+      id: current.id || (current.task && current.task.name) || (current.handle && current.handle.name) || null,
+      note: current.note || null,
+      holdsBody: Boolean(current.holdsBody),
+      since: current.since || null,
+      ms: current.since ? Date.now() - current.since : null
+    };
+  }
+
+  /**
    * Take the body. Fails (does not queue) when another owner already has it: the caller
    * decides whether to queue, refuse or replace.
    *
@@ -83,6 +105,16 @@ class TaskSlot {
     const entry = this.current;
     this.current = null;
     if (entry.holdsBody) this._hold(false, 'slot released');
+    /**
+     * F1'b: a task ending is a "stop touching the world" moment.
+     *
+     * The 'task' hold's listener only fires when the hold is *taken* (task start), and
+     * `holds.release` does not notify anyone - so a key pressed during the task survived it.
+     * `releaseAll` is idempotent, so releasing here is safe for cancel paths too.
+     */
+    if (this.brain && typeof this.brain.releaseInput === 'function') {
+      Promise.resolve(this.brain.releaseInput('task-end')).catch(() => {});
+    }
     this.log.debug(`slot released by ${entry.kind}:${entry.id || (entry.task && entry.task.name) || ''}`);
     return true;
   }
