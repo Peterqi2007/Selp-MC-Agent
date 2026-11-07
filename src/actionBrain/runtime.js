@@ -20,6 +20,13 @@ class ActionBrainRuntime {
     this.defaultTaskMode = options.taskMode === 'async' ? 'async' : 'sync';
     this.taskMode = this.defaultTaskMode;
     this.worldSessionId = options.worldSessionId || null;
+    /**
+     * P2 world partition (2026-11-06): `worldSessionId` is the RUNTIME fence (changes per
+     * connection); `worldKey` is the PERSISTENT partition key (same save/server across
+     * sessions) for the curriculum ledger, memory, methods, chat history and session
+     * directories. The runtime stamps and fences it; the host owns the partitioned stores.
+     */
+    this.worldKey = options.worldKey || null;
     this.paused = null; this.forceStopped = false;
     this.usage = { turns: 0, toolCalls: 0, wallMs: 0 };
     this.inboxSeq = 0; this.inboxSeen = new Set();
@@ -35,7 +42,23 @@ class ActionBrainRuntime {
         const safe = jsonSafe(event);
         if (!safe || typeof safe !== 'object') return;
         if (safe.worldSessionId && this.worldSessionId && safe.worldSessionId !== this.worldSessionId) return;
-        this._emit({ ...safe, from: 'game', worldSessionId: safe.worldSessionId || this.worldSessionId });
+        /** Cross-world events never enter this runtime's ledger (distinct from stale-world). */
+        if (safe.worldKey && this.worldKey && safe.worldKey !== this.worldKey) return;
+        this._emit({ ...safe, from: 'game',
+          worldSessionId: safe.worldSessionId || this.worldSessionId, worldKey: safe.worldKey || this.worldKey });
+      });
+    }
+    /**
+     * P2 process seam: the game is user-launched, so loss of the endpoint/process is a
+     * stop-grade fact. It goes through the SAME stop chain as an operator stop (fence
+     * first, then body brakes, children and SDK abort) - never a silent rebind.
+     */
+    if (typeof this.gamePort.onGameLost === 'function') {
+      this.gamePort.onGameLost((info) => {
+        const safe = jsonSafe(info);
+        this._emit({ type: 'game:lost', ...(safe && typeof safe === 'object' ? safe : {}),
+          worldSessionId: this.worldSessionId, worldKey: this.worldKey });
+        this.stop('game-lost');
       });
     }
     this.broker = new ToolBroker({ gate: this.gate, plugins: this.plugins, emit: (event) => this._emit(event) });
@@ -79,6 +102,7 @@ class ActionBrainRuntime {
     this.current = record; this.runId = lease.runId; this.goal = jsonSafe(goal);
     this.taskMode = taskMode;
     if (options.worldSessionId) this.worldSessionId = options.worldSessionId;
+    if (options.worldKey) this.worldKey = options.worldKey;
     this.usage.turns += 1;
     if (this.forceStopped) { this.forceStopped = false; this.stopErrors = []; }
     /**
@@ -94,7 +118,8 @@ class ActionBrainRuntime {
       /** Deliberately NOT unref'd: a deadline that does not keep the process alive is no deadline. */
     }
     this.phase = 'running'; this.lastError = null;
-    this._emit({ type: 'run:start', runId: lease.runId, epoch: lease.epoch, taskMode, worldSessionId: this.worldSessionId });
+    this._emit({ type: 'run:start', runId: lease.runId, epoch: lease.epoch, taskMode,
+      worldSessionId: this.worldSessionId, worldKey: this.worldKey });
     return this._run(record, goal, grants);
   }
 
@@ -107,7 +132,7 @@ class ActionBrainRuntime {
       // forever (start refused, stop could not reach a driver that did not exist yet).
       const factory = await boundedValue('driver.factory', () => this.driverFactory({
         lease, tools: this.broker.bind({ lease, capabilities: grants }),
-        budget: record.budget, taskMode: this.taskMode, worldSessionId: this.worldSessionId,
+        budget: record.budget, taskMode: this.taskMode, worldSessionId: this.worldSessionId, worldKey: this.worldKey,
         emit: (event) => { if (this.gate.isCurrent(lease)) this._emit({ ...jsonSafe(event), runId: lease.runId, epoch: lease.epoch }); }
       }), this.initTimeoutMs);
       if (!factory.ok) {
@@ -239,7 +264,7 @@ class ActionBrainRuntime {
     const record = this.current; if (record) record.stopRequested = true;
     this.phase = 'stopping';
     const context = { runId: old ? old.runId : this.runId, reason: String(reason),
-      epoch: old ? old.epoch : this.gate.epoch, worldSessionId: this.worldSessionId };
+      epoch: old ? old.epoch : this.gate.epoch, worldSessionId: this.worldSessionId, worldKey: this.worldKey };
     // Invoke immediately in this order, even when an earlier callback throws or hangs.
     const brakes = [
       this._operation('game.cancel', () => this.gamePort.cancel(context)),
@@ -305,8 +330,8 @@ class ActionBrainRuntime {
     return jsonSafe({ phase: this.phase, runId: this.runId, epoch: this.gate.epoch, goal: this.goal,
       operation: this.current ? this.current.phase : null, unsafeDrivers: this.unsafeDrivers.size,
       children: this.children.status(), lastError: this.lastError, stopErrors: this.stopErrors,
-      taskMode: this.taskMode, worldSessionId: this.worldSessionId, paused: this.paused,
-      forceStopped: this.forceStopped, usage: this.usage });
+      taskMode: this.taskMode, worldSessionId: this.worldSessionId, worldKey: this.worldKey,
+      paused: this.paused, forceStopped: this.forceStopped, usage: this.usage });
   }
 
   /**
@@ -351,13 +376,18 @@ class ActionBrainRuntime {
     if (safe.worldSessionId && this.worldSessionId && safe.worldSessionId !== this.worldSessionId) {
       return { ok: false, error: { code: 'stale-world' } };
     }
+    /** Partition fence: an event from another world never enters this runtime's mailbox. */
+    if (safe.worldKey && this.worldKey && safe.worldKey !== this.worldKey) {
+      return { ok: false, error: { code: 'cross-world' } };
+    }
     const id = typeof safe.eventId === 'string' ? safe.eventId : null;
     if (id) {
       if (this.inboxSeen.has(id)) return { ok: true, duplicate: true };
       this.inboxSeen.add(id);
       if (this.inboxSeen.size > 256) this.inboxSeen.delete(this.inboxSeen.values().next().value);
     }
-    this._emit({ ...safe, inboxSeq: ++this.inboxSeq, worldSessionId: safe.worldSessionId || this.worldSessionId });
+    this._emit({ ...safe, inboxSeq: ++this.inboxSeq,
+      worldSessionId: safe.worldSessionId || this.worldSessionId, worldKey: safe.worldKey || this.worldKey });
     return { ok: true, duplicate: false };
   }
 
@@ -382,7 +412,7 @@ class ActionBrainRuntime {
     this.phase = 'waiting-user';
     this._emit({ type: 'run:waiting_player', runId: lease.runId, epoch: lease.epoch, question: jsonSafe(question) });
     const answered = await boundedValue('game.ask', () => this.gamePort.ask({
-      question, runId: lease.runId, epoch: lease.epoch, worldSessionId: this.worldSessionId,
+      question, runId: lease.runId, epoch: lease.epoch, worldSessionId: this.worldSessionId, worldKey: this.worldKey,
       timeoutMs: options.timeoutMs
     }), options.timeoutMs || this.initTimeoutMs);
     this._emit({ type: 'run:answer', runId: lease.runId, ok: answered.ok });
@@ -395,12 +425,48 @@ class ActionBrainRuntime {
   async resumeRequest() {
     const tasks = typeof this.gamePort.tasks === 'function' ? await this.tasks() : [];
     return {
-      goal: this.goal, epoch: this.gate.epoch, worldSessionId: this.worldSessionId,
+      goal: this.goal, epoch: this.gate.epoch, worldSessionId: this.worldSessionId, worldKey: this.worldKey,
       openTasks: tasks,
       note: this.goal || tasks.length
         ? 're-observe the world and reconcile open tasks before continuing; old tools are not replayed'
         : null
     };
+  }
+
+  /**
+   * P2 process seam: the game is USER-launched, so discovery only probes candidate control
+   * endpoints (it never starts a process). Fails closed without the atomic process seam.
+   */
+  async discoverGames(input = {}) {
+    if (typeof this.gamePort.discover !== 'function') {
+      throw new ContractError('process-port-required', 'Game discovery requires the gamePort process seam (discover/attach/onGameLost)');
+    }
+    const found = await boundedValue('game.discover', () => this.gamePort.discover({
+      ...input, worldSessionId: this.worldSessionId, worldKey: this.worldKey
+    }), input.timeoutMs || this.initTimeoutMs);
+    if (!found.ok) throw new ContractError(found.error.code || 'game-discover-failed', found.error.message);
+    return jsonSafe(found.value);
+  }
+
+  /**
+   * Attach to one user-launched game instance. Refused while a run is active: switching
+   * worlds mid-run must go through `stop`, never a silent rebind. A successful attach
+   * ADOPTS the world identity the host read from the game (worldKey partition + fresh
+   * worldSessionId); the runtime never invents either.
+   */
+  async attachGame(candidate) {
+    if (typeof this.gamePort.attach !== 'function') {
+      throw new ContractError('process-port-required', 'Game attach requires the gamePort process seam (discover/attach/onGameLost)');
+    }
+    if (this.current || this.stopPromise || this.gate.active) throw new ContractError('run-active');
+    const attached = await boundedValue('game.attach', () => this.gamePort.attach(candidate),
+      (candidate && candidate.timeoutMs) || this.initTimeoutMs);
+    if (!attached.ok) throw new ContractError(attached.error.code || 'game-attach-failed', attached.error.message);
+    const value = attached.value && typeof attached.value === 'object' ? attached.value : {};
+    if (value.worldKey) this.worldKey = value.worldKey;
+    if (value.worldSessionId) this.worldSessionId = value.worldSessionId;
+    this._emit({ type: 'game:attached', worldKey: this.worldKey, worldSessionId: this.worldSessionId });
+    return { ok: true, worldKey: this.worldKey, worldSessionId: this.worldSessionId };
   }
 
   checkpoint() { return { version: 1, ...this.status() }; }
@@ -422,7 +488,8 @@ class ActionBrainRuntime {
   async _openTasks(lease) {
     if (typeof this.gamePort.tasks !== 'function') return [];
     const tasks = await this.gamePort.tasks({
-      runId: lease && lease.runId, epoch: lease && lease.epoch, worldSessionId: this.worldSessionId
+      runId: lease && lease.runId, epoch: lease && lease.epoch,
+      worldSessionId: this.worldSessionId, worldKey: this.worldKey
     });
     return Array.isArray(tasks) ? tasks : [];
   }

@@ -10,7 +10,7 @@
 npm run action-brain:contract:test
 ```
 
-当前有 57 项假 session / 假 adapter 契约测试。它们验证取消边界、晚到结果、子代理容量、初始化/清理失败门禁、插件撤权与结算语义，异步受理契约骨架，以及 **B2 生命周期门面**（回合门/任务门、工厂初始化超时、暂停/恢复、强制停止解锁、思考 deadline、边界/入站幂等、任务事件转发、ask 关闭式失败、用量计数）；**不证明真实 Pi SDK、真实模型、Minecraft 延迟或游戏任务完成率**。框架是 Node 18 可加载的 CommonJS；真实 Pi 路径使用延迟 ESM import，并要求 Node >= 22.19.0。
+当前有 63 项假 session / 假 adapter 契约测试。它们验证取消边界、晚到结果、子代理容量、初始化/清理失败门禁、插件撤权与结算语义，异步受理契约骨架，**B2 生命周期门面**（回合门/任务门、工厂初始化超时、暂停/恢复、强制停止解锁、思考 deadline、边界/入站幂等、任务事件转发、ask 关闭式失败、用量计数），以及 **进程接缝与世界分区**（discover/attach/onGameLost 原子三件套、缺接缝关闭式失败、活动 run 拒绝 attach、attach 采纳世界身份、game-lost 走停止链、cross-world 双栅栏拒收、回执/终态契约冻结 worldKey）；**不证明真实 Pi SDK、真实模型、Minecraft 延迟或游戏任务完成率**。框架是 Node 18 可加载的 CommonJS；真实 Pi 路径使用延迟 ESM import，并要求 Node >= 22.19.0。
 
 ## 模块边界
 
@@ -18,7 +18,7 @@ npm run action-brain:contract:test
 | --- | --- |
 | `runtime.js` | start / steer / stop / status / subscribe；回合门与任务门；暂停/强制停止；思考预算；恢复门禁 |
 | `leaseGate.js` | 当前 run/epoch 的授权凭证；同步撤销旧调用，不获得身体锁 |
-| `gameControlPort.js` | 仅委托给现有 TaskSlot/PlanService 的注入接口 |
+| `gameControlPort.js` | 仅委托给现有 TaskSlot/PlanService 的注入接口；进程接缝 discover/attach/onGameLost **原子三件套**（游戏由用户拉起，产品只发现/接入/监视丢失；部分注入即构造失败） |
 | `toolBroker.js` | 能力检查、显式参数校验、合并取消信号、丢弃旧结果 |
 | `subagentScheduler.js` | 有界队列、独立 worker、默认只读、取消和清理确认 |
 | `pluginRegistry.js` | manifest、显式授权、同步撤权通知；不是插件安全沙箱 |
@@ -79,6 +79,10 @@ unsubscribe();
 `ownership` 是宿主遵守现有所有权的声明，不是自动验证。宿主必须把 execute/cancel/releaseInputs 接到现有 TaskSlot/PlanService 与输入释放链，本模块不直接调用身体、不增加第二把身体锁。默认未注入时拒绝执行。
 
 waitForIdle 只有在现有任务/计划的**终态证据**确认完成后才能返回 `{ ok: true, idle: true }`。HTTP 成功、accepted:true 或单独的模型 idle 都不是任务完成。cancel/releaseInputs 的拒绝应抛错或返回 `{ ok: false, error: { code, message } }`，不能假报成功。
+
+**进程接缝（2026-11-06）**：游戏进程由**用户**拉起，产品不启动也不监管它。可选的进程三件套 `discover(input)` / `attach(candidate)` / `onGameLost(cb)` **要么全有、要么全无**——只注入 discover（或漏掉 onGameLost）在构造期就抛 `invalid-game-port`，不假装"能发现但丢了不知道"。`attach` 返回 `{ ok, worldKey, worldSessionId }`：世界身份从游戏侧读取，runtime **采纳而不自造**；活动 run 期间 attach 被拒（换世界先 `stop`）。`onGameLost` 触发 `game:lost` 事件并走**与人工急停相同的停止链**（先失效资格，再停身体与模型）。
+
+**世界分区（worldKey）**：`worldSessionId` 是运行时栅栏（每次连接变化），`worldKey` 是持久分区键（同一存档/服务器跨会话稳定），后者决定课程账本/记忆/方法库/聊天记忆/会话目录落在哪个分区（主计划 §6.3）。回执与终态事件必备 `worldKey`（SCHEMA_VERSION 2）；缺失落 `DEFAULT_WORLD_KEY='default'` 并显式告警，绝不静默并入其它分区；跨世界事件在 `ingest` 与任务事件转发处被 `cross-world` 拒收（区别于会话栅栏 `stale-world`）。
 
 当前只注册 `mc_observe` 与 `mc_step` 两个通用桥接工具，参数仅要求 JSON 对象。**完整 15 工具 adapter、每项生产 schema、plan/task 结果与取消细节尚未接入**。
 
@@ -158,9 +162,14 @@ pause('operator typing');  // 冻结新派发，不销毁会话 / 不打断在�
 resume();                  // 解除；恢复必须重新感知
 stop('operator-stop', { force: true });      // 确认失败时记 force-stopped（不显示为已停稳）
 boundary({ batch: 1 });                      // 工具批返回 -> turn:boundary（收件箱唯一合法时机）
-ingest({ type: 'task.finished', eventId });  // 幂等 + worldSessionId 栅栏，不路由
+ingest({ type: 'task.finished', eventId });  // 幂等 + worldSessionId/worldKey 双栅栏，不路由
 ask('挖这里吗？');                            // 无 gamePort.ask 抛 ask-unavailable
 usageReport();                               // { turns, toolCalls, wallMs }
+
+// 进程接缝（游戏由用户拉起；缺接缝关闭式失败 process-port-required）：
+discoverGames();                 // 探测候选控制端点，不启动进程
+attachGame({ endpoint });        // 仅空闲时可用；采纳 {worldKey, worldSessionId}，发 game:attached
+// onGameLost（宿主注入） -> game:lost + 正常停止链（game-lost）
 ```
 
 约束：`start({taskMode:'async'})` 缺 `tasks`/`onTaskEvent` 时**关闭式失败**；driver 工厂受 `initTimeoutMs` 约束；`force` 只放开"能否开新一轮"，主 driver 清理未确认（`unsafeDrivers`）仍是硬阻。这些是门面与状态机，**生产入口未引用本目录**。
@@ -170,7 +179,7 @@ usageReport();                               // { turns, toolCalls, wallMs }
 1. 固定真实 SDK 版本，验证 Node/runtime、模型认证与 provider；实现隔离的资源、settings、会话存储及最终结局映射。
 2. 对接现有完整 15 工具、TaskSlot/PlanService 的终态等待、取消/抢占、InputLedger 释放及严格生产 schema。
 3. 接入受限文件 read/edit/patch/执行工具、coding role 和独立快速子代理工厂；配置并验证压缩/记忆与 token 计量。
-4. 加入持久事件/执行账本、worldSessionId、预算/timeout/deadline、幂等键，以及跨进程故障恢复；恢复前重新观察世界。**其中异步受理部分按 `asyncContract`/`eventMailbox`/`wakeScheduler` 落：回执构造与校验、收件箱入箱/去重/合批/快照恢复、边界排空与开轮判定、in-flight 签名查重。**
+4. 加入持久事件/执行账本、worldSessionId 与 `worldKey` 分区目录（主计划 §6.3：课程账本/记忆/方法库/聊天/会话目录按世界分区，default 兜底显式）、预算/timeout/deadline、幂等键，以及跨进程故障恢复；恢复前重新观察世界。**其中异步受理部分按 `asyncContract`/`eventMailbox`/`wakeScheduler` 落：回执构造与校验、收件箱入箱/去重/合批/快照恢复、边界排空与开轮判定、in-flight 签名查重。**
 5. 实现可交互 UI、工具/任务/计划证据可视化、用户打断与调试；定义脱敏和客户日志策略。
 6. 实现外部插件的受控加载、进程/OS 权限隔离与分发/更新；定义单一交付包和模型配置体验。
 7. 测量真实首工具延迟、急停确认、快慢循环行为和游戏完成率，再决定生产后端切换。

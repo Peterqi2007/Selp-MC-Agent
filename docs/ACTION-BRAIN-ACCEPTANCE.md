@@ -1,6 +1,6 @@
 # 自研动作脑验收计划（B0–B5）
 
-日期：2026-11-01（Asia/Shanghai）  
+日期：2026-11-01（Asia/Shanghai；2026-11-06 增补 §4.4 进程接缝与跨世界分区、B5-12 无 PCL2 干净机，总项数 79→83）\
 计划基准：codex/p1，b0200a6。  
 文档状态：**验收设计，未执行**。本文不宣布 Pi 已接入、接口已冻结、性能已改善或产品可交付。
 
@@ -13,8 +13,8 @@
 - 已完成候选框架的官方资料核验，资料见本机 runtime/framework-research-20261101/VERIFICATION.md。该目录是运行资料，不保证随克隆分发；关键依据列在本文末尾。
 - 当前只有迁移计划与代码骨架，**未安装、未锁定 Pi 生产依赖**，未验证具体 provider/模型的 SDK 兼容性，未做新框架真机或性能测试。
 - 既有 DSH 链路、离线测试与历史真机记录可作为回归资产，**不能转填为新框架通过**。官方能力确认也不能代替项目集成测试。
-- 客户仍需兼容的 Minecraft、Forge、游戏模组及控制 Mod；目标是由产品托管安装与组接，消除 DSH、Pi CLI、npm 和人工插件组接要求，不是消除游戏客户端。
-- 本文 79 项阶段验收初始均为 NOT_RUN。本次 B0–B5 仅属于动作脑迁移（项目 P2 的子阶段），不是项目 P0 或 P1 M0–M7 的同名验收。动作脑骨架的 offline 单元测试可以独立记录 PASS；它只证明对应夹具断言，不自动关闭本文验收项，也不证明 Pi/provider、真机、性能或安装包已验收。
+- 客户仍需兼容的 Minecraft、Forge、游戏模组及控制 Mod；目标是由产品托管安装与组接，消除 DSH、Pi CLI、npm 和人工插件组接要求，不是消除游戏客户端。也不消除用户自选的启动器：**游戏进程由用户拉起**，产品对 PCL2 无运行依赖（PCL2 布局只是实例目录来源之一，普通 `.minecraft` 布局同等支持）。
+- 本文 83 项阶段验收初始均为 NOT_RUN。本次 B0–B5 仅属于动作脑迁移（项目 P2 的子阶段），不是项目 P0 或 P1 M0–M7 的同名验收。动作脑骨架的 offline 单元测试可以独立记录 PASS；它只证明对应夹具断言，不自动关闭本文验收项，也不证明 Pi/provider、真机、性能或安装包已验收。
 - 主计划中的 capability 名称表达产品方向；当前骨架采用 game:observe、game:control、files:read、files:write 等名称。正式冻结前需统一契约与映射，验收以实际声明和执行的权限名为准，不能仅凭近义名称推定授权。
 
 ### 1.1 通过与阻断规则
@@ -141,6 +141,16 @@
 | B2-26 / F | 模型调用中投递事件；调用结束后调用 `boundary()`；重复 `eventId`；跨 `worldSessionId` | 事件不在调用中注入；边界后一次倒空；重复只消费一次；跨世界事件被拒 | 阻断事件唤醒接入 |
 | B2-27 / F,G | 注入 `gamePort.onTaskEvent/tasks`；缺失时用 `taskMode='async'`；`ask` 无端口 | 任务终态只有一个来源；缺端口启动关闭式失败；`ask` 无端口抛 `ask-unavailable`、无回答不当同意 | 全局硬门 |
 
+### 4.4 进程接缝与跨世界记忆分区（2026-11-06 增补）
+
+背景：主计划 §12 修订——游戏进程由**用户拉起**，产品对 PCL2 无运行依赖；GameControlPort 进程接缝（discover/attach/onGameLost）为原子三件套；`worldKey` 持久分区键进入回执/终态契约（SCHEMA_VERSION 2，主计划 §6.3）。骨架已提供接口与离线断言（`action-brain:contract:test` 63/63），下列行为验收均 NOT_RUN。
+
+| ID / 级别 | 测试方法 | 通过证据 | 失败阻断 |
+| --- | --- | --- | --- |
+| B2-28 / F,G | 注入部分进程接缝（仅 discover / 仅 discover+attach）；再以完整接缝走"用户启动游戏 → discover → attach" | 部分接缝**构造期**即失败（invalid-game-port）；完整接缝 attach 返回 `{ok, worldKey, worldSessionId}`；缺接缝时 discover/attach 关闭式失败（`process-port-required`）；活动 run 中 attach 被拒（`run-active`），换世界必须先 stop | 全局硬门 |
+| B2-29 / F,G | attach 后注入端点丢失/进程退出/退出世界 | `game:lost` **先失效执行资格**再走正常停止链（game.cancel/releaseInputs/子代理/SDK abort 顺序不变）；事件可见；不复活旧 run、不自动重绑 | 全局硬门 |
+| B2-30 / F,G | 同一安装先后接入 worldKey A/B 两个世界，查课程账本、MemoryStore、MethodLibrary、ChatMemory、Pi 会话目录与异步账本；再以缺失 worldKey 接入 | 两分区互不可见，难度带/方法成功率/世界知识不串；跨 worldKey 事件被 `cross-world` 拒收（区别于 `stale-world`）；缺失 worldKey 落 `default` 分区且有显式告警，不静默合并 | 阻断自主循环与长期记忆声明 |
+
 ## 5. B3：子代理调度与外部插件
 
 出口：子代理并行处理有界工作，没有隐式身体权限；第三方生命周期、权限与故障由产品掌握。
@@ -225,19 +235,22 @@
 | B5-09 / F,W | 状态schema升级后回滚；Pi session/工具schema不兼容 | 版本迁移和备份；不强喂旧版；只读导出/安全暂停，恢复先感知 | 阻断自动升级/回滚 |
 | B5-10 / F,W | release清单复核SDK/依赖/插件/模型条款 | 锁版本、LICENSE/NOTICE/SBOM/来源/完整性；不由根MIT推导全部授权 | 阻断商业分发 |
 | B5-11 / F,M,G,W | release build跑全阶段、既有离线回归和规定真机 | 证据绑定最终构建hash；全硬门PASS；残余/不支持能力列明；源码过但安装包没测不发布 | 阻断最终发布 |
+| B5-12 / W | 无 PCL2 的干净 Windows：普通 `.minecraft` 实例目录完成配对，用户自启动游戏，产品 discover/attach → 示例只读任务 → stop | 不读取 PCL 专属路径也能配对；产品不拉起游戏进程；等不到端点时给出可操作诊断（指导用户检查游戏/世界状态）；身体只绑一个实例 | 阻断"无 PCL 交付"声明 |
 
 ## 8. 执行顺序与初始状态
 
 按 B0→B1→B2 推进，B3/B4 可在接口稳定后并行，最终由 B5 汇总关闭；UI夹具、插件协议、打包原型可提前准备，不得用演示跳前置安全门。首个 spike 只固定 Pi 嵌入、一个真实 provider、受限文件工具、一个只读子代理；不同时引入第二套持久工作流或任意第三方代码。
 
+**推迟项（2026-11-06 登记，不计入本矩阵）**：release 管线工具链、AuthMe 产品化向导、产品级模组知识库、插件市场与接入 UX——见[主计划](SELF-HOSTED-ACTION-BRAIN-PLAN.md) §12.1；触发条件满足前不得宣称已支持。
+
 | 阶段 | 状态 | 证据/阻断 |
 | --- | --- | --- |
 | B0 SDK与契约 | NOT_RUN | 未安装/锁Pi，嵌入未执行 |
 | B1 工具/provider/上下文 | NOT_RUN | 流式/图像/取消/压缩未执行 |
-| B2 控制/停止/恢复 | NOT_RUN | 阶段验收/真机未执行；骨架 offline PASS 不替代阶段证据 |
+| B2 控制/停止/恢复 | NOT_RUN | 阶段验收/真机未执行（含 2026-11-06 增补 B2-28…B2-30）；骨架 offline PASS 不替代阶段证据 |
 | B3 子代理/插件 | NOT_RUN | 调度/权限待实现验收 |
 | B4 UI/互动 | NOT_RUN | 产品UI/统一trace待实现验收 |
-| B5 性能/交付/回滚 | NOT_RUN | 无性能样本、安装包实测 |
+| B5 性能/交付/回滚 | NOT_RUN | 无性能样本、安装包实测（含 B5-12 无 PCL2 变体） |
 
 逐项记录至少含 caseId、level、status、batchId、implementationHead、buildHash、fixture、expected、actual、evidence[]、blocker、reviewer。未执行 actual 与 buildHash 为 null，evidence 为空；示例格式不得冒充已完成记录。
 

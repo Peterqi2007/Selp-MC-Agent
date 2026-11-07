@@ -5,6 +5,10 @@
 > 三个骨架文件，**只有常量与占位方法**（全部抛 `not-implemented`），生产路径不引用它们。
 > 本文与骨架都不声称能力已可用；验收项见 [ACTION-BRAIN-ACCEPTANCE.md](ACTION-BRAIN-ACCEPTANCE.md) §4.2。
 >
+> **2026-11-06 修订**：`worldKey`（跨存档/服务器记忆分区的持久分区键）进入回执/终态必备字段与
+> 事件公共字段（`SCHEMA_VERSION` 1→2、`DEFAULT_WORLD_KEY='default'`），新增第六条不变量；
+> 语义见[主计划](SELF-HOSTED-ACTION-BRAIN-PLAN.md) §6.3。
+>
 > 关联文档：[实施计划](SELF-HOSTED-ACTION-BRAIN-PLAN.md) §6.1/§14、
 > [接口迁移清单](ACTION-BRAIN-MIGRATION-INTERFACES.md) §4.2/§6.5、
 > [骨架说明](../src/actionBrain/README.md)。
@@ -21,13 +25,15 @@
 | 事件各自开轮 | 感知边沿 / 聊天 / 截图 steer 各自触发 | 事件风暴烧 token |
 | 崩溃丢任务 | A29 只保证计划不重放 | 重启后不知道"在跑什么" |
 
-## 2. 五条不变量（本契约的全部承诺）
+## 2. 六条不变量（本契约的全部承诺）
 
 1. **受理即回执，回执不等于成功。** `accepted` 永远不能结算成 succeeded；只有终结事件能写账本。
 2. **终结只认一次。** 同一 `taskId` 只接受第一个终态；重复/迟到按 `eventId` 幂等丢弃。
 3. **只读同步、动手异步、停止同步。** `stop` 永不排在任务后面。
 4. **事件驱动，禁止模型轮询。** 完成必须推送；`task_status` 只用于现场核对，不作唤醒源。
 5. **身体唯一。** 派发即抢 `TaskSlot` 租约；抢不到是**拒绝式受理**（带任务号），不排队、不替换。
+6. **账本按世界分区。**（2026-11-06）回执/终态携带 `worldKey`；跨世界事件拒收（`cross-world`，
+   区别于会话栅栏 `stale-world`）；`worldKey` 缺失落 `default` 分区并显式告警，绝不静默并入其它分区。
 
 ## 3. 状态机
 
@@ -65,10 +71,10 @@ running ⇄ waiting_player   （mc_ask_player 停车；回答后允许一次 inf
 
 ```jsonc
 {
-  "schemaVersion": 1, "ok": true, "async": true,
+  "schemaVersion": 2, "ok": true, "async": true,
   "taskId": "t-9f3a", "verb": "mine", "state": "accepted",
   "acceptedAt": 1730570000123, "attempt": 1,
-  "runId": "run-17", "epoch": 42, "worldSessionId": "w-3",
+  "runId": "run-17", "epoch": 42, "worldSessionId": "w-3", "worldKey": "world-a",
   "deadlineMs": 480000, "estimateMs": 300000,
   "body": { "slot": "leased", "preempted": null },
   "hint": "work is running; completion arrives as an event - do NOT re-issue this call"
@@ -111,7 +117,7 @@ running ⇄ waiting_player   （mc_ask_player 停车；回答后允许一次 inf
 | `policy.denied` | 权限层 | 拒绝执行 | boundary | 否 |
 
 公共字段：`schemaVersion, eventId, seq, type, at, runId, requestId, taskId, attemptId, epoch,
-worldSessionId, status, reason, evidenceRefs, payload`。
+worldSessionId, worldKey, status, reason, evidenceRefs, payload`。
 
 投递语义：**至少一次 + `eventId` 幂等**。宁可重复投递也不能丢终态；订阅者按 `eventId` 去重。
 内存 ring 是有限重放缓存，不是永久事件账本（沿用 [接口清单 §6.4](ACTION-BRAIN-MIGRATION-INTERFACES.md) 的结论）。
@@ -158,7 +164,8 @@ worldSessionId, status, reason, evidenceRefs, payload`。
 
 ## 8. 持久化与恢复
 
-- **先落盘再执行**：`accepted` 记录（`taskId/verb/args/signature/runId/epoch/slot`）先写账本，再派发。
+- **先落盘再执行**：`accepted` 记录（`taskId/verb/args/signature/runId/epoch/worldKey/slot`）先写账本，再派发。
+  账本按 `worldKey` 分区；缺失落 `default` 分区并显式告警，绝不静默并入其它分区（主计划 §6.3）。
 - **重启**：`accepted/running` 一律转 `task.interrupted`，**不重放副作用**。
 - **恢复注记**：给模型一条结构化笔记（"t-9f3a mine iron_ore 20 在 03:21 拿到 12 个后中断；先读 /state 对账，再决定续做还是重派"）。
 - 与 B2-10/B2-11 的"未知结果先对账"一致；不声称 exactly-once。
@@ -194,6 +201,7 @@ worldSessionId, status, reason, evidenceRefs, payload`。
 | B2-18 | 拒绝式受理：忙时第二派发被拒并带任务号，不覆盖旧任务 |
 | B2-19 | 崩溃恢复：accept 后硬杀 → `interrupted` + 注记，副作用零重放 |
 | B2-20 | `dropped` 不污染失败阶梯与难度带 |
+| B2-30 | 跨世界分区：账本/记忆/会话目录按 `worldKey` 互不可见；跨世界事件 `cross-world` 拒收（2026-11-06 增补） |
 
 离线骨架断言（`npm run action-brain:contract:test`）只证明"契约数据与占位方法存在且拒绝假装成功"，
 **不证明上述任何一项行为已实现**。
@@ -202,7 +210,7 @@ worldSessionId, status, reason, evidenceRefs, payload`。
 
 | 文件 | 已提供 | 未实现 |
 | --- | --- | --- |
-| `src/actionBrain/asyncContract.js` | 状态/事件/投递/命令分类常量；`isTerminalState`；`classifyCommand` | 回执与事件构造器、校验器（抛 `not-implemented`） |
+| `src/actionBrain/asyncContract.js` | 状态/事件/投递/命令分类常量；`isTerminalState`；`classifyCommand`；`SCHEMA_VERSION=2` 与 `DEFAULT_WORLD_KEY='default'`（worldKey 分区键，2026-11-06） | 回执与事件构造器、校验器（抛 `not-implemented`） |
 | `src/actionBrain/eventMailbox.js` | `CONSUME_MODES` / `OFFER_RESULTS`；接口形状 | 入箱、去重、合批、优先级、快照恢复（全部抛） |
 | `src/actionBrain/wakeScheduler.js` | `WAKE_REASONS` / `NON_WAKE_REASONS`；接口形状 | 开轮判定、边界排空、预算、状态（全部抛） |
 

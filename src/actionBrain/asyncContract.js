@@ -20,8 +20,19 @@
 
 const { ContractError } = require('./contracts');
 
-/** 回执/事件 schema 版本。形状变更必须同步本版本号与契约文档。 */
-const SCHEMA_VERSION = 1;
+/**
+ * 回执/事件 schema 版本。形状变更必须同步本版本号与契约文档。
+ * v2（2026-11-06）：回执/终态事件新增必备字段 `worldKey`（跨存档/服务器记忆分区的
+ * 持久分区键，见主计划 §6.3）；`worldSessionId` 仍是运行时栅栏，两者互不替代。
+ */
+const SCHEMA_VERSION = 2;
+
+/**
+ * worldKey 缺失时的兜底分区：显式、可告警、绝不静默并入其它世界分区。
+ * 宿主应在 attach 时从游戏侧读取真实 worldKey（单机=存档身份；联机=服务器+世界身份），
+ * 产品不自造；历史全局账本一次性迁入 default 分区（无法归因到世界）。
+ */
+const DEFAULT_WORLD_KEY = 'default';
 
 /** 任务生命周期：accepted → running（可来回 waiting_player）→ 一个终态。 */
 const TASK_STATES = Object.freeze([
@@ -101,14 +112,14 @@ const ASYNC_COMMANDS = Object.freeze([
 /** 停止类命令：同步、幂等，任何情况下都不能排在任务后面。 */
 const STOP_COMMANDS = Object.freeze(['stop', 'cancel']);
 
-/** 异步回执的必备字段（实现必须全部提供，缺一即契约失败）。 */
+/** 异步回执的必备字段（实现必须全部提供，缺一即契约失败）。`worldKey` 是记忆分区键（v2）。 */
 const RECEIPT_FIELDS = Object.freeze([
-  'schemaVersion', 'ok', 'async', 'taskId', 'verb', 'state', 'acceptedAt', 'attempt'
+  'schemaVersion', 'ok', 'async', 'taskId', 'verb', 'state', 'acceptedAt', 'attempt', 'worldKey'
 ]);
 
-/** 终结事件的必备字段。`evidence` 与 `failure` 至少有一个可判定。 */
+/** 终结事件的必备字段。`evidence` 与 `failure` 至少有一个可判定；`worldKey` 决定落哪个分区。 */
 const TERMINAL_EVENT_FIELDS = Object.freeze([
-  'schemaVersion', 'eventId', 'seq', 'type', 'at', 'taskId', 'state', 'runId', 'epoch'
+  'schemaVersion', 'eventId', 'seq', 'type', 'at', 'taskId', 'state', 'runId', 'epoch', 'worldKey'
 ]);
 
 function notImplemented(feature) {
@@ -161,6 +172,7 @@ function validateReceipt(receipt) {
 
 module.exports = {
   SCHEMA_VERSION,
+  DEFAULT_WORLD_KEY,
   TASK_STATES,
   TERMINAL_STATES,
   EVENT_TYPES,

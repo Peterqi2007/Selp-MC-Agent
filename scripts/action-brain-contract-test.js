@@ -5,8 +5,8 @@ const assert = require('node:assert/strict');
 const {
   ActionBrainRuntime, LeaseGate, ToolBroker, PluginRegistry, SubagentScheduler,
   createGameControlPort, createPiDriverFactory, projectPiEvent, supportedNode, jsonSafe, deferred,
-  SCHEMA_VERSION, TASK_STATES, TERMINAL_STATES, EVENT_TYPES, DELIVERY_TIMING, SYNC_COMMANDS,
-  ASYNC_COMMANDS, STOP_COMMANDS, RECEIPT_FIELDS, TERMINAL_EVENT_FIELDS, isTerminalState,
+  SCHEMA_VERSION, DEFAULT_WORLD_KEY, TASK_STATES, TERMINAL_STATES, EVENT_TYPES, DELIVERY_TIMING,
+  SYNC_COMMANDS, ASYNC_COMMANDS, STOP_COMMANDS, RECEIPT_FIELDS, TERMINAL_EVENT_FIELDS, isTerminalState,
   classifyCommand, buildAcceptedReceipt, buildTerminalEvent, validateReceipt,
   CONSUME_MODES, OFFER_RESULTS, createEventMailbox,
   WAKE_REASONS, NON_WAKE_REASONS, createWakeScheduler
@@ -484,7 +484,8 @@ check('explicit settled driver failure invokes brakes and returns failure', asyn
 });
 
 check('async contracts are data-only and frozen', () => {
-  assert.equal(SCHEMA_VERSION, 1);
+  // v2 (2026-11-06): receipts/terminal events carry the worldKey partition key.
+  assert.equal(SCHEMA_VERSION, 2);
   assert.equal(Object.isFrozen(TASK_STATES), true);
   assert.equal(Object.isFrozen(TERMINAL_STATES), true);
   assert.equal(TASK_STATES.includes('accepted'), true);
@@ -698,6 +699,121 @@ check('B2: resumeRequest exposes the re-observe note and open tasks', async () =
   const request = await runtime.resumeRequest();
   assert.equal(request.openTasks.length, 1);
   assert.match(request.note, /re-observe/);
+});
+
+/** Host adapter with the P2 process seam: the game is USER-launched, the product only discovers/attaches. */
+function processAdapter({ attachResult = { ok: true, worldKey: 'world-a', worldSessionId: 'w-9' } } = {}) {
+  let lost = () => {};
+  const discovered = [];
+  const attached = [];
+  const adapter = {
+    ...gamePort(),
+    discover: async (input) => { discovered.push(input); return { ok: true, candidates: [{ endpoint: 'http://127.0.0.1:8899', worldKey: 'world-a' }] }; },
+    attach: async (candidate) => { attached.push(candidate); return attachResult; },
+    onGameLost: (cb) => { lost = cb; return () => { lost = () => {}; }; }
+  };
+  return { adapter, discovered, attached, lose: (info) => lost(info) };
+}
+
+check('process seam is atomic: partial adapters fail closed at construction', () => {
+  assert.throws(() => createGameControlPort({ ...gamePort(), discover: async () => ({}) }), /discover \+ attach \+ onGameLost/);
+  assert.throws(() => createGameControlPort({ ...gamePort(), discover: async () => ({}), attach: async () => ({}) }), /discover \+ attach \+ onGameLost/);
+  assert.throws(() => createGameControlPort({ ...gamePort(), onGameLost: () => () => {} }), /discover \+ attach \+ onGameLost/);
+  const { adapter } = processAdapter();
+  const port = createGameControlPort(adapter);
+  assert.equal(typeof port.discover, 'function');
+  assert.equal(typeof port.attach, 'function');
+  assert.equal(typeof port.onGameLost, 'function');
+  // 无进程接缝的同步夹具照常可用（接缝是可选组，不强制）。
+  const plain = createGameControlPort(gamePort());
+  assert.equal(plain.discover, undefined);
+  assert.equal(plain.attach, undefined);
+});
+
+check('discover/attach fail closed without the process seam; attach is refused mid-run', async () => {
+  const plain = new ActionBrainRuntime({ gamePort: gamePort(), driverFactory: async () => controlledDriver() });
+  await assert.rejects(plain.discoverGames(), /process seam/);
+  await assert.rejects(plain.attachGame({ endpoint: 'http://127.0.0.1:8899' }), /process seam/);
+  const { adapter } = processAdapter();
+  const runtime = new ActionBrainRuntime({ gamePort: adapter, stopTimeoutMs: 20,
+    driverFactory: async () => ({ start: () => new Promise(() => {}), steer: async () => 'q',
+      abort: () => ({ ok: true }), dispose: () => {} }) });
+  const run = runtime.start('busy'); await tick();
+  await assert.rejects(runtime.attachGame({ endpoint: 'http://127.0.0.1:8899' }), /run-active/);
+  await runtime.stop('cleanup'); await run;
+});
+
+check('attach adopts the host-reported world identity and stamps runs, events and requests', async () => {
+  const { adapter, attached } = processAdapter();
+  let driverContext = null;
+  const runtime = new ActionBrainRuntime({ gamePort: adapter,
+    driverFactory: async (context) => { driverContext = context; return controlledDriver(); } });
+  const events = []; runtime.subscribe((event) => events.push(event));
+  const result = await runtime.attachGame({ endpoint: 'http://127.0.0.1:8899' });
+  assert.deepEqual(result, { ok: true, worldKey: 'world-a', worldSessionId: 'w-9' });
+  assert.equal(attached.length, 1);
+  assert.equal(events.some((event) => event.type === 'game:attached' && event.worldKey === 'world-a'), true);
+  const run = runtime.start('mine'); await tick();
+  assert.equal(runtime.status().worldKey, 'world-a');
+  assert.equal(driverContext.worldKey, 'world-a');
+  assert.equal(events.some((event) => event.type === 'run:start' && event.worldKey === 'world-a'), true);
+  driverFinishOf(runtime).resolve({ settled: true, outcome: 'completed' });
+  assert.equal((await run).ok, true);
+  assert.equal((await runtime.resumeRequest()).worldKey, 'world-a');
+});
+
+/** Reach the controlled driver's completion deferred through the runtime fixture. */
+function driverFinishOf(runtime) {
+  const record = runtime.current;
+  if (!record || !record.driver || !record.driver.completed) throw new Error('no controlled driver in flight');
+  return record.driver.completed;
+}
+
+check('game loss runs the normal stop fence: game brakes before SDK abort', async () => {
+  const log = [];
+  const { adapter, lose } = processAdapter();
+  const runtime = new ActionBrainRuntime({
+    gamePort: { ...adapter,
+      cancel: () => { log.push('game.cancel'); return { ok: true }; },
+      releaseInputs: () => { log.push('game.releaseInputs'); return { ok: true }; } },
+    stopTimeoutMs: 50,
+    driverFactory: async () => controlledDriver(log)
+  });
+  const events = []; runtime.subscribe((event) => events.push(event.type));
+  const run = runtime.start('mine'); await tick();
+  lose({ reason: 'endpoint-gone' });
+  await run;
+  assert.equal(events.includes('game:lost'), true);
+  assert.equal(log[0], 'game.cancel');
+  assert.equal(log.indexOf('sdk.abort') > log.indexOf('game.releaseInputs'), true);
+  assert.equal(['stopped', 'failed'].includes(runtime.status().phase), true);
+});
+
+check('cross-world events are rejected at both inbound seams', () => {
+  const { adapter, push } = asyncAdapter();
+  const runtime = new ActionBrainRuntime({ gamePort: adapter, worldKey: 'world-a', worldSessionId: 'w-1',
+    driverFactory: async () => controlledDriver() });
+  const events = []; runtime.subscribe((event) => events.push(event));
+  // 分区栅栏（cross-world）与会话栅栏（stale-world）是两种可判别的错误。
+  assert.equal(runtime.ingest({ type: 'task.finished', eventId: 'e-1', worldKey: 'world-b' }).error.code, 'cross-world');
+  assert.equal(runtime.ingest({ type: 'task.finished', eventId: 'e-2', worldKey: 'world-a' }).ok, true);
+  assert.equal(runtime.ingest({ type: 'task.progress', worldSessionId: 'other' }).error.code, 'stale-world');
+  push({ type: 'task.finished', taskId: 't-1', worldKey: 'world-b', worldSessionId: 'w-1' });
+  push({ type: 'task.finished', taskId: 't-2', worldKey: 'world-a', worldSessionId: 'w-1' });
+  // 只统计任务事件转发 seam 的产物（ingest 通道自己也会发事件，带 inboxSeq）。
+  const seen = events.filter((event) => event.type === 'task.finished' && event.from === 'game');
+  assert.equal(seen.length, 1);
+  assert.equal(seen[0].taskId, 't-2');
+});
+
+check('async receipts and terminal events freeze the worldKey partition field', () => {
+  assert.equal(RECEIPT_FIELDS.includes('worldKey'), true);
+  assert.equal(TERMINAL_EVENT_FIELDS.includes('worldKey'), true);
+  assert.equal(Object.isFrozen(RECEIPT_FIELDS), true);
+  assert.equal(Object.isFrozen(TERMINAL_EVENT_FIELDS), true);
+  // 缺失 worldKey 的兜底分区是显式常量，不是隐式合并。
+  assert.equal(DEFAULT_WORLD_KEY, 'default');
+  assert.equal(RECEIPT_FIELDS.includes('worldSessionId'), false);
 });
 
 (async () => {

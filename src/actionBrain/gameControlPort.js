@@ -24,7 +24,19 @@ function createGameControlPort(adapter) {
    * closed instead of pretending a receipt is backed by a real task ledger.
    */
   const optional = ['tasks', 'onTaskEvent', 'ask'].filter((name) => typeof adapter[name] === 'function');
-  return Object.freeze(Object.fromEntries([...required, ...optional]
+  /**
+   * P2 process seam (2026-11-06): the game process is USER-launched - the product never
+   * starts or supervises it. The seam is ATOMIC: discovery without loss notification (or
+   * attach without discovery) would pretend to work while half of it is missing, so a
+   * partial seam fails construction instead of being silently exposed.
+   */
+  const processSeam = ['discover', 'attach', 'onGameLost'];
+  const processPresent = processSeam.filter((name) => typeof adapter[name] === 'function');
+  if (processPresent.length && processPresent.length !== processSeam.length) {
+    throw new ContractError('invalid-game-port', 'Process seam requires discover + attach + onGameLost together (user-launched game)');
+  }
+  const exposed = [...required, ...optional, ...(processPresent.length ? processSeam : [])];
+  return Object.freeze(Object.fromEntries(exposed
     .map((name) => [name, (...args) => adapter[name](...args)])));
 }
 

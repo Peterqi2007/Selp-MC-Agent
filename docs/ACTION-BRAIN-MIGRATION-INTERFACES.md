@@ -66,6 +66,8 @@
 | M13 | src/brain.js，HarnessAdapter/TurnService 构造、PlanService 挂载、任务结算与持久化 | 把 runtime 与 ToolBroker 接到已有 plan/task/turn 事件；保留 waiter 先注册再执行的顺序；不再要求插件 SSE 才能唤醒 | adapter 可暂留兼容；新内部事件消费者 | 立即失败/完成的任务也能唤醒一次；多个相同名字任务以 taskId/attemptId 区分；重复事件无双结算 |
 | M14 | src/web/statusServer.js，/say、/command、/plan、/harness/*、/ui/state、/status、/events | 控制/状态 API 保留；新增产品 runtime 状态和事件适配；旧 /harness/* 先兼容后废弃，不再作为进程内必经路线 | 共享服务，不新增竞争端口 | 产品 UI 可关联 runtime/plan/task；UI 断连不影响任务；危险测试 hook 仍默认关闭 |
 | M15 | src/core/failureEscalation.js、src/world/toolPolicy.js、src/core/channelPolicy.js、src/codeSkills/service.js | ToolBroker 调用这些现有策略，传递 source/run/tool/signature；新插件/子代理不能绕过失败升级、输入/代码技能规则 | 核心策略复用；身份/权限接线新增 | 同签名盲试仍被阻断；knowledge/unverified 按查证/提问链处理；代码生成不能绕过晋升/批准运行 |
+| M16 | src/pcl/*（start.ps1 读 PCL 版本 JSON 拉起客户端）、实例/mod 配对逻辑 | 产品**不拉起游戏进程**：实例目录泛化为"版本 JSON + mods 目录"（PCL2 布局只是来源之一，无 PCL 运行依赖）；游戏由用户自选启动器启动，产品只 discover/attach/onGameLost（GameControlPort 进程接缝，原子三件套，部分注入即构造失败）；配对/安装保留人类确认 | 启动职责交还用户；配对与版本管理归产品 | 无 PCL2 干净机 + 用户自启动游戏完成配对→attach→任务→stop（B5-12）；部分进程接缝构造期失败、缺接缝关闭式失败（B2-28） |
+| M17 | src/planner/curriculum.js、src/memory/store.js、src/memory/chatMemory.js、src/learning/methodLibrary.js、Pi SessionManager 会话目录、异步受理账本 | 全部持久层按 `worldKey` 分区（主计划 §6.3）：回执/终态事件带 worldKey（SCHEMA_VERSION 2）；跨 worldKey 事件 `cross-world` 拒收；缺失落 `default` 分区并显式告警；既有全局账本一次性迁入 default | 分区键进 schema，执行语义不变 | 同一安装接入两个世界，账本/难度带/方法/知识/聊天/会话目录互不可见（B2-30） |
 
 ## 4. 全部工具迁移清单（14 个 mc_* + lookup_mod_content）
 
@@ -106,7 +108,7 @@
 
 契约正文：[ACTION-BRAIN-ASYNC-CONTRACT.md](ACTION-BRAIN-ASYNC-CONTRACT.md)。骨架：`src/actionBrain/asyncContract.js`、`eventMailbox.js`、`wakeScheduler.js`（占位，未接入）。
 
-- 动手工具（T06 mc_step、T09 mc_plan、code_skill）返回**受理回执**而不是等待完成：`{schemaVersion, ok, async:true, taskId, verb, state:'accepted', acceptedAt, attempt, runId, epoch, worldSessionId, deadlineMs, hint}`。回执**永远不能**被模型当作成功；只有终结事件能写账本。
+- 动手工具（T06 mc_step、T09 mc_plan、code_skill）返回**受理回执**而不是等待完成：`{schemaVersion, ok, async:true, taskId, verb, state:'accepted', acceptedAt, attempt, runId, epoch, worldSessionId, worldKey, deadlineMs, hint}`。回执**永远不能**被模型当作成功；只有终结事件能写账本。
 - 只读工具（T01/T02/T03/T10/T14/T15）保持同步；`stop`/`cancel` 同步且幂等，任何情况下不排在任务后面。
 - 忙时**拒绝式受理**：`{ok:false, reason:'body-busy', class:'precondition', currentTask:{taskId,verb,state,progress}, requires:['task_stop','wait-for-task.finished']}`。不排队、不静默替换——替换会误杀干了一半的活。
 - 工具层唯一责任：分类（以 `src/core/keyActions.js` 动词表为唯一来源）→ 抢 `TaskSlot` 租约 → 立即返回回执 → 任务终结时通过 `gameControlPort` 侧发事件。**不新增执行器**：仍走现有 TaskSlot/PlanService。
@@ -206,7 +208,7 @@
 
 新增的三个契约点（骨架见 `src/actionBrain/eventMailbox.js`、`wakeScheduler.js`；正文见 [ASYNC-CONTRACT §6](ACTION-BRAIN-ASYNC-CONTRACT.md)）：
 
-- **TaskEvents 扩事件族**：`task.accepted / task.progress / task.waiting_player / task.finished / task.interrupted / plan.updated / chat.incoming / perception.edge / steer.requested / policy.denied`。沿用单调 seq、`eventId` 去重与 bounded replay；新增字段 `schemaVersion/taskId/attemptId/epoch/worldSessionId`。
+- **TaskEvents 扩事件族**：`task.accepted / task.progress / task.waiting_player / task.finished / task.interrupted / plan.updated / chat.incoming / perception.edge / steer.requested / policy.denied`。沿用单调 seq、`eventId` 去重与 bounded replay；新增字段 `schemaVersion/taskId/attemptId/epoch/worldSessionId/worldKey`。
 - **收件箱（三态路由）**：回合进行中只入箱、工具批边界倒空；回合结束且后台在跑允许开轮；完全空闲时**只有活人说话与显式 steer 能开轮**。同 `taskId/planId/thread` 按 seq 合并，禁止逐条 progress 注入。
 - **回合映射**：`TurnLifecycle`/`TurnService` 的等待身份继续用 `plan:<planId>`/`taskId`；一个终态事件只唤醒一次；`cancelled` 之后到达的 `finished` 一律作失效审计，不推进状态。
 - **持久化**：`accepted` 先落盘再执行；重启把 `accepted/running` 转为 `interrupted` 并附恢复注记，**不重放** dig/place/click。
@@ -217,7 +219,8 @@
 ### 6.6 边界、入站与生命周期门面（本轮审计追加）
 
 - `runtime.boundary()`：宿主在工具批返回后调用，是事件注入模型的**唯一合法时机**；`turn:boundary` 是收件箱/唤醒调度器的输入。
-- `runtime.ingest(event)`：外部事件入站，按 `eventId` 幂等、按 `worldSessionId` 拒收；**不路由**（路由在收件箱）。
+- `runtime.ingest(event)`：外部事件入站，按 `eventId` 幂等、按 `worldSessionId` 拒收（`stale-world`）并按 `worldKey` 拒收跨世界事件（`cross-world`，2026-11-06 增补）；**不路由**（路由在收件箱）。
+- `runtime.discoverGames()/attachGame(candidate)`（2026-11-06 增补）：进程接缝门面——游戏由用户拉起，产品只发现/接入；缺进程接缝关闭式失败（`process-port-required`）；活动 run 中 attach 被拒（换世界先 stop）；attach 采纳宿主从游戏侧读取的 `{worldKey, worldSessionId}`，不自造；`onGameLost` → `game:lost` + 正常停止链。
 - `pause(reason)/resume()`：冻结新派发，不销毁会话；暂停期间 `start` 抛 `paused`；恢复必须重新感知。
 - `stop(reason, {force:true})`：确认失败时记 `force-stopped`；`unsafeDrivers` 仍硬阻，未确认子代理保留跟踪——**不允许永久锁死启动**，也不允许把未确认停止显示为已停稳。
 - `start(..., {deadlineMs|budget, initTimeoutMs})`：思考时限到点 `run:deadline` + 正常 stop；工厂初始化超时不再造成"起不来也停不掉"。
@@ -239,7 +242,7 @@
 | C06 | dsh-plugin-mc-harness/package.json/lib/index.js | 先抽工具定义/业务 handler；旧插件变薄兼容 adapter；最后从默认发行物移除 | 新发行物不依赖 8770；旧 DSH adapter 的保留/删除在发布说明可追踪 |
 | C07 | scripts/dsh-h1-test.js、DSH_AGENT_ID；plugin-receipt-test.mjs、plugin-goal-test.mjs | 前者保留为 legacy integration；工具回执/目标语义断言迁移到共享 registry/runtime 测试；不能随插件删除而丢失回归覆盖 | 无 DSH 的新测试覆盖相同 bug；兼容测试有明确分组，不成为新产品必需前置 |
 | C08 | scripts/m5-channel-live-probe.js 依赖 /goal；m5-agent-probe.js 走 /command | channel probe 改对新 runtime；保留 command/body probe 作为独立下层测试 | 能分别诊断模型、broker、Node 命令、mod/身体，不把全部失败归到模型 |
-| C09 | start.ps1、stop.ps1、start-agent.bat、scripts/run-all.js | 单入口启动打包 runtime/产品 UI/游戏接入；统一停止进程；当前脚本没有自动解决外部 DSH 安装，不能宣称只删一个脚本就已产品化 | 新用户从安装包完成启动、连游戏、停止、重启；无源码组接步骤；日志包含明确版本和诊断 |
+| C09 | start.ps1、stop.ps1、start-agent.bat、scripts/run-all.js | 单入口只管打包 runtime/产品 UI 与游戏**接入**（discover/attach）；**不拉起游戏进程**（用户自选启动器启动，产品对 PCL2 无运行依赖）；start.ps1 的客户端拉起链保留为开发工具；统一停止进程；当前脚本没有自动解决外部 DSH 安装，不能宣称只删一个脚本就已产品化 | 无 PCL2 干净机 + 用户自启动游戏完成闭环（B5-12）；新用户从安装包完成启动、接入、停止、重启；无源码组接步骤；日志包含明确版本和诊断 |
 | C10 | web.eventsToken、web.testHooks、P1_TEST_HOOKS | 保留本地 API 鉴权/测试隔离；产品 UI/插件不共享万能凭据；测试 hook 默认关闭 | 生产默认禁用注入；第三方工具不能取得控制 API 的全权限 token |
 | C11 | README.md、docs/DSH-HARNESS.md、旧验收说明中的 DSH 安装/绑定步骤 | 主入口文档改为产品安装和 Pi 配置；旧记录保留为历史并标出适用版本，不能重写已发生的验收事实 | 按新文档在干净 Windows 环境安装可复现；历史 PASS 不被标成 Pi PASS |
 

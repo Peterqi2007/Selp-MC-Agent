@@ -1,7 +1,7 @@
 # 基于 Pi SDK 的自研动作脑实施计划
 
-文档日期：2026-11-01  
-代码基线：codex/p1，b0200a6  
+文档日期：2026-11-01（2026-11-06 修订：进程接缝、跨世界记忆分区、分发边界）\
+代码基线：codex/p1，b0200a6（骨架随 2026-11-06 修订扩展）\
 状态：设计与开发骨架；不是已接通 Pi、已完成产品化或已通过真机验收的声明。
 
 配套文件：
@@ -56,6 +56,8 @@ Pi 为首选不等于跳过验证。B0/B1 必须锁定包和类型接口、测�
 ### 2.1 首个可用版本
 
 首个版本覆盖单用户、单 Minecraft 实例、单身体、一个主动作代理和有界辅助子代理，可连接兼容的多人服务器。复用现有 clientmod/Mineflayer 身体适配、技能、计划、提案与课程账本。支持用户提供模型凭据和明确选择 provider/model。
+
+产品**不充当启动器**：游戏进程由用户用自选启动器（PCL2、官方或其它）拉起，产品只负责发现控制端点、配对与接入（§12）；产品对 PCL2 无运行依赖，PCL2 布局只是实例目录的一种来源。跨存档/服务器的任务执行记忆按 `worldKey` 分区（§6.3），首版必须携带该分区 schema。
 
 外部插件接口从第一版预留，可信内置能力可以先接入。第三方可执行插件必须等权限与 OS 隔离通过 B3 验收后开放；不能因 manifest 校验已存在就宣称第三方代码已经安全运行。
 
@@ -124,6 +126,8 @@ ExecutionFence/epoch 是“请求是否仍有资格”的栅栏，不是第二�
 
 GameControlPort 接缝包含 observe、execute、cancel、releaseInputs 和 waitForIdle。最后一个方法必须确认相关计划/任务及输入已结算；模型 agent_settled 或动作 accepted 回执不能代替游戏空闲确认。生产 adapter 需把现有异步 task/plan 回执连接到匹配的终端事件与验证证据。
 
+进程接缝 `discover`/`attach`/`onGameLost` 是**原子三件套**（部分注入即构造失败）：游戏进程由用户拉起，产品只发现候选控制端点、attach 读取世界身份并监视丢失；`game:lost` 走与人工急停相同的停止链。`attach` 在活动 run 期间被拒绝——换世界必须先 stop，不得静默重绑（§6.3）。
+
 ### 4.2 快慢双循环
 
 **快循环**保留本地观察、危险识别、移动控制和反射；不等待模型 token。危险、死亡、连接变化或人工停止立即使旧资格失效，并取消或抢占身体任务。控制器的连续控制仍运行在本地闭环，不拆成模型逐次发按键。
@@ -171,7 +175,7 @@ subscribe(listener)    -> unsubscribe
 
 回合状态至少区分 idle、running、waiting_tool、waiting_user、compacting、stopping、stopped、settled、failed、interrupted。SDK 的空闲、计划结束和身体停手是不同事实；UI 不得仅收到 agent_end 就显示“全部完成”。
 
-关联身份至少包含：requestId、runId、sessionId、parentRunId、toolCallId、planId、stepId、taskId、attemptId、epoch、worldSessionId。沿用现有执行 ID，不用模型生成的文字代替身份。
+关联身份至少包含：requestId、runId、sessionId、parentRunId、toolCallId、planId、stepId、taskId、attemptId、epoch、worldSessionId、worldKey。沿用现有执行 ID，不用模型生成的文字代替身份。
 
 产品事件包应包含 schemaVersion、seq、eventId、type、at、关联 ID、status、reason、evidenceRefs 和安全 payload。具体事件族：
 
@@ -222,7 +226,22 @@ subscribe(listener)    -> unsubscribe
 - `start(goal, {taskMode:'sync'|'async'})`：`sync` 保留旧的 idle 门（兼容既有调用）；`async` 只要求模型 settle，任务在跑属正常态，返回 `{settledScope:'turn', tasksOpen:n}` 并发 `turn:settled`。
 - `async` 必须注入 `gamePort.tasks` + `gamePort.onTaskEvent`，缺一**关闭式失败**（`async-port-required`），不允许"回执照发、账本不存在"。
 - `run:settled` 只表示"这一轮模型结束了"；任何"已完成"的结论只能来自任务终态事件。
-- 关联身份（`epoch` / `worldSessionId`）进入端口调用与事件；跨世界/旧 epoch 的事件被拒收。
+- 关联身份（`epoch` / `worldSessionId` / `worldKey`）进入端口调用与事件；跨世界、跨分区与旧 epoch 的事件被拒收。
+
+### 6.3 跨存档/服务器记忆分区（worldKey）
+
+`worldSessionId` 是**运行时栅栏**（每次连接/重连变化，拒收旧连接回执）；`worldKey` 是**持久分区键**（同一存档/服务器跨会话稳定）。两者必须同时存在、不得互替——运行时栅栏挡不住"昨天在另一个世界学到的难度带"混进今天的账本。
+
+| 项 | 规则 |
+| --- | --- |
+| 定义 | 单机=存档身份（世界目录/level 标识）；联机=服务器地址+世界身份。由宿主在 `attach` 时从游戏侧读取并上报，产品不自造、不用模型文字代替 |
+| 分区对象 | 课程账本（completed/failed/难度带）、MemoryStore（episodic/semantic）、MethodLibrary、ChatMemory、Pi SessionManager 会话目录、异步受理的 accepted/终态账本 |
+| 必备字段 | 异步回执与终态事件必备 `worldKey`（`asyncContract` SCHEMA_VERSION 2）；缺失时落 `default` 分区（`DEFAULT_WORLD_KEY`）并显式告警，**绝不静默并入其它分区** |
+| 拒收 | 跨 `worldKey` 的事件在收件箱 `ingest` 与任务事件转发处拒收（`cross-world`），与会话栅栏 `stale-world` 是两种可判别错误 |
+| 换世界 | `attach` 拒绝在活动 run 中途切换；先 `stop` 再 attach，新 `worldKey` 生效后读新分区 |
+| 迁移 | 现有全局账本一次性迁入 `default` 分区（历史数据无法归因到世界）；分区目录结构纳入 B5-09 的 schema 升级/回滚 |
+
+验收：B2-30（[验收矩阵](ACTION-BRAIN-ACCEPTANCE.md) §4.4）——同一安装先后接入两个世界，分区互不可见、难度带/方法成功率不串、`default` 分区有显式告警。
 
 ## 7. 工具边界和重新对接原则
 
@@ -292,7 +311,7 @@ PluginHost 持有注册、授权和撤权账本，插件只通过受控 RPC 取�
 - 暂停不意味着保存一个可复活的身体 lease。继续前读取新快照、检查 body ready/世界身份和执行服务，发放新 generation。
 - 进程重启把活跃 run 标记 interrupted。恢复 Pi transcript 不自动继续工具，也不自动重跑 PlanRunner 的未完成动作。
 - 动作中断时先核对 inventory/位置/方块/计划证据，分清已生效、未生效和未知。未知副作用必须重新观察或询问，不能用通用重试掩盖。
-- 断线重连和世界/身体切换更新 worldSessionId。旧连接的请求/回执即便 epoch 数字碰巧相同也不得被接纳。
+- 断线重连和世界/身体切换更新 worldSessionId。旧连接的请求/回执即便 epoch 数字碰巧相同也不得被接纳。世界切换（换存档/换服）同时更新 `worldKey` 并切换记忆分区（§6.3）；换世界先 `stop` 再 `attach`，不得在活动 run 中途重绑。
 - 死亡与遗体回收继续由现有 AutonomousMode/身体恢复机制协调，先取消旧目标并确认 alive/ready，再给动作脑新的上下文；不得再建另一条同时驱动身体的死亡恢复循环。
 - 保留现有 plan baseVersion、任务 attemptId、终端去重、失败阶梯与 CodeSkills 证据/晋升机制。
 
@@ -331,11 +350,28 @@ PluginHost 持有注册、授权和撤权账本，插件只通过受控 RPC 取�
 
 目标发行物包含受控 Node runtime、应用与 UI、锁定依赖、Pi 所需资产、默认配置、许可证清单、诊断工具和 mod 版本清单。不能未经验证地承诺单文件可执行文件；目录式安装包也可以满足无需人工组接的交付要求。
 
-首次启动流程：选择 Minecraft/PCL2 实例 → 检测版本和 mod → 提示并执行产品内的安装/配对 → 设置 provider/key → 连接身体与健康检查 → 示例只读任务 → 可选择开启行动。保留 mod 安装所需的人类确认，但由产品完成路径与版本管理。
+**游戏实例与进程边界（2026-11-06 修订）**：产品对 PCL2 **无运行依赖**——PCL2 布局只是实例目录的一种来源，普通 `.minecraft` 布局（版本 JSON + mods 目录）同等支持。产品**不充当启动器、不拉起也不监管游戏进程生命周期**：游戏由用户用自选启动器启动，启动期问题（Java 缺失、版本下载、账号登录）归用户侧启动器。产品职责收敛为三件事：
 
-用户数据和 session 放入稳定应用数据目录；不依赖源码 cwd。凭据走系统安全存储或受控注入，不打包在配置/日志/前端。升级先备份并迁移状态，失败可回退程序和兼容数据；提供脱敏诊断导出。
+1. `discover`——探测候选控制端点（控制 Mod 的本地 HTTP 等）；"等不到端点"时给出可操作诊断（指导用户检查游戏是否已启动并进入世界），不自动拉起进程；
+2. `attach`——绑定一个实例，读取世界身份（`worldKey`/`worldSessionId`）并做健康检查；多实例并存时由用户显式选择，身体只绑一个；
+3. `onGameLost`——端点丢失/进程退出走与人工急停相同的停止链（先失效资格，再停身体与模型）。
 
-安装包必须在无 Node/npm/DSH/Pi CLI 的干净 Windows 环境验证，覆盖空格/中文路径、离线启动诊断、杀毒误报反馈、mod 不匹配、占用端口和断网。最终 SDK 及传递依赖做许可证和运行资产清单。
+首次启动流程：选择游戏实例目录（PCL2 或普通 `.minecraft` 布局）→ 检测版本和 mod → 提示并执行产品内的安装/配对（人类确认）→ 设置 provider/key → **用户自行启动游戏** → 产品 discover/attach 并完成健康检查 → 示例只读任务 → 可选择开启行动。保留 mod 安装所需的人类确认，但由产品完成路径与版本管理。
+
+用户数据和 session 放入稳定应用数据目录，并按 `worldKey` 分区（§6.3）；不依赖源码 cwd。凭据走系统安全存储或受控注入，不打包在配置/日志/前端。升级先备份并迁移状态，失败可回退程序和兼容数据；提供脱敏诊断导出。
+
+安装包必须在无 Node/npm/DSH/Pi CLI 的干净 Windows 环境验证，覆盖空格/中文路径、离线启动诊断、杀毒误报反馈、mod 不匹配、占用端口和断网；**无 PCL2 的机器**（普通 `.minecraft` 实例 + 用户自启动游戏）是 B5 必测变体（B5-12）。最终 SDK 及传递依赖做许可证和运行资产清单。
+
+### 12.1 推迟项登记（2026-11-06）
+
+以下需求**承认存在、明确推迟**，不计入本轮验收矩阵；触发条件满足前不得宣称已支持：
+
+| 推迟项 | 内容 | 建议落点 | 触发条件 |
+| --- | --- | --- | --- |
+| release 管线工具链 | CI/打包工具链、签名、更新通道、制品分发 | B4 并行准备原型，B5 只做验收（判据已在 B5-04…B5-11） | B2 通过且打包原型在干净机可运行 |
+| AuthMe 产品化向导 | per-server 凭据录入 UI、"不配置=跳过"的产品语义 | B4 | 产品 UI 首版交付时一并做；现有四重 never-register 闸门与 local overlay/环境变量机制保留为底座 |
+| 产品级模组知识库 | modpack/版本配对元数据、离线知识包、知识随发行物分发 | B3 之后 | 首版沿用 `lookup_mod_content` + semantic 自动落库；插件/子代理知识面稳定后再做 |
+| 插件市场与接入 UX | 第三方插件发现、安装、市场分发渠道 | B3 之后 | B3 权限与 OS 隔离门槛通过前，第三方可执行插件保持关闭 |
 
 ## 13. 配置与灰度
 
@@ -370,10 +406,10 @@ PluginHost 持有注册、授权和撤权账本，插件只通过受控 RPC 取�
 | --- | --- | --- |
 | B0 基线与契约 | 锁 Pi/Node 版本，最小嵌入；建立 DSH 对照；冻结 ID、事件、工具/取消契约；确认分发资产 | 不碰生产默认；SDK 可在 Windows 运行，旧测试不退化 |
 | B1 模型与上下文 | 真实 PiAdapter/provider、流式与图像、受限文件工具、SessionManager、compaction、凭据 | 供应商/压缩测试通过；无模型 key 泄漏；依赖 B0 |
-| B2 游戏闭环 | ToolBroker 到现有 registry/PlanService/TaskSlot；统一停止；迁移 goal、截图和自主提案；**异步受理与事件唤醒（回执/收件箱/边界投递）**；**回合门/任务门拆分、pause/force-stop、思考 deadline、工厂超时**；恢复 reconciliation | 停止/迟到/单 owner/死亡断线测试及真机闭环；**回执 <200ms、终态只投递一次、忙时拒绝式受理、`dropped` 不计失败**；**异步回合不因任务在跑而失败**；依赖 B1 |
+| B2 游戏闭环 | ToolBroker 到现有 registry/PlanService/TaskSlot；统一停止；迁移 goal、截图和自主提案；**异步受理与事件唤醒（回执/收件箱/边界投递）**；**回合门/任务门拆分、pause/force-stop、思考 deadline、工厂超时**；**进程接缝（discover/attach/onGameLost，用户拉起游戏后的发现与接入）与 worldKey 记忆分区 schema（§6.3）**；恢复 reconciliation | 停止/迟到/单 owner/死亡断线测试及真机闭环；**回执 <200ms、终态只投递一次、忙时拒绝式受理、`dropped` 不计失败**；**异步回合不因任务在跑而失败**；**进程接缝原子校验、`game:lost` 走停止链、跨世界事件拒收、账本/记忆/会话目录按 worldKey 分区且 default 显式**；依赖 B1 |
 | B3 子代理与插件 | 多 session 调度、预算、取消树、候选技能隔离；PluginHost/grants/进程与 OS 隔离 | 角色越权和故障注入通过；第三方插件不满足门槛则保持关闭；依赖 B1/B2 |
 | B4 UI 与交互 | 稳定事件投影、任务树、工具/截图证据、权限与停止接管、重连回放 | 用户能直接发现受阻原因并控制任务；可与 B3 并行 |
-| B5 性能与发行 | 相同模型基线对照、长时回归、干净机安装、mod 配对、升级回滚、许可证清单 | 正式切默认到 Pi；DSH 从发行必需项移除 |
+| B5 性能与发行 | 相同模型基线对照、长时回归、干净机安装、mod 配对、升级回滚、许可证清单；**无 PCL2 干净机 + 用户自启动游戏（B5-12）** | 正式切默认到 Pi；DSH 从发行必需项移除 |
 
 每阶段以验收证据而非“代码文件已创建”结算。未完成 B2 不开放动作灰度；未完成 B3 不开放第三方可执行插件；未完成 B5 不声称可交付产品。
 
@@ -397,7 +433,7 @@ PluginHost 持有注册、授权和撤权账本，插件只通过受控 RPC 取�
 
 ## 16. 本次代码骨架的边界
 
-src/actionBrain 提供可注入的运行时门面、Pi 驱动接缝、执行栅栏、工具/插件能力校验、子代理调度与恢复契约，并用 fake session/worker/game port 做离线测试。它独立于现有 src/index.js 默认动作脑路径。
+src/actionBrain 提供可注入的运行时门面、Pi 驱动接缝、执行栅栏、工具/插件能力校验、子代理调度与恢复契约、进程接缝（discover/attach/onGameLost）与世界分区栅栏（worldKey），并用 fake session/worker/game port 做离线测试。它独立于现有 src/index.js 默认动作脑路径。
 
 本次不会自动安装 Pi、写入模型 key、调用收费模型、启动游戏、改变正在运行的身体、开放外部插件或把 Pi 设为生产默认。后续实现者应通过 README 中的端口接入，而不是绕过门面直接持有 body/Pi session。
 
@@ -423,7 +459,21 @@ src/actionBrain 提供可注入的运行时门面、Pi 驱动接缝、执行栅�
 
 以上各条均**不关闭** B2-21…B2-27 的真实行为/真机验收。
 
-以上结果不转填为配套 79 项阶段验收完成。真实 Pi/provider、Minecraft、产品 UI、第三方插件 OS 隔离、性能和 Windows 安装包均未在本次验证。
+**2026-11-06 修订（分发边界 + 进程接缝 + 跨世界分区）**：按用户裁决修订计划并同步骨架——
+①游戏进程改由**用户拉起**，产品对 PCL2 无运行依赖（实例目录泛化，普通 `.minecraft` 布局同等支持），
+GameControlPort 新增 `discover`/`attach`/`onGameLost` **原子三件套**（部分注入即构造失败；缺接缝时
+discover/attach 关闭式失败 `process-port-required`；活动 run 中 attach 被拒；`game:lost` 走正常停止链）；
+②新增 `worldKey` 持久分区键（§6.3）：回执/终态事件必备字段（`asyncContract` SCHEMA_VERSION 1→2、
+`DEFAULT_WORLD_KEY='default'`），`ingest` 与任务事件转发新增 `cross-world` 拒收（区别于 `stale-world`），
+课程账本/记忆/方法库/聊天记忆/会话目录按 worldKey 分区，`default` 分区显式告警；
+③release 管线、AuthMe 产品向导、产品级知识库、插件市场登记为推迟项（§12.1）。
+`action-brain:contract:test` 57→**63/63**（新增 6 项：进程接缝原子性、discover/attach 关闭式失败与
+活动 run 拒绝、attach 采纳世界身份、game-lost 停止链、跨世界双栅栏拒收、回执/终态契约冻结 worldKey）；
+`npm run p1:verify -- --fast` 仍 19/19；生产入口 `src/index.js` 未改。
+新增验收项 **B2-28…B2-30、B5-12**（[验收矩阵](ACTION-BRAIN-ACCEPTANCE.md) §4.4/§7.2，矩阵 79→83 项）
+仍为 NOT_RUN，以上离线结果不关闭它们。
+
+以上结果不转填为配套 83 项阶段验收完成。真实 Pi/provider、Minecraft、产品 UI、第三方插件 OS 隔离、性能和 Windows 安装包均未在本次验证。
 
 ## 17. 风险与回退
 
