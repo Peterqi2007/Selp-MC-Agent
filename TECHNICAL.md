@@ -1,0 +1,842 @@
+# Minecraft Survival Agent — 技术参考（Technical reference）
+
+> **本文是什么**：仓库原 `README.md` 的技术内容于 2026-11-07 迁移到这里，保留架构、快速开始、
+> 能力清单、批次进展、指令表、踩坑记录、脚本一览与已知限制的完整记录。
+> **项目概览（优势 / 劣势 / 部署配置）见 [`README.md`](README.md)。**
+> 下文的「本文」均指本文件；章节编号（§0–§10）保持不变，供其它文档（`docs/*.md`）的
+> 「§3 / §8 / §9」引用继续成立。
+
+一个让**真实《我的世界》1.20.1 Forge 客户端**自己玩生存的 Agent：砍树、合成、熔炼、挖矿、种田、
+钓鱼、战斗、睡觉、存取箱子，全部发生在普通游戏会话里（不发假包、不改服务端）。在游戏里用
+`!` 指令或 `@大肥鱼 <自然语言>` 指挥它决策与动手。
+
+**架构一句话：Mod 是薄手，Node 是大脑。**
+
+```
+玩家 / LLM  →  src/skills/*（确定性技能层，全部可离线测试）
+                 ↓ 只调用 Body 契约
+              src/body/clientModBody.js（协议 + 轮询）
+                 ↓ HTTP 127.0.0.1:8899
+              mod-client（Forge 客户端侧薄手：移动/挖/放/右键/菜单/攻击/手持）
+                 ↓ 真实游戏会话
+              Minecraft 服务器（含 mc.example.com 这类需要客户端 Mod 的 Forge 服）
+```
+
+* **Mod**（`mod-client/`，Forge 1.20.1）：只提供"人的手能做到的最小原子动作"，通过
+  `127.0.0.1:8899` 暴露 `GET /state|/chatlog|/progress|/health` 与 `POST /command`；
+  决策、配方、库存编排一律不在 Java 里。
+* **Node**（本仓库）：技能库、任务槽、失败阶梯、权限与征询、LLM 工具层、记忆、控制面板
+  （`http://127.0.0.1:8766/panel`）。
+* **PCL2**：负责版本 / 账号 / Mod 管理；启动脚本直接读 PCL 留下的版本 JSON 无头拉起客户端，
+  也支持 `--server` 直连服务器、`--singleplayer` 直进存档。
+
+> **与 mineflayer 的关系（历史说明）**：mineflayer 走原版协议，进不了要求 FML2 客户端握手的
+> Forge/NeoForge"客户端必需 Mod"服。主线躯体因此改为"真实客户端 + 控制 Mod"。
+> `body.kind=mineflayer` 仍然保留，适合原版 / Paper / Spigot / 纯服务端 Fabric 服与本地快速测试，
+> 但已不是主线；mineflayer 时代的坑位（pathfinder 闭包 latch、树冠 A*、并发抢 pathfinder 等）
+> 保留在 git 历史与 [`docs/EXTERNAL-SERVERS.md`](docs/EXTERNAL-SERVERS.md)。
+
+参考过的开源项目：
+
+| 项目 | 借鉴点 |
+| --- | --- |
+| [Dwinovo/minecraft-numen](https://github.com/Dwinovo/minecraft-numen) | 「先看 → 规划 → 执行」分层；挖矿报价（DigQuote）与编辑台账；恢复阶梯；"计划即承诺、执行交实际账" |
+| [zoyluoblue/mc_aiplayer](https://github.com/zoyluoblue/mc_aiplayer) | LLM 选意图 → 确定性技能执行；工具即能力边界；能力自省 |
+| [mindcraft-bots/mindcraft](https://github.com/mindcraft-bots/mindcraft) | 技能目录覆盖范围（采集/合成/种田/战斗/钓鱼）；技能文档先给模型看再执行 |
+| [PrismarineJS/mineflayer](https://github.com/prismarinejs/mineflayer) | 早期躯体与 pathfinder 生态（现已退居备选） |
+| [HarjjotSinghh/minecraft-mcp](https://github.com/HarjjotSinghh/minecraft-mcp) | 用外部 HTTP 控制口驱动游戏内 Agent 的思路 |
+| [MineDojo/Voyager](https://github.com/MineDojo/Voyager) | 自动课程（难度带 + 完成账本）；技能库与描述向量检索；错误回灌重试（`src/planner/curriculum.js`） |
+| MC-MineEvolve | 进化式技能生成与自评的对照参考（本地检出 `refs/MC-MineEvolve`，不入库） |
+
+> **两份论文 PDF 不入库**：`refs/Voyager/voyager.pdf`（18.8 MB）与
+> `refs/MC-MineEvolve/MineEvolve.pdf`（10.1 MB）放在已被 `.gitignore` 忽略的 `refs/` 下
+> （2026-10-31 从 `docs/` 移出；同日用 `filter-branch` 把这 28 MB 从 **git 历史**里一并摘除，
+> `.git` 54 MB→19 MB、29 条提交哈希改写，见 [`docs/HISTORY-REWRITE-2026-10-31.md`](docs/HISTORY-REWRITE-2026-10-31.md)）。
+> `refs/` 是本地参考检出区，克隆后为空。
+
+---
+
+## 0. 文档导航
+
+| 文档 | 内容 |
+| --- | --- |
+| 本文 | 现状、架构、快速开始、指令、进展、脚本、限制 |
+| 本文 §3 | **想知道「现在到哪一步了」先读它**：批次表 + 当前状态 + 最新真机记录 |
+| [自研动作脑计划书](docs/SELF-HOSTED-ACTION-BRAIN-PLAN.md) | **= 项目 P2（自研 Agent 落地，2026-11-01 立项）**：Pi SDK 首选方案、需求与边界、快慢循环、取消/暂停/预算与恢复、子代理/插件/UI/分发路线；内部 B0–B5 是 P2 的子阶段；当前为设计与独立代码骨架，未切换生产默认 |
+| [动作脑接口迁移清单](docs/ACTION-BRAIN-MIGRATION-INTERFACES.md) | DSH 生命周期、15 个工具、配置/HTTP/SSE 与现有执行内核的逐项替换和保留清单 |
+| [动作脑验收矩阵](docs/ACTION-BRAIN-ACCEPTANCE.md) | **B0–B5** 阶段闸门（83 项；2026-11-06 增补 B2-28…B2-30 进程接缝/跨世界分区 + B5-12 无 PCL2 干净机）、故障注入、性能对照、干净 Windows 交付与回滚；未执行项明确标记 |
+| [异步受理与事件唤醒契约](docs/ACTION-BRAIN-ASYNC-CONTRACT.md) | 回执/终态/事件族、三态收件箱与边界投递、拒绝式受理、持久化恢复；**契约 + 占位骨架，未实现**；对应验收 B2-15…B2-20 |
+| [动作脑代码骨架](src/actionBrain/README.md) | 可注入的运行时、Pi 驱动、epoch 栅栏、工具能力、子代理及恢复契约；离线验证：npm run action-brain:contract:test |
+| [`docs/P1-PLANNER-PLAN.md`](docs/P1-PLANNER-PLAN.md) | **下一阶段方案**：规划器重构（语言/动作脑区解耦、分级自主感知、自主解题、自主学习、聊天扩展）；§1.9 单列 coding harness 与自研动作脑的比较与接入边界。要求在**独立分支**实施；2026-10-17 裁决见 §1.1.1 |
+| [`docs/P1-M0.md`](docs/P1-M0.md) | **P1 M0 记录**：基线（提交/指纹/套件）、问题复核、P0→P1 审计迁移清单、评测集 v1、测量模板与版本登记。离线项已完成，**客户端三项部分执行**（M0-C1/C2 部分；原 C3/F1 已于 2026-10-29 作废 → 改为 F1' 契约准备（离线），真机断言移入 M5） |
+| [`docs/P1-M1.md`](docs/P1-M1.md) | **P1 M1 记录（离线 M1a–M1d）**：`TaskEvents` 汇聚/重放、身份字段、`PlanStore` 单一写者、同端口 SSE、Capability 表、TaskResult 六态、`mine_ore` progress 值域、PlanRunner、TurnLifecycle、HarnessAdapter；契约测试已扩到 206/206。真实 DSH 插件与持久化已于 M3 接线并真机验证 |
+| [`docs/P1-M2.md`](docs/P1-M2.md) | **P1 M2 记录（离线契约 + 地址通道）**：二值闸门、`@` 通道默认关闭、严格 LLM 判定器、双脑工具清单、语言专用 `say`/`silence`、离线 `LanguageAgent`、可选语言对话通道（默认关闭）、快照字段时间戳、刷新调度、威胁订阅、persona 注入；**M2 已真机 PASS**（A01/A02/A03/A09–A12 + H1a/H1b，2026-10-17/18） |
+| [`docs/P1-M3.md`](docs/P1-M3.md) | **P1 M3 记录（2026-10-21 PASS）**：`PlanService`、`POST /plan`、`TurnService`/`/harness/events`、DSH `mc_plan`/`mc_propose`/`mc_state`、持久化、`wait_for_player`、`!state`、`!method`、`Budget`、`verifier`、`draftGuard`；A13–A17/A27（只读/异步）/A28–A30/F2 真机通过；`p1:m3:test 44/44` |
+| [`docs/P1-M4.md`](docs/P1-M4.md) | **P1 M4 记录（PASS，A19 适用子集）**：manifest 校验、生成管线、candidates/promoted 目录与指针、晋升/回退/下线、promoted-only 检索；2026-10-18 接真实生成、权限子进程试运行、证据、取消、DeepSeek Search、HTTP `/code-skills`；2026-10-25 接实时入口；需求变更后 **v2 已实现（35/35，2026-11-01 复核 43/43）且 A18–A20、A28–A30 真机 PASS**。沙箱规则见 [`P1-M4-SANDBOX.md`](docs/P1-M4-SANDBOX.md) |
+| [`docs/M4-DIRECT-BODY-PLAN.md`](docs/M4-DIRECT-BODY-PLAN.md) | **M4 直接身体原语（v2，2026-10-25）**：生成代码直接读 `/state` 并 `body_move/body_dig/body_place/body_use/body_click/body_look/body_attack`；唯一执行权/slot 租约、权限门、容器屏幕限制、取消中断、有界 blocks；**已实现（35/35），A18–A20、A28–A30 真机 PASS** |
+| [`docs/M4-CLIENT-TESTS.md`](docs/M4-CLIENT-TESTS.md) | **M4 代码技能证据（2026-10-25）**：§1–§7 编排子集；§9 v2 离线（35/35）；**§10 A18 v2 真机 PASS**；**§11 A19/A20/A28–A30 真机 PASS（A19 适用子集）** |
+| [`docs/P1-M5.md`](docs/P1-M5.md) | **P1 M5 记录（2026-10-29 口径变更：进程内输入层）**：执行底座由 OS 级 `computer_use` 改为 mod 在游戏进程内注入按键/视角/槽位点击 + 帧缓冲截图经 HTTP 交 Node（Node 持唯一身体执行权与键鼠台账）；闸门 **F1 作废 → F1'a（结构性不可出界）/F1'b（键鼠台账）**；**CU 路径已放弃（abandoned）**。**M5 PASS（2026-11-05；A12-GUI 按操作员口径暂缓）**：F1'a 加打包 jar 断言（`p1:m5:test 40/40`）、F1'b 七条停机路径真机、A21 走 agent 技能层（2 GUI ×3 + 四类注入）、A22 复用 0 次生成调用、M5.3 A07/A08；A21/A22 **不标 N/A**，逐项见该文档 §13 |
+| [`docs/CU-ABANDONED.md`](docs/CU-ABANDONED.md) | **CU 路径已放弃（2026-10-29）**：为什么换、还留了什么（只作历史证据）、现在 M5 看什么；`src/computer/*` 已标 ABANDONED |
+| [`docs/P1-WORK-2026-10-30.md`](docs/P1-WORK-2026-10-30.md) | **2026-10-30/31 交付 + 真机**：CU 标记放弃、载具感知、`@` 请求 → DSH goal、截图 steer、Voyager 式自动课程、自卫反射可见性、动作脑改绑 `Minecraft动作脑3`、KeyMapping 注册表发现 + 稳定 ID 注入（§8–§11）；含三个真机缺陷修复与 `p1:verify` 全绿 |
+| [`docs/FAILURE-ESCALATION.md`](docs/FAILURE-ESCALATION.md) | **mc_step/mc_plan 失败回执与升级阶梯**：扩展既有 failure.js（信封/分类/签名闸门），mc_step 同步回执 + 任务结算 + mc_plan step 均带 class/requires；knowledge/unverified → lookup_mod_content → 一次 informed → **输入层（look/key/hold/tap）** → mc_ask_player 停车；place/useon 由 mod 采集世界证据、Node 判定；升级按动作签名，成功/TTL/新 goal 自动降级；**命令通道与 Node 任务通道同一阶梯**（`recordTaskSettle` 不再漏掉输入层）；离线 `p1:failure-escalation:test 27/27`；真机 A32 子集 + 2026-11-01 输入层链路（barrier ×2 → lookup → informed → input-required → look 成功 → 一次重试 → ask）已验 |
+| [`docs/P1-M6.md`](docs/P1-M6.md) | **P1 M6 记录（聊天并发 + 按需接线）**：未读去重、过时回复拒绝、自回声拒绝、限速/重复/截断、随会话持久化；普通聊天 15 行窗口（含自己的回复、随 `p1-state.json` 保存）；**所有非 `!` 玩家消息写入 ChatMemory**；LLM 回复可 opt-in 守卫（默认关闭）；DialogueRouter + `mc_say` 已真机（2026-10-22）；A24/C03/F02 受控 PASS（2026-10-24）；**A23 按操作员口径通过、A25 四路径真实提案 PASS（2026-11-06）** |
+| [`docs/LANGUAGE-BRAIN-REPAIR.md`](docs/LANGUAGE-BRAIN-REPAIR.md) | **语言脑统一门面**：`src/llm/languageBrain.js` 的 roleplay/expert/approval、统一语言工具、原文审批、15 行短期窗口 + ChatMemory/任务记忆 grep；**默认 `agent.language.brain=unified`（2026-10-23 真机验证）**，`legacy` 可回退；`p1:language:test 22/22` |
+| [`docs/P1-M7.md`](docs/P1-M7.md) | **P1 M7 记录（离线准备）**：`p1:verify` 一键离线验收（2026-11-01 实测 `--fast` **19/19**、完整 **20/20** 套件）、`p1:fault:test` 9/9、A01–A33 验收矩阵 + F1' 闸门（2026-10-25 回填，2026-10-29 更新 M5 口径，2026-11-01 补 A33）、发布清单与残余风险。**P1 未发布**；M1/M2/M3/M4 真机通过，M5–M7 剩余项见清单 |
+| [`docs/FULLY-AUTONOMOUS.md`](docs/FULLY-AUTONOMOUS.md) | **完全自主模式（2026-11-01）**：`!autonomous on` 后按 automatic curriculum 自出题、自执行、**无任何玩家审批**；玩家任务忙拒（当前任务/位置/血量/做不了），普通聊天照常；死亡自行重生 + 走回 Corpse 遗体取回物品；`!stop` 暂停、`!autonomous off` 退出、重启只恢复为 `paused(restart)`。状态机/闸门/配置/护栏/**A33 真机矩阵** 都在这里；离线 `p1:autonomous:test 33/33`，真机 **A33.1/A33.4/A33.7 已验**（A33.2/3/5/6/8 未执行，其中 5/6 需真实死亡与遗体） |
+| [`docs/P1-GAP-AUDIT.md`](docs/P1-GAP-AUDIT.md) | **P1 全文差距审计**：§1.4–§1.9 逐节“已落地/部分/仅契约/未开始”，离线待办优先级与需批准项（2026-10-22/10-25 增补现状表；2026-10-29 M5 口径变更） |
+| [`docs/P1-HANDOFF.md`](docs/P1-HANDOFF.md) | **P1 交接（2026-11-01 更新）**：一键复验、已交付清单、客户端窗口实测、默认配置、剩余未交付、窗口顺序、代码地图与风险 |
+| [`docs/CLIENT-TEST-2026-10-17.md`](docs/CLIENT-TEST-2026-10-17.md) | **客户端窗口实测记录**：协议 23/23、登录+寻路 7/7、采集 9/10（挖石 noPath 失败）、Agent 自动登录修复、`/state` 空闲成本、F1 未授权（历史，2026-10-29 起 F1 已作废、改 F1'） |
+| [`docs/M1-CLIENT-TEST-2026-10-17.md`](docs/M1-CLIENT-TEST-2026-10-17.md) | **M1 客户端两轮记录**：零矿 FAIL→修复后 failed；任务 ID/终态 FAIL→修复后唯一；stop 816ms；SSE token/重放通过；**M1 适用子集 PASS**，残余 A05/A07/A08/A31 子项留 M2/M3/M7 |
+| [`docs/M2-CLIENT-TEST-2026-10-17.md`](docs/M2-CLIENT-TEST-2026-10-17.md) | **M2 客户端记录**：A01/A02/A03/A09/A10/A11/A12/H1 均 PASS；A12 GUI 修复后 219ms 自动关工作台并击杀；TACZ reload live PASS；时间判定改为 server dayTime 优先 |
+| [`docs/DSH-HARNESS.md`](docs/DSH-HARNESS.md) | **DSH harness 接入**：`dsh-plugin-mc-harness` 插件与安装脚本；**15 个工具**（14 个 `mc_*`：observe/step/state/capabilities/keybinds/ask_player/plan/plan_status/cancel/finish/perception/memory/propose/say，外加 `lookup_mod_content`）；持久 goal、`/goal/pause`/`resume`、DialogueRouter + `mc_say` 真机结果。**CU 路径已放弃**；原 M5 的 Full Access Ask 对话级预设不再使用（M5 走进程内输入层） |
+| [`docs/P1-CLIENT-VERIFICATION.md`](docs/P1-CLIENT-VERIFICATION.md) | **P1 客户端阶段验证计划（M1–M7）**：阶段闸门、可证伪主张、正/反证据、有效性边界；**当前 5/7 通过（M1 适用子集、M2、M3、M4、M5〔A12-GUI 按操作员口径暂缓〕）**；M6/M7 部分 |
+| [`docs/PLANNER-RETIREMENT.md`](docs/PLANNER-RETIREMENT.md) | **自主规划器退役**：`slowLoop` 拆为 GoalEvaluator + 提案 + TaskSlot。**S0–S4 已全部离线交付**（`planner:test` 35/35、`plan:audit --stage p1` 112/112），真机判据仍登记在客户端清单 |
+| [`docs/P1-CLIENT-TESTS.md`](docs/P1-CLIENT-TESTS.md) | **客户端/真机测试清单**：P1 与退役判据里所有需要真实客户端/服务器的项，**状态已按 2026-10-21/22/24 实际执行回填**；未执行项仍为未执行 |
+| [`docs/PLANNER-AB-EXPERIMENT.md`](docs/PLANNER-AB-EXPERIMENT.md) | **选型 A/B 实验设计**（**条件触发**：仅当 P1 §1.9.2 降级判定成立才执行）：24 次计分运行的场景与门槛；成本审计按时间 / token / 模块复用三项（§6–§7），§10 是决策闸门，**不做经济性评估**（§8.4） |
+| [`docs/HARNESS-INTERFACES.md`](docs/HARNESS-INTERFACES.md) | **两侧接口事实**：Codex（`base_instructions` 可整段替换 / `tool_mode` / hooks / MCP）与 DSH（0.2.0-rc.2、cordis 插件契约、system-prompt 装配、preset）的一手机器取证，含待验证项 |
+| [`docs/PLANNER-REFACTOR.md`](docs/PLANNER-REFACTOR.md) | **规划器（自主决策）专项**：已核实问题 P1–P10、重构债 Q1–Q7，以及与 `!` 命令 / LLM `do_task`/`do_skill` 回路的边界 |
+| [`docs/MINING-LLM-PLAN.md`](docs/MINING-LLM-PLAN.md) | 挖矿方案与**一手真机记录**（附二 10-10 夜 / 附三 10-12 / 附四 10-13 / 附五 10-14）——采矿相关的最新依据 |
+| [`docs/MINING-COLLECTION-PLAN.md`](docs/MINING-COLLECTION-PLAN.md) | 掉落物收集方案与实机记录（§十一，10-10～10-12） |
+| [`docs/COMBAT-PLAN.md`](docs/COMBAT-PLAN.md) | 战斗 v3 方案、离线计数与**真机验收清单**（10-13 夜部分已覆盖） |
+| [`docs/REWRITE-PLAN.md`](docs/REWRITE-PLAN.md) | 重写计划与逐批次进展（含每次真机 / 离线验证记录）——**记录到 2026-10-08**，其后进展看上面三份 |
+| [`docs/P0-PLAN.md`](docs/P0-PLAN.md) / [`docs/P0-STATUS.md`](docs/P0-STATUS.md) | **P0 已收官（2026-10-16）→ 两份都转为历史文档**：P0 计划书与验收档案，只作验收证据与踩坑记录保留。其中**仍活着**的只有 P0-PLAN §11 的「做/不做」边界——作为防回归契约由 `npm run plan:audit` 持续看门 |
+| [`docs/CAPABILITY-AUDIT.md`](docs/CAPABILITY-AUDIT.md) | **历史文档**：重写前的静态能力核实（「Bot 不能自主工作」等结论均已作废，见文首对照表） |
+| [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) | 模块分层、Body 契约、安全模型与设计不变量（2026-10-07 版；§九 列与技术债，数字按版本日期读） |
+| [`docs/EXTERNAL-SERVERS.md`](docs/EXTERNAL-SERVERS.md) | 联机玩法：外部服务器配置、Forge 限制、历史方案对比 |
+| [`docs/HISTORY-REWRITE-2026-10-31.md`](docs/HISTORY-REWRITE-2026-10-31.md) | **2026-10-31 git 历史改写记录**：把 28 MB 论文 PDF 从历史里彻底摘除（346→345 提交、29 条哈希映射、`.git` 54→19 MB、工作树 tree 哈希前后一致）；含回滚 bundle 位置、SSH-over-443 推送与被取代网页提交的说明 |
+| [`mod-client/BUILDING.md`](mod-client/BUILDING.md) | 控制 Mod 的构建与安装 |
+| [`mod-bridge/README.md`](mod-bridge/README.md) | 可选的 Fabric 服务端桥（服务器权威状态） |
+| [`SECURITY.md`](SECURITY.md) | **凭据怎么放**（环境变量清单）、不要提交什么、`npm run secrets:scan`、首次公开前的历史清理记录 |
+
+---
+
+## 1. 快速开始
+
+环境：Windows、Node.js ≥ 18、Java 17–21（1.20.1 Forge 必需；脚本会自动从 PCL 的 Java 列表里挑）。
+
+首次准备：
+
+```powershell
+cd "<repo>"
+npm install
+npm run client:build     # 编译控制 Mod（离线 Gradle）
+npm run client:install   # 装进 PCL 版本隔离的 mods 目录
+```
+
+**凭据不要写进入库的 `config/*.json`**，放本机覆盖文件（自动合并、已被 gitignore，一键流程不变）：
+
+```jsonc
+// config/agent.local.json —— 不进 git，start.ps1 照旧自动登录
+{
+  "bot": {
+    "host": "your-server.example", "port": 25565,
+    "authme": { "password": "<your-login-password>" }
+  }
+}
+// config/llm.local.json -> { "apiKey": "<your-key>" }
+```
+
+也可以用环境变量（优先级更高，适合临时切换）：`LLM_API_KEY`、`MC_AUTHME_PASSWORD`、`MC_ADDRESS`、
+`OPENAI_BASE_URL`。优先级：**环境变量 > `*.local.json` > 入库的 `*.json` > 默认值**。
+
+```powershell
+npm run secrets:scan                       # 提交前自查；加 --history 扫全部历史对象
+```
+
+细节与历史清理说明见 [`SECURITY.md`](SECURITY.md)。
+
+日常（联机主线：客户端 + Agent 一键起）：
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File .\start.ps1
+# 或 npm run play
+```
+
+`start.ps1` 依次完成：拉起 Forge 客户端 → 等控制 Mod 上线（8899）→ 等进入世界 → 启动 Node Agent
+（含 AuthMe `login`，**永远不发 `/register`**）→ 打印面板地址。
+停止：`.\stop.ps1`（只停 Agent）或 `.\stop.ps1 -Client`（连客户端一起停）。
+
+分步（调试用）：
+
+```powershell
+npm run client:launch -- --server mc.example.com:25565   # 只拉客户端并直连服务器
+npm run client:check                                      # 8899 是否在线、是否已在世界里
+npm run agent:client                                      # 只起 Agent（接正在跑的客户端）
+```
+
+本地无头服务器（可选，离线 / 个人测试用）：`npm run server:setup` 准备 1.20.1 服务器，
+`node scripts/run-all.js --no-agent` 只起服务器，然后把 Forge 客户端指向 `127.0.0.1:25565`。
+旧的一键 `npm start`（服务器 + mineflayer 时代流程）仍保留，但当前配置默认躯体是 `clientmod`、
+bot 指向 `config/agent.json` 里的地址（默认 `127.0.0.1:25565`，可用 `MC_ADDRESS` / `--server` 换），沿用前请先检查。
+
+| 端口 | 用途 |
+| --- | --- |
+| `127.0.0.1:8899` | 控制 Mod HTTP（`/health` `/state` `/progress` `/chatlog`、`POST /command`） |
+| `127.0.0.1:8766` | Node 控制面板与 API（`/panel`、`/ui/state`、`POST /command`、`POST /emergency-stop`） |
+| `127.0.0.1:25565` | 可选的本地无头服务器（旧路径） |
+
+---
+
+## 2. 现在能做什么
+
+技能目录（`src/skills/`，21 个，全部可用 MockBody / 协议假 Mod 离线测试）：
+
+| 分类 | 技能 |
+| --- | --- |
+| 物品 | `equip` `eat` `drop` `armor` |
+| 方块与交互 | `place` `use_on` `withdraw` `deposit` |
+| 战斗 | `attack` `defend` `shoot`（TACZ 枪械） |
+| 移动 | `explore` `come` `follow`（高频读玩家位置 + A* 重规划） |
+| 生产 | `craft` `smelt` `farm` `sleep` |
+| 采集 | `mine_ore`（统一入口 + 报价选矿 + 走挖一体 tunnel + 逐格垫柱 + 共享收集/入包证据） `collect`（15×15×15 新鲜扫描 + A* 走位，零进展即失败） `fish` |
+| 死亡恢复 | `corpse`（右击实体开容器 + quick-move 全部非玩家槽位 + 空容器校验，供完全自主模式回收遗体） |
+
+LLM 层（`src/llm/`，生产配置已开启 `toolCalling`）：8 个工具 —— 只读
+`observe` `find_blocks` `lookup_item` `scan_around`，有副作用 `do_task` `do_skill` `go_to` `stop`；
+**没有 `say` 工具**，说话只能是对玩家的回复，所以"执行服务器指令"在能力上就不存在。
+
+结构层（参考 numen）：任务槽 `TaskHub`（受理即回执、后台执行、新任务可顶替）、失败阶梯
+`RecoveryLadder`（每级只接住自己声明的失败类型）、名词 `area`/`route`、权限规则
+`deny/allow/ask` + 动手前征询（`!yes`/`!no`）。
+
+**自主层**：Voyager 式 automatic curriculum（难度带 + completed/failed 账本）驱动动作脑提案；
+`!autonomous on` 进入**完全自主模式**——提案自动接受、无任何玩家审批，玩家任务一律忙拒，
+死亡自行重生并回收遗体（见 [`docs/FULLY-AUTONOMOUS.md`](docs/FULLY-AUTONOMOUS.md)）。
+
+---
+
+## 3. 项目进展（批次表截至 2026-10-16；当前状态按 2026-11-01 实测复核）
+
+> **CU 路径已放弃（ABANDONED，2026-10-29）**：OS 级 `computer_use` 不再作为 P1 交付路径——WGC 对
+> OpenGL 窗口取不到帧，且 `WindowPolicy`/`ComputerUseGuard` 无法接进只读的打包 DSH 插件，两项都不在
+> 本项目可控范围。M5 改为 **Minecraft 进程内输入层**（mod 在游戏进程内注入按键/视角/槽位点击 + 帧缓冲
+> 截图），闸门由 **F1** 换成 **F1'a 结构性不可出界 + F1'b 键鼠台账**。`src/computer/*` 与契约测试
+> 只作历史证据保留；详见 [`docs/P1-M5.md`](docs/P1-M5.md) §7 与 [`docs/CU-ABANDONED.md`](docs/CU-ABANDONED.md)。
+
+> **P0 已验收收官（2026-10-16）**：离线 `npm run p0:verify` **8/8 套件通过**、P0 计划书 §11 的
+> 「做/不做」清单 `npm run plan:audit` **29/29 全过**；真机自 2026-10-08 首轮起多轮通过。
+> **`docs/P0-PLAN.md` 与 `docs/P0-STATUS.md` 因此转为历史文档**（只作验收证据与踩坑记录保留；
+> 其中仍活着的只有 §11 那条防回归边界）。下一阶段是 **P1 规划器重构**，方案见
+> [`docs/P1-PLANNER-PLAN.md`](docs/P1-PLANNER-PLAN.md)（其"P0 寻路仍待优化"一句已被下方 10-15 的寻路六修
+> 追平，且该方案要求在**独立分支**上实施；配套 [`docs/PLANNER-AB-EXPERIMENT.md`](docs/PLANNER-AB-EXPERIMENT.md)
+> 与 [`docs/HARNESS-INTERFACES.md`](docs/HARNESS-INTERFACES.md)，均已入库）。
+
+| 日期 | 批次 | 内容 | 验证 |
+| --- | --- | --- | --- |
+| 10-02 | P0 重写 | 技能层 v1、`!`/LLM 双通道、控制面板、死亡处理 | ✅ 真机 |
+| 10-02/03 | Phase 2/3 | craft / smelt / farm / sleep / fish、LLM 工具接线 | ✅ 真机（含跨河、钓鱼夜间睡觉闭环） |
+| 10-04 | 第一批执行优化 | 失败语义与统一回执、停牌表、空间感知网格、能力表单源 | ✅ 真机 |
+| 10-04 | 第二批结构升级 | 任务槽、恢复阶梯、area/route、权限规则与征询 | ✅ 真机（复测修掉两处） |
+| 10-05 | 采矿按 numen 重构 | 报价选目标（挖×4 + 步数 + 矿脉加成）、DigLedger 台账、落沙/贴水准入 | ✅ 真机（2026-10-08，见 REWRITE-PLAN §12.6） |
+| 10-05 | 走挖一体 `tunnel` | Mod 连续控制器：中心转向、边走边挖、下坡不跳、结构化失败；Node 清障重试 | ✅ 真机（2026-10-08：金矿 26+15 块、tunnel 全程 `jumps=0`；当轮修掉换镐/卡跳/爬升三处缺陷） |
+| 10-05 | 防坠落补丁 | Mod tick 探底（落差 >2 或先见液体 → `ledge`）+ Node waypoint 预检 + 洞窟后检 | ✅ 真机（2026-10-08：3 格深坑前 `ledge` 停住，1–2 格台阶零误报） |
+| 10-10 | 挖矿四修复 + 垫柱底座 | 矿石走 `mine_ore`（别名/深板岩/负坐标/到达判定/stalled）；Mod `Pillar` 跳放 | ✅ 真机（垫柱 2 格、钻石两连挖；当时遗留"只起 1~2 格"，已由同批 P4 逐格垫柱解决） |
+| 10-10 | A 统一挖矿入口 | `miningRequest`/`miningDispatch`：六入口共用归一与分流；修 `!goal` 线上 bug；`MineOreTask` 适配器 | ✅ 离线（`mining:entry:test` 20/20） |
+| 10-10 | P4 逐格清障垫柱 | `pillarUp` 执行器（只清 y+2/y+3→垫一格→核验落地）；取消信号；4.5 格 dig 距离闸；权限闸门管单格垫柱；Mod 回执 start/end/placedCells | ✅ 离线（B1–B10、`client:test` 66/66、`selftest` 173/173）；Mod 重编译（60340 字节）；**真机已通过**（10-10 夜垫柱 1–2 跳、`start/end/placedCells` 回执齐全，见下行） |
+| 10-10 | C1/C2 共享收集 | `AcquisitionGoal` 挖前基线/入包证据（实体消失≠入包）；候选站位+有界接近；count 达标 drain/partial；tunnel 目标保护 | ✅ 离线（`mining:collection:test` 15/15）；**真机已通过**（10-10 夜起连续多轮 `[verified] collected=1 pending=0`；10-12 三组操作员构造夹具均 `verified`） |
+| 10-10 | P1–P3 LLM 异常接管 | `miningProgress` 触发阈值；`miningRecoveryTools` 六工具；`miningRecovery` 状态机（短批次/预算/重复护栏/以入包证据结束）；外部取消 | ✅ 离线（`mining:recovery:test` 18/18）；**默认关闭**；真机 L01 已通过（0 次模型调用）；**L02 已于 10-10 夜真机尝试 3 次、全部失败**（真实模型，tokens 5354/0/7252；超时与空回执两类当夜由 `40b153c` 修复，**修后未复测**） |
+| 10-12 | 收集走位三修 | 严格进入改“精确格中心”（`moveto` 支持小数坐标）；plan 回退严格化（修 0.8 假到达）；预算耗尽允许“零开挖压向掉落物” | ✅ 真机（对角密闭红石 ×2 / ×1 两轮 `verified`；`mining:collection:test` 24/24） |
+| 10-13 | 贴脸僵尸不可见修复 + 反射层复活 + 战斗三修 | ① clientmod 快照只在动作里刷新——空闲时世界视图整体冻结（面板位置曾停在 58 格之外）；`ClientModBody` 后台 500ms 轮询（`statePollMs` 可配）+ 反射每 tick 兜底刷新。② `needsRescue` 对无 mineflayer 的视图每 tick 抛 TypeError（debug 级被吞）——反射链（吃/自卫/穿甲）从未执行；循环异常改限频 WARN。③ 非 mineflayer 躯体的反射改走技能层（eat/attack/armor），servo 空转不再挡路。④ 真机续测：护甲技能把穿戴槽（5-8 同为 player 槽）当“背包护甲”快速移动——每 30s 把整套甲穿/脱切换；改为只动背包格、只升级不降级、每格至多一次。⑤ 攻击技能信任 `equip()` 返回值——竞态下剑在背包却拿铲子开打；改为装备后读回持物核验、失败重试一次、仍失败则限频告警。⑥ 进食会把食物留在手上——战斗中自动进食把手从剑切成面包，15s 挥砍循环全程拿面包打僵尸（真机：连续三次满超时）；改为 eat 技能吃完恢复原持物 + 反射进食在有敌对目标时让位 | ✅ 离线（当时 `skills:test` 44/44、`control:test` 36/36、`client:test` 67/67、`selftest` 175/175、其余 6 套件全绿）；**真机已验证**（同日真机续测修掉护甲误脱、持物核验、进食抢手三处，见提交 `144a783`、`211b4cd`） |
+| 10-13 | 战斗 v3：撤退/冲锋/反卡死/TACZ | 真撤退（≤8 血，S 键后撤+面敌+优先用枪）；被远程打即冲锋（掉血/ <16 血/近身触发）；≤5 格 30s 无接触→终止并忽视 180s；TACZ 枪械（狙击 32/其余 16 射程、开镜后开火、≤6 发/轮、每轮后靠近/后撤/换枪/重新瞄准+500ms、弹尽换有弹枪、三点 LOS 全遮不开火+侧翼、近距序 rifle>smg>mg>pistol、反射按默认序、PvP 仅显式）；失败码表扩容；详见 `docs/COMBAT-PLAN.md` | ✅ 离线（`skills:test` 56/56 起、`control:test` 37/37、`client:test` 73/73、Mod 编译通过）；**真机已验证开火与 PvP**（10-13 17:46 起 4 轮 16 发击杀掠夺者、PvP 2 轮 4 发击倒玩家、全遮挡诚实 `blocked` 并触发侧翼（两次均被掩体挡住）、拒绝自主打玩家；见提交 `3ba591a`）。现计数 `skills:test` 57/57（+战斗租约防反射双发、`not_a_gun` 自恢复，提交 `1998777`） |
+
+| 10-14 | 中文矿名 + 规划器立账 | 中文矿名与深板岩变体（别名表补中文、路由改**最长别名匹配**，10 矿种 × 6 入口矩阵进 A11）；规划器停牌键改用任务名（木头路径恢复停牌 + A10 三条）；**规划器专项立账** `docs/PLANNER-REFACTOR.md` | ✅ 离线（`mining:entry:test` 20→25/25）；**真机确认**：采集到深板岩青金石（操作员口述） |
+| 10-15 | A\* 寻路六修 | 真机故障"卡在 75,63,65、随机游走、困在岸上"连修六刀：跨网格目标改**子目标接力**（删除 `toward()` 盲走，水域代价 2.5→2.0）→ 子目标落脚高度改**整列搜索**（"已经到达"不再触发 ±5 回退）→ 水格可作过渡航点 + 运动模型补**踩水横渡** → 含水台阶/半砖按陆地（剥状态后缀、**优先走桥而不是游泳**）→ **脚位格修正**（站在农田/半砖/土径上时 `feetCell()` 取脚下方块**之上**，修"一步都规划不出来/9ms 判 stalled"） | ✅ 离线（`path:test` 31→**35/35**，11f–11l 全是这轮故障的回归）；真机待复测 |
+| 10-15 | LLM 完工播报去重 | 同一件事被播报两次（模型措辞 + 632ms 后模板兜底，格式还不一样）：`config` 为 `taskDone` 声明的 `cooldownMs: 30000` **从未被消费**——现在 `announceFinished` 按「任务名\|描述\|成功与否」记时间戳并压制窗口内重复（不同完工、成功后再失败照常播）；模板去掉 `(moved N blocks in M ms)` 遥测 | ✅ 离线（`llm:dry` 工具 39→**43/43** 四条断言；真机故障见 §6 第 15 条） |
+| 10-16 | **P0 收官** | 8/8 套件、`plan:audit` 29/29 复核通过；P0 计划书与验收档案**转为历史文档**；REFS 新增 Voyager 参考项目并明确 `refs/` 忽略范围 | ✅ 离线（`p0:verify` 8/8，2026-10-16 实跑） |
+| 11-01 | **完全自主模式** | `!autonomous on [目标]` → 课程自出题、提案自动接受（**无玩家审批**）、`mc_ask_player` 拒绝、权限 `ask` 降为 `deny`；玩家任务忙拒（任务/位置/血量/做不了），普通聊天照常；死亡自行重生（Mod `respawn`）→ 走回 **Corpse 遗体**（Mod `useentity` + 容器 quick-move）取回物品 → 继续课程；`!stop` 暂停、`!autonomous off` 退出、重启只到 `paused(restart)`；护栏：每小时轮次、连续无提案、连续失败、死亡循环 | ✅ 离线（`p1:autonomous:test 33/33`、`client:test 83/83`、`p1:verify 20/20`、`plan:audit p1 112/112`）；真机 **A33.1/A33.4/A33.7 已验**（自驱 4 轮、无审批、stop/off 关闭并从遗留 active goal 接管），A33.2/3/5/6/8 仍未执行（5/6 需真实死亡与遗体） |
+
+当前状态（2026-11-01 实测复核；历史计数保留在对应日期的记录里）：
+
+* **P2 已立项（2026-11-01）：自研 Agent 落地**——用应用自有的 Pi 运行时替换 DSH 动作脑，
+  正式定为项目 **P2**（[计划书](docs/SELF-HOSTED-ACTION-BRAIN-PLAN.md) 内部 B0–B5 是 P2 的子阶段）。
+  同期审计出 14 条隐患并进入 P2：**回合门/任务门**（异步回合不再因任务在跑被判失败）、
+  driver 工厂超时、`stop({force})` 降级、`pause/resume`、思考 deadline、任务事件端口、
+  边界/入站接缝、用量计量。文档与 `src/actionBrain` 骨架已同步（`action-brain:contract:test` **63/63**），
+  **生产入口 `src/index.js` 未改**，`p1:verify --fast` 仍 19/19；真机与行为验收未执行。
+  **2026-11-06 修订**：游戏进程改由**用户拉起**（产品对 PCL2 无运行依赖，实例目录泛化为普通
+  `.minecraft` 布局；GameControlPort 新增 `discover`/`attach`/`onGameLost` **原子进程接缝**，
+  `game:lost` 走停止链）；新增 **`worldKey` 跨存档/服务器记忆分区**（回执/终态契约
+  SCHEMA_VERSION 2、`cross-world` 拒收、`default` 分区显式告警；课程账本/记忆/方法库/聊天/会话
+  目录按世界分区）；release 管线、AuthMe 产品向导、产品级知识库、插件市场**登记为推迟项**
+  （计划 §12.1）。新增验收 **B2-28…B2-30、B5-12**（矩阵 79→**83 项**，均 NOT_RUN）。
+* **P0 已收官**：`p0:verify 8/8`（`path:test` · `tasks:test` · `llm:dry` · `control:test` · `verify:roleplay` ·
+  `clientmod:test` · `selftest` · `plan:audit`），P0 两份文档已转历史。
+* 离线全绿（2026-11-01 复跑）：`selftest`、`skills:test`、`client:test`、`control:test`、`tasks:test`、
+  `path:test`、`clientmod:test`、`verify:roleplay`、`llm:dry` 均通过（历史计数见 §8；P0 套件由 `p0:verify` 统一跑）。
+* P1 离线（2026-11-05 实跑复核）：`p1:verify` **20/20 套件**（P0 8 套件 + `planner:test 35/35` +
+  `p1:contract:test 241/241` + `p1:failure-escalation:test 27/27` + `p1:m3:test 58/58` + `p1:m6:test 25/25` +
+  `p1:proposal-autonomy:test 16/16` + `p1:language:test 22/22` + `p1:m7:test 11/11` +
+  `p1:m4:test 43/43` + `p1:m4:evolve:test 17/17` + `p1:m5:test 40/40` + `p1:channel:test 18/18` +
+  `p1:shot:test 20/20` + `p1:steer:test 9/9` + `p1:taskgoal:test 14/14` + `p1:curriculum:test 20/20` +
+  `p1:autonomous:test 33/33` + `p1:fault:test 9/9` + `plan:audit --stage p1 112/112`；`--fast` 为 **19/19**，完整 **20/20**）。
+* P1 客户端阶段（2026-10-20/21/22/24/25 + 2026-10-29 + 2026-11-05）：**M1 适用子集 PASS、M2 PASS、M3 PASS、
+  M4 PASS（A19 适用子集）、M5 PASS（A12-GUI 按操作员口径暂缓）**
+  （A13–A17、A27 只读/异步、A28–A30、F2；均在 `planner.mode=off` 下由 DSH 动作脑/真机注入完成）；
+  M4 代码管线、`p1:m4:test 43/43`、`!code-skill`/`code_skill` 实时入口与 v2 直接原语真机已完成：
+  **A18–A20、A28–A30 真机 PASS**（move+dig、容器 click、越界/抢身体/取消/deny、半途失败、长任务
+  15.57s、硬杀恢复、10,352 tok 用量；A19 残余仅离线），见
+  [`docs/M4-DIRECT-BODY-PLAN.md`](docs/M4-DIRECT-BODY-PLAN.md)；
+  **M5 PASS（2026-11-05；A12-GUI 按操作员口径暂缓）**：进程内输入层 + 键鼠台账 + 帧缓冲截图落地并收口——
+  `p1:m5:test 40/40`（含**打包 jar** 断言）＋ F1'b **七条停机路径**真机（急停 147ms、取消 24ms、
+  任务结束、断连 121ms、死亡 406ms、退出 124ms、暂停界面 359ms；长按到期）；**A21 PASS（agent 技能层）**：
+  2 类 GUI ×3 + 外部关闭/库存变化/攻击长按/挖掘长按；**A22 PASS**：复用 0 次生成调用、急停/取消归零；
+  **M5.3 PASS（A07/A08）**；**A12-GUI 与 A22 的反射子项暂缓**，逐项见 `docs/P1-M5.md` §13。**A08 已用 F1'b 证据回填为整项 PASS（2026-11-05）**——七条停机路径补齐死亡/断线/暂停/退出释放，迟到输出由 A29 覆盖。CU 路径**已放弃**；
+  M6 已收口（2026-11-06）：2026-10-24 受控测试 **A24/C03/F02 PASS**；**A23 按操作员口径通过**（40×3 统计未做）；
+  **A25 四路径全部真实动作脑提案 PASS**（accept 前 43s 零执行、不答过期零执行、reject 冷却 300s、另派被显式任务顶替）；
+  **R2/R3 真机 PASS**；M7：仅 A26/R1 部分基线，**R4、F3 真机端点、A31 最终组合未执行**；**P1 未发布**。详见
+  `docs/P1-CLIENT-VERIFICATION.md`、`docs/P1-M3.md`、`docs/P1-M7.md`、`docs/P1-HANDOFF.md`。
+* 控制 Mod：`mod-client/dist/agent-client-1.0.0.jar` **97745 字节**（2026-11-05 构建，`POST /command` **34 个 case 分支 / 别名展开 45 个 verb 名**），
+  含 WalkTo 严格到达 y 容差、战斗 v3、TACZ 枪械与 server `dayTime` 昼夜判断、**TACZ `HoldToAim` 右键瞄准修复**、
+  **`/state?players=1` 轻量玩家轮询**、**Veil ImGui 按键崩溃防护 Mixin**，2026-10-29/30 的
+  **进程内输入层**（`key/hold/tap/look/shot`、`InputLedger` 对账、`gameTime`、`entities/riding/standingOnEntity`）
+  与 **载具感知**（`mounted`、载具 `inventory`（原版 Container / Forge IItemHandler）与 `integrity`
+  （LivingEntity health / mod `getHealth` 反射，Immersive Aircraft 0..1 比例）），
+  以及 2026-11-01 为**完全自主模式**加的 **`respawn`**（= 死亡界面按钮）与 **`useentity`**（右击实体，遗体取物）；
+  已 `client:install` 覆盖 PCL 版本目录。改 Mod 后必须重装（`npm run client:install`）并重启客户端。
+  本次输入层/实体/载具感知真机项见 [`docs/P1-M5.md`](docs/P1-M5.md) §8/§10 与
+  [`docs/P1-WORK-2026-10-30.md`](docs/P1-WORK-2026-10-30.md)。
+* **2026-11-01 新增：完全自主模式**（[`docs/FULLY-AUTONOMOUS.md`](docs/FULLY-AUTONOMOUS.md)）：
+  `!autonomous on [目标]` 启动后，Agent 按 automatic curriculum 自出题、自执行、自记账，**无任何玩家审批**
+  （提案自动接受；`mc_ask_player` 被拒、权限 `ask` 降级为 `deny`）；玩家派发的任务一律忙拒并回
+  「正在忙 + 当前任务 + 位置/血量/饥饿 + 做不了」，普通聊天照常；死亡后自行重生、走到 Corpse 模组遗体处
+  取回物品再继续；`!stop` 暂停、`!autonomous off` 退出、重启只恢复为 `paused(restart)`。
+  离线 `p1:autonomous:test 33/33`；真机 **A33.1/A33.4/A33.7 已验**（自驱轮次、无审批、`!stop`/`!autonomous off` 关闭），A33.2/3/5/6/8 仍未执行（5/6 需真实死亡与遗体）。
+* **2026-11-01 真机回归三修**（操作员报告）：
+  ① **`!stop`/`!autonomous off` 现在真的停动作脑**——只关 Node 队列不够（模型回合还在调 `mc_step`）：
+     新增 `src/harness/actionBrainStop.js`，调插件 `POST /goal/pause`（取消 in-flight turn/plan）+
+     `/goal/complete`，并用 `owner-stop` hold 在 Node 侧硬拒动作脑的 `mc_step`/`/plan`/`/propose`/
+     `/ask_player`，`!resume`/`!autonomous on` 解锁；门禁拒绝不再被折算进失败账本。真机已验证。
+  ② **A\* 不再从一格高门洞"跳"过去**：跳 1 格空隙原本只查落脚格，现在要求空隙列脚+头都净空
+     （`canStandAt`），`path:test` 新增 2b 场景（**36/36**）。真机 `goto` 从"原地跳"变为诚实 `noPath`。
+  ③ **失败阶梯新增键鼠档**：命令通道反复失败 → `input-required`（带 `look/key/hold/tap` 例子），
+     输入层成功一次后允许一次重试，再失败才 `ask-required`；任务 goal 文本同步说明。
+     `p1:failure-escalation:test` **27/27**（含新档）。详见 [`docs/FULLY-AUTONOMOUS.md`](docs/FULLY-AUTONOMOUS.md) §4b
+     与 [`docs/FAILURE-ESCALATION.md`](docs/FAILURE-ESCALATION.md) §4b。
+* **2026-11-01 真机二修**（操作员报告）：
+  ① **任务受阻 → 自主模式立刻退出**：执行目标被动作脑标成 `blocked` 时，`noteExecution` 现在直接
+     `paused(execution-blocked)`（`maxConsecutiveBlocked` 默认 5→1），把控制权还给操作员——否则
+     模式继续 active，玩家任务一律 `autonomous-busy` 忙拒。真机：active 时 `!mine` 忙拒、`!stop`
+     后同一命令被接受。`p1:autonomous:test` **33/33**。
+  ② **幻翼（phantom）袭击时自卫反射不还手**：`±4` 垂直窗把俯冲的 phantom 过滤掉，反射只打
+     `danger detected, retreating` 且"没有撤退目标"，从不交战。选靶抽成纯函数
+     [`src/world/engageTarget.js`](src/world/engageTarget.js)：飞行敌意生物用
+     `engageRadiusYFlying=12`，且"被击中当 tick"无视窗口直接交战 24 格内最近的敌意生物。
+     `p1:contract:test` **241/241**（新增选靶断言）。真机复现需夜间幻翼，本轮未等到。
+* **2026-11-01 代码生成提示词**：脚本默认**状态驱动**——先 `ctx.state()`，按任务相关字段分支，
+  循环里每轮重读、`ctx.wait(50-250)` 控节奏、失败/死亡/低血/达成即停，只读相关字段，**不把现场
+  坐标/数量/血量硬编码**（实例参数走 `params`）。生成时自动注入**相关性过滤**的写时快照
+  （位置/维度/血量/饥饿/时间/手持 + 相关的背包/附近方块/附近怪），明确标注 "write-time only;
+  NOT constants"，脚本运行时必须重读。`p1:m4:test` 38→**43/43**。详见
+  [`docs/P1-M4.md`](docs/P1-M4.md) §6.3b。
+* **2026-11-01 课程账本不再丢失败原因**：`runtime/curriculum.json` 里出现过
+  `"reason": "[object Object]"`——DSH goal 的 `blockedReason` 是对象，`String(obj)` 一个字段都不保，
+  而 `describe()` 会把这段文字原样喂回动作脑（模型读到"太难失败：[object Object]"，正是它要用来
+  退一步的那条证据）。现在 `src/planner/curriculum.js` 导出 `reasonText()`：优先取
+  `.message`/`.reason`/`.detail`/`.text`/`.error`/`.code`，结构化体的退路是 `JSON.stringify`
+  （空对象与不可序列化对象一律记空，不编造），统一截 200 字；**账本写入与
+  `autonomousProposals` 的 goal 轮询共用这一条规则**（轮询侧仍保留 `'blocked'` 兜底）。
+  `p1:curriculum:test` 18→**20/20**（纯函数各形状 + 从 goal 轮询 → 账本 → `describe()` 的端到端断言；
+  旧账本里的 `[object Object]` 行在加载时就地修掉，只改内存不写回，与账本自净同一规则）。
+  同轮修正文档计数漂移（m4 38→43、autonomous 31→33、curriculum 18→20、A33 剩余项 8→5；逐份见
+  P1-HANDOFF / P1-M7 / P1-GAP-AUDIT / P1-M6 / P1-CLIENT-TESTS / P1-CLIENT-VERIFICATION / DSH-HARNESS / FAILURE-ESCALATION）。
+* **2026-10-30 本轮（离线 + 真机）**：
+  - **CU 正式标为放弃**，文档/代码头统一，唯一口径 [`docs/CU-ABANDONED.md`](docs/CU-ABANDONED.md)；
+  - **载具感知**：`/state` 新增 `mounted`，`riding` 带 `inventory`/`integrity`；覆盖原版容器、
+    马/箱船/矿车、Immersive Aircraft（Container + ratio health）与其它模组的 IItemHandler/反射回退；
+    Node `mount` 组与 `vehicle` 别名、`target` 保留实体身份；
+  - **`@` 请求 → goal**：`TaskGoalInjection.maybeCreateDialogue` + DialogueRouter（legacy 路径）与
+    `ctx.forwardToActionBrain`（unified 语言脑 / addressed 路径）在逐字转发后建 goal，
+    不再只有一条消息、没有续轮；
+  - **截图 steer 主动提交**：插件 `/message` 支持 `mode:"steer"` → DSH `agent.steer()`（next-step），
+    不再等整轮结束；无 `steer()` 的运行时诚实回退 `followup`；
+  - **Voyager 式自动课程**：`src/planner/curriculum.js` 维护 completed/failed 账本与难度带，
+    prep goal 携带上下文，低于 band 的提案被拒（有限次后放宽），执行 goal 终态回写账本；
+  - **课程账本自净**（2026-10-31，对齐 Voyager `clean_up_tasks`）：`_cleanUp()` 在每次
+    记录后与**加载时**执行——completed 去重保序（首次保留），并把已完成的任务名从 failed
+    里全部移除。修前账本可能对同一个任务同时说“已完成”和“太难失败”，`describe()` 会把
+    两条矛盾信息一起塞给模型；failed 本身**不去重**（Voyager 一样保留重复失败，三次失败与
+    一次失败是不同的证据）。加载时只修复不写回（启动不该先改写一个坏文件）。
+    离线 `p1:curriculum:test` 相应增加断言；另核对过 Voyager 的
+    `voyager/agents/curriculum.py:340` 与 `voyager/prompts/curriculum.txt` 八条规则；
+  - **失败降 band**（2026-10-31，对齐 Voyager 的"唱反调就放低"）：这里要纠正一个常见误解——
+    我们**不缺语义层**，`describe()` 早已把 failed 列表交给动作脑，模型看得到也愿意退一步；
+    缺的是**闸门不跟随**。Voyager 根本不做难度校验（`curriculum.py:288` 只在解析失败时重试），
+    难度完全交给模型；我们的 band 是硬闸门且**只升不降**，于是会拒掉模型在失败后主动提出的
+    简单任务，只能靠 `maxRejections` 耗尽后"放宽"放行——闸门在和模型的正确判断作对。
+    现在 `requiredDifficulty = clamp(level() - bandPenalty(), 1, maxLevel)`：
+    `failPenaltyStep`（默认 2）次连续 blocked 降 1 档，最多降 `maxBandPenalty`（默认 1）档，
+    **一次完成立即恢复**；`level()` 仍表示"已挣得"档位，日志与面板同时显示两者。
+    streak 是内存态（重启清零，避免带着无法复现的惩罚）。已知局限：`blockedReason` 无法区分
+    "任务太难"与"基础设施抖动"，当前一律计入；
+  - **自卫反射状态可见**：`selfDefense` 由 `behaviour.autoFight` 单一推导，进入
+    `/ui/state`、`mc_observe`、`mc_state`（`threat`/`combat` 组）与动作脑请求/目标文本；
+    enabled 时明确告诉动作脑“Node 可能自行攻击并抢占任务，这些不是你的指令”；
+  - **KeyMapping 发现 + 白名单注入**：客户端 `GET /keybinds` 每次实时枚举
+    `options.keyMappings`（原版+模组），返回稳定 `modid:path` id 与当前键码；`tap <id>`
+    一次性、`hold <id> ms` / `key <id> down|up` 按住；继续走 `InputLedger`、屏幕检查与
+    安全门；raw `r`/键码明确拒绝。动作脑可经 `mc_keybinds` 或
+    `mc_state(fields:["keybinds"])` 读取，脚本可经 `ctx.key/ctx.tap` 与
+    `read_state({includeKeybinds:true})` 使用 ID；`immersive_aircraft:dismount` 真机列出
+    `key.keyboard.r` 并成功注入；
+  - **失败回执/升级阶梯**：`mc_step`/`mc_plan` 失败带 `class/requires/attempt`；
+    Node 按动作签名硬闸门（同签名第三次盲试、未搜索的 knowledge 重试、等待回答期间身体动作
+    均拒绝）；knowledge/unverified → `lookup_mod_content` → `mc_ask_player` 停车；
+    `place/useon` 改由 mod 采集方块/物品/实体证据、Node 判定，物品消耗但无可见效果不再算成功。
+    离线 `p1:failure-escalation:test 26/26`；真机 A32 子集通过（barrier 失败阶梯 + 生成键鼠脚本 trial/run）。
+  - **动作脑改绑**：本机 [`config/agent.local.json`](config/agent.local.json) 的
+    `chat.harnessAgentId` 指向 `Minecraft动作脑3`（`session-d2ad5dc4-…`），启动日志
+    `action brain bound` 与插件 `/health.boundAgentId` 均已实测一致。
+  - **记忆三处接线**（2026-10-30 实测 [runtime/p1-state.json](runtime/p1-state.json) 后修）：
+    ①**方法记忆**：`MethodLibrary.add()` 此前在 `src/` 里**零调用者**，`methods` 恒为 0 条、
+    `!method` 永远空——现由 PlanRunner 在计划**成功结算**时学习
+    `{goal, method = 步骤类型序列, conditions:{dimension}}`，返回的 id 经 `PlanStore.setMethodId`
+    钉到 plan 上；同一 (goal, method) 复跑只累加成功率，**首次就失败的计划不算方法**（进 episodic）。
+    ②**任务执行记忆去重**：episodic 之前 167 条 task 事件只有 129 条唯一文本（23% 重复），
+    且在 200 条上限处把 10-21 的历史挤了出去——现按 `task:<id>:<status>` / `plan:<id>:<status>`
+    合并：同键同文 → 一条 + `count`，**同键不同原因仍分别保留**（那是不同的证据）。
+    ③**世界知识自动落库**：`semantic` 此前**没有任何自动写入方**，10 天只有 6 条靠动作脑手动
+    调 `mc_memory`；现 `POST /lookup_mod_content` 取到结果即写一条 semantic，按查询归一化 key
+    `replace` 刷新，**重查不重复落库、空结果不落库**。
+    离线 `p1:contract:test 237/237`（+7 条断言）；端到端探针
+    [`scripts/memory-wiring-probe.js`](scripts/memory-wiring-probe.js)（`npm run memory:probe`，
+    走真实 HTTP `/lookup_mod_content` + `PlanService.start` 结算，15 项全过）。
+  - **`relational` 记忆类别删除**（2026-10-30）：它唯一的写入方是遗留的
+    `src/chat/languageDialogue.js`，而 `language.brain=unified` 下该模块**根本不会构造**
+    （`src/index.js` 的条件块第一个条件就不成立），10 天真实使用 0 条；且它在能跑的 legacy
+    路径上只是把同一轮聊天又平铺存一遍，没有 ChatMemory 的 speaker/请求身份/grep/compact。
+    现 `MemoryStore` 只剩 episodic/semantic，写入 `relational` 与写未知类别一样被拒；旧状态文件
+    里的残留条目在 `restore()` 时被静默丢弃。`plan:audit` 增加反向断言，防止它作为"第四类"
+    被半接线地加回来。
+  - **两个静默空转的旧旋钮改为启动拒绝**（2026-10-30）：`chat.languageAgent`（旧
+    LanguageAgent+LanguageDialogue）与 `chat.participate`（M6 ChatParticipation）在 unified 下
+    都不构造，把它们设成 `true` 以前是**无声无息什么都不发生**。现由
+    [`src/chat/legacyChannels.js`](src/chat/legacyChannels.js) 判定，启动时直接 `fatal` 报错并给出
+    出路（改用 `language.brain="legacy"` 或把键设回 `false`）；默认的 `false` 不受影响。
+    真机验证：临时置 `participate:true` 启动 → `fatal: ... cannot take effect while
+    language.brain=unified`、exit 1，且在任何网络动作之前。
+  离线新增 `p1:steer:test 9/9`、`p1:curriculum:test 8/8`；**当天白天拉起真实客户端完成了四项真机**：
+  `@大肥鱼` 段落创建 goal（`/task-goals created`）、biplane 骑乘 `mounted:true` + inventory 24 格 2 件
+  + integrity 1/1 ratio、截图 steer 落在 **turn 70 step 2**（当轮中间步骤）并带 768×432 图片、
+  curriculum 先 `level 1/4`（提案 p29 校验 `required=1 actual=1`），两次完成后再 prep 变 `level 2/4`。
+  真机还修掉三个缺陷：judge 200-token 截断导致 `malformed-verdict`、unified 语言脑绕过 goal、
+  旧插件 delivery 误报。**键位发现真机**：`GET /keybinds` 220 条（184 条模组），
+  `immersive_aircraft:dismount = key.keyboard.r (code 82, bound)`；`!tap` / `!key <id>` 注入成功，
+  `!inputs` 台账 1→0；动作脑 `mc_state({fields:["keybinds"]})` 找到并报出该 ID；raw `key r` 拒绝。
+  证据见 [`docs/P1-WORK-2026-10-30.md`](docs/P1-WORK-2026-10-30.md) §8–§11。
+
+* **客户端按任意键退出修复（2026-10-22）**：服务器新增 **Aeronautics → Sable → Veil 1.0.0.296** 后，
+  Veil 的 GLFW 键回调在 ImGui context 未就绪时仍调用 `ImGui.getIO()`，任意按键都会触发
+  `Dear ImGui Assertion Failed: GImGui != NULL` 并退出客户端（日志栈顶
+  `VeilImGuiImplGlfw.keyCallback`）。`agent-client` 新增 `VeilImGuiGuardMixin`
+  （`agentclient.mixins.json`，manifest `MixinConfigs`）。注意：**不能直接取消 Veil 子类回调**——
+  ImGui 回调会先链式调用 Minecraft 的 `prevUserCallback`，直接 cancel 会把原版 KeyboardHandler 一起跳过，
+  表现为只有鼠标左右键可用。正确做法是 target `imgui.glfw.ImGuiImplGlfw`，在 key/char/scroll/focus
+  回调 HEAD **先转发给 `prevUserCallback`，再跳过 ImGui 记账**；Minecraft 输入完整保留，仅 Veil 可选的
+  F6 编辑器失去输入。新 jar 已 `client:install`，真机验证 ESC 打开暂停、E 打开背包、T 打开聊天、
+  W 产生位移，客户端全程存活；启动方式仍是 `.\start.ps1`（重装 jar 后需重启客户端）。
+* **`!collect` 假实现修复（2026-10-21）**：旧 handler 只是 `ChopWoodTask(1)`（“捡东西”=砍一根木头）。
+  现注册为独立技能 `collect`：**强制新鲜快照**（`refreshStrict(true)`，失败不退回缓存）→ 以玩家为中心
+  15×15×15 找掉落物 → 逐个 `moveTo(..., {pathfind:true})` 走 A* → 走位零进展（位移与距目标都没减少）
+  返回失败；`do_task('collect')` 也透传失败，不再假成功。离线 `skills:test 64/64`；**未做客户端测试**。
+* **`!fish` 入口 + 动作脑注册（2026-10-21）**：`fish` 之前只有技能（`do_skill`/fallback 路由可达），
+  `!` 命令表没有入口，DSH 的 `mc_plan`/`mc_propose` 也因 `TASK_BUILDERS` 无 `fish` 而拒绝 `fish` 步骤。
+  现新增 `FishTask` 适配器（任务层包装 `fish` 技能，`count`→`maxCatches`，取消经 `ctx.taskSignal`
+  传入技能）：`!fish [n]` 入队后台任务（HTTP 命令入口立即返回，不阻塞 15 分钟）；`fish` 进入
+  `TASK_BUILDERS` → `PlanService.knownStepTypes`，`mc_plan`/`mc_propose` 可直接使用。DSH 插件的
+  `mc_step`/`mc_propose`/`mc_plan` 说明与 goal prompt 已加入 `fish`，并已 `dsh:install` 同步到 profile
+  （需重启 DSH 生效）。离线 `tasks:test 57/57`、`control:test 41/41`、`p1:m3:test 43/43`；
+  **未做客户端测试**。
+* **`deposit` 优化 + `!store` 统一（2026-10-21）**：`!deposit` 与 `!store` 现在是同一条命令
+  （`depositCommand` → `DepositTask` → `deposit` 技能），**`<item> <count>` 必填**；旧 `store` 的
+  mineflayer 实现已删。技能改为：以玩家为中心 **15×15(x/z) × 9(y)** 扫描，**只认纯容器**
+  （箱子/陷阱箱/末影箱/木桶/潜影盒及 `*_chest`/`*_barrel`/`*_shulker_box` 变体，排除抽屉/柜子/木箱等），
+  `moveTo(...,{pathfind:true})` 走 **A\*** 过去；范围内没有容器时用 **`craft` 技能做箱子**、再用
+  **`place` 技能放下**；按 count 精确搬（整叠 shift-click，最后一叠用“拿起→右键逐一点→余量放回”），
+  搬完重新读菜单核对实际位移，不足则诚实失败。`deposit`/`store` 现在也进入意图/`do_task` 的 task 词表
+  （无 item/count 的“把东西存起来”由任务推导最大非工具堆）。旧 **mineflayer 直连容器实现已删除**：
+  统一后 `deposit` 需要菜单 API，mineflayer body 会诚实报告不支持（clientmod 不受影响）。离线 `skills:test 68/68`、
+  `control:test 41/41`、`plan:audit 33/33`（p1 103/103）；**未做客户端测试**。
+* **`withdraw` 优化 + 任务适配器（2026-10-21）**：`withdraw` 与 `deposit` 共用 **15×15(x/z) × 9(y)**
+  纯容器扫描和 `pathfind:true` 的 **A\*** 走位；候选按距离排序，逐个打开并**读取箱子内是否有所需物品**，
+  没有就关箱继续下一个。菜单必须是纯容器（Chest/Barrel/Shulker；工作台/熔炉等非纯菜单拒绝/跳过）。
+  取物按 count **精确**：整叠 shift-click；最后一叠“拿起→右键往背包逐件放→余量放回箱子”；
+  每个箱子搬完重读菜单核对容器侧实际减少量，必要时**跨多个箱子累计**到 count，不足则诚实失败。
+  `!withdraw` 改为后台 `WithdrawTask`（`item` 必填，`count` 默认 1）；`WithdrawTask` 已进入
+  `TASK_BUILDERS` → `PlanService.knownStepTypes`，DSH 的 `mc_plan`/`mc_propose` 可直接使用
+  `withdraw` 步骤；DSH 插件说明已同步并 `dsh:install` 到 profile（需重启 DSH 生效）。
+  离线 `skills:test 71/71`、`control:test 42/42`、`plan:audit 35/35`（p1 104/104）、
+  `selftest 179/179`；**未做客户端测试**。
+* **`follow` 技能 + 高频跟随（2026-10-21）**：`follow` 之前只是 `!follow` 里 1.5s 的 mineflayer
+  timer，现在注册为技能：每 **150ms**（可配 `pollMs`）走 **`/state?players=1` 轻量轮询**只读
+  目标玩家/自身位置（Mod 跳过 40817 格方块扫描、背包、作物与实体扫描）；每次进入 A* 路线前才
+  `refreshStrict(true)` 拉完整快照更新方块扫描；目标移动超过 **1.5 格**就 `body.interrupt()`
+  当前路线并按最新位置重规划；目标消失或超出 **24 格**寻路范围诚实失败。新增 `FollowTask`，
+  `!follow <player> [seconds]` 为后台任务（默认 300s，`!stop` 取消），并进入 `TASK_BUILDERS` →
+  `PlanService.knownStepTypes`，DSH `mc_plan`/`mc_propose` 可直接使用 `follow` 步骤；插件说明已同步并
+  `dsh:install` 到 profile（需重启 DSH）。离线 `skills:test 74/74`、`control:test 43/43`、
+  `plan:audit 35/35`（p1 105/105）、`selftest 181/181`；**未做客户端测试**。
+* **规划器（自主决策）专项**：`slowLoop → decide() → runTask` 这条回路的问题与 **`!` 命令回路**、
+  **LLM `do_task`/`do_skill` 回路**分开记账——已核实 10 条（含 `shelter` 规则静默死规则、`light` 无能力闸门、
+  矿石路径零进展判定失效）与重构债 7 条见 [`docs/PLANNER-REFACTOR.md`](docs/PLANNER-REFACTOR.md)。
+  要点：零进展停牌（B1）/失败罢工（B2）的**记账**发生在 `runTask`，因此**规划器任务与命令表任务共用**
+  （`!` 材料类、LLM `do_task` 材料类都会写）；而 `quarantine` 的**拦截**只发生在 `decide()/pickRule()`，
+  即**只影响自主选目标**。TaskHub 派发的作业（矿石、长技能）既不记账也不被拦。
+* **真机验收（2026-10-10 夜，mc.example.com，角色 `agent`，jar 60936）**：
+  `npm run mining:live` 驱动完成 8 轮采矿 + 垫柱探针 + 命令入口 + 中途 stop——**连续 6 轮完整成功**
+  （深板岩钻石 ×2、深板岩铁 ×2、金矿 ×2〔含长隧道与命令入口各一〕；均为 `[verified] collected=1 pending=0`，
+  垫柱 1–2 跳且 `start/end/placedCells` 回执齐全）；首轮暴露并当场修复两处
+  （收尾清扫后的入包对账、挖后矿格作为拾取站位）；1 轮在竖井 3 格落差前按 `danger` 诚实停止。
+  命令入口（面板同源）回执与 `acquisition 1/1 verified` 结算落地；中途 stop 后 Mod 空闲、无后续动作；
+  tunnel 目标保护真机命中（被保护方块保留、`dugCells=0`）。
+  针对“掉落物被岩石包住拿不到”的真机问题：收集器新增有限清障开路（受控夹具实测挖开壁面并拾取），
+  并修正“目标仍在地上时路过捡到同类掉落会误判已收”的归因；`npm run mining:live -- --collect-drops`
+  可点名清理被封掉落。
+  10-12 续测：清障支持“掉落物低一层”（挖开上方封块走下/落入，或填坑垫平后平层拾取）；
+  Mod `WalkTo` 严格到达收紧 y 容差（此前站在坑沿会误报到达）——真机确定性验证下坑/回爬均正常（jar 60961）。
+  10-12 深夜：对角密闭口袋真机复现“贴角楔死 + plan 假到达”并修复（严格进入改精确格中心、plan 回退严格化、
+  预算耗尽允许“零开挖压向掉落物”）——两轮真机均 `verified`（红石 ×2 与 ×1 入包；证据
+  `runtime/mining-live/2026-10-12T15-02-06-788Z-live-diag-redstone-6.json`、
+  `runtime/mining-live/2026-10-12T15-03-32-249Z-live-diag-redstone-7.json`）。
+  10-13：“贴脸僵尸无法识别”根因修复——clientmod 快照只在动作代码里 `refresh()`，空闲时世界视图
+  整体冻结（反射循环、LLM `observe`、面板全部读旧数据；面板里 agent 的位置停在 58 格之外）；
+  `ClientModBody` 现后台 500ms 轮询 `/state`（`statePollMs` 可配、0 可关），反射循环每 tick 再兜底
+  刷新一次。同日真机续测又挖出第二层根因：`needsRescue` 对无 mineflayer `bot` 的 world view
+  每 tick 抛 TypeError（setInterval 的 debug 级 catch 静默吞掉）——反射链（自动吃/危险撤退/自卫/
+  穿甲）从未执行过；已修（无 bot 视图返回 false）+ 循环异常改限频 WARN。并且非 mineflayer 躯体的
+  反射改走技能层（`eat`/`attack`/`armor` 技能，与 `!` 命令/LLM 同一条路径），Combat/AutoEat/
+  ToolManager 的 servo 空转不再挡路。当日已按“改 Node 需重启 Agent”重启复测，护甲/持物/进食三处修正在
+  10-13 真机确认（提交 `144a783`、`211b4cd`）。
+  振荡早退护栏真机生效（A/B 往返 20+ 步 → 3 步内交垫柱）。证据：`runtime/mining-live/*.json`。
+  遗留真机项：同型地形 3 次重复、“吃饭 → tunnel”序列（待自然饥饿）、LLM 接管 L 系列 L02+
+  （L01 已通过；**L02 已在 10-10 夜真机尝试 3 次、全部失败，其中超时与空回执两类当夜由 `40b153c` 修复，
+  修后未复测**；`miningRecovery.enabled` 仍为 false，验收后显式开启）。tunnel 目标保护与采集中途 stop
+  已在 10-10 夜真机命中，不再列为遗留。
+* **真机验收（2026-10-13 夜，mc.example.com，角色 `AgentDeepSeek`，jar 75000）**：
+  ① 17:38–17:58 战斗会话：`shoot` 4 轮共 16 发击杀掠夺者、PvP 对 `Logos_Fyan` 2 轮 4 发击倒、
+  全遮挡时诚实 `blocked`（零发射）并各触发一次侧翼（两次仍被掩体挡住，按设计失败而非空放）、
+  自然语言请求“攻击玩家”被拒绝（“我只打僵尸骷髅那些怪物”）；
+  同段另有 2 次死亡与 `danger detected, retreating`，死亡后按设计停牌、需显式恢复。
+  ② 22:03–22:59 采矿会话（账号改名 `AgentDeepSeek` 后首次真机登录成功）：多轮挖矿任务，其中一轮
+  `deepslate_gold_ore x20` 完整成功（自报 53 块粗金入包）；另有多轮**按设计诚实停在“产物未入包”**——
+  每次先落 `pickup_stalled` 触发记录，因 `miningRecovery.enabled=false` 不调用模型（原因含“掉落物低一层”
+  “走位器未进入已开挖格”），随后聊天如实汇报 partial（如“才挖到 2 块…还有 6 块没挖到”）；任务整体另有
+  一轮 `x16` 只挖到 3 块的部分完成记录。证据：`runtime/logs/agent-2026-10-13_*.log`、
+  `runtime/logs/forge-client-2026-10-13_*.log`。
+* **真机验收（2026-10-14，人工）**：操作员实测 **采集到深板岩青金石**（`deepslate_lapis_ore`）——
+  中文矿名 → 深板岩变体的修复（提交 `3d7a637`）通过了最直接的判定用例：修复前 `挖点青金石` 会因
+  兜底路由的 `/金/` 命中而**去挖金矿**，中文名送进 LLM 工具参数时还会被降级成材料任务。
+  本次为操作员口述确认（未落 JSON 证据文件；轮次/入口/数量未记录），细节见
+  [`docs/MINING-LLM-PLAN.md`](docs/MINING-LLM-PLAN.md) 附五。
+* 历史真机记录（10-08）：斜下连续 20+ 格、`tunnel` 全程 `jumpsBlocked=0`、防坠落 3 格深坑前停住、
+  1–2 格台阶零误报、台账 extra 0（[`docs/REWRITE-PLAN.md`](docs/REWRITE-PLAN.md) §12.6）。
+* 后续候选：断开/离开世界检测（客户端回主菜单后大脑仍会按旧快照规划）、自主采矿目标的退避加宽、
+  通用 `WalkTo` 的落差保护。
+
+---
+
+## 4. 在游戏里指挥它
+
+**通道 A：`!` 前缀 —— 确定性快路径**（Agent 轮询控制 Mod 的聊天缓冲，只认 `!` 开头的行）：
+
+```
+!status / !inv / !where / !help / !capabilities
+!chop 8 / !mine stone 8 / !collect / !goto 120 64 -300
+!craft <item> [n] / !smelt <item> [n] / !farm [r] / !sleep / !fish [n]
+!eat [food] / !equip <item> / !armor / !drop <item> [n]
+!place <item> <x> <y> <z> / !use <x> <y> <z> / !attack / !defend
+!explore [距离] [方向] / !come <玩家> / !withdraw <item> [n]   # withdraw 为后台任务，扫描 15×15×9 纯容器并读箱
+!follow <玩家> [秒]   # 后台任务；默认 300s，150ms 轮询目标位置 + A* 重规划
+!deposit <item> <count> / !store <item> <count>   # 同一条命令；范围内无箱子会自动做并放下一个
+!hunt [n] / !light [n] / !shelter / !target / !look <yaw> <pitch> / !lookat <x> <y> <z> / !shot [maxEdge]
+!key <动作|modid:path> down|up / !hold <动作|modid:path> [ms] / !tap <动作|modid:path> / !inputs   # 进程内输入层
+!menu / !click <槽位> [button] [pickup|quickmove|swap] / !close   # GUI：读当前界面、点击前后各读一次并返回槽位 diff、按白名单关界面
+!keybinds [query]                  # 实时 KeyMapping 表（原版+模组，稳定 modid:path ID）
+!goal <文本> / !state status|save / !plans / !method <目标> / !methods / !answers / !proposal status|accept|reject / !answer <文本>
+!code-skill list | find <文本> | forge <prompt> | forge-status [id] | history <名称> | <名称> [json]
+!autonomous on [目标] / off / status   # 完全自主模式：无审批自驱；期间其它任务一律忙拒
+!task status / !task stop          # 后台任务槽
+!area … / !route …                 # 命名区域 / 路线（route plan 只算不走）
+!rule … / !yes [always] / !no      # 权限规则与征询应答
+!stop / !pause / !resume           # 停牌表（完全自主模式下 !stop = 暂停该模式）
+```
+
+**通道 B：`@大肥鱼 <自然语言>` —— 走大模型**。例：`@大肥鱼 去砍点树`、`@大肥鱼 帮我挖点铁`。
+触发词来自 `config/persona.md` 的 frontmatter（当前 `@大肥鱼`），`config/agent.json` 的
+`chat.dialogueTrigger` 可覆盖（默认 `null` = 跟随人设文件）。没有 API key / 请求超时 / 返回非法 JSON 时，
+正则兜底路由器接管，所以两条通道始终可用。
+
+**控制面板（唯一的"它听懂了吗"观察点）**：`http://127.0.0.1:8766/panel` —— 实时状态、当前任务与队列、
+最近识别到的输入 → 路由结果、停牌原因、死亡红条与恢复按钮；急停会诚实汇报每一级降级的实际结果。
+
+HTTP 也能下同样的指令：
+
+```powershell
+Invoke-RestMethod -Method Post -Uri http://127.0.0.1:8766/command `
+  -ContentType 'application/json' -Body '{"command":"chop 8"}'
+Invoke-RestMethod -Uri http://127.0.0.1:8766/ui/state
+```
+
+行为约定：`!stop` 进入 owner-stop 停牌（自动规划暂停，显式任务仍可跑），`!resume` 清除；
+死亡会中止一切任务且**不自动恢复**；权限 `ask` 会在动手前在游戏里发问，超时算拒绝。
+
+---
+
+## 5. 控制 Mod：构建与安装
+
+| 命令 | 作用 |
+| --- | --- |
+| `npm run client:build` | 编译 `mod-client`（Gradle 离线构建） |
+| `npm run client:install` | 复制 `dist/agent-client-1.0.0.jar` 到 `versions/1.20.1-Forge_47.4.10/mods/`（先删旧版） |
+| `npm run client:check` | 探测 8899：Mod 在不在、是否已进入世界 |
+| `npm run client:verify` | 真机协议验收（需要客户端在跑） |
+
+原语清单（`ControlHttpServer.execute`，**34 个 case 分支 / 别名展开 45 个 verb 名**）：
+`chat/login/say`、`cmd/command`、`look/lookat/resync/stop/reload`、`moveto/goto`、`dig/mine`、`tunnel`、
+`pillar/pillarup/tower`、`place/useon/interact`、`target`、`menu/slots/click/close`、`use/useitem/select/drop`、
+`attack`、`shoot`、`retreat`，2026-10-29 进程内输入层 **`key/hold/tap/shot/inputs`**，
+2026-11-01 完全自主模式 **`respawn`**（= 死亡界面按钮）与 **`useentity/rightclickentity`**（右击实体，遗体取物），
+以及 2026-11-05 为 F1'b 断连注入加的 **`disconnect`**（= 暂停菜单"断开连接"，客户端不退出）；
+感知 `GET /state /progress /chatlog /health /keybinds`。`/register` 在四道闸门上被永久拒绝（会重置角色数据）。
+
+---
+
+## 6. 踩坑记录（精简版）
+
+1. **带客户端 Mod 的 Forge 服进不去**：mineflayer 只有原版协议，FML2 没有实现 → 主线换成真实客户端 +
+   控制 Mod；被踢时不再无限重连刷屏。
+2. **客户端忽略输入**：窗口失焦或任意 GUI 打开时，移动键完全不生效 —— `/state` 暴露
+   `screenOpen/mouseGrabbed`，排查"它不动"先看这两项。
+3. **动作 verdict 丢失**：`/progress` 曾在动作结束瞬间清空，Node 把"没走到"当成功（A* 的跳跃/横移
+   判定因此失效）；现在最终 verdict 保留到下一个动作开始。
+4. **走挖反复跳跃**：朝整数角点走会蹭台阶边缘，下坡按跳会变成"跳跳乐" —— tunnel 控制器改为朝方块
+   中心转向、按碰撞箱判断、下坡永不按跳。
+5. **合成链缺前置**：`Recipe.find` 的木材变体会骗过 `recipesFor` —— 现在自动补 原木→木板→木棍，
+   失败信息里会说明具体缺什么。
+6. **同名重复登录风暴**：`duplicate_login` 退避 15s → 120s + 单实例锁 `runtime/agent.lock`。
+7. **死亡不自动恢复**：死亡中止一切任务并三处告警（控制台 / 面板 / 状态文件）；复活后也要显式 `!resume`。
+8. **防呆与权限**：`/register` 永久禁止（会重置角色数据）；`ask` 规则动手前征询、`!yes` 在任务内对同种
+   方块持续有效；`deny` 优先。
+9. **防坠落**：落差 >2 格或先见液体 → Node waypoint 预检 + Mod tick 级探底拒绝（`ledge`）；
+   隧道跑完复查洞窟（openness ≥ 45% 即停），正常 1–2 格台阶不受影响。
+10. **中文矿名没有别名（2026-10-14 修复 + 真机确认）**：别名表只有英文，于是"金矿"这类中文词到不了深板岩变体——
+   归一化把中文名按普通名字分类成 **material**（`mine_ore only takes ores`），LLM 工具参数（`block:["金矿"]`）
+   与 `do_skill` 边界同样降级；兜底路由又是手写的 4 矿 if 链，铜/红石/绿宝石/石英/残骸掉进"挖石头"，
+   而 `/金/` 会命中**青金石**→挖成金。现在中文词条与英文词条同表（含"X矿/矿石"后缀与"深板岩X"前缀），
+   路由按**最长别名**匹配；10 个矿种 × 6 个入口的矩阵进了 `mining:entry:test` A11。
+   真机确认（同日人工）：**采集到深板岩青金石**。
+11. **24 格外的目标是"盲走"（2026-10-14 修复）**：`out-of-grid` 时旧代码用 `planner.toward()` 朝目标直线迈
+   一步——y 直接取目标高度、不看地形也不看水。渡河时就是这样走进河里的：**桥明明在扫描范围内，A\* 却
+   从没被问过**。现在改为"子目标接力"（见 §9 第一条）：直线方向上距目标最近且 ≤23 格的干格 →
+   A\* 规划 → 走到再重规划；不通则在 ±5 格内换点；全不通就诚实报错、站在原地。
+   `toward()` 已删除，回归在 `path:test` 第 11 组（旧代码跑这组只有 21/28，失败面正是新用例）。
+12. **子目标搜索的垂直窗口太窄 → 真机"随机游走"（2026-10-15 修复）**：子目标只在"直线插值高度 ±1"
+   这几档里找落脚点。跨越高度差（陡坎/河谷/山脊）时整段射线都判"不可用"，搜索便一路滑回 bot 自己脚下，
+   交出一个 2–6 格外的子目标；而目标判定带 `range` 容差，这种子目标会被判成"已经到达"，于是 ±5 回退
+   接着挑出刚好超出容差的**横向**格子——表现出来就是 1 格一跳、来回蹭的随机游走。现在改为**整列搜索**
+   （−8..+8，按"离直线高度最近"排序），并且"已经到达"不再触发 ±5 回退（计入停顿、三次后诚实报错）。
+   回归：`path:test` 11f（陡坎仍给出 23 格外的子目标、40 格行程 ≤8 条腿）与 11g（无跳可跳时报错且
+   0 条腿、原地不动）；这两条拿去跑旧代码分别报 "subgoal got 6.0 blocks" 与 "got 2 legs"。
+13. **含水台阶/半砖被当成水（2026-10-15 操作员指出并修复）**：桥面常是**含水（waterlogged）的木/石台阶
+   或半砖**——方块里有水，但人站在上面**并不入水**。模型本来靠"Mod 只报基名"侥幸把它当陆地，但有两处
+   缺口：①带状态后缀的名字（`oak_fence[waterlogged=true]`）会让形状判断失效（栅栏被判成可站）；
+   ②射线外的桥不会被选中——子目标只沿直线找，找到水就去游泳，**从自己的桥旁边游过河**。现在：
+   台阶/半砖（含 `[waterlogged=true]`、`type=top/double`）一律 `solid + standable + 永不算液体`，
+   并且**向上走时按完整方块处理**（从水里踩上桥面就是一次 `step-up`）；名字先剥掉 `[...]` 状态再分类；
+   当真需要踩水横渡时，导航器会先在 ±5 格内找**能走过去的干格**（桥面就是干格），找不到才下水。
+   回归：`path:test` 11i（偏离直线的半砖桥 → 全程走桥、0 踩水）、11j（分类 + 水中 step-up 上桥面）。
+14. **站在农田/半砖上时"脚位格"算错 → 一步都规划不出来（2026-10-15 真机）**：`floor(y)` 在**部分高度**
+   的方块上返回的是**脚下那块方块本身**——农田 15/16 高（脚位 62.94）、下置半砖顶面在 y+0.5
+   （脚位 62.5），于是模型认为"bot 正站在实心方块内部"，A\* 从这一格出发**没有任何合法邻居**。表现：
+   子目标一路滑回 bot 自己脚下、planner 回 `already within range`、**9 毫秒判 stalled**（真机
+   (75,63,65)），客户端侧则表现为"被卡住"。现在新增 `PathPlanner.feetCell()`：当 `floor(y)` 那格是
+   "可站立的实心方块"且脚下确实高于该格底面时，脚位取**它上面那一格**；跳跃中的 bot（那格是空气）
+   不会被误抬。`_plan` 起点、`pickSubgoal`/`subgoalCandidates` 的基准高度、`hopTo` 的"是否已在原地"、
+   `sidestep` 的起点全部改用它；子目标还加了"**不能是自己所在那一格**"的判据（`Math.round` 会把
+   75.8 的一步舍回 75）。回归：`path:test` 11k（农田起点的脚位与规划）、11l（半砖桥面上沿桥规划）；
+   把 `feetCell` 退回 `floor` 会立刻复现 "got y=62"。
+15. **同一件事被播报两次，而且两种格式（2026-10-15 真机）**：玩家连说两次"到(31,63,59)"，两趟 `goto`   任务各自完工 → 先播模型措辞的 `大肥鱼搞定了：walk to 31,63,59 - arrived at … (moved 29.89 blocks in
+   5968ms)`，**632 毫秒后**又播模板兜底的同一件事（第二趟赶不上模型：`another turn is already running`）
+   —— 同一次行动的"重复 + 格式不同"就是这么来的（偶发，取决于两个相同请求是否时间重叠）。根因：
+   `config` 里为 `taskDone` 声明的 `cooldownMs: 30000` **从来没被消费**（只有 `speechScheduler` 用它自己
+   那几个**状态**触发器）。现在 `announceFinished` 按 `任务名|描述|成功与否` 记时间戳，在声明的冷却窗口内
+   **重复的同一件事不再播**（不同的完工、以及成功后再失败都照常播，不会被误吞）；模板文案同时去掉
+   `(moved N blocks in M ms)` 遥测、理由与描述重复时不再复述。回归：`llm:dry` 四条断言
+   （重复合并 / 去掉遥测 / 不同完工仍播 / 失败不被吞）。
+16. **`!stop` 停了 Node 却没停动作脑（2026-11-01 操作员报告，真机修复）**：`!stop`/`!autonomous off`
+   只取消了 Node 自己的队列与 goal 记录，**DSH 动作脑正在跑的模型回合**仍继续调 `mc_step`（还会在
+   下一条命令到达时新建 goal），操作员看到"按了没用"。修法两层：插件 `/goal/pause`（暂停并取消
+   in-flight turn/plan）+ `/goal/complete`，再在 Node 侧用 `owner-stop` hold 硬拒动作脑的
+   `mc_step`/`/plan`/`/propose`/`/ask_player`，`!resume`/`!autonomous on` 解锁。顺带修掉两个放大器：
+   门禁拒绝曾被折算进失败账本（下一次合法同签名动作会被 `escalation-required` 挡住）、`!stop` 会把
+   同一个 goal 关两次。真机证据：`action brain !stop: goal … paused=false completed=true`、
+   `mc_step` 回 `operator-stop`、`!resume` 后 `look` 放行。
+17. **A\* 从一格高门洞跳过去（2026-11-01 操作员报告）**："跳 1 格空隙"那一支只检查中间格**脚位**
+   不是实心，于是把"墙上一格高的门洞"当成可跳过的空隙，规划出一条身体根本过不去的路线（真机表现：
+   在门口原地起跳直到 `jump-blocked`）。现在空隙列必须 `canStandAt`（脚+头两格净空）才允许跳；
+   `path:test` 新增 2b（整面墙只有一格高洞 → `noPath`），35→**36/36**。
+18. **失败阶梯不会"换键鼠"（2026-11-01 操作员报告）**：`unverified` 走完 lookup+一次 informed 重试后
+   直接 `ask-required`，自主模式里等于放弃，而命令通道明明已经反复失败。现在多一档 `input-required`：
+   `requires:['input-layer']` + 具体例子（`look`、`key/hold`、`tap`），动作脑改用输入层成功一次后允许
+   一次命令重试，再失败才 ask。只对确有键鼠替代的动词启用（`place/useon/use/attack/shoot/menu/
+   click/select/dig/mine/tunnel/pillar/moveto`）。回归：`p1:failure-escalation:test` 27/27（原
+   knowledge 阶梯断言同提交替换为新阶梯，未删除覆盖）。
+
+---
+
+## 7. 目录结构
+
+```
+<repo>\
+├─ start.ps1 / stop.ps1        # 一键：客户端 + Agent；分级停止
+├─ config\                     # agent / servers / pcl / llm / persona / safety
+├─ src\
+│  ├─ index.js                 # 装配与生命周期
+│  ├─ brain.js                 # 快反射（600ms）+ 慢规划 双循环
+│  ├─ skills\                  # 21 个确定性技能 + miningPlan（报价/几何/台账）
+│  ├─ body\                    # Body 契约与实现：clientmod / mineflayer / mock
+│  ├─ core\                    # taskHub / recoveryLadder / permissions / places / holds / failure
+│  ├─ llm\                     # LLM 回合与 8 个工具（tools\）
+│  ├─ chat\commands.js         # `!` 指令 + 自然语言路由
+│  ├─ pathfinding\             # A*（planner/walker/navigator）+ 客户端世界适配
+│  ├─ world\ survival\ tasks\  # 世界模型 / 反射 / 早期任务层（兼容保留）
+│  └─ pcl\ server\ web\        # PCL 集成 / 本地无头服务器 / 面板 API
+├─ mod-client\                 # Forge 1.20.1 客户端控制 Mod（薄手）
+├─ mod-bridge\                 # 可选的 Fabric 服务端桥（服务器权威状态）
+├─ docs\                       # 计划、进展、验收、坑
+├─ scripts\                    # 运维与离线测试脚本
+└─ runtime\                    # 日志、状态、锁、旧服务器
+```
+
+---
+
+## 8. 脚本一览
+
+| 命令 | 作用 | 现状 |
+| --- | --- | --- |
+| `npm run play` / `.\start.ps1` | 客户端 + Agent 一键启动 | 主线 |
+| `.\stop.ps1 [-Client]` | 停 Agent / 连客户端一起停 | 主线 |
+| `npm run agent:client` | 只起 Agent（接已运行的客户端） | 主线 |
+| `npm run client:launch` | 无头拉起 Forge 客户端（`--server` / `--singleplayer` / `--username`） | 主线 |
+| `npm run client:check` | 检查 Mod 与"是否在世界里" | 主线 |
+| `npm run client:build` / `client:install` | 构建 / 安装控制 Mod | 主线 |
+| `npm run client:test` | 假 Mod 协议测试（含 pillar 回执/隧道保护/空闲刷新/shoot/retreat/respawn/useentity） | 83/83 |
+| `npm run clientmod:test` | clientmod 躯体角色扮演路径（含骑乘/载具感知映射） | 12/12 |
+| `npm run skills:test` | 技能库（含采矿/垫柱/护甲/武器/进食/枪械选枪与反卡死、战斗租约、collect 新鲜扫描、deposit 精确搬运、withdraw 读箱/跨箱精确取物、follow 高频重规划） | 74/74 |
+| `npm run mining:entry:test` | 统一挖矿入口 A 系列（含 A10 规划器停牌键、A11 全矿种深板岩矩阵） | 25/25 |
+| `npm run mining:collection:test` | 掉落物收集 C 系列 | 25/25 |
+| `npm run mining:recovery:test` | LLM 异常接管 R 系列（脚本化模型） | 18/18 |
+| `npm run selftest` | 全量离线自检 | 183/183 |
+| `npm run p0:verify` | P0 全量验收（一次跑 8 个套件） | 8/8 |
+| `npm run path:test` | 寻路场景（含跨网格子目标接力、河流与桥、陡坎不乱走、游泳过湖、1 格高洞不可通行） | 36/36 |
+| `npm run tasks:test` | 三原语（走 / 挖 / 捡）+ FishTask 适配器 | 58/58 |
+| `npm run llm:dry` | 意图路由 / Schema / 工具白名单 / 完工播报去重 | 路由 67/67 · 工具 43/43 |
+| `npm run control:test` | 双通道 + 面板 + 死亡处理 + 反射路由 + 战斗反射 + 死亡释放/任务结束释放/A07 所有权 | 46/46 |
+| `npm run plan:audit` | 计划书 §11 符合性 | 35/35（`--stage p1` 112/112） |
+| `npm run p1:verify` | P1 离线门禁（P0 + 全部 P1 套件；`--fast` 跳过 P0） | **20/20**（`--fast` 19/19） |
+| `npm run docs:check` | 文档一致性守卫（M5 判定/A12-GUI 暂缓/A08 回填/容器界面口径/jar 与 verb 计数/§13 引用） | 14/14 |
+| `npm run p1:failure-escalation:test` | 失败信封/签名闸门/输入层档/lookup/ask 停车/降级/证据/计划接线 | 27/27 |
+| `npm run p1:m5:test` | 进程内输入层 / 键鼠台账 / **打包 jar 的 F1'a 断言** / 断连与暂停边沿 / 帧缓冲截图 / 感知字段契约 / 受控通用键 / 模组键表 | 40/40 |
+| `npm run p1:channel:test` | 通道策略（code-skill → command → input → code-generation） | 18/18 |
+| `npm run p1:shot:test` | 截图触发/预算/去重/steer 策略 | 20/20 |
+| `npm run p1:steer:test` | 主动 steer 投递（插件 `/message` steer/followup/回退 + 桥接 + 策略） | 9/9 |
+| `npm run p1:taskgoal:test` | 玩家任务 / `@` 请求 → DSH goal（含异常阶梯/自卫反射提示） | 14/14 |
+| `npm run p1:curriculum:test` | Voyager 式自动课程（难度带/账本/失败原因归一化/账本自净/失败降带/校验/接线） | 20/20 |
+| `npm run p1:autonomous:test` | 完全自主模式（状态机/忙拒/自动接受/护栏/死亡重生与遗体回收/持久化/启动接管/受阻即暂停） | 33/33 |
+| `npm run p1:m4:evolve:test` | M4 v3 键鼠脚本 / 错误回灌 / 版本链 / 检索 | 17/17 |
+| `npm run p1:m4:test` | M4 沙箱/权限/生成提示词（状态驱动+写时快照）/搜索/存储 | 43/43 |
+| `node scripts/m5-agent-layer-live-probe.js` | A21 走 **agent 技能层**：背包/工作台 ×3 + 外部关闭/长按注入（真机） | 59/59（2026-11-02） |
+| `node scripts/m5-remaining-live-probe.js` | 挖掘长按 / 库存变化 / 取消释放 / 任务结束释放 / A07 单执行者 / A22 复用（真机） | 37/37（2026-11-05） |
+| `node scripts/m5-f1b-{injection,disconnect,death,pause}-probe.js` | F1'b 四类注入：退出 / 断连 / 死亡 / 暂停界面（真机，各自产出 evidence JSON） | 四条均 PASS |
+| `node scripts/m5-m53-gui-live-probe.js` | M5.3 仪器（GUI 场景 A07/A08/A12-GUI 的骨架；A12-GUI 需敌对生物） | 骨架 |
+| `node scripts/m6-r2-idle-probe.js` | R2a 空闲窗口（零任务/零命令/零按键）+ R2b 反射观察（真机，只读） | 已跑（2026-11-06） |
+| `node scripts/m6-r2b-log-evidence.js` | 从日志窗口生成 R2b 证据（反射 engaging/交火 + 外部命令计数） | 已跑（2026-11-06） |
+| `node scripts/m6-r3-restart-probe.js` | R3 重启持久化（注入失败 + 植入提案 → 只重启 Agent → 逐字比对） | 12/12（2026-11-06） |
+| `npm run p1:language:test` | 统一语言脑门面（profile/工具/原文审批/记忆 grep/短窗口） | **22/22** |
+| `npm run corpus:learn` | 从 `chat-corpus.csv` 标注学习 20+20 条沉默/参与示例，写 `config/chat-silence-profile.json` | 40 examples |
+| `npm run inspect:server` / `mods:report` | 连服前体检 / Mod 知识报告 | 辅助 |
+| `npm run body:info` | 查看可用 body 与当前选择 | 辅助 |
+| `npm start` / `npm run server:setup` | 本地无头服务器 + 旧流程（`--no-agent` 只起服） | 历史 / 兼容 |
+| `node scripts/client-real.js --login <pw> [--primitives]` | 真机非破坏自检 / 三原语验收 | 需客户端 |
+
+P0 已于 2026-10-16 收官（`p0:verify` 8/8、`plan:audit` 29/29）；[`docs/P0-STATUS.md`](docs/P0-STATUS.md) 与
+[`docs/P0-PLAN.md`](docs/P0-PLAN.md) 都是**历史文档 / 验收档案**（文首有过期对照表与收官依据）。
+逐批次进展见 [`docs/REWRITE-PLAN.md`](docs/REWRITE-PLAN.md)（记录到 2026-10-08）。更新的一手记录在
+[`docs/MINING-LLM-PLAN.md`](docs/MINING-LLM-PLAN.md)（附二/附三）、
+[`docs/MINING-COLLECTION-PLAN.md`](docs/MINING-COLLECTION-PLAN.md)（§十一）与
+[`docs/COMBAT-PLAN.md`](docs/COMBAT-PLAN.md)；**下一阶段方案**见
+[`docs/P1-PLANNER-PLAN.md`](docs/P1-PLANNER-PLAN.md)（选型实验与接口事实见
+[`docs/PLANNER-AB-EXPERIMENT.md`](docs/PLANNER-AB-EXPERIMENT.md)、
+[`docs/HARNESS-INTERFACES.md`](docs/HARNESS-INTERFACES.md)）。
+
+---
+
+## 9. 已知限制
+
+* **服务器兼容**：需要客户端 Mod 的 Forge/NeoForge 服必须走"真实客户端 + Mod"路径（已支持）；
+  mineflayer 备选躯体只适用于原版 / Paper / Spigot / 纯服务端 Fabric。各服的登录与反作弊规则自行确认。
+* **采矿批次已真机验证**（2026-10-08 首轮，10-10～10-12 续测，见 REWRITE-PLAN §12.6 与 MINING-LLM-PLAN 附二/附三）：
+  numen 采矿重构、tunnel、防坠落补丁、逐格垫柱、共享收集（入包证据）与有限清障全部通过；
+  遗留“吃饭 → tunnel”序列待自然饥饿时补测（逻辑已有离线用例覆盖）。
+* **AuthMe**：只 `/login`，永不 `/register`（在此类 AuthMe 服务器上 `/register` 会重置角色数据）。
+* **规划器是下一阶段重构对象，问题单独立账**：自主规划（`slowLoop → decide() → runTask`）的问题与
+  `!` 命令、LLM 工具分开记录，但**退避机制是共用的**——B1/B2 的记账在 `runTask` 内，凡是经
+  `brain.enqueue` 的任务都会写（规划器任务、`!` 材料类、LLM `do_task` 材料类）；`quarantine` 的拦截
+  只在 `decide()/pickRule()`，即只影响自主选目标；TaskHub 派发的作业（矿石、长技能）两者都不适用。
+  已知问题（`shelter` 规则永不触发、`light` 无能力闸门、矿石路径在规划器层无刹车、停牌粒度/无目标记忆等）
+  汇总在 [`docs/PLANNER-REFACTOR.md`](docs/PLANNER-REFACTOR.md)——**改 bug 或重构前先分清回路**，不要把
+  规划器的问题当成技能层 bug 去修，也不要在改退避机制时忘了它会波及 `!`/`do_task`。
+* **LLM 挖矿接管默认关闭**（`miningRecovery.enabled=false`）：异常仍会被记录，确定性宏耗尽后诚实失败/报告 partial；
+  真机 L 系列验收通过后再显式开启（L01 已于 10-12 通过、0 次模型调用；L02 已于 10-10 夜真机尝试 3 次、
+  全部失败——超时与空回执两类当夜已修（`40b153c`），仍在等合法的可恢复停滞夹具做修后复测，
+  且不得为测试移除安全措施）。开启后接管与聊天共用模型并发/token 账本，且不解除危险/权限/死亡停牌。
+* **寻路感知半径 24 格，超出部分靠"子目标接力"**（2026-10-14 重做，10-15 修陡坎乱走/游泳过湖）：Mod 只
+  发送玩家周围 ±24 水平 / +8−8 垂直的方块快照，格在网格外是"未知"而不是空气。跨网格的目标现在
+  **不再盲走**：导航器沿"bot→目标"直线选一个距目标最近、仍在网格内、可落脚的格子作为子目标
+  （**干格优先**：脚位格与头位格都要能通过——甘蔗/高草/海带不阻挡；整条射线全是水时退回**可踩水的
+  水面格**作过渡航点，因为游泳已实现、客户端行为正确，拒绝水格只会把 bot 困在岸上），用 A\* 规划过去
+  再接力重规划；子目标规划不通就在其 ±5 格内挑候选重试（候选必须是真的"一跳"，不能落在容差之内）；
+  全部失败则**诚实报 `out-of-grid` 且不移动**。子目标的落脚高度取**整列可见范围**（−8..+8，按离直线
+  高度最近排序），因为跨陡坎时"直线那一层"往往是空气或岩石——只在那一层找会把子目标滑到脚下，变成
+  1 格一跳的随机游走（10-15 真机故障，见 §6 第 12 条）。水域移动代价是平地的 **2 倍**
+  （`COST.SWIM=2.0`）——足以让 A\* 在桥顺路时走桥，但不会为了让路走桥而绕出巨大弯；运动模型允许
+  **踩水横渡**（`canSwimAt`：不要求下方有地板，深海也能过；岩浆/其下有岩浆一律拒绝）。**台阶与半砖一律
+  算陆地**（含 `[waterlogged=true]` 的含水方块——方块里有水，但站在上面不入水），且**向上走时按完整
+  方块处理**（从水里踩上桥面就是一次 `step-up`）；当真要下水时，导航器先在 ±5 格内找**能走过去的干格**
+  （桥面就是干格），找不到才游泳（见 §6 第 13 条）。**脚位格按"实际站着的方块"修正**：站在农田/土径/
+  半砖/台阶上时，`floor(y)` 那格是脚下的方块，脚位取它上面一格（否则模型以为 bot 在实心方块里，
+  A\* 一步都出不去——真机表现为 9ms 判 stalled、客户端报卡住，见 §6 第 14 条）。回归：
+  `npm run path:test` 第 2b、11 组与 3b（36/36）。
+* **尚未实现**：交易、附魔、下界/末地、区块级地图记忆（长距离探索会重新找路）。
+* **操作注意**：客户端窗口未聚焦或开着 GUI 时游戏忽略输入；控制 Mod 改动必须重启客户端才生效
+  （Node 改动只需重启 Agent）。
+* **Mod 知识**：客户端扫描到的是真实注册表；未知方块默认不挖，避免卡在挖不动的方块上。
+* **完全自主模式（A33）仍有 5 项无真机证据**：A33.1/A33.4/A33.7 已真机通过（2026-11-01），
+  状态机、忙拒、自动接受、死亡/回收都在确定性夹具下验过；
+  「真实死亡 + 真实 Corpse 遗体」从未在游戏里跑过（`corpse:corpse` 的 id 与右击语义来自上游源码与
+  MC百科）。回收失败会以 `no-corpse`/`unexpected-menu`/`other-dimension`/`too-far`/`hazard` **诚实退出**，
+  不假装成功；真机验收见 [`docs/FULLY-AUTONOMOUS.md`](docs/FULLY-AUTONOMOUS.md) §9。
+* **完全自主模式不设 token 硬上限**：靠 `maxRoundsPerHour=60` 与「连续无提案/连续失败」暂停兜底；
+  它会连续消耗模型轮次，跑之前先确认预算与 DSH 会话可用。
+
+---
+
+## 10. 自检
+
+```powershell
+npm run p0:verify      # 离线全量（约 1 分钟，8 个套件）
+npm run selftest       # 183/183：模块图 / 插件 / 寻路 / 三原语 / 意图 Schema / 工具白名单 / 死亡处理
+npm run mining:entry:test      # 25/25：统一挖矿入口（含全矿种深板岩矩阵）
+npm run mining:collection:test # 25/25：共享收集
+npm run mining:recovery:test   # 18/18：LLM 接管（脚本化模型）
+npm run p1:autonomous:test     # 33/33：完全自主模式（状态机/忙拒/自动接受/护栏/死亡重生+遗体回收/启动接管）
+```
+
+最近一次真机启动日志（节选）：
+
+```
+INFO (agent) body: clientmod
+INFO (body) agent-client mod found (vdev) at http://127.0.0.1:8899
+INFO (body) attached: minecraft:overworld at (8,66,54) hp=20 food=20
+INFO (authme) logged in
+INFO (brain) brain online
+```

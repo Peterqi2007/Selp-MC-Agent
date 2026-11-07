@@ -902,6 +902,13 @@ class ChatController {
         const slot = ctx.brain && ctx.brain.slot && typeof ctx.brain.slot.describe === 'function'
           ? ctx.brain.slot.describe()
           : null;
+        /**
+         * R4: the quarantine window is a gate the player cannot see from `hub.status()`.
+         * Return it with the same shape the panel reads from `/ui/state`.
+         */
+        const quarantine = ctx.brain && ctx.brain.slot && typeof ctx.brain.slot.quarantineStatus === 'function'
+          ? ctx.brain.slot.quarantineStatus()
+          : null;
         if (status.busy) {
           this.say(`后台任务 ${status.current.id}「${status.current.name}」跑了 ${Math.round(status.current.ms / 1000)} 秒`);
         } else if (slot && slot.owned) {
@@ -909,7 +916,7 @@ class ChatController {
         } else {
           this.say('现在没有任务，身体空闲');
         }
-        return { ...status, slot };
+        return { ...status, slot, quarantine };
       },
 
       /**

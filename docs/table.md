@@ -1,15 +1,19 @@
 # A 项测试状态总表（有争议项的子集）
 
-> **范围**：本表只收录**跨阶段有争议、需要逐条对口径**的 A 项（M1-A01、M2-*、M3-*、M4-A18/A19/A20/D01、
+> **范围**：本表只收录**跨阶段有争议、需要逐条对口径**的 A 项（M1-A01/A08、M2-*、M3-*、M4-A18/A19/A20/D01、
 > M6-*、M7-A26/F03/E03）。A01/A04–A17/A27–A32 的完整逐项状态以
 > [`P1-M7.md`](P1-M7.md) §3 的 **A01–A32 矩阵**为准；阶段判定以
 > [`P1-CLIENT-VERIFICATION.md`](P1-CLIENT-VERIFICATION.md) §0 为准。
-> 最近复核：**2026-11-01**（离线 `p1:verify` 20/20、`--fast` 19/19；新增 A33 行，状态为**部分执行**：
-> A33.1/A33.4/A33.7 真机 PASS，A33.2/A33.3/A33.5/A33.6/A33.8 未执行）。
+> 最近复核：**2026-11-07**（离线 `p1:verify --fast` **19/19**、`docs:check` **14/14**；2026-11-06 新增 A33 行，
+> 状态为**部分执行**：A33.1/A33.4/A33.7 真机 PASS；A33.2/A33.3/A33.8 PASS（2026-11-07）；A33.5 PASS；**A33.6 FAIL（交付阻断）**）。
+> **2026-11-07 口径统一**：**A08 用 F1'b 证据回填为整项 PASS**；**A12 拆为 A12（M2 威胁/性能）+
+> A12-GUI（M5.3，暂缓）**；M7 行按 [`P1-CLIENT-VERIFICATION.md`](P1-CLIENT-VERIFICATION.md) §9 的
+> **M7.1–M7.6** 同口径改写（M7-E03/M7-F03 不再是空行）。
 
 | 编号 | 测试 | 通过标准 | 当前缺口 | 测试状态 |
 |---|---|---|---|---|
 | M1-A01 | unified 默认下 `!` 命令仍直达命令表 | 语言脑模型调用 0；原文完整进解析；非法参数明确返回 | 旧 A01 是旧路径 PASS，需按 unified 回归 | pass |
+| M1-A08 | 停止与迟到输出 | 等待/搜索/技能/GUI 长按中急停、死亡、断线、人工接管：≤3s、按键释放、迟到输出不恢复动作 | 2026-10-17 只验运行中 stop；余下四类由 F1'b 补齐 | pass（2026-11-05 F1'b 回填：七条停机路径 + A29 迟到输出） |
 | M2-A02 | `@` 动作请求的 approval 二元闸门 | ≥20 条真实模型指令；只 allow/deny；allow 原文逐字一致；不生成替代任务；超时/畸形 verdict 拒绝 | 旧 A02 PASS，但 unified 分类器+approval 需重测 | pass |
 | M2-A03 | roleplay / expert / approval 的 profile 与工具面 | 语言脑无 body/技能/任务工具；expert 可 lookup/web；roleplay 不执行动作；插话/提案符合 persona | 旧 A03 工具面已被新 LanguageBrain 取代，需重测 | pass |
 | M2-B01 | 审批原文 + 身份链到 DSH | DSH 收到的 text: 与玩家原文完全一致；source/speaker/位置只作元数据；改写字段/额外 Schema 不生效 | panel 主路径已跑通；缺注入/超时/异常与真实 DSH 回读 | pass |
@@ -18,6 +22,8 @@
 | M2-D02 | 低血 / 饥饿直发例外 | 两种状态不进入 LanguageBrain，直接 speakUp/SOS；其它状态仍进语言脑 | 未执行，需真机危险窗口 | pass |
 | M2-E01 | 动作脑输出统一修饰 | mc_say、taskDone、plan question、code-skill 输出都先经语言脑；语言脑 silence 时不发；模型失败才原文 fallback；raw:true 才允许直发 | success/action 主路径已跑通；缺 failure/help/silence/code-skill 子项 | pass |
 | M2-F01 | 动作脑不可用 / 重连 | 未绑定时不落回本地 planner，明确报错；DSH 重启后自动绑定 action-brain 会话 | auto-bind 已真机跑通；缺“无 live agent”“绑定后 DSH 再重启”的故障注入 | pass（自动绑定/409 故障注入） |
+| M2-A12 | 威胁与性能（M2 口径） | 空闲/普通任务/GUI 各 ≥1 次可解释响应；记录发现/中断/动作时延 | —（2026-10-18 已 PASS；GUI 219ms 属旧路径证据） | pass（2026-10-18 操作员口径；GUI 子项已拆为 A12-GUI） |
+| A12-GUI | GUI 内自卫反射（M5.3 输入层重跑） | GUI 打开时被攻击，反射仍抢占/关界面/交战；不残留按键 | 需要敌对生物在旁；未重跑 | 暂缓（操作员口径 2026-11-05；不计通过、不阻塞 M5） |
 | M3-A14 | 计划提问经语言脑 | wait_for_player 提问由 roleplay 改写；`!answer` 后按身份链恢复；保留进度；不重复问 | 旧 A14 通过旧直发路径，unified 需重测 | pass |
 | M3-C02 | 任务记忆只靠 grep | grep_task_memory 能召回 MemoryStore/MethodLibrary/AnswerMemory；任务日志不出现在系统上下文 | 未执行 | pass |
 | M3-E02 | 重启持久化 | 15 行窗口、未答问题、动作脑回复挂接 ChatMemory 均恢复；不重放动作；不自动唤醒旧请求 | 本轮只验证 13 行窗口恢复；缺 pending question/action attach | pass（pending question + window；attach 由 B01/集成覆盖） |
@@ -31,19 +37,20 @@
 | M6-A25 | 自主提案四条路径 | accept / reject / 不答 / 另派；未接受不执行；拒绝后 3 分钟不重复；不答非同意 | 已用真实动作脑提案跑完四条路径（accept p60 / 不答 p59 / reject p58 / 另派 p61） | pass（2026-11-06；四路径均为真实提案，见 a25-proposals 证据） |
 | M6-C03 | ChatMemory 长期记忆 | 所有非 `!` 玩家消息入库；grep/compact 正常；动作脑回复 attach 到原请求；panel/游戏内一致 | 缺真实玩家；compact 与跨重启已验 | pass（compact 后 41 entries；重启后 grep C03 token 成功） |
 | M6-F02 | 单一发言者 | 普通聊天不再触发 A11 chat 直发；语言脑与 A11/M6 不同时说话；ChatMemory 不重复写 user | 受控验证通过；真实多人未验 | pass（普通聊天后日志无 chat wake；同批仅 1 assistant） |
-| M7-A26 | 回归与降级 | `!`、反射、取消、双通道在 unified 下不退化；关模型/搜索/CU 时仍可降级 | 取消/反射/双通道未测；`--dig stone` 点位失败 | partial（协议 23/23、登录/寻路 7/7、砍与一次挖已过） |
-| M7-F03 | 默认统一与回退 | 默认 unified 可启动；language.brain=legacy 可完整回退；旧插件无 source 不绕过语言脑；raw:true 例外 | legacy 回退未回归；`raw:true` 例外未单独验 | partial（默认 unified 与旧插件路径已跑） |
-| M7-E03 | 证据归档 | 上述结果写回 A 矩阵/客户端记录；未执行项不填 PASS；记录版本/账号/配置/证据路径 | 版本/账号/配置/证据路径未系统归档 | 未执行（2026-10-25 仅对齐 A23–A25 与套件计数） |
-| A33 | 完全自主模式（真机 8 项） | `!autonomous on` 自驱 ≥3 轮；任务忙拒（无入队/无 goal）；`@` 忙拒不 forward 且普通聊天正常；全程无审批；死亡自动重生；遗体取回物品；`!stop` 暂停/`!autonomous on` 恢复；重启 `paused(restart)` | **部分执行**：A33.1/A33.4/A33.7 真机 PASS（2026-11-01 重启 DSH 后，含启动接管遗留 active goal 的修复）；A33.2/3/5/6/8 未执行；离线 `p1:autonomous:test 33/33`、Mod 协议 `client:test 83/83` | 部分（见 [`FULLY-AUTONOMOUS.md`](FULLY-AUTONOMOUS.md) §9） |
+| M7-A26 | 回归与降级 | `!`、反射、取消、双通道在 unified 下不退化；关模型/搜索/CU 时仍可降级 | 取消/反射/双通道未测；`--dig stone` 点位失败 | 部分（§9 M7.1；协议 23/23、登录/寻路 7/7、砍与一次挖已过） |
+| M7-F03 | 默认统一与回退 | 默认 unified 可启动；language.brain=legacy 可完整回退；旧插件无 source 不绕过语言脑；raw:true 例外 | legacy 回退未回归；`raw:true` 例外未单独验 | 部分（§9 M7.5；默认 unified 与旧插件路径已跑） |
+| M7-E03 | 证据归档 | 上述结果写回 A 矩阵/客户端记录；未执行项不填 PASS；记录版本/账号/配置/证据路径 | 版本/账号/配置/证据路径未系统归档 | 未执行（§9 M7.6；2026-10-25 仅对齐 A23–A25 与套件计数） |
+| A33 | 完全自主模式（真机 8 项） | `!autonomous on` 自驱 ≥3 轮；任务忙拒（无入队/无 goal）；`@` 忙拒不 forward 且普通聊天正常；全程无审批；死亡自动重生；遗体取回物品；`!stop` 暂停/`!autonomous on` 恢复；重启 `paused(restart)` | **部分执行**：A33.1/A33.4/A33.7 真机 PASS（2026-11-01 重启 DSH 后，含启动接管遗留 active goal 的修复）；**2026-11-07 复核：A33.2 PASS、A33.8 PASS、A33.3 PASS（修复后：`channel=dialogue` 下 `挖铁` → busy/无 forward，`在干嘛` → status，`你好` → 正常 roleplay）、A33.5 PASS（3 次死亡 496–596ms 重生）、A33.6 FAIL（交付阻断：回收 `path-failed`，分段/绕行补丁无效）**；离线 `p1:autonomous:test 33/33`、Mod 协议 `client:test 83/83` | 部分（见 [`FULLY-AUTONOMOUS.md`](FULLY-AUTONOMOUS.md) §9、[`P1-M7.md`](P1-M7.md) §7） |
 
-M6 证据见 [`M6-LANGUAGE-TESTS.md`](M6-LANGUAGE-TESTS.md)。A23 已按操作员口径通过（40×3 统计未执行）；A25 详见 [`M6-A25-CLIENT-TESTS.md`](M6-A25-CLIENT-TESTS.md)（accept 真 harness，其余受控植入）。
+M6 证据见 [`M6-LANGUAGE-TESTS.md`](M6-LANGUAGE-TESTS.md)。A23 已按操作员口径通过（40×3 统计未执行）；A25 详见 [`M6-A25-CLIENT-TESTS.md`](M6-A25-CLIENT-TESTS.md)（四路径均为真实动作脑提案，2026-11-06）。
 
 > **口径（2026-10-25 复核）**：本表的 `pass` 只表示该项在所列条件下已验，**不等于阶段通过**。
 > **M4-A18/A19/A20 因 2026-10-25 需求变更重开**：旧编排子集（只能 `submit_task`）不算 A18，
 > 需按 [`M4-DIRECT-BODY-PLAN.md`](M4-DIRECT-BODY-PLAN.md) 实现直接 `body_*` 原语后重验。
 > `M6-A25` 的 `pass` 只覆盖提案**生命周期**（四路径、3 分钟冷却、不答非同意）；
 > `M6-A24` 的 `pass` 是**受控并发**（发送者由 `/chat/inject` 合成，非真实多人）。
-> M6 阶段判定仍为 **PARTIAL**，以 [`P1-CLIENT-VERIFICATION.md`](P1-CLIENT-VERIFICATION.md) §0/§8 为准。
+> **M6 阶段判定 = PASS（2026-11-06）**：A23 按操作员口径、A24 受控并发、A25 四路径真实提案、R2/R3 真机通过；
+> 以 [`P1-CLIENT-VERIFICATION.md`](P1-CLIENT-VERIFICATION.md) §0/§8 为准（上一行 2026-10-25 的 PARTIAL 为历史）。
 
 > **口径（2026-10-29 变更，2026-10-30 复核）**：M5 的执行底座从 OS 级 `computer_use` 改为 Minecraft **进程内输入层**
 > （mod 在游戏进程内注入按键/视角/槽位点击 + 帧缓冲截图，经 HTTP 交 Node；Node 持唯一身体执行权、键鼠台账与结果验证）。
@@ -51,9 +58,10 @@ M6 证据见 [`M6-LANGUAGE-TESTS.md`](M6-LANGUAGE-TESTS.md)。A23 已按操作�
 > `src/computer/*` 与契约测试只作历史证据保留（见 [`CU-ABANDONED.md`](CU-ABANDONED.md)）。
 > 原闸门 **F1 作废**，改 **F1'a（结构性不可出界）/F1'b（键鼠台账）**；**A21/A22 不再标 N/A**、按新路径重跑
 > （A21 故障注入改为游戏内暂停/GUI 被外部关闭/库存变化/长按；A22 判定为台账归零 + 复用前后 token/调用差值）。
-> **M5 现状（2026-11-05 收口）**：**PASS（A12 按操作员口径暂缓）**——F1'a 加打包 jar 断言、F1'b 七条停机路径
+> **M5 现状（2026-11-05 收口）**：**PASS（A12-GUI 按操作员口径暂缓）**——F1'a 加打包 jar 断言、F1'b 七条停机路径
 > 真机、A21 PASS（agent 技能层 2 GUI ×3 + 外部关闭/库存变化/攻击长按/挖掘长按）、A22 PASS（复用 0 次生成调用）、
 > M5.3 PASS（A07/A08）。历史（2026-10-29）：实现并真机验证链路，A21 只到"探针直连 mod"、A22/M5.3 未执行。
+> **A08 已由 F1'b 回填为整项 PASS（2026-11-05）**：七条停机路径 + A29 迟到输出。
 > 本表不含 M5 行，完整口径见 [`P1-M5.md`](P1-M5.md) §7/§13。
 
 ## 2026-10-24 执行证据

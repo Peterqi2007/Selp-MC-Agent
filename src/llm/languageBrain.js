@@ -37,6 +37,18 @@ const PROFILE_TOOLS = {
   approval: []
 };
 
+/**
+ * Fully-autonomous mode owns the body, so a work request on the addressed/dialogue channel
+ * must be refused BEFORE profile classification. The classifier can label an imperative line
+ * "roleplay" (observed live: `挖铁`), and the approval-only gate then never runs. The list is
+ * deliberately narrow: multi-character action words, never bare verbs that also occur in
+ * small talk ("看", "打", "吃").
+ */
+const AUTONOMOUS_WORK_REQUEST = /(挖|砍|采|合成|熔炼|种|钓|攻击|击杀|跟随|跟着|过来|建造|搭|修|装备|丢|射|开火|停下|别动|帮我|mine|chop|craft|smelt|farm|fish|attack|kill|follow|withdraw|deposit|goto|go\s+to|build|dig|place|equip|shoot)/i;
+
+/** "what are you doing" is a status question, not work: answer it instead of silencing. */
+const AUTONOMOUS_STATUS_QUESTION = /(在)?(干嘛|干什么|做什么|忙什么|在做什么|在忙什么)/;
+
 /** Same source-stripping rule as LanguageAgent: URLs stay auditable, not spoken. */
 function stripSpokenSources(text) {
   return String(text || '')
@@ -198,6 +210,54 @@ class LanguageBrain {
     }
     if (source === 'chat' || source === 'dialogue' || source === 'panel') {
       this._rememberIncoming({ from: speaker, text });
+    }
+
+    /**
+     * Fully autonomous mode: the addressed/dialogue channel is gated here, before the
+     * classifier. A work request gets the mode's busy line and is never forwarded; a status
+     * question gets a deterministic answer (silence there is a dead end, not a decision).
+     * Ordinary unaddressed chat keeps its normal roleplay/silence policy.
+     */
+    const autonomous = this.ctx && this.ctx.autonomous;
+    if (
+      autonomous &&
+      typeof autonomous.isActive === 'function' &&
+      autonomous.isActive() &&
+      (source === 'dialogue' || source === 'addressed' || source === 'panel')
+    ) {
+      if (AUTONOMOUS_STATUS_QUESTION.test(text)) {
+        const line = typeof autonomous.busyLine === 'function' ? autonomous.busyLine() : null;
+        if (line) {
+          this.stats.profile.roleplay = (this.stats.profile.roleplay || 0) + 1;
+          const spoke = await this._say(line, { source, profile: 'roleplay', kind: 'message', inputText: text });
+          return {
+            ok: spoke === true,
+            profile: 'roleplay',
+            decision: 'status',
+            spoke: spoke === true,
+            text: spoke === true ? line : null,
+            reason: 'autonomous-status'
+          };
+        }
+      }
+      if (AUTONOMOUS_WORK_REQUEST.test(text)) {
+        const gate = typeof autonomous.gateApproval === 'function' ? autonomous.gateApproval(text) : null;
+        if (gate && gate.blocked) {
+          if (typeof autonomous.noteBusyReply === 'function') autonomous.noteBusyReply();
+          this.stats.profile.approval = (this.stats.profile.approval || 0) + 1;
+          const spoke = await this._say(gate.line, { source, profile: 'approval', kind: 'message', inputText: text });
+          return {
+            ok: true,
+            profile: 'approval',
+            decision: 'busy',
+            approved: false,
+            autonomous: true,
+            spoke: spoke === true,
+            text: spoke === true ? gate.line : null,
+            reason: 'autonomous-busy'
+          };
+        }
+      }
     }
 
     let profile = requested;
@@ -549,7 +609,7 @@ class LanguageBrain {
        */
       this._autonomousLine(),
       source === 'dialogue' || source === 'addressed' || source === 'panel'
-        ? '- This arrived through the addressed dialogue channel; the player expects an answer or a refusal.'
+        ? '- This arrived through the addressed dialogue channel; the player expects an answer or a refusal. A direct question about what you are doing must be answered with say, not silence.'
         : null,
       source === 'chat'
         ? '- SOURCE=CHAT is UNADDRESSED background chat. Default: silence. Speak when they explicitly mention you, ask you/your group a direct question, talk about you (agent/bot/是不是人/机), make a direct group suggestion/plan (可以/要不要/一起/搞/造/建), ask for help, share a player achievement worth a short praise, express frustration/loss worth a short comfort, express confusion about a gameplay mechanic (you MUST call web_search once before answering, even if you think you know; if search fails, say you cannot confirm), or make a clear group joke/banter where a brief reaction fits. Stay silent on neutral statements, acknowledgements, bare reactions/fragments, and third-party dialogue that does not invite you.'

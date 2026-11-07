@@ -20,6 +20,7 @@ const os = require('os');
 const path = require('path');
 
 const { TaskSlot } = require('../src/core/taskSlot');
+const { findCorpseEntities } = require('../src/skills/corpse');
 const { captureState, restoreState } = require('../src/core/sessionState');
 const { UsageLedger, normalizeUsage } = require('../src/llm/usageLedger');
 const { LlmClient } = require('../src/llm/client');
@@ -87,6 +88,34 @@ function readLines(file) {
       assert.deepStrictEqual(restored.blockedGoal, { name: 'mine:stone', at: 1000, reason: 'noPath' });
       assert.strictEqual(restored._progressSeen.get('mine:stone'), 4);
       assert.strictEqual(restored._stalls.get('mine:stone'), 1);
+    });
+
+    await check('quarantineStatus exposes active windows and strikes for the panel (R4)', () => {
+      const qslot = new TaskSlot({}, { log: silent });
+      qslot.failCounts.set('deposit', 3);
+      qslot.quarantine.set('expired', Date.now() - 1000);
+      qslot.quarantine.set('deposit', Date.now() + 30000);
+      const view = qslot.quarantineStatus();
+      assert.strictEqual(view.active.length, 1, 'expired windows are dropped');
+      assert.strictEqual(view.active[0].name, 'deposit');
+      assert(view.active[0].remainingMs > 0);
+      assert.strictEqual(view.failCounts.deposit, 3);
+    });
+
+    await check('corpse matching accepts the live entity shape (A33.6)', () => {
+      const snapshot = {
+        position: { x: 0, y: 64, z: 0 },
+        entities: [
+          { id: 1, type: 'entity.corpse.corpse', name: 'corpse:corpse', position: { x: 2, y: 64, z: 0 } },
+          { id: 2, type: 'entity.minecraft.zombie', name: 'minecraft:zombie', position: { x: 3, y: 64, z: 0 } }
+        ]
+      };
+      const found = findCorpseEntities(snapshot, { types: ['corpse:corpse'], radius: 16 });
+      assert.strictEqual(found.length, 1, 'the live type/name pair must match exactly once');
+      assert.strictEqual(found[0].id, 1);
+      assert.strictEqual(found[0].distance, 2);
+      const bare = findCorpseEntities(snapshot, { types: ['corpse'], radius: 16 });
+      assert.strictEqual(bare.length, 1, 'a bare type hint must still match the Java-shaped id');
     });
 
     await check('malformed ledger entries are dropped, not trusted', () => {

@@ -129,7 +129,7 @@
 | 文档 | 与规划器相关的部分 |
 | --- | --- |
 | [`ARCHITECTURE.md`](ARCHITECTURE.md) | §3.2 决策与调度；§九 #1/#5/#10/#11/#13；§9.1 |
-| [`../README.md`](../README.md) | §3 当前状态、§9 已知限制 |
+| [`../TECHNICAL.md`](../TECHNICAL.md) | §3 当前状态、§9 已知限制 |
 | [`MINING-LLM-PLAN.md`](MINING-LLM-PLAN.md) | §5.6 统一入口（`MineOreTask` 适配器、不二次提交 TaskHub）；§6.4 阶段判定 |
 | [`LLM-INTEGRATION-PLAN.md`](LLM-INTEGRATION-PLAN.md) | `task:quarantined` 事件（**P8：文档有、代码无**） |
 | [`CONTROL-PANEL-ANALYSIS.md`](CONTROL-PANEL-ANALYSIS.md) / [`CONTROL-PANEL-IMPLEMENTATION.md`](CONTROL-PANEL-IMPLEMENTATION.md) | 早期对 `Brain.queue` / 优先级 / 重试的分析（**brain 行号已过期**，结论按当时版本读） |

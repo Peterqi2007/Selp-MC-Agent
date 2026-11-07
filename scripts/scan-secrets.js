@@ -163,6 +163,6 @@ for (const h of hits) {
 }
 process.stderr.write(
   'Remove the value (move it to an env var / untracked file). If it is already committed, rotate\n' +
-    'the credential first, then rewrite history - see README "泄露的历史怎么清理".\n'
+    'the credential first, then rewrite history - see SECURITY.md "4. 本仓库做过的历史清理".\n'
 );
 process.exit(1);

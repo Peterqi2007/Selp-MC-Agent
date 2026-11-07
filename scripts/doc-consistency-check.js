@@ -19,9 +19,9 @@ const path = require('path');
 const root = path.resolve(__dirname, '..');
 process.chdir(root);
 
-/** Files that carry the current status of the P1 stages (README summary + status docs). */
+/** Files that carry the current status of the P1 stages (technical reference + status docs). */
 const STATUS_DOCS = [
-  'README.md',
+  'TECHNICAL.md',
   'docs/P1-M5.md',
   'docs/P1-CLIENT-TESTS.md',
   'docs/P1-CLIENT-VERIFICATION.md',
@@ -35,6 +35,7 @@ const STATUS_DOCS = [
 const read = (file) => fs.readFileSync(file, 'utf8');
 const allDocs = () => [
   'README.md',
+  'TECHNICAL.md',
   ...fs.readdirSync('docs').filter((name) => name.endsWith('.md')).map((name) => path.join('docs', name))
 ];
 
@@ -62,10 +63,22 @@ const check = (name, ok, detail) => {
   check('M5 PASS stated in every status doc', missing.length === 0, missing);
 }
 
-// 3. The deferral must never silently become a pass.
+// 3. The A12 split: the M2 threat/performance item is A12; the deferred GUI re-run is A12-GUI.
+//    The deferral must never silently become a pass, and the two must not be merged again.
 {
-  const missing = STATUS_DOCS.filter((file) => !/A12[^\n]{0,40}暂缓|暂缓[^\n]{0,40}A12/.test(read(file)));
-  check('A12 is recorded as deferred', missing.length === 0, missing);
+  const missing = STATUS_DOCS.filter((file) => !/A12-GUI[^\n]{0,60}暂缓|暂缓[^\n]{0,60}A12-GUI/.test(read(file)));
+  check('A12-GUI is recorded as deferred', missing.length === 0, missing);
+  const merged = STATUS_DOCS.filter((file) => /A12[ \t]*(?:（GUI 内自卫反射）|按操作员口径暂缓)/.test(read(file)));
+  check('the deferred GUI item is named A12-GUI (not plain A12)', merged.length === 0, merged);
+}
+
+// 3a. A08 is closed by the F1'b evidence, never left as "partial: death/disconnect untested".
+{
+  const docs = ['docs/P1-CLIENT-TESTS.md', 'docs/P1-M7.md', 'docs/P1-CLIENT-VERIFICATION.md', 'docs/table.md'];
+  const missing = docs.filter((file) => !read(file).split('\n').some((line) => /A08/.test(line) && /F1'b/.test(line)));
+  check('A08 is closed with F1b evidence', missing.length === 0, missing);
+  const stale = docs.filter((file) => /A08[^\n]{0,160}(?:死亡|断线)[^\n]{0,60}(?:未测|未执行)/.test(read(file)));
+  check('A08 no longer claims death/disconnect untested', stale.length === 0, stale);
 }
 
 // 3b. A23 is closed by an explicit operator judgement, never presented as a statistical pass.
@@ -89,8 +102,8 @@ const check = (name, ok, detail) => {
 
 // 3c. M6 is closed on the real-client record (A23 operator judgement, A24 controlled, A25 four paths).
 {
-  const docs = ['README.md', 'docs/P1-CLIENT-VERIFICATION.md', 'docs/P1-HANDOFF.md', 'docs/P1-M7.md'];
-  const stageDocs = ['README.md', 'docs/P1-CLIENT-VERIFICATION.md', 'docs/P1-HANDOFF.md'];
+  const docs = ['TECHNICAL.md', 'docs/P1-CLIENT-VERIFICATION.md', 'docs/P1-HANDOFF.md', 'docs/P1-M7.md'];
+  const stageDocs = ['TECHNICAL.md', 'docs/P1-CLIENT-VERIFICATION.md', 'docs/P1-HANDOFF.md'];
   const missing = stageDocs.filter((file) => {
     const docLines = read(file).split(String.fromCharCode(10));
     return !docLines.some((line, index) => /M6/.test(line) && (/PASS/.test(line) || /PASS/.test(docLines[index + 1] || '')));
@@ -125,6 +138,13 @@ const check = (name, ok, detail) => {
   check('P1-M5 §13 (closure) exists', /^## 13\./m.test(read('docs/P1-M5.md')), null);
   const refs = allDocs().filter((file) => /§13/.test(read(file)));
   check('the closure section is referenced', refs.length >= 5, refs.length);
+}
+
+// 6b. table.md and the M7 gate table carry the same M7 rows (A26/F03/E03), not one empty and one filled.
+{
+  const pair = ['docs/table.md', 'docs/P1-CLIENT-VERIFICATION.md'];
+  const missing = pair.filter((file) => !/M7-A26/.test(read(file)) || !/M7-F03/.test(read(file)) || !/M7-E03/.test(read(file)));
+  check('table.md and the M7 gate table share A26/F03/E03', missing.length === 0, missing);
 }
 
 const failed = results.filter((entry) => !entry.ok);

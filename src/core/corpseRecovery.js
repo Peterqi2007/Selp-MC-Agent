@@ -106,6 +106,76 @@ function hazardAt(body, position) {
 }
 
 /**
+ * Walk to the corpse in short waypoints instead of one 50-block `moveTo`.
+ *
+ * Live A33.6 2026-11-07: a single `moveTo(deathPosition, {range:2.5})` gave up with
+ * "no usable subgoal within 5 blocks of (-11,69,28)" after ~17s, so the walk never reached
+ * the corpse. Short segments recompute A* from the current cell, and a lateral detour around
+ * a blocked waypoint is cheaper than declaring the whole corpse unreachable.
+ */
+async function walkTo(body, target, options = {}) {
+  const log = options.log || { info() {}, warn() {}, debug() {} };
+  const cancelled = typeof options.cancelled === 'function' ? options.cancelled : () => false;
+  const budgetMs = Number.isFinite(Number(options.budgetMs)) ? Number(options.budgetMs) : 120000;
+  const deadline = Date.now() + budgetMs;
+  const snapshot = () => (typeof body.snapshot === 'function' ? body.snapshot() : null);
+  let snap = snapshot();
+  let from = snap && snap.position ? snap.position : null;
+  const total = distance(from, target);
+  if (!from || !Number.isFinite(total)) return { ok: false, reason: 'unknown-position' };
+  if (total <= 3.5) return { ok: true };
+  const dir = { x: (Number(target.x) - from.x) / total, z: (Number(target.z) - from.z) / total };
+  const perp = { x: -dir.z, z: dir.x };
+  const step = 8;
+  const waypoints = [];
+  for (let travelled = step; travelled < total - 2; travelled += step) {
+    /** Interpolate Y too: aiming at the start height inside a hillside is not walkable. */
+    const fraction = travelled / total;
+    waypoints.push({
+      x: from.x + dir.x * travelled,
+      y: from.y + (Number(target.y) - from.y) * fraction,
+      z: from.z + dir.z * travelled
+    });
+  }
+  waypoints.push({ x: Number(target.x), y: Number(target.y), z: Number(target.z) });
+
+  for (const waypoint of waypoints) {
+    if (cancelled()) return { ok: false, reason: 'cancelled' };
+    if (Date.now() > deadline) return { ok: false, reason: 'path-failed', detail: `budget at ${fmt(waypoint)}` };
+    snap = snapshot();
+    const here = snap && snap.position ? snap.position : null;
+    if (here && distance(here, target) <= 3.5) return { ok: true };
+    const y = Number.isFinite(Number(waypoint.y)) ? Number(waypoint.y) : (here ? here.y : Number(target.y));
+    const aims = [
+      { x: waypoint.x, y, z: waypoint.z },
+      { x: waypoint.x + perp.x * 6, y, z: waypoint.z + perp.z * 6 },
+      { x: waypoint.x - perp.x * 6, y, z: waypoint.z - perp.z * 6 }
+    ];
+    let reached = false;
+    for (const aim of aims) {
+      const timeoutMs = Math.min(25000, Math.max(3000, deadline - Date.now()));
+      try {
+        await body.moveTo(aim, { range: 1.8, timeoutMs, pathfind: true });
+      } catch (err) {
+        log.debug(`corpse walk: ${err.message}`);
+      }
+      snap = snapshot();
+      const at = snap && snap.position ? snap.position : null;
+      if (at && (distance(at, target) <= 3.5 || distance(at, waypoint) <= 4.5)) { reached = true; break; }
+      if (Date.now() > deadline) break;
+    }
+    if (!reached) {
+      return { ok: false, reason: 'path-failed', detail: `stopped ${fmt(snap && snap.position)} at ${fmt(waypoint)}` };
+    }
+  }
+  snap = snapshot();
+  const at = snap && snap.position ? snap.position : null;
+  return at && distance(at, target) <= 4.5
+    ? { ok: true }
+    : { ok: false, reason: 'path-failed', detail: `stopped ${fmt(at)}` };
+}
+
+/**
  * Recover the agent's corpse after a respawn.
  *
  * @param {object} ctx agent context (body required; log optional)
@@ -154,24 +224,12 @@ async function recoverCorpse(ctx, options = {}) {
   const types = Array.isArray(cfg.corpseEntityTypes) ? cfg.corpseEntityTypes : ['corpse:corpse'];
 
   onStep('walking', { target: deathPosition });
-  /** Two attempts: the second one approaches the exact cell when the first stalls short. */
-  for (let attempt = 1; attempt <= 2; attempt += 1) {
-    if (cancelled(options.cancelled)) return { ok: false, reason: 'cancelled' };
-    try {
-      await body.moveTo(deathPosition, {
-        range: attempt === 1 ? 2.5 : 1.5,
-        timeoutMs: 60000,
-        pathfind: true
-      });
-    } catch (err) {
-      log.debug(`corpse recovery: move attempt ${attempt} failed: ${err.message}`);
-    }
-    const snap = typeof body.snapshot === 'function' ? body.snapshot() : null;
-    if (snap && snap.position && distance(snap.position, deathPosition) <= 3.5) break;
-    if (attempt === 2) {
-      return { ok: false, reason: 'path-failed', detail: `stopped ${fmt(snap && snap.position)}` };
-    }
-  }
+  const walked = await walkTo(body, deathPosition, {
+    log,
+    cancelled: options.cancelled,
+    budgetMs: Number.isFinite(Number(cfg.walkTimeoutMs)) ? Number(cfg.walkTimeoutMs) : 120000
+  });
+  if (!walked.ok) return { ok: false, reason: walked.reason || 'path-failed', detail: walked.detail };
 
   onStep('searching', { radius });
   let corpse = null;

@@ -14,7 +14,7 @@
 > | 「最小修复路径：加约 80 行 clientmod 分支」 | 已完成，且远不止 80 行 |
 > | AuthMe 由测试脚本登录 | 已由 `src/core/authme.js` 在 `brain.start()` 之前自动登录（只 `/login`，永不 `/register`） |
 >
-> **当前状态以这些为准**：[`../README.md`](../README.md) §3（进展与当前状态）、
+> **当前状态以这些为准**：[`../TECHNICAL.md`](../TECHNICAL.md) §3（进展与当前状态）、
 > [`ARCHITECTURE.md`](ARCHITECTURE.md)（代码级架构，含 §九 真实缺口）、
 > [`REWRITE-PLAN.md`](REWRITE-PLAN.md)（逐批次真机/离线验证记录）。
 >

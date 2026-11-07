@@ -1133,33 +1133,60 @@ function startStatusServer(ctx, options = {}) {
         const from = String(body.from || 'A23Tester').trim().slice(0, 32) || 'A23Tester';
         const text = String(body.text || '').trim();
         if (!text) return json(res, 400, { ok: false, error: 'text required' });
+        /**
+         * A02/A33.3 need the *real* channel, not ordinary chat: `onOther` bypasses the
+         * trigger/addressed parsing, so an `@name <work>` probe would never reach the
+         * dialogue gate. `channel` is test-hook-only and defaults to the old behaviour.
+         */
+        const channel = String(body.channel || 'chat').toLowerCase();
+        if (!['chat', 'dialogue', 'addressed'].includes(channel)) {
+          return json(res, 400, { ok: false, error: 'channel must be chat|dialogue|addressed' });
+        }
         recordPlayerMessage(ctx.chatMemory, { from, text, prefix: '!', ownName: null });
         const currentDecision = () => ctx.lastLanguageDecision || null;
+        const currentRoute = () => ctx.lastDialogueRoute || null;
         const before = currentDecision();
+        const beforeRoute = currentRoute();
+        const waitFor = async () => {
+          const deadline = Date.now() + 15000;
+          while (Date.now() < deadline && currentDecision() === before && currentRoute() === beforeRoute) {
+            await new Promise((resolve) => setTimeout(resolve, 200));
+          }
+          const latest = currentDecision();
+          const route = currentRoute();
+          const changed = latest !== before || route !== beforeRoute;
+          const status =
+            ctx.languageBrain && typeof ctx.languageBrain.status === 'function'
+              ? ctx.languageBrain.status()
+              : null;
+          const record = route && route !== beforeRoute
+            ? route
+            : latest && latest !== before
+              ? latest
+              : status && status.lastDecision === 'silence' && status.lastSilence
+                ? { ok: true, ...status.lastSilence, spoke: false, silent: true }
+                : status && status.lastDecision === 'say' && status.lastText
+                  ? { ok: true, profile: 'roleplay', spoke: true, text: status.lastText }
+                  : null;
+          return { changed, record };
+        };
+        if (channel === 'dialogue' || channel === 'addressed') {
+          const handler = channel === 'dialogue' ? ctx.chatListener && ctx.chatListener.onDialogue : ctx.chatListener && ctx.chatListener.onAddressed;
+          if (typeof handler !== 'function') {
+            return json(res, 503, { ok: false, error: `${channel} channel unavailable` });
+          }
+          const receipt = await handler(text, `<${from}> ${text}`);
+          const { changed, record } = await waitFor();
+          return json(res, 200, { ok: true, channel, receipt: receipt || null, queued: !changed, record });
+        }
         /**
          * Exercise the real ordinary-chat intake (own-name filter, proposal chat, A11
          * guard, fire-and-forget LanguageBrain), not just LanguageBrain.handle directly.
          */
         if (ctx.chatListener && typeof ctx.chatListener.onOther === 'function') {
           await ctx.chatListener.onOther(`<${from}> ${text}`);
-          const deadline = Date.now() + 15000;
-          while (Date.now() < deadline && currentDecision() === before) {
-            await new Promise((resolve) => setTimeout(resolve, 200));
-          }
-          const latest = currentDecision();
-          const changed = latest !== before;
-          const status =
-            ctx.languageBrain && typeof ctx.languageBrain.status === 'function'
-              ? ctx.languageBrain.status()
-              : null;
-          const record = latest
-            ? latest
-            : status && status.lastDecision === 'silence' && status.lastSilence
-              ? { ok: true, ...status.lastSilence, spoke: false, silent: true }
-              : status && status.lastDecision === 'say' && status.lastText
-                ? { ok: true, profile: 'roleplay', spoke: true, text: status.lastText }
-                : null;
-          return json(res, 200, { ok: true, queued: !changed, record });
+          const { changed, record } = await waitFor();
+          return json(res, 200, { ok: true, channel: 'chat', queued: !changed, record });
         }
         const record = await ctx.languageBrain.handle({
           text,
@@ -1167,7 +1194,52 @@ function startStatusServer(ctx, options = {}) {
           speaker: from,
           profile: 'roleplay'
         });
-        return json(res, 200, { ok: record.ok !== false, record });
+        return json(res, 200, { ok: record.ok !== false, channel: 'chat', record });
+      }
+
+      /**
+       * Test-only corpse-recovery probe (A33.6).
+       *
+       * The mode only runs recovery after a real death, so re-testing the walk/loot path used
+       * to require another death (and the death-loop guard can pause the mode first). This
+       * hook calls the SAME `recoverCorpse` with the recorded death (or an explicit position)
+       * while the body is idle; it never respawns or touches the curriculum.
+       *
+       *   POST /test/corpse-recover { position?, dimension? }
+       */
+      if (req.method === 'POST' && url.pathname === '/test/corpse-recover') {
+        if (!testHooks) return json(res, 404, { ok: false, error: 'not found' });
+        if (!ctx.body || !ctx.autonomous) return json(res, 503, { ok: false, error: 'corpse recovery unavailable' });
+        if (ctx.hub && typeof ctx.hub.status === 'function' && ctx.hub.status().busy) {
+          return json(res, 409, { ok: false, error: 'task-busy' });
+        }
+        if (ctx.brain && ctx.brain.current) return json(res, 409, { ok: false, error: 'brain-busy' });
+        let body = {};
+        try {
+          body = JSON.parse((await readRaw(req)) || '{}');
+        } catch {
+          return json(res, 400, { ok: false, error: 'invalid JSON' });
+        }
+        const death = body.position
+          ? {
+            position: { x: Number(body.position.x), y: Number(body.position.y), z: Number(body.position.z) },
+            dimension: body.dimension || null
+          }
+          : (ctx.autonomous.death || null);
+        if (!death || !death.position) return json(res, 400, { ok: false, error: 'no-death-record' });
+        const cfg = (ctx.autonomous.cfg && ctx.autonomous.cfg.death) || {};
+        const snap = typeof ctx.body.snapshot === 'function' ? ctx.body.snapshot() : null;
+        const { recoverCorpse } = require('../core/corpseRecovery');
+        const result = await recoverCorpse(ctx, {
+          death,
+          cfg,
+          inventoryBefore: (snap && snap.inventory) || {},
+          onStep: (step, detail) => {
+            if (ctx.log) ctx.log.info(`corpse-recover probe: ${step} ${JSON.stringify(detail || {})}`);
+          }
+        });
+        ctx.autonomous.lastRecovery = result;
+        return json(res, 200, { ok: result.ok === true, result });
       }
 
       /** Test-only planted autonomous proposal for lifecycle paths (reject/expire/supersede). */
@@ -1673,6 +1745,14 @@ function uiState(ctx) {
           : null
       }
       : { busy: false, current: null, recent: [], slot: null },
+    /**
+     * R4: active quarantine windows + strike ledger. `task:quarantined` was only visible in
+     * the event stream and a DEBUG log line; the panel could not show "why is this goal
+     * parked". Read-only, same facts the gate enforces.
+     */
+    taskSlot: ctx.brain && ctx.brain.slot && typeof ctx.brain.slot.quarantineStatus === 'function'
+      ? ctx.brain.slot.quarantineStatus()
+      : null,
     consent: ctx.consent ? ctx.consent.status() : { pending: null, recent: [] },
     permissions: ctx.permissions ? ctx.permissions.summary() : null,
     places: ctx.places
@@ -1901,6 +1981,9 @@ function dashboardPage(state) {
     `<span class="dim">大脑:</span><span class="${brain.stopped ? 'err' : 'ok'}">${brain.stopped ? '已停止' : brain.paused ? '暂停' : brain.running ? '运行中' : '未启动'}</span>` +
     `<span class="dim">当前:</span><span>${esc(brain.current ? brain.current.description : 'idle')}</span>` +
     `<span class="dim">队列:</span><span>${esc(brain.queueLength)}</span>` +
+    (Array.isArray(state.taskSlot && state.taskSlot.active) && state.taskSlot.active.length
+      ? `<span class="err">隔离: ${esc(state.taskSlot.active.map((q) => `${q.name} ${Math.round(q.remainingMs / 1000)}s`).join(', '))}</span>`
+      : '') +
     `<span class="dim">LLM:</span><span>${llm.enabled ? '✅ ' + esc(llm.model) : '未启用'}</span>` +
     `<span class="dim">手持:</span><span>${esc(world.heldItem || '空')}</span>` +
     (brain.autoPlanDisabled
@@ -2002,6 +2085,9 @@ function statePage(state) {
     `<span class="dim">大脑:</span><span class="${brain.stopped ? 'err' : 'ok'}">${brain.stopped ? '已停止' : brain.paused ? '暂停' : brain.running ? '运行中' : '未启动'}</span>` +
     `<span class="dim">当前:</span><span>${esc(brain.current ? brain.current.description : 'idle')}</span>` +
     `<span class="dim">队列:</span><span>${esc(brain.queueLength)}</span>` +
+    (Array.isArray(state.taskSlot && state.taskSlot.active) && state.taskSlot.active.length
+      ? `<span class="err">隔离: ${esc(state.taskSlot.active.map((q) => `${q.name} ${Math.round(q.remainingMs / 1000)}s`).join(', '))}</span>`
+      : '') +
     `<span class="dim">LLM:</span><span>${llm.enabled ? '✅ ' + esc(llm.model) : '未启用'}</span>` +
     '<span class="dim">本块每 2 秒由服务器自刷新，不需要 JavaScript</span>' +
     '</div>' +

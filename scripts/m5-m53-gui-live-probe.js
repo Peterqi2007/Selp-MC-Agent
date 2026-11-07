@@ -1,16 +1,16 @@
 'use strict';
 
 /**
- * `node scripts/m5-m53-gui-live-probe.js` - M5.3: A07 / A08 / A12 re-run with a GUI open.
+ * `node scripts/m5-m53-gui-live-probe.js` - M5.3: A07 / A08 / A12-GUI re-run with a GUI open.
  *
  * M5.3 asks whether the invariants M1/M2 established still hold when a screen is up:
  *   A07  single body owner      - a background task and a raw input both claim the body?
  *   A08  stop is bounded        - `stop` while a GUI is open must clear the ledger and the
  *                                 body in <=3s;
- *   A12  threat response        - the self-defence reflex must still fire while a GUI is open.
+ *   A12-GUI  threat response    - the self-defence reflex must still fire while a GUI is open.
  *
  * All actions go through the agent (`POST /command` with `via:"mc_step"`); observations come
- * from the agent's `/ui/state`. A12 needs a hostile mob; when none is in range the row is
+ * from the agent's `/ui/state`. A12-GUI needs a hostile mob; when none is in range the row is
  * recorded as NOT_RUN with the reason instead of being counted as a pass.
  *
  * Usage: node scripts/m5-m53-gui-live-probe.js [--agent 8766] [--out runtime/evidence]
@@ -153,21 +153,21 @@ async function a08StopInGui() {
   evidence.cases.a08 = { elapsedMs: elapsed, stop: stop && stop.ok, heldBefore: ledgerBefore };
 }
 
-// ------------------------------------------------------------------ A12
-async function a12ThreatInGui() {
-  process.stdout.write('\nA12 (GUI): threat response with a screen open\n');
+// ------------------------------------------------------------------ A12-GUI
+async function a12GuiThreatInGui() {
+  process.stdout.write('\nA12-GUI (GUI): threat response with a screen open\n');
   const snapshot = await state();
   const threat = (snapshot && snapshot.selfDefense) || {};
   if (!threat.enabled) {
-    notRun('A12: the self-defence reflex is enabled', 'behaviour.autoFight is off in this configuration');
+    notRun('A12-GUI: the self-defence reflex is enabled', 'behaviour.autoFight is off in this configuration');
     return;
   }
   const hostiles = await step('target');
-  check('A12: the target probe answers through the agent', Boolean(hostiles && hostiles.ok), hostiles && (hostiles.reason || hostiles.ok));
+  check('A12-GUI: the target probe answers through the agent', Boolean(hostiles && hostiles.ok), hostiles && (hostiles.reason || hostiles.ok));
   // The agent has no direct hostile list on /ui/state; ask for a fresh observation instead.
   const observation = await request('GET', '/ui/state').catch(() => null);
   const nearby = (observation && observation.brain && observation.brain.hostiles) || null;
-  notRun('A12: a hostile engages the reflex while the GUI is open',
+  notRun('A12-GUI: a hostile engages the reflex while the GUI is open',
     `no reliable hostile source in /ui/state (hostiles=${JSON.stringify(nearby)}); needs a mob in range - re-run at night or next to a spawner`);
 }
 
@@ -178,7 +178,7 @@ async function main() {
 
   await a07SingleOwner();
   await a08StopInGui();
-  await a12ThreatInGui();
+  await a12GuiThreatInGui();
 
   const failed = results.filter((entry) => entry.ok === false);
   const notRuns = results.filter((entry) => entry.ok === null);

@@ -6,7 +6,7 @@
 > 接口形状（旧的三值 `action.task` 枚举、`@猫娘` 触发词）与行号都停留在当时版本。
 > **不要再照它安排工作**：计划里的两大任务如今都已落地（LLM 回合与 8 个工具、
 > `config/persona.md` 单源人设、主动发言的三个触发器），实况以
-> [`../README.md`](../README.md) §2/§3/§4 与 [`ARCHITECTURE.md`](ARCHITECTURE.md) 为准；
+> [`../TECHNICAL.md`](../TECHNICAL.md) §2/§3/§4 与 [`ARCHITECTURE.md`](ARCHITECTURE.md) 为准；
 > 逐条能力核实见 [`CAPABILITY-AUDIT.md`](CAPABILITY-AUDIT.md)（同为历史文档）。
 > 仍然有效的是它定下的**安全口径**：不给 LLM 发服务器指令的能力、不生成代码执行、
 > 反射层留在最前面（见 §六 与 `config/safety.md`）。
@@ -17,7 +17,7 @@
 >
 > **总纲**：给 Bot 接入大语言模型作为**一级决策核心**，通过系统提示词、Skill、Plugin、联网搜索获取 MC 原版与 Mod 知识，并据此选择指令完成任务。
 >
-> 前置阅读：[`ARCHITECTURE.md`](ARCHITECTURE.md)（架构与数据流）、[`../README.md`](../README.md)（踩坑记录）。
+> 前置阅读：[`ARCHITECTURE.md`](ARCHITECTURE.md)（架构与数据流）、[`../TECHNICAL.md`](../TECHNICAL.md)（踩坑记录）。
 
 ---
 

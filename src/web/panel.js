@@ -110,6 +110,7 @@ const PANEL_HTML = `<!doctype html>
     <div class="row" style="margin-top:6px">
       <span class="dim">当前:</span><span id="current">idle</span>
       <span class="dim">队列:</span><span id="queue">0</span>
+      <span id="quarantine" class="dim"></span>
     </div>
   </div>
 
@@ -273,6 +274,11 @@ function render(s) {
     if (hubLast.recoveryRuns) hubNote += ' · 接管 ' + hubLast.recoveryRuns + ' 次';
   }
   text('queue', String(s.brain.queueLength) + hubNote);
+  /** R4: a quarantined goal is parked, not idle - show the window and strike source. */
+  var q = s.taskSlot && s.taskSlot.active;
+  text('quarantine', q && q.length
+    ? (' · 隔离 ' + q.map(function (x) { return x.name + ' ' + Math.round(x.remainingMs / 1000) + 's'; }).join(', '))
+    : '');
 
   var death = el('death');
   if (s.death.dead || s.brain.stopped) {

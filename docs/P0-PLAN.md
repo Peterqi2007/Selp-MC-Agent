@@ -4,13 +4,13 @@
 >
 > **不要再照本文安排工作**：它是 P0 的方案与验收契约，不是当前路线图。收官依据（2026-10-16 实跑）：
 > `npm run p0:verify` **8/8 套件通过**、本文 **§11 的「做/不做」清单 `npm run plan:audit` 29/29 全过**、
-> `selftest 176/176`；真机自 2026-10-08 首轮起多轮通过（最新 10-13～10-14，见 [`../README.md`](../README.md) §3）。
+> `selftest 176/176`；真机自 2026-10-08 首轮起多轮通过（最新 10-13～10-14，见 [`../TECHNICAL.md`](../TECHNICAL.md) §3）。
 >
 > **唯一仍然"活着"的部分**：**§十一 的「做 / 不做」边界**——它作为**防回归契约**继续由 `npm run plan:audit`
 > 每次 CI/自检看门（做的东西必须还在、不做的东西不得悄悄溜进来）。P1 开工后应把同样的看门方式
 > 接到 [`P1-PLANNER-PLAN.md`](P1-PLANNER-PLAN.md) 上；在那之前，**改本文件 §十一 等于改验收契约**。
 >
-> **当前状态与下一步以这些为准**：[`../README.md`](../README.md) §3（进展/当前状态/限制）、
+> **当前状态与下一步以这些为准**：[`../TECHNICAL.md`](../TECHNICAL.md) §3（进展/当前状态/限制）、
 > [`P1-PLANNER-PLAN.md`](P1-PLANNER-PLAN.md)（下一阶段方案，**尚未提交入 git**）、
 > [`PLANNER-REFACTOR.md`](PLANNER-REFACTOR.md)（规划器已核实问题与重构债）、
 > [`P0-STATUS.md`](P0-STATUS.md)（P0 验收档案，同为历史文档）。

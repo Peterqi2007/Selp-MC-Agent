@@ -50,6 +50,28 @@ class TaskSlot {
     return !!this.current;
   }
 
+  /**
+   * R4: the quarantine window and strike ledger were only visible as a DEBUG log line and a
+   * `task:quarantined` event, so "the panel shows it too" could not be checked. Expose the
+   * same facts the gate uses, JSON-safe and already expired entries removed.
+   */
+  quarantineStatus() {
+    const now = Date.now();
+    const active = [];
+    for (const [name, until] of this.quarantine.entries()) {
+      const at = Number(until);
+      if (Number.isFinite(at) && at > now) {
+        active.push({ name, until: at, remainingMs: at - now });
+      }
+    }
+    active.sort((a, b) => a.until - b.until);
+    return {
+      active,
+      failCounts: Object.fromEntries([...this.failCounts.entries()]),
+      blockedGoal: this.blockedGoal || null
+    };
+  }
+
   /** The running brain task, if the owner is a planner task. */
   get brainTask() {
     return this.current && this.current.kind === 'brain' ? this.current.task : null;

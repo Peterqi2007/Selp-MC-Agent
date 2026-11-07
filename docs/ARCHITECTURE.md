@@ -3,7 +3,8 @@
 > 本文是对 `<repo>` 的**代码级架构分析**，回答三个问题：
 > **它是怎么分层的？每个模块负责什么？一个决策从产生到生效，数据在哪些模块之间流动？**
 >
-> 结论先行的版本见 [`../README.md`](../README.md)；重写计划的逐批进展与验证记录见
+> 结论先行的版本见 [`../README.md`](../README.md)（概览 / 优势与劣势 / 部署），
+> 技术细节（指令、进展、踩坑、脚本、限制）见 [`../TECHNICAL.md`](../TECHNICAL.md)；重写计划的逐批进展与验证记录见
 > [`REWRITE-PLAN.md`](REWRITE-PLAN.md)。
 >
 > **与 2026-09-30 旧版的最大区别**：主线躯体已经从 mineflayer 换成「真实 Forge 客户端 + 控制 Mod」，
@@ -11,7 +12,7 @@
 > 清单大部分已修复或被新结构取代（残留项统一收进 §九）。
 >
 > **§九 例外**：技术债表已在 **2026-10-14 按代码逐条复核**（见 §九 开头的复核说明），其余章节仍为 2026-10-07 版；
-> **§十 的套件计数已刷新到 2026-10-14 实测值**（与 [`../README.md`](../README.md) §8 同源）。
+> **§十 的套件计数已刷新到 2026-10-14 实测值**（与 [`../TECHNICAL.md`](../TECHNICAL.md) §8 同源）。
 
 ---
 
@@ -605,7 +606,7 @@ Places        ──► runtime/places.json；LLM 轨迹 ──► runtime/llm-t
 | `npm run client:verify` / `scripts/client-real.js` | 真机协议验收 / 三原语验收 | 需要客户端在跑 |
 
 离线全绿 ≠ 真机通过：真机测试需要操作员确认环境（`start.ps1` → 面板 → 按 REWRITE-PLAN §12 清单）。
-计数口径：本表为 2026-10-14 实跑值（与 `README.md` §8 同源）；改代码后请重跑 `npm run p0:verify` 与相关套件并同步两处。
+计数口径：本表为 2026-10-14 实跑值（与 `TECHNICAL.md` §8 同源）；改代码后请重跑 `npm run p0:verify` 与相关套件并同步两处。
 2026-10-21 复跑（fish 入口 + collect 修复 + deposit 统一 + withdraw 优化 + follow 技能）：`selftest 181/181`、`skills:test 74/74`、`tasks:test 57/57`、
 `control:test 43/43`、`client:test 75/75`、`p1:contract:test 206/206`、`p1:m3:test 44/44`、`plan:audit 35/35`（`--stage p1 105/105`）。
 

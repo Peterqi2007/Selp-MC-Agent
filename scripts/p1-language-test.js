@@ -116,7 +116,8 @@ function makeBrain(options = {}) {
         preferred: false,
         untrusted: true,
         count: searchOptions && searchOptions.count
-      })
+      }),
+      ...(options.ctx || {})
     },
     ...options.deps
   });
@@ -486,6 +487,61 @@ function check(name, fn) {
     } finally {
       await new Promise((resolve) => started.server.close(resolve));
     }
+  });
+
+  check('fully autonomous mode refuses addressed work before profile routing', async () => {
+    let busy = 0;
+    const { brain, calls, replies, forwarded } = makeBrain({
+      responses: [JSON.stringify({ tool: 'say', say: 'must not be reached' })],
+      ctx: {
+        autonomous: {
+          isActive: () => true,
+          gateApproval: () => ({ blocked: true, line: '正在忙：挖矿；我在 0,64,0，血 20/20。完全自主模式中，新任务暂时做不了。' }),
+          noteBusyReply: () => { busy += 1; },
+          busyLine: () => '正在忙：挖矿'
+        }
+      }
+    });
+    const result = await brain.handle({ text: '挖铁', source: 'dialogue', profile: 'auto' });
+    assert.strictEqual(result.decision, 'busy');
+    assert.strictEqual(result.reason, 'autonomous-busy');
+    assert.strictEqual(result.autonomous, true);
+    assert.strictEqual(busy, 1);
+    assert.strictEqual(calls.length, 0, 'the classifier must not run for a refused work request');
+    assert.strictEqual(forwarded.length, 0, 'a refused request is never forwarded');
+    assert(replies.some((entry) => /正在忙/.test(entry.text)));
+  });
+
+  check('fully autonomous mode answers "what are you doing" instead of silence', async () => {
+    const { brain, calls, replies } = makeBrain({
+      ctx: {
+        autonomous: {
+          isActive: () => true,
+          busyLine: () => '正在忙：挖矿；我在 0,64,0，血 20/20。'
+        }
+      }
+    });
+    const result = await brain.handle({ text: '在干嘛', source: 'dialogue', profile: 'auto' });
+    assert.strictEqual(result.decision, 'status');
+    assert.strictEqual(result.reason, 'autonomous-status');
+    assert.strictEqual(calls.length, 0, 'a status question needs no model call');
+    assert(replies.some((entry) => /正在忙/.test(entry.text)));
+  });
+
+  check('fully autonomous mode leaves ordinary unaddressed chat on the normal path', async () => {
+    const { brain, calls } = makeBrain({
+      responses: [JSON.stringify({ tool: 'silence' })],
+      ctx: {
+        autonomous: {
+          isActive: () => true,
+          gateApproval: () => ({ blocked: true, line: 'busy' }),
+          busyLine: () => 'busy'
+        }
+      }
+    });
+    const result = await brain.handle({ text: '挖铁', source: 'chat', profile: 'roleplay' });
+    assert.strictEqual(result.silent, true, 'ordinary chat keeps its own silence/participation policy');
+    assert.strictEqual(calls.length, 1, 'ordinary chat still reaches the model');
   });
 
   let failed = 0;

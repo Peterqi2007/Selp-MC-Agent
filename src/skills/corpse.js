@@ -58,12 +58,20 @@ function findCorpseEntities(snapshot, options = {}) {
   const found = [];
   for (const entity of entities) {
     if (!entity || entity.id === undefined) continue;
-    const type = String(entity.type || '').toLowerCase();
-    if (!type) continue;
-    const matches = types.some((entry) => {
+    /**
+     * Match against every identifier the mod may expose. The live 1.20.1 client reports
+     * `type: "entity.corpse.corpse"` (a Java-shaped id) while the registry name sits in
+     * `name: "corpse:corpse"`; matching only `type` missed every real corpse (live A33.6
+     * 2026-11-07: `no-corpse` while the entity was 5 blocks away).
+     */
+    const candidates = [entity.type, entity.name, entity.registryName, entity.entityType]
+      .filter((value) => typeof value === 'string' && value)
+      .map((value) => value.toLowerCase());
+    if (!candidates.length) continue;
+    const matches = candidates.some((candidate) => types.some((entry) => {
       const wanted = entry.toLowerCase();
-      return type === wanted || type.includes(wanted) || (wanted.includes(':') === false && type.includes(`:${wanted}`));
-    });
+      return candidate === wanted || candidate.includes(wanted) || (wanted.includes(':') === false && candidate.includes(`:${wanted}`));
+    }));
     if (!matches) continue;
     const position = entity.position || (entity.x !== undefined ? { x: entity.x, y: entity.y, z: entity.z } : null);
     let distance = null;
