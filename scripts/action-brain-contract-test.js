@@ -227,12 +227,12 @@ check('runtime restore marks interrupted and never replays tools, workers, or mo
 });
 
 check('status, errors and event projections are JSON-safe and redact credential fields', () => {
-  const circular = { apiKey: 'private', authorization: 'Bearer sensitive', value: Infinity, tokenCount: 12 }; circular.self = circular;
+  const circular = { apiKey: 'dummy', authorization: 'Bearer sensitive', value: Infinity, tokenCount: 12 }; circular.self = circular;
   const safe = jsonSafe(circular);
   assert.equal(safe.apiKey, '[redacted]'); assert.equal(safe.authorization, '[redacted]');
   assert.equal(safe.value, null); assert.equal(safe.tokenCount, 12); assert.equal(safe.self, '[omitted]');
   assert.doesNotThrow(() => JSON.stringify(new ActionBrainRuntime().status()));
-  const projected = projectPiEvent({ type: 'agent_end', apiKey: 'private', messages: circular });
+  const projected = projectPiEvent({ type: 'agent_end', apiKey: 'dummy', messages: circular });
   assert.deepEqual(projected, { type: 'driver:run-ended', settled: false });
 });
 
